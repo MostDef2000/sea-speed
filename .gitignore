@@ -1,0 +1,38 @@
+# Local config
+.env
+.env.local
+
+# Logs
+logs/
+*.log
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Runtime media
+events/
+snapshots/
+overlays/
+*.jpg
+*.jpeg
+*.png
+*.mp4
+*.avi
+*.mkv
+
+# Large model files
+*.pt
+*.onnx
+*.engine
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Local worker runtime
+worker/runtime/
