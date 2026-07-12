@@ -178,7 +178,6 @@ main() {
 
   log "Deployment failed; rolling back to ${old_current}"
   install_release "$old_current"
-  systemctl restart "$SERVICE_NAME"
 
   if ! restart_and_verify; then
     echo "Rollback health verification failed for ${old_current}" >&2
