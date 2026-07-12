@@ -11,7 +11,8 @@ REPOSITORY="${SEA_SPEED_REPOSITORY:-MostDef2000/sea-speed}"
 DEPLOY_ROOT="${SEA_SPEED_DEPLOY_ROOT:-/opt/sea-speed-deploy}"
 API_TARGET="${SEA_SPEED_API_TARGET:-/opt/sea-speed-api/app/main.py}"
 FRONTEND_TARGET="${SEA_SPEED_FRONTEND_TARGET:-/var/www/mostdef.ru/sea-speed/index.html}"
-SERVICE_NAME="${SEA_SPEED_SERVICE:-sea-speed-api}"
+SERVICE_NAME="sea-speed-api"
+SYSTEMCTL_BIN="${SEA_SPEED_SYSTEMCTL_BIN:-/usr/bin/systemctl}"
 HEALTH_URL="${SEA_SPEED_HEALTH_URL:-https://mostdef.ru/sea-speed/api/health}"
 FRONTEND_URL="${SEA_SPEED_FRONTEND_URL:-https://mostdef.ru/sea-speed/}"
 RELEASES_DIR="${DEPLOY_ROOT}/releases"
@@ -37,9 +38,25 @@ validate_sha() {
   }
 }
 
+validate_runtime_access() {
+  [[ -x "$SYSTEMCTL_BIN" ]] || {
+    echo "systemctl executable not found at ${SYSTEMCTL_BIN}" >&2
+    exit 1
+  }
+
+  [[ -w "$(dirname "$API_TARGET")" ]] || {
+    echo "Deploy user cannot write API directory: $(dirname "$API_TARGET")" >&2
+    exit 1
+  }
+
+  [[ -w "$(dirname "$FRONTEND_TARGET")" ]] || {
+    echo "Deploy user cannot write frontend directory: $(dirname "$FRONTEND_TARGET")" >&2
+    exit 1
+  }
+}
+
 ensure_layout() {
   mkdir -p "$RELEASES_DIR" "$STATE_DIR"
-  mkdir -p "$(dirname "$API_TARGET")" "$(dirname "$FRONTEND_TARGET")"
 }
 
 download_release() {
@@ -115,7 +132,7 @@ install_release() {
 }
 
 restart_and_verify() {
-  systemctl restart "$SERVICE_NAME"
+  sudo -n "$SYSTEMCTL_BIN" restart "$SERVICE_NAME"
 
   local attempt
   for attempt in {1..12}; do
@@ -151,6 +168,7 @@ prune_releases() {
 
 main() {
   validate_sha
+  validate_runtime_access
   ensure_layout
   download_release
   bootstrap_current_release
