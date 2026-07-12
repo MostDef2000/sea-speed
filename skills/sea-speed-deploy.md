@@ -1,20 +1,13 @@
 # sea-speed-deploy
 
-## Purpose
+Compatibility entrypoint for VPS and Windows delivery work.
 
-Use for deployment and runtime operations.
+Read and follow:
 
-## Scope
+- `contracts/SEA_SPEED_GOVERNANCE.md`
+- `contracts/runtime/SEA_SPEED_TASK_RUNTIME.md`
+- `contracts/branches/deploy.md`
+- `contracts/SEA_SPEED_DELIVERY_POLICY.md`
+- `contracts/runtime/RELEASE_READINESS_GATE.md`
 
-- VPS service layout
-- nginx notes
-- systemd notes
-- Windows worker start and stop flow
-- release update flow
-- rollback notes
-
-## Boundaries
-
-Do not change worker, API, frontend, or governance files unless the approved task says so.
-
-Do not change skill files without `SKILL UPDATE APPROVED`.
+Do not treat this file as the canonical workflow contract. Feature branches must not deploy production. Every applicable release requires exact commit evidence, health checks and rollback readiness.
