@@ -1,0 +1,2 @@
+cd D:\sea-speed
+.\run_event_worker_forever.cmd

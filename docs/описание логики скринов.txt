@@ -1,0 +1,37 @@
+Сейчас на странице есть две разные сущности:
+
+Latest overlay
+
+Это текущая диагностическая картинка worker-а. Она постоянно обновляется и перезаписывается:
+
+VPS:
+/opt/sea-speed-api/media/overlays/cam1_latest_overlay.jpg
+
+Ноутбук:
+D:\sea-speed\output\latest\latest_overlay.jpg
+
+Она показывает “что worker видит сейчас”: motion, AI, detections.
+
+Последние события
+
+Это сохранённые события проезда. Карточка появляется только когда worker реально отправил event:
+
+POST event ok id=... class=car conf=...
+
+Для события сохраняется отдельный snapshot:
+
+VPS:
+/opt/sea-speed-api/media/events/<event_id>.jpg
+
+Ноутбук:
+D:\sea-speed\output\events\<event_id>.jpg
+
+То есть событие — это зафиксированный кадр момента детекции, а не live/latest overlay.
+
+Разница:
+
+Блок	Что показывает	Перезаписывается?
+Latest overlay	последнее текущее состояние worker-а	да
+Последние события	сохранённые проезды	нет
+
+Если машина проехала, в Latest overlay через секунду может уже быть пустая дорога. Но в Последних событиях должна остаться карточка с кадром, где была детекция.
