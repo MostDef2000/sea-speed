@@ -103,7 +103,7 @@ jobs:
             -o BatchMode=yes \
             -o StrictHostKeyChecking=yes \
             "$VPS_USER@$VPS_HOST" \
-            "sudo -n bash -s -- '$DEPLOY_SHA'" \
+            "bash -s -- '$DEPLOY_SHA'" \
             < deploy/vps/deploy.sh
 
       - name: Deployment summary
