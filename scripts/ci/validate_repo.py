@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import compileall
 import re
 import subprocess
 import sys
@@ -38,17 +37,26 @@ REQUIRED_FILES = {
     "contracts/runtime/RELEASE_READINESS_GATE.md",
 }
 
-FORBIDDEN_PARTS = {
-    ".env",
-    ".env.local",
+FORBIDDEN_DIRECTORY_NAMES = {
     ".venv",
     "venv",
     "__pycache__",
-    "runtime",
     "output",
-    "events",
     "snapshots",
     "overlays",
+}
+
+FORBIDDEN_PATH_PREFIXES = {
+    "worker/runtime",
+    "worker/events",
+    "worker/output",
+    "api/data",
+    "api/media",
+}
+
+FORBIDDEN_FILENAMES = {
+    ".env",
+    ".env.local",
 }
 
 FORBIDDEN_SUFFIXES = {
@@ -91,7 +99,7 @@ TEXT_SUFFIXES = {
 
 
 class HtmlStructureValidator(HTMLParser):
-    """Track essential document elements and parser failures."""
+    """Track essential document elements and inline scripts."""
 
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
@@ -149,19 +157,31 @@ def validate_paths(files: list[Path]) -> None:
         if top not in ALLOWED_TOP_LEVEL:
             fail(f"unexpected top-level path: {path}")
 
-        lower_parts = {part.lower() for part in path.parts}
-        if lower_parts & FORBIDDEN_PARTS:
-            fail(f"runtime or local artifact is tracked: {path}")
+        normalized = path.as_posix().lower()
+        directory_parts = {part.lower() for part in path.parts[:-1]}
+
+        if path.name.lower() in FORBIDDEN_FILENAMES:
+            fail(f"local environment file is tracked: {path}")
+
+        if directory_parts & FORBIDDEN_DIRECTORY_NAMES:
+            fail(f"runtime or local directory is tracked: {path}")
+
+        if any(normalized == prefix or normalized.startswith(prefix + "/") for prefix in FORBIDDEN_PATH_PREFIXES):
+            fail(f"runtime data path is tracked: {path}")
 
         if path.suffix.lower() in FORBIDDEN_SUFFIXES:
             fail(f"forbidden generated or binary artifact is tracked: {path}")
 
 
-def validate_python() -> None:
-    targets = [ROOT / "api", ROOT / "worker", ROOT / "scripts"]
-    for target in targets:
-        if target.exists() and not compileall.compile_dir(target, quiet=1, force=True):
-            fail(f"Python compilation failed under {target.relative_to(ROOT)}")
+def validate_python(files: list[Path]) -> None:
+    python_files = [path for path in files if path.suffix.lower() == ".py"]
+    for path in python_files:
+        full_path = ROOT / path
+        try:
+            source = full_path.read_text(encoding="utf-8-sig")
+            compile(source, str(path), "exec")
+        except (SyntaxError, UnicodeDecodeError) as exc:
+            fail(f"Python syntax failed for {path}: {exc}")
 
 
 def validate_frontend() -> None:
@@ -212,7 +232,7 @@ def validate_secrets(files: list[Path]) -> None:
 def main() -> int:
     files = tracked_files()
     validate_paths(files)
-    validate_python()
+    validate_python(files)
     validate_frontend()
     validate_secrets(files)
 
