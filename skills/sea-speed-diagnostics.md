@@ -1,22 +1,11 @@
 # sea-speed-diagnostics
 
-## Purpose
+Compatibility entrypoint for live-system diagnosis.
 
-Use for diagnosing live system behavior.
+Read and follow:
 
-## Scope
+- `contracts/SEA_SPEED_GOVERNANCE.md`
+- `contracts/runtime/SEA_SPEED_TASK_RUNTIME.md`
+- `contracts/branches/diagnostics.md`
 
-- HLS availability
-- worker process status
-- worker output state
-- API state response
-- API events response
-- frontend symptoms
-- log review
-- evidence flow checks
-
-## Boundaries
-
-Do not change production code unless a separate implementation task is approved.
-
-Do not change skill files without `SKILL UPDATE APPROVED`.
+Do not treat this file as the canonical workflow contract. Diagnose camera, network, worker, API, storage, frontend and deployment layers separately. Production code changes require a separately approved implementation task.
