@@ -1,22 +1,12 @@
 # sea-speed-worker
 
-## Purpose
+Compatibility entrypoint for Windows AI worker work.
 
-Use for Windows AI worker work.
+Read and follow:
 
-## Scope
+- `contracts/SEA_SPEED_GOVERNANCE.md`
+- `contracts/runtime/SEA_SPEED_TASK_RUNTIME.md`
+- `contracts/branches/worker.md`
+- `contracts/SEA_SPEED_DELIVERY_POLICY.md`
 
-- HLS reading
-- motion detection
-- YOLO detection
-- tracking
-- overlay generation
-- event snapshot generation
-- speed estimation
-- worker command files
-
-## Boundaries
-
-Do not change API, frontend, deploy, or governance files unless the approved task says so.
-
-Do not change skill files without `SKILL UPDATE APPROVED`.
+Do not treat this file as the canonical workflow contract. Worker changes require explicit repository-write approval and normally require a Windows worker update after merge.

@@ -1,36 +1,33 @@
 # Skills Change Policy
 
-## Rule
+## Canonical rule
 
-Files in `skills/` are controlled project instructions.
+Files in `skills/` are controlled compatibility entrypoints. Canonical workflow rules live in `contracts/**`.
 
-No agent may overwrite or rewrite these files without explicit user approval.
+## Approval
 
-## Required approval phrase
+Changes under `skills/**` require both:
 
 ```text
+COMMIT APPROVED
 SKILL UPDATE APPROVED
 ```
 
+Approved equivalents may authorize repository writes, but `SKILL UPDATE APPROVED` remains mandatory for skill-file changes.
+
 ## Allowed without approval
 
-- read skill files
-- quote skill files
-- suggest changes
-- prepare a proposed diff in discussion
+- read or quote skill files;
+- inspect linked contracts;
+- propose changes and diffs;
+- analyze workflow behavior.
 
 ## Forbidden without approval
 
-- overwrite skill files
-- rename skill files
-- delete skill files
-- silently expand skill scope
+- create, overwrite, rename or delete skill files;
+- silently expand skill scope;
+- make a skill conflict with its canonical branch contract.
 
 ## Review rule
 
-Any skill change must state:
-
-- changed file
-- reason
-- affected agent or workflow
-- risk
+Every skill change must state the changed file, reason, affected workflow, linked canonical contract and risk. Skills must stay concise and route to contracts rather than duplicate the full control plane.

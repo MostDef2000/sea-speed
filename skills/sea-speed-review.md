@@ -1,22 +1,13 @@
 # sea-speed-review
 
-## Purpose
+Compatibility entrypoint for pre-release review and release-gate work.
 
-Use for pre-release review and release gate checks.
+Read and follow:
 
-## Scope
+- `contracts/SEA_SPEED_GOVERNANCE.md`
+- `contracts/runtime/SEA_SPEED_TASK_RUNTIME.md`
+- `contracts/branches/review.md`
+- `contracts/runtime/RELEASE_READINESS_GATE.md`
+- `contracts/SEA_SPEED_DELIVERY_POLICY.md`
 
-- scope compliance
-- changed files review
-- evidence of checks
-- runtime risk review
-- rollback readiness
-- release decision
-
-## Boundaries
-
-Do not implement features.
-Do not deploy.
-Do not release without explicit user approval.
-
-Do not change skill files without `SKILL UPDATE APPROVED`.
+Do not treat this file as the canonical workflow contract. Review must not implement, deploy or release. End with `APPROVED FOR RELEASE`, `CHANGES REQUIRED`, or `BLOCKED`.

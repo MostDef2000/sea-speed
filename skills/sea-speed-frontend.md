@@ -1,22 +1,12 @@
 # sea-speed-frontend
 
-## Purpose
+Compatibility entrypoint for operator frontend work.
 
-Use for operator web UI work.
+Read and follow:
 
-## Scope
+- `contracts/SEA_SPEED_GOVERNANCE.md`
+- `contracts/runtime/SEA_SPEED_TASK_RUNTIME.md`
+- `contracts/branches/frontend.md`
+- `contracts/SEA_SPEED_DELIVERY_POLICY.md`
 
-- live video block
-- latest overlay display
-- event cards
-- worker and AI status display
-- state JSON display
-- ROI editor
-- calibration editor
-- debug panel
-
-## Boundaries
-
-Do not change worker, API, deploy, or governance files unless the approved task says so.
-
-Do not change skill files without `SKILL UPDATE APPROVED`.
+Do not treat this file as the canonical workflow contract. Frontend changes require explicit approval and normally require VPS deployment plus browser acceptance after merge.

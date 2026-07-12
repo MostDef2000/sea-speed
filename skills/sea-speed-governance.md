@@ -1,21 +1,12 @@
 # sea-speed-governance
 
-## Purpose
+Compatibility entrypoint for repository governance and architecture work.
 
-Use for project rules and repository organization.
+Read and follow:
 
-## Scope
+- `contracts/SEA_SPEED_GOVERNANCE.md`
+- `contracts/runtime/SEA_SPEED_TASK_RUNTIME.md`
+- `contracts/branches/governance.md`
+- `contracts/SEA_SPEED_DELIVERY_POLICY.md`
 
-- repository structure
-- README
-- docs
-- skill files
-- approval policy
-- branch policy
-- review policy
-
-## Boundaries
-
-Do not change runtime source files unless a separate task is approved.
-
-Do not change skill files without `SKILL UPDATE APPROVED`.
+Do not treat this file as the canonical workflow contract. Runtime source changes require separate approval. Changes under `skills/**` require `SKILL UPDATE APPROVED`.
