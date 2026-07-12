@@ -3,7 +3,8 @@ param(
     [string]$CommitSha = "",
     [string]$InstallDir = "D:\sea-speed",
     [string]$Repository = "MostDef2000/sea-speed",
-    [switch]$SkipRestart
+    [switch]$SkipRestart,
+    [switch]$AllowUnmanagedBaseline
 )
 
 $ErrorActionPreference = "Stop"
@@ -49,19 +50,19 @@ function Stop-Worker {
     $stopScript = Join-Path $InstallDir "stop_worker.cmd"
     if (Test-Path $stopScript) {
         Write-Step "Stopping current worker"
-        & cmd.exe /c "`"$stopScript`" < nul"
+        & cmd.exe /d /c "(echo.) | call `"$stopScript`""
         Start-Sleep -Seconds 3
     }
 }
 
 function Start-Worker {
-    $startScript = Join-Path $InstallDir "start_worker.cmd"
-    if (-not (Test-Path $startScript)) {
-        throw "Worker start script is missing after update: $startScript"
+    $runScript = Join-Path $InstallDir "run_event_worker_forever.cmd"
+    if (-not (Test-Path $runScript)) {
+        throw "Worker run script is missing after update: $runScript"
     }
 
     Write-Step "Starting worker"
-    Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "`"$startScript`"" -WorkingDirectory $InstallDir
+    Start-Process -FilePath "cmd.exe" -ArgumentList "/k", "`"$runScript`"" -WorkingDirectory $InstallDir
     Start-Sleep -Seconds 8
 }
 
@@ -102,7 +103,12 @@ foreach ($path in $requiredLocalPaths) {
 
 $resolvedSha = Resolve-CommitSha -RequestedSha $CommitSha
 $currentVersionFile = Join-Path $InstallDir ".sea-speed-worker-version"
-$currentSha = if (Test-Path $currentVersionFile) { (Get-Content $currentVersionFile -Raw).Trim() } else { "unmanaged-baseline" }
+$hasManagedVersion = Test-Path $currentVersionFile -PathType Leaf
+$currentSha = if ($hasManagedVersion) { (Get-Content $currentVersionFile -Raw).Trim() } else { "unmanaged-baseline" }
+
+if (-not $hasManagedVersion -and -not $AllowUnmanagedBaseline) {
+    throw "This folder is an unmanaged baseline. Review local worker differences first, then rerun with -AllowUnmanagedBaseline to create the first rollback snapshot and adopt GitHub main."
+}
 
 if ($currentSha -eq $resolvedSha) {
     Write-Step "Commit $resolvedSha is already installed"
