@@ -2,7 +2,6 @@
 cd /d D:\sea-speed
 
 set "HLS_URL=https://mostdef.ru/cams/hls/cam1/index.m3u8"
-rem HLS_BASIC_AUTH_BASE64 must be provided outside the repository
 set "FRAME_WIDTH=704"
 set "FRAME_HEIGHT=576"
 set "SAMPLE_FPS=5"
@@ -20,7 +19,6 @@ set "SEA_SPEED_API_URL=https://mostdef.ru/sea-speed/api/cam1/state"
 set "SEA_SPEED_ROI_URL=https://mostdef.ru/sea-speed/api/cam1/roi"
 set "SEA_SPEED_SPEED_CONFIG_URL=https://mostdef.ru/sea-speed/api/cam1/speed-config"
 set "SEA_SPEED_SPEED_LINES_URL=https://mostdef.ru/sea-speed/api/cam1/speed-lines"
-rem SEA_SPEED_API_TOKEN must be provided outside the repository
 
 set "STATE_POST_INTERVAL_SEC=1"
 set "EVENT_COOLDOWN_SEC=12"
@@ -54,7 +52,7 @@ echo ==================================================
 echo Sea Speed event-worker start %date% %time%
 echo ==================================================
 
-.\.venv\Scripts\python.exe .\hls_motion_yolo_worker_events.py
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\sea-speed\run_worker_once.ps1"
 
 if exist "D:\sea-speed\stop_worker.flag" goto stopped
 

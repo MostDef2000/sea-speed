@@ -29,19 +29,21 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
 
-      - name: Validate updater PowerShell syntax
+      - name: Validate worker PowerShell syntax
         shell: pwsh
         run: |
-          $tokens = $null
-          $errors = $null
-          [void][System.Management.Automation.Language.Parser]::ParseFile(
-            (Resolve-Path 'worker/update_worker.ps1'),
-            [ref]$tokens,
-            [ref]$errors
-          )
-          if ($errors.Count -gt 0) {
-            $errors | Format-List | Out-String | Write-Error
-            exit 1
+          foreach ($file in @('worker/update_worker.ps1', 'worker/run_worker_once.ps1')) {
+            $tokens = $null
+            $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path $file),
+              [ref]$tokens,
+              [ref]$errors
+            )
+            if ($errors.Count -gt 0) {
+              $errors | Format-List | Out-String | Write-Error
+              exit 1
+            }
           }
 
       - name: Validate worker Python syntax
@@ -62,6 +64,7 @@ jobs:
             'restart_worker.cmd',
             'status_worker.cmd',
             'run_event_worker_forever.cmd',
+            'run_worker_once.ps1',
             'update_worker.ps1',
             'update_worker.cmd'
           )
@@ -91,4 +94,5 @@ jobs:
           '### Sea Speed Windows worker package' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
           ('- Commit: `{0}`' -f $env:GITHUB_SHA) | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
           '- Target: `D:\sea-speed`' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          '- Runtime secrets: loaded from preserved local `.env`' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
           '- Preserved: `.env`, `.venv`, `output`, models, patch files and local backups' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
