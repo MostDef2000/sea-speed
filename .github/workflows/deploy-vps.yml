@@ -1,0 +1,117 @@
+name: Deploy VPS
+
+on:
+  pull_request:
+    paths:
+      - "deploy/vps/**"
+      - ".github/workflows/deploy-vps.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "api/**"
+      - "frontend/**"
+      - "deploy/vps/**"
+      - ".github/workflows/deploy-vps.yml"
+  workflow_dispatch:
+    inputs:
+      commit_sha:
+        description: "Exact 40-character commit SHA to deploy; defaults to the selected branch SHA"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sea-speed-vps-production-${{ github.event_name }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Validate deployment script syntax
+        run: bash -n deploy/vps/deploy.sh
+
+  disabled:
+    if: ${{ github.event_name != 'pull_request' && vars.VPS_DEPLOY_ENABLED != 'true' }}
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deployment is not enabled
+        run: |
+          echo "VPS deployment infrastructure is installed but disabled."
+          echo "Set repository variable VPS_DEPLOY_ENABLED=true after SSH secrets are configured."
+
+  deploy:
+    if: ${{ github.event_name != 'pull_request' && vars.VPS_DEPLOY_ENABLED == 'true' }}
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out exact source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Resolve deployment commit
+        id: release
+        env:
+          INPUT_COMMIT: ${{ inputs.commit_sha }}
+        run: |
+          set -euo pipefail
+          DEPLOY_SHA="${INPUT_COMMIT:-${GITHUB_SHA}}"
+          if [[ ! "$DEPLOY_SHA" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "Deployment commit must be a full 40-character SHA" >&2
+            exit 1
+          fi
+          echo "sha=$DEPLOY_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Configure SSH
+        env:
+          VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          VPS_SSH_KNOWN_HOSTS: ${{ secrets.VPS_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          [[ -n "$VPS_SSH_PRIVATE_KEY" ]] || { echo "Missing VPS_SSH_PRIVATE_KEY" >&2; exit 1; }
+          [[ -n "$VPS_SSH_KNOWN_HOSTS" ]] || { echo "Missing VPS_SSH_KNOWN_HOSTS" >&2; exit 1; }
+          install -d -m 0700 "$HOME/.ssh"
+          printf '%s\n' "$VPS_SSH_PRIVATE_KEY" > "$HOME/.ssh/sea-speed-deploy"
+          printf '%s\n' "$VPS_SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 0600 "$HOME/.ssh/sea-speed-deploy" "$HOME/.ssh/known_hosts"
+
+      - name: Deploy exact commit
+        env:
+          DEPLOY_SHA: ${{ steps.release.outputs.sha }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_PORT: ${{ vars.VPS_SSH_PORT || '22' }}
+        run: |
+          set -euo pipefail
+          [[ -n "$VPS_HOST" ]] || { echo "Missing VPS_HOST" >&2; exit 1; }
+          [[ -n "$VPS_USER" ]] || { echo "Missing VPS_USER" >&2; exit 1; }
+
+          ssh \
+            -i "$HOME/.ssh/sea-speed-deploy" \
+            -p "$VPS_PORT" \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            "$VPS_USER@$VPS_HOST" \
+            "sudo -n bash -s -- '$DEPLOY_SHA'" \
+            < deploy/vps/deploy.sh
+
+      - name: Deployment summary
+        env:
+          DEPLOY_SHA: ${{ steps.release.outputs.sha }}
+        run: |
+          echo "### Sea Speed VPS deployment" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Commit: \`$DEPLOY_SHA\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- API health check: passed" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Frontend smoke check: passed" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Rollback model: previous code release, no per-deploy data backup" >> "$GITHUB_STEP_SUMMARY"
