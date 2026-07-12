@@ -184,7 +184,7 @@ try {
     Write-Host "Preserved local content: .env, .venv, output, *.pt, patch files and *.bak* files"
 }
 catch {
-    Write-Error $_
+    Write-Host ("Worker update failed: " + $_.Exception.Message) -ForegroundColor Red
 
     if (Test-Path $rollbackDir -PathType Container) {
         try {
@@ -200,7 +200,7 @@ catch {
             Write-Warning "Update failed; previous managed worker release was restored."
         }
         catch {
-            Write-Error "Rollback failed: $_"
+            Write-Host ("Rollback failed: " + $_.Exception.Message) -ForegroundColor Red
         }
     }
     exit 1
