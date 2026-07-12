@@ -32,10 +32,11 @@ jobs:
       - name: Validate updater PowerShell syntax
         shell: pwsh
         run: |
+          $tokens = $null
           $errors = $null
           [void][System.Management.Automation.Language.Parser]::ParseFile(
             (Resolve-Path 'worker/update_worker.ps1'),
-            [ref]$null,
+            [ref]$tokens,
             [ref]$errors
           )
           if ($errors.Count -gt 0) {
@@ -73,7 +74,7 @@ jobs:
             Copy-Item -LiteralPath $source -Destination (Join-Path $packageDir $file) -Force
           }
 
-          Set-Content -LiteralPath (Join-Path $packageDir 'commit-sha.txt') -Value '${{ github.sha }}' -Encoding ascii
+          Set-Content -LiteralPath (Join-Path $packageDir 'commit-sha.txt') -Value $env:GITHUB_SHA -Encoding ascii
           Compress-Archive -Path "$packageDir/*" -DestinationPath 'dist/sea-speed-worker.zip' -Force
 
       - name: Upload worker package
@@ -87,7 +88,7 @@ jobs:
       - name: Package summary
         shell: pwsh
         run: |
-          "### Sea Speed Windows worker package" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
-          "- Commit: `${{ github.sha }}`" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
-          "- Target: `D:\sea-speed`" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
-          "- Preserved: `.env`, `.venv`, `output`, models, patch files and local backups" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          '### Sea Speed Windows worker package' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          ('- Commit: `{0}`' -f $env:GITHUB_SHA) | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          '- Target: `D:\sea-speed`' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          '- Preserved: `.env`, `.venv`, `output`, models, patch files and local backups' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
