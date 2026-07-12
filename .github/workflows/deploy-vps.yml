@@ -1,6 +1,10 @@
 name: Deploy VPS
 
 on:
+  pull_request:
+    paths:
+      - "deploy/vps/**"
+      - ".github/workflows/deploy-vps.yml"
   push:
     branches:
       - main
@@ -20,12 +24,22 @@ permissions:
   contents: read
 
 concurrency:
-  group: sea-speed-vps-production
+  group: sea-speed-vps-production-${{ github.event_name }}
   cancel-in-progress: false
 
 jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Validate deployment script syntax
+        run: bash -n deploy/vps/deploy.sh
+
   disabled:
-    if: ${{ vars.VPS_DEPLOY_ENABLED != 'true' }}
+    if: ${{ github.event_name != 'pull_request' && vars.VPS_DEPLOY_ENABLED != 'true' }}
+    needs: validate
     runs-on: ubuntu-latest
     steps:
       - name: Deployment is not enabled
@@ -34,7 +48,8 @@ jobs:
           echo "Set repository variable VPS_DEPLOY_ENABLED=true after SSH secrets are configured."
 
   deploy:
-    if: ${{ vars.VPS_DEPLOY_ENABLED == 'true' }}
+    if: ${{ github.event_name != 'pull_request' && vars.VPS_DEPLOY_ENABLED == 'true' }}
+    needs: validate
     runs-on: ubuntu-latest
     environment: production
     timeout-minutes: 15
