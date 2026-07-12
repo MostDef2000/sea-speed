@@ -1,0 +1,1950 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Sea Speed Operator</title>
+
+  <style>
+    :root {
+      --bg: #0f172a;
+      --panel: #111827;
+      --panel2: #0b1220;
+      --border: #263244;
+      --text: #e5e7eb;
+      --muted: #9ca3af;
+      --good: #22c55e;
+      --bad: #ef4444;
+      --warn: #f59e0b;
+      --blue: #60a5fa;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Arial, sans-serif;
+    }
+
+    header {
+      padding: 18px 22px;
+      border-bottom: 1px solid var(--border);
+      background: #0b1120;
+    }
+
+    h1 {
+      margin: 0 0 4px 0;
+      font-size: 24px;
+    }
+
+    .subtitle {
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    main {
+      display: grid;
+      grid-template-columns: minmax(0, 1.35fr) minmax(360px, 0.65fr);
+      gap: 16px;
+      padding: 16px;
+      align-items: start;
+    }
+
+    .panel {
+      min-width: 0;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px;
+      overflow: hidden;
+    }
+
+    .panel h2 {
+      margin: 0 0 12px 0;
+      font-size: 18px;
+    }
+
+    .path {
+      color: var(--muted);
+      font-size: 13px;
+      word-break: break-all;
+      margin-bottom: 10px;
+    }
+
+    .video-wrap {
+      width: 50%;
+      max-width: 560px;
+      min-width: 320px;
+      margin: 16px auto;
+      background: #000;
+      border-radius: 10px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+    }
+
+    video {
+      display: block;
+      width: 100%;
+      height: auto;
+      background: #000;
+    }
+
+    .buttons {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+
+    button {
+      border: 1px solid var(--border);
+      background: #1f2937;
+      color: var(--text);
+      padding: 9px 12px;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: #374151;
+    }
+
+    .status-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    .status-card {
+      background: var(--panel2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px;
+    }
+
+    .label {
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 5px;
+    }
+
+    .value {
+      font-size: 18px;
+      font-weight: bold;
+    }
+
+    .good { color: var(--good); }
+    .bad { color: var(--bad); }
+    .warn { color: var(--warn); }
+    .blue { color: var(--blue); }
+
+    .overlay-img {
+      display: block;
+      width: 100%;
+      max-width: 360px;
+      max-height: 240px;
+      object-fit: contain;
+      margin: 0 auto;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: #000;
+    }
+
+    .debug {
+      margin-top: 12px;
+      background: #050b16;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px;
+      font-family: Consolas, monospace;
+      font-size: 12px;
+      color: #cbd5e1;
+      max-height: 130px;
+      overflow: auto;
+      white-space: pre-wrap;
+    }
+
+    .wide {
+      grid-column: 1 / -1;
+    }
+
+    .events-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .event-card {
+      display: grid;
+      grid-template-columns: 170px minmax(0, 1fr);
+      gap: 12px;
+      background: var(--panel2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px;
+      align-items: start;
+    }
+
+    .event-card img {
+      width: 170px;
+      max-height: 120px;
+      object-fit: contain;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: #000;
+    }
+
+    .event-title {
+      font-weight: bold;
+      font-size: 15px;
+      margin-bottom: 6px;
+    }
+
+    .event-meta {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+      word-break: break-word;
+    }
+
+    .empty {
+      color: var(--muted);
+      background: var(--panel2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px;
+    }
+
+    pre {
+      background: #050b16;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px;
+      overflow: auto;
+      max-height: 260px;
+      font-size: 12px;
+    }
+
+    @media (max-width: 1000px) {
+      main {
+        grid-template-columns: 1fr;
+      }
+
+      .video-wrap {
+        width: 90%;
+        min-width: 0;
+      }
+
+      .overlay-img {
+        max-width: 100%;
+        max-height: 260px;
+      }
+
+      .event-card {
+        grid-template-columns: 1fr;
+      }
+
+      .event-card img {
+        width: 100%;
+        max-height: 260px;
+      }
+    }
+  
+    .camera-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 14px;
+      margin-bottom: 10px;
+    }
+
+    .camera-head h2 {
+      margin-bottom: 6px;
+    }
+
+    .camera-actions {
+      display: flex;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+
+    .icon-btn {
+      width: 44px;
+      height: 44px;
+      display: inline-grid;
+      place-items: center;
+      padding: 0;
+      border-radius: 14px;
+      background: #0b1220;
+      border: 1px solid var(--border);
+      color: var(--text);
+    }
+
+    .icon-btn svg {
+      width: 22px;
+      height: 22px;
+      fill: currentColor;
+    }
+
+    .icon-btn.connect {
+      color: var(--good);
+      border-color: rgba(34, 197, 94, 0.35);
+      background: rgba(34, 197, 94, 0.08);
+    }
+
+    .icon-btn.disconnect {
+      color: var(--bad);
+      border-color: rgba(239, 68, 68, 0.35);
+      background: rgba(239, 68, 68, 0.08);
+    }
+
+    .icon-btn:hover {
+      transform: translateY(-1px);
+      filter: brightness(1.16);
+    }
+
+    @media (max-width: 640px) {
+      .camera-head {
+        flex-direction: column;
+      }
+    }
+
+  
+    .camera-media-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 320px;
+      gap: 14px;
+      align-items: start;
+      margin-top: 12px;
+    }
+
+    .camera-media-grid .video-wrap {
+      width: 100%;
+      max-width: none;
+      min-width: 0;
+      margin: 0;
+    }
+
+    .camera-overlay-box {
+      background: var(--panel2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px;
+      min-width: 0;
+    }
+
+    .camera-overlay-title {
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+
+    .camera-overlay-box .overlay-img {
+      width: 100%;
+      max-width: 100%;
+      max-height: 220px;
+      margin: 0;
+    }
+
+    @media (max-width: 1000px) {
+      .camera-media-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+  
+    /* sea-speed compact camera overlay/events start */
+    .camera-media-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 320px;
+      gap: 14px;
+      align-items: start;
+      margin-top: 12px;
+    }
+
+    .camera-media-grid .video-wrap {
+      width: 100%;
+      max-width: none;
+      min-width: 0;
+      margin: 0;
+    }
+
+    .camera-overlay-box {
+      background: var(--panel2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px;
+      min-width: 0;
+    }
+
+    .camera-overlay-title {
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+
+    .camera-overlay-box .overlay-img {
+      display: block;
+      width: 100%;
+      max-width: 100%;
+      height: 220px;
+      max-height: 220px;
+      object-fit: contain;
+      margin: 0;
+      background: #000;
+    }
+
+    .events-list {
+      display: flex !important;
+      flex-direction: row;
+      gap: 12px;
+      overflow-x: auto;
+      padding-bottom: 8px;
+      scroll-snap-type: x proximity;
+    }
+
+    .event-card {
+      flex: 0 0 calc((100% - 24px) / 3);
+      min-width: 360px;
+      display: grid;
+      grid-template-columns: 145px minmax(0, 1fr);
+      gap: 12px;
+      background: var(--panel2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px;
+      align-items: start;
+      scroll-snap-align: start;
+    }
+
+    .event-card img {
+      width: 145px;
+      height: 100px;
+      max-height: 100px;
+      object-fit: cover;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: #000;
+    }
+
+    .event-title {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .event-meta {
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    @media (max-width: 1000px) {
+      .camera-media-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .camera-overlay-box .overlay-img {
+        height: auto;
+        max-height: 260px;
+      }
+
+      .event-card {
+        flex-basis: 88%;
+        min-width: 300px;
+        grid-template-columns: 130px minmax(0, 1fr);
+      }
+
+      .event-card img {
+        width: 130px;
+        height: 92px;
+      }
+    }
+    /* sea-speed compact camera overlay/events end */
+
+  
+    /* sea-speed compact v2 start */
+    main {
+      grid-template-columns: minmax(0, 1.85fr) minmax(360px, 0.9fr);
+      align-items: start;
+    }
+
+    .camera-panel {
+      min-width: 0;
+    }
+
+    .camera-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 14px;
+      margin-bottom: 12px;
+    }
+
+    .camera-actions {
+      display: flex;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+
+    .icon-btn {
+      width: 44px;
+      height: 44px;
+      display: inline-grid;
+      place-items: center;
+      padding: 0;
+      border-radius: 14px;
+      background: #0b1220;
+      border: 1px solid var(--border);
+      color: var(--text);
+    }
+
+    .icon-btn svg {
+      width: 22px;
+      height: 22px;
+      fill: currentColor;
+    }
+
+    .icon-btn.connect {
+      color: var(--good);
+      border-color: rgba(34, 197, 94, 0.35);
+      background: rgba(34, 197, 94, 0.08);
+    }
+
+    .icon-btn.disconnect {
+      color: var(--bad);
+      border-color: rgba(239, 68, 68, 0.35);
+      background: rgba(239, 68, 68, 0.08);
+    }
+
+    .camera-media-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 330px;
+      gap: 14px;
+      align-items: stretch;
+    }
+
+    .camera-media-grid .video-wrap {
+      width: 100%;
+      max-width: none;
+      min-width: 0;
+      margin: 0;
+    }
+
+    .camera-side-stack {
+      min-width: 0;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .camera-overlay-box,
+    .camera-events-box {
+      background: var(--panel2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px;
+      min-width: 0;
+    }
+
+    .camera-overlay-title {
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+
+    .camera-overlay-box .overlay-img {
+      display: block;
+      width: 100%;
+      max-width: 100%;
+      height: 215px;
+      max-height: 215px;
+      object-fit: contain;
+      margin: 0;
+      background: #000;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+    }
+
+    .camera-events-box {
+      flex: 1;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .compact-events {
+      display: flex !important;
+      flex-direction: row;
+      gap: 10px;
+      overflow-x: auto;
+      overflow-y: hidden;
+      padding-bottom: 6px;
+      scroll-snap-type: x proximity;
+    }
+
+    .compact-events .event-card {
+      flex: 0 0 300px;
+      width: 300px;
+      min-width: 300px;
+      display: grid;
+      grid-template-columns: 112px minmax(0, 1fr);
+      gap: 10px;
+      padding: 9px;
+      scroll-snap-align: start;
+    }
+
+    .compact-events .event-card img {
+      width: 112px;
+      height: 84px;
+      max-height: 84px;
+      object-fit: cover;
+      border-radius: 8px;
+    }
+
+    .compact-events .event-title {
+      font-size: 14px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-bottom: 4px;
+    }
+
+    .compact-events .event-meta {
+      font-size: 11px;
+      line-height: 1.35;
+      color: var(--muted);
+    }
+
+    .state-inline-box {
+      margin-top: 14px;
+    }
+
+    .state-inline-box pre {
+      max-height: 220px;
+      margin-bottom: 0;
+    }
+
+    @media (max-width: 1200px) {
+      main {
+        grid-template-columns: 1fr;
+      }
+
+      .camera-media-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .camera-overlay-box .overlay-img {
+        height: auto;
+        max-height: 260px;
+      }
+
+      .compact-events .event-card {
+        flex-basis: 300px;
+      }
+    }
+    /* sea-speed compact v2 end */
+
+  
+    /* sea-speed compact v3 events/state start */
+
+    .camera-events-box {
+      flex: 1;
+      overflow: visible;
+    }
+
+    .compact-events {
+      display: flex !important;
+      flex-direction: column !important;
+      gap: 10px;
+      overflow-x: hidden !important;
+      overflow-y: visible !important;
+      padding-bottom: 0;
+    }
+
+    .compact-events .event-card {
+      width: 100% !important;
+      min-width: 0 !important;
+      flex: none !important;
+      display: grid;
+      grid-template-columns: 108px minmax(0, 1fr);
+      gap: 10px;
+      padding: 9px;
+    }
+
+    .compact-events .event-card img {
+      width: 108px;
+      height: 78px;
+      max-height: 78px;
+      object-fit: cover;
+      border-radius: 8px;
+    }
+
+    .compact-events .event-title {
+      font-size: 14px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-bottom: 4px;
+    }
+
+    .compact-events .event-meta {
+      font-size: 11px;
+      line-height: 1.35;
+      white-space: normal;
+      overflow-wrap: anywhere;
+    }
+
+    .state-inline-box pre,
+    #stateJson {
+      max-height: none !important;
+      height: auto !important;
+      overflow: visible !important;
+      white-space: pre-wrap !important;
+      overflow-wrap: anywhere !important;
+    }
+
+    /* sea-speed compact v3 events/state end */
+
+  
+    /* sea-speed roi editor start */
+    .roi-editor-wrap {
+      position: relative;
+      width: 100%;
+      background: #000;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .roi-editor-wrap .overlay-img {
+      display: block;
+      width: 100%;
+      border: 0;
+    }
+
+    #roiCanvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+
+    .roi-editor-wrap.editing #roiCanvas {
+      pointer-events: auto;
+      cursor: crosshair;
+    }
+
+    .roi-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      margin-top: 8px;
+    }
+
+    .mini-btn {
+      padding: 6px 8px;
+      border-radius: 8px;
+      font-size: 12px;
+      background: #0b1220;
+      border: 1px solid var(--border);
+      color: var(--text);
+    }
+
+    .mini-btn.primary {
+      color: var(--good);
+      border-color: rgba(34, 197, 94, 0.35);
+      background: rgba(34, 197, 94, 0.08);
+    }
+
+    .roi-status {
+      margin-top: 7px;
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.35;
+    }
+    /* sea-speed roi editor end */
+
+  
+    /* sea-speed speed config start */
+    .speed-config-box {
+      margin-top: 14px;
+      background: var(--panel2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px;
+    }
+
+    .speed-config-row {
+      display: grid;
+      grid-template-columns: 1fr 120px 70px;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .speed-config-row label {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .speed-config-row input {
+      width: 100%;
+      background: #050b16;
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 7px 8px;
+      font-size: 13px;
+    }
+    /* sea-speed speed config end */
+
+  
+    /* sea-speed speed lines editor start */
+    #speedLinesCanvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+
+    .speed-lines-panel {
+      margin-top: 10px;
+      border-top: 1px solid var(--border);
+      padding-top: 10px;
+    }
+
+    .speed-lines-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      margin-bottom: 8px;
+    }
+
+    .speed-distance-row {
+      display: grid;
+      grid-template-columns: 1fr 84px 58px;
+      gap: 6px;
+      align-items: center;
+    }
+
+    .speed-distance-row label {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .speed-distance-row input {
+      width: 100%;
+      background: #050b16;
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 6px 7px;
+      font-size: 12px;
+    }
+    /* sea-speed speed lines editor end */
+
+  
+    /* sea-speed speed lines click fix start */
+    #roiCanvas {
+      z-index: 2;
+    }
+
+    #speedLinesCanvas {
+      z-index: 3;
+      pointer-events: none;
+    }
+
+    .roi-editor-wrap.speed-lines-editing #speedLinesCanvas {
+      pointer-events: auto;
+      cursor: crosshair;
+    }
+
+    .roi-editor-wrap.editing #roiCanvas {
+      pointer-events: auto;
+      cursor: crosshair;
+    }
+    /* sea-speed speed lines click fix end */
+
+  </style>
+</head>
+
+<body>
+  <header>
+    <h1>Sea Speed Operator</h1>
+    <div class="subtitle">Live HLS + motion-gate + YOLO status + event capture MVP</div>
+  </header>
+
+  <main>
+        <section class="panel camera-panel">
+      <div class="camera-head">
+        <div>
+          <h2>Camera 1</h2>
+          <div class="path">HLS: /cams/hls/cam1/index.m3u8</div>
+        </div>
+
+        <div class="camera-actions">
+          <button id="connectBtn" class="icon-btn connect" title="Подключиться" aria-label="Подключиться">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M8 5v14l11-7z"></path>
+            </svg>
+          </button>
+
+          <button id="disconnectBtn" class="icon-btn disconnect" title="Отключить" aria-label="Отключить">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M6 6h12v12H6z"></path>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="camera-media-grid">
+        <div class="video-wrap">
+          <video id="video" controls playsinline muted></video>
+        </div>
+
+        <aside class="camera-side-stack">
+          <div class="camera-overlay-box">
+            <div class="camera-overlay-title">Latest overlay</div>
+            <div class="roi-editor-wrap" id="roiEditorWrap">
+              <img id="overlayImg" class="overlay-img" alt="Latest overlay" />
+              <canvas id="roiCanvas"></canvas>
+              <canvas id="speedLinesCanvas"></canvas>
+            </div>
+
+            <div class="roi-actions">
+              <button id="roiEditBtn" class="mini-btn" type="button">ROI edit</button>
+              <button id="roiUndoBtn" class="mini-btn" type="button">Undo</button>
+              <button id="roiClearBtn" class="mini-btn" type="button">Clear</button>
+              <button id="roiSaveBtn" class="mini-btn primary" type="button">Save ROI</button>
+            </div>
+
+            <div id="roiStatus" class="roi-status">ROI: loading</div>
+
+            <div class="speed-lines-panel">
+              <div class="camera-overlay-title">Speed lines</div>
+
+              <div class="speed-lines-grid">
+                <button id="speedLineABtn" class="mini-btn" type="button">Line A</button>
+                <button id="speedLineBBtn" class="mini-btn" type="button">Line B</button>
+                <button id="speedLineUndoBtn" class="mini-btn" type="button">Undo</button>
+                <button id="speedLineClearBtn" class="mini-btn" type="button">Clear</button>
+              </div>
+
+              <div class="speed-distance-row">
+                <label for="speedLinesDistanceInput">Distance, m</label>
+                <input id="speedLinesDistanceInput" type="number" step="0.1" min="0" value="57" />
+                <button id="speedLinesSaveBtn" class="mini-btn primary" type="button">Save</button>
+              </div>
+
+              <div id="speedLinesStatus" class="roi-status">Speed lines: loading</div>
+            </div>
+          </div>
+
+          <div class="camera-events-box">
+            <div class="camera-overlay-title">Последние события</div>
+            <div id="eventsList" class="events-list compact-events">
+              <div class="empty">Пока событий нет</div>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+
+    <section class="panel">
+      <h2>AI Status</h2>
+
+      <div class="status-grid">
+        <div class="status-card">
+          <div class="label">Stream</div>
+          <div id="streamStatus" class="value warn">idle</div>
+        </div>
+        <div class="status-card">
+          <div class="label">Worker</div>
+          <div id="workerStatus" class="value bad">offline</div>
+        </div>
+        <div class="status-card">
+          <div class="label">Motion</div>
+          <div id="motionStatus" class="value">idle</div>
+        </div>
+        <div class="status-card">
+          <div class="label">AI</div>
+          <div id="aiStatus" class="value">idle</div>
+        </div>
+        <div class="status-card">
+          <div class="label">Detections</div>
+          <div id="detectionsStatus" class="value">0</div>
+        </div>
+        <div class="status-card">
+          <div class="label">Tracks</div>
+          <div id="tracksStatus" class="value">0</div>
+        </div>
+      </div>
+<div id="debugLog" class="debug"></div>
+    
+      <div class="speed-config-box">
+        <h2>Speed calibration</h2>
+        <div class="speed-config-row">
+          <label for="speedFactorInput">km/h per px/s</label>
+          <input id="speedFactorInput" type="number" step="0.001" min="0" placeholder="0.000" />
+          <button id="speedSaveBtn" class="mini-btn primary" type="button">Save</button>
+        </div>
+        <div id="speedConfigStatus" class="roi-status">Speed config: loading</div>
+      </div>
+
+      <div class="state-inline-box">
+        <h2>State JSON</h2>
+        <pre id="stateJson">{}</pre>
+      </div>
+    </section>
+
+    
+
+
+    
+
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+
+  <script>
+    const HLS_URL = "/cams/hls/cam1/index.m3u8";
+    const STATE_URL = "/sea-speed/api/cam1/state";
+    const EVENTS_URL = "/sea-speed/api/cam1/events?limit=4";
+    const ROI_URL = "/sea-speed/api/cam1/roi";
+    const SPEED_CONFIG_URL = "/sea-speed/api/cam1/speed-config";
+    const SPEED_LINES_URL = "/sea-speed/api/cam1/speed-lines";
+
+    const video = document.getElementById("video");
+    const connectBtn = document.getElementById("connectBtn");
+    const disconnectBtn = document.getElementById("disconnectBtn");
+
+    const streamStatus = document.getElementById("streamStatus");
+    const workerStatus = document.getElementById("workerStatus");
+    const motionStatus = document.getElementById("motionStatus");
+    const aiStatus = document.getElementById("aiStatus");
+    const detectionsStatus = document.getElementById("detectionsStatus");
+    const tracksStatus = document.getElementById("tracksStatus");
+    const overlayImg = document.getElementById("overlayImg");
+    const debugLog = document.getElementById("debugLog");
+    const stateJson = document.getElementById("stateJson");
+    const eventsList = document.getElementById("eventsList");
+    const roiEditorWrap = document.getElementById("roiEditorWrap");
+    const roiCanvas = document.getElementById("roiCanvas");
+    const roiStatus = document.getElementById("roiStatus");
+    const roiEditBtn = document.getElementById("roiEditBtn");
+    const roiUndoBtn = document.getElementById("roiUndoBtn");
+    const roiClearBtn = document.getElementById("roiClearBtn");
+    const roiSaveBtn = document.getElementById("roiSaveBtn");
+    const speedLinesCanvas = document.getElementById("speedLinesCanvas");
+    const speedLineABtn = document.getElementById("speedLineABtn");
+    const speedLineBBtn = document.getElementById("speedLineBBtn");
+    const speedLineUndoBtn = document.getElementById("speedLineUndoBtn");
+    const speedLineClearBtn = document.getElementById("speedLineClearBtn");
+    const speedLinesSaveBtn = document.getElementById("speedLinesSaveBtn");
+    const speedLinesDistanceInput = document.getElementById("speedLinesDistanceInput");
+    const speedLinesStatus = document.getElementById("speedLinesStatus");
+    const speedFactorInput = document.getElementById("speedFactorInput");
+    const speedSaveBtn = document.getElementById("speedSaveBtn");
+    const speedConfigStatus = document.getElementById("speedConfigStatus");
+
+    let hls = null;
+    let lastEventsSignature = "";
+    let roiPoints = [];
+    let roiEditing = false;
+    let speedLineEditing = null;
+    let speedLines = {
+      enabled: false,
+      distance_m: 57,
+      line_a: [],
+      line_b: []
+    };
+
+
+
+    async function loadSpeedConfig() {
+      try {
+        const res = await fetch(SPEED_CONFIG_URL, {
+          cache: "no-store",
+          credentials: "same-origin"
+        });
+
+        const data = await res.json();
+
+        if (speedFactorInput) {
+          speedFactorInput.value = Number(data.kmh_per_px_s || 0).toFixed(3);
+        }
+
+        if (speedConfigStatus) {
+          speedConfigStatus.textContent = data.enabled
+            ? `Speed config: включен, коэффициент ${Number(data.kmh_per_px_s).toFixed(3)}`
+            : "Speed config: выключен";
+        }
+      } catch (err) {
+        if (speedConfigStatus) {
+          speedConfigStatus.textContent = "Speed config: API error";
+        }
+        log("Speed config API error: " + err);
+      }
+    }
+
+    async function saveSpeedConfig() {
+      const value = Number(speedFactorInput ? speedFactorInput.value : 0);
+
+      if (!Number.isFinite(value) || value < 0) {
+        alert("Коэффициент должен быть числом >= 0.");
+        return;
+      }
+
+      try {
+        const res = await fetch(SPEED_CONFIG_URL, {
+          method: "POST",
+          credentials: "same-origin",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            enabled: value > 0,
+            kmh_per_px_s: value
+          })
+        });
+
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error("HTTP " + res.status + " " + text);
+        }
+
+        const data = await res.json();
+
+        if (speedConfigStatus) {
+          speedConfigStatus.textContent = data.enabled
+            ? `Speed config: сохранен, коэффициент ${Number(data.kmh_per_px_s).toFixed(3)}`
+            : "Speed config: выключен";
+        }
+
+        log("Speed config saved");
+      } catch (err) {
+        if (speedConfigStatus) {
+          speedConfigStatus.textContent = "Speed config: save error";
+        }
+        log("Speed config save error: " + err);
+      }
+    }
+
+    function bindSpeedConfig() {
+      if (speedSaveBtn) {
+        speedSaveBtn.addEventListener("click", saveSpeedConfig);
+      }
+    }
+
+
+
+    function resizeSpeedLinesCanvas() {
+      if (!speedLinesCanvas || !overlayImg) return;
+
+      const rect = overlayImg.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+
+      speedLinesCanvas.style.width = rect.width + "px";
+      speedLinesCanvas.style.height = rect.height + "px";
+      speedLinesCanvas.width = Math.max(1, Math.round(rect.width * dpr));
+      speedLinesCanvas.height = Math.max(1, Math.round(rect.height * dpr));
+
+      const ctx = speedLinesCanvas.getContext("2d");
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      drawSpeedLines();
+    }
+
+    function drawLineWithPoints(ctx, points, color, label) {
+      if (!points || points.length === 0) return;
+
+      const displayPoints = points.map(imagePointToDisplay);
+
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = color;
+      ctx.fillStyle = color;
+
+      if (displayPoints.length >= 2) {
+        ctx.beginPath();
+        ctx.moveTo(displayPoints[0].x, displayPoints[0].y);
+        ctx.lineTo(displayPoints[1].x, displayPoints[1].y);
+        ctx.stroke();
+      }
+
+      for (let i = 0; i < displayPoints.length; i++) {
+        const pt = displayPoints[i];
+
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, 5, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.font = "bold 13px Arial";
+        ctx.fillStyle = "#ffffff";
+        ctx.fillText(label + String(i + 1), pt.x + 7, pt.y - 7);
+        ctx.fillStyle = color;
+      }
+    }
+
+    function drawSpeedLines() {
+      if (!speedLinesCanvas || !overlayImg) return;
+
+      const rect = overlayImg.getBoundingClientRect();
+      const ctx = speedLinesCanvas.getContext("2d");
+
+      ctx.clearRect(0, 0, rect.width, rect.height);
+
+      drawLineWithPoints(ctx, speedLines.line_a || [], "#f97316", "A");
+      drawLineWithPoints(ctx, speedLines.line_b || [], "#a855f7", "B");
+    }
+
+    function setSpeedLineEditing(which) {
+      speedLineEditing = which;
+
+      if (roiEditorWrap) {
+        roiEditorWrap.classList.toggle("speed-lines-editing", !!which);
+      }
+
+      if (roiEditing && which) {
+        setRoiEditing(false);
+      }
+
+      if (speedLineABtn) {
+        speedLineABtn.classList.toggle("primary", which === "a");
+      }
+
+      if (speedLineBBtn) {
+        speedLineBBtn.classList.toggle("primary", which === "b");
+      }
+
+      if (speedLinesStatus) {
+        if (which === "a") {
+          speedLinesStatus.textContent = "Speed lines: кликай 2 точки для Line A";
+        } else if (which === "b") {
+          speedLinesStatus.textContent = "Speed lines: кликай 2 точки для Line B";
+        } else {
+          speedLinesStatus.textContent = `Speed lines: A=${speedLines.line_a.length}/2, B=${speedLines.line_b.length}/2, distance=${speedLines.distance_m}м`;
+        }
+      }
+    }
+
+    async function loadSpeedLines() {
+      try {
+        const res = await fetch(SPEED_LINES_URL, {
+          cache: "no-store",
+          credentials: "same-origin"
+        });
+
+        const data = await res.json();
+
+        speedLines = {
+          enabled: !!data.enabled,
+          distance_m: Number(data.distance_m || 57),
+          line_a: Array.isArray(data.line_a) ? data.line_a : [],
+          line_b: Array.isArray(data.line_b) ? data.line_b : []
+        };
+
+        if (speedLinesDistanceInput) {
+          speedLinesDistanceInput.value = String(speedLines.distance_m || 57);
+        }
+
+        if (speedLinesStatus) {
+          speedLinesStatus.textContent = data.enabled
+            ? `Speed lines: включены, ${speedLines.distance_m}м`
+            : "Speed lines: не настроены";
+        }
+
+        resizeSpeedLinesCanvas();
+      } catch (err) {
+        if (speedLinesStatus) {
+          speedLinesStatus.textContent = "Speed lines: API error";
+        }
+        log("Speed lines API error: " + err);
+      }
+    }
+
+
+    async function clearSavedSpeedLines() {
+      speedLines.line_a = [];
+      speedLines.line_b = [];
+      speedLines.enabled = false;
+      drawSpeedLines();
+      setSpeedLineEditing(null);
+
+      if (speedLinesStatus) {
+        speedLinesStatus.textContent = "Speed lines: очищаются...";
+      }
+
+      const distance = Number(speedLinesDistanceInput ? speedLinesDistanceInput.value : speedLines.distance_m || 57) || 57;
+
+      try {
+        const res = await fetch(SPEED_LINES_URL, {
+          method: "POST",
+          credentials: "same-origin",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            enabled: false,
+            distance_m: distance,
+            line_a: [],
+            line_b: []
+          })
+        });
+
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error("HTTP " + res.status + " " + text);
+        }
+
+        speedLines.distance_m = distance;
+
+        if (speedLinesStatus) {
+          speedLinesStatus.textContent = "Speed lines: очищены и выключены";
+        }
+
+        log("Speed lines cleared and disabled");
+      } catch (err) {
+        if (speedLinesStatus) {
+          speedLinesStatus.textContent = "Speed lines: clear save error";
+        }
+        log("Speed lines clear save error: " + err);
+      }
+    }
+
+
+    async function saveSpeedLines() {
+      const distance = Number(speedLinesDistanceInput ? speedLinesDistanceInput.value : 57);
+
+      if (!Number.isFinite(distance) || distance <= 0) {
+        alert("Distance должен быть числом > 0.");
+        return;
+      }
+
+      if ((speedLines.line_a || []).length !== 2 || (speedLines.line_b || []).length !== 2) {
+        alert("Нужно отметить по 2 точки для Line A и Line B.");
+        return;
+      }
+
+      speedLines.distance_m = distance;
+
+      try {
+        const res = await fetch(SPEED_LINES_URL, {
+          method: "POST",
+          credentials: "same-origin",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            enabled: true,
+            distance_m: speedLines.distance_m,
+            line_a: speedLines.line_a,
+            line_b: speedLines.line_b
+          })
+        });
+
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error("HTTP " + res.status + " " + text);
+        }
+
+        const data = await res.json();
+
+        speedLines = {
+          enabled: !!data.enabled,
+          distance_m: Number(data.distance_m || distance),
+          line_a: Array.isArray(data.line_a) ? data.line_a : speedLines.line_a,
+          line_b: Array.isArray(data.line_b) ? data.line_b : speedLines.line_b
+        };
+
+        setSpeedLineEditing(null);
+        drawSpeedLines();
+
+        if (speedLinesStatus) {
+          speedLinesStatus.textContent = `Speed lines: сохранены, ${speedLines.distance_m}м`;
+        }
+
+        log("Speed lines saved");
+      } catch (err) {
+        if (speedLinesStatus) {
+          speedLinesStatus.textContent = "Speed lines: save error";
+        }
+        log("Speed lines save error: " + err);
+      }
+    }
+
+    function bindSpeedLinesEditor() {
+
+      if (speedLinesCanvas && !speedLinesCanvas.dataset.boundClick) {
+        speedLinesCanvas.dataset.boundClick = "1";
+
+        speedLinesCanvas.addEventListener("click", (e) => {
+          if (speedLineEditing !== "a" && speedLineEditing !== "b") {
+            return;
+          }
+
+          e.preventDefault();
+          e.stopPropagation();
+
+          const point = displayPointToImage(e.clientX, e.clientY);
+          const key = speedLineEditing === "a" ? "line_a" : "line_b";
+
+          if (!Array.isArray(speedLines[key])) {
+            speedLines[key] = [];
+          }
+
+          if (speedLines[key].length >= 2) {
+            speedLines[key] = [];
+          }
+
+          speedLines[key].push(point);
+          drawSpeedLines();
+          setSpeedLineEditing(speedLineEditing);
+        });
+      }
+
+      if (speedLineABtn) {
+        speedLineABtn.addEventListener("click", () => {
+          setSpeedLineEditing(speedLineEditing === "a" ? null : "a");
+        });
+      }
+
+      if (speedLineBBtn) {
+        speedLineBBtn.addEventListener("click", () => {
+          setSpeedLineEditing(speedLineEditing === "b" ? null : "b");
+        });
+      }
+
+      if (speedLineUndoBtn) {
+        speedLineUndoBtn.addEventListener("click", () => {
+          if (speedLineEditing === "a") {
+            speedLines.line_a.pop();
+          } else if (speedLineEditing === "b") {
+            speedLines.line_b.pop();
+          }
+          drawSpeedLines();
+          setSpeedLineEditing(speedLineEditing);
+        });
+      }
+
+      if (speedLineClearBtn) {
+        speedLineClearBtn.addEventListener("click", clearSavedSpeedLines);
+      }
+
+      if (speedLinesSaveBtn) {
+        speedLinesSaveBtn.addEventListener("click", saveSpeedLines);
+      }
+
+      window.addEventListener("resize", resizeSpeedLinesCanvas);
+      if (overlayImg) {
+        overlayImg.addEventListener("load", resizeSpeedLinesCanvas);
+      }
+    }
+
+
+    function resizeRoiCanvas() {
+      if (!roiCanvas || !overlayImg) return;
+
+      const rect = overlayImg.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+
+      roiCanvas.style.width = rect.width + "px";
+      roiCanvas.style.height = rect.height + "px";
+      roiCanvas.width = Math.max(1, Math.round(rect.width * dpr));
+      roiCanvas.height = Math.max(1, Math.round(rect.height * dpr));
+
+      const ctx = roiCanvas.getContext("2d");
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      drawRoi();
+    }
+
+    function imagePointToDisplay(point) {
+      const rect = overlayImg.getBoundingClientRect();
+      const naturalW = overlayImg.naturalWidth || 704;
+      const naturalH = overlayImg.naturalHeight || 576;
+
+      return {
+        x: point.x * rect.width / naturalW,
+        y: point.y * rect.height / naturalH
+      };
+    }
+
+    function displayPointToImage(clientX, clientY) {
+      const rect = overlayImg.getBoundingClientRect();
+      const naturalW = overlayImg.naturalWidth || 704;
+      const naturalH = overlayImg.naturalHeight || 576;
+
+      const dx = clientX - rect.left;
+      const dy = clientY - rect.top;
+
+      return {
+        x: Math.round(dx * naturalW / rect.width),
+        y: Math.round(dy * naturalH / rect.height)
+      };
+    }
+
+    function drawRoi() {
+      if (!roiCanvas || !overlayImg) return;
+
+      const rect = overlayImg.getBoundingClientRect();
+      const ctx = roiCanvas.getContext("2d");
+
+      ctx.clearRect(0, 0, rect.width, rect.height);
+
+      if (!roiPoints.length) return;
+
+      const displayPoints = roiPoints.map(imagePointToDisplay);
+
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = "#38bdf8";
+      ctx.fillStyle = "rgba(56, 189, 248, 0.20)";
+
+      ctx.beginPath();
+      ctx.moveTo(displayPoints[0].x, displayPoints[0].y);
+
+      for (const pt of displayPoints.slice(1)) {
+        ctx.lineTo(pt.x, pt.y);
+      }
+
+      if (displayPoints.length >= 3) {
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      ctx.stroke();
+
+      for (let i = 0; i < displayPoints.length; i++) {
+        const pt = displayPoints[i];
+
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, 5, 0, Math.PI * 2);
+        ctx.fillStyle = roiEditing ? "#22c55e" : "#38bdf8";
+        ctx.fill();
+
+        ctx.font = "12px Arial";
+        ctx.fillStyle = "#ffffff";
+        ctx.fillText(String(i + 1), pt.x + 7, pt.y - 7);
+      }
+    }
+
+    function setRoiEditing(enabled) {
+      roiEditing = enabled;
+
+      if (roiEditorWrap) {
+        roiEditorWrap.classList.toggle("editing", roiEditing);
+      }
+
+      if (roiEditBtn) {
+        roiEditBtn.textContent = roiEditing ? "ROI editing ON" : "ROI edit";
+      }
+
+      if (roiStatus) {
+        roiStatus.textContent = roiEditing
+          ? "ROI: кликай точки зоны, затем Save ROI"
+          : `ROI: ${roiPoints.length} точек`;
+      }
+
+      drawRoi();
+    }
+
+    async function loadRoi() {
+      try {
+        const res = await fetch(ROI_URL, {
+          cache: "no-store",
+          credentials: "same-origin"
+        });
+
+        const data = await res.json();
+
+        roiPoints = Array.isArray(data.polygon) ? data.polygon : [];
+
+        if (roiStatus) {
+          roiStatus.textContent = data.enabled
+            ? `ROI: включен, ${roiPoints.length} точек`
+            : "ROI: выключен";
+        }
+
+        resizeRoiCanvas();
+      } catch (err) {
+        if (roiStatus) {
+          roiStatus.textContent = "ROI: API error";
+        }
+        log("ROI API error: " + err);
+      }
+    }
+
+
+    async function clearSavedRoi() {
+      roiPoints = [];
+      drawRoi();
+
+      if (roiStatus) {
+        roiStatus.textContent = "ROI: очищается...";
+      }
+
+      try {
+        const res = await fetch(ROI_URL, {
+          method: "POST",
+          credentials: "same-origin",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            enabled: false,
+            polygon: []
+          })
+        });
+
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error("HTTP " + res.status + " " + text);
+        }
+
+        setRoiEditing(false);
+
+        if (roiStatus) {
+          roiStatus.textContent = "ROI: очищен и выключен";
+        }
+
+        log("ROI cleared and disabled");
+      } catch (err) {
+        if (roiStatus) {
+          roiStatus.textContent = "ROI: clear save error";
+        }
+        log("ROI clear save error: " + err);
+      }
+    }
+
+
+    async function saveRoi() {
+      if (roiPoints.length < 3) {
+        alert("Для ROI нужно минимум 3 точки.");
+        return;
+      }
+
+      try {
+        const res = await fetch(ROI_URL, {
+          method: "POST",
+          credentials: "same-origin",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            enabled: true,
+            polygon: roiPoints
+          })
+        });
+
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error("HTTP " + res.status + " " + text);
+        }
+
+        const data = await res.json();
+        roiPoints = Array.isArray(data.polygon) ? data.polygon : roiPoints;
+
+        if (roiStatus) {
+          roiStatus.textContent = `ROI: сохранен, ${roiPoints.length} точек`;
+        }
+
+        setRoiEditing(false);
+        log("ROI saved");
+      } catch (err) {
+        if (roiStatus) {
+          roiStatus.textContent = "ROI: save error";
+        }
+        log("ROI save error: " + err);
+      }
+    }
+
+    function bindRoiEditor() {
+      if (!roiCanvas || !overlayImg) return;
+
+      overlayImg.addEventListener("load", resizeRoiCanvas);
+      window.addEventListener("resize", resizeRoiCanvas);
+
+      roiCanvas.addEventListener("click", (e) => {
+        if (speedLineEditing === "a" || speedLineEditing === "b") {
+          const point = displayPointToImage(e.clientX, e.clientY);
+          const key = speedLineEditing === "a" ? "line_a" : "line_b";
+
+          if (!Array.isArray(speedLines[key])) {
+            speedLines[key] = [];
+          }
+
+          if (speedLines[key].length >= 2) {
+            speedLines[key] = [];
+          }
+
+          speedLines[key].push(point);
+          drawSpeedLines();
+          setSpeedLineEditing(speedLineEditing);
+          return;
+        }
+
+        if (!roiEditing) return;
+
+        const point = displayPointToImage(e.clientX, e.clientY);
+        roiPoints.push(point);
+
+        if (roiStatus) {
+          roiStatus.textContent = `ROI: ${roiPoints.length} точек`;
+        }
+
+        drawRoi();
+      });
+
+      if (roiEditBtn) {
+        roiEditBtn.addEventListener("click", () => {
+          setRoiEditing(!roiEditing);
+        });
+      }
+
+      if (roiUndoBtn) {
+        roiUndoBtn.addEventListener("click", () => {
+          roiPoints.pop();
+          drawRoi();
+          if (roiStatus) {
+            roiStatus.textContent = `ROI: ${roiPoints.length} точек`;
+          }
+        });
+      }
+
+      if (roiClearBtn) {
+        roiClearBtn.addEventListener("click", clearSavedRoi);
+      }
+
+      if (roiSaveBtn) {
+        roiSaveBtn.addEventListener("click", saveRoi);
+      }
+    }
+
+
+    function log(msg) {
+      const d = new Date();
+      const line = "[" + d.toLocaleTimeString() + "] " + msg;
+      debugLog.textContent = line + "\n" + debugLog.textContent;
+    }
+
+    function setStatus(el, text, cls) {
+      el.textContent = text;
+      el.className = "value " + (cls || "");
+    }
+
+    function connectStream() {
+      disconnectStream(false);
+      setStatus(streamStatus, "connecting", "warn");
+      log("Подключение к HLS: " + HLS_URL);
+
+      if (video.canPlayType("application/vnd.apple.mpegurl")) {
+        video.src = HLS_URL;
+        video.play().then(() => {
+          setStatus(streamStatus, "online", "good");
+          log("Native HLS started");
+        }).catch(err => {
+          setStatus(streamStatus, "error", "bad");
+          log("Native HLS error: " + err);
+        });
+        return;
+      }
+
+      if (window.Hls && Hls.isSupported()) {
+        hls = new Hls({
+          lowLatencyMode: true,
+          backBufferLength: 10
+        });
+
+        hls.loadSource(HLS_URL);
+        hls.attachMedia(video);
+
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          video.play().then(() => {
+            setStatus(streamStatus, "online", "good");
+            log("hls.js started");
+          }).catch(err => {
+            setStatus(streamStatus, "error", "bad");
+            log("hls.js play error: " + err);
+          });
+        });
+
+        hls.on(Hls.Events.ERROR, (event, data) => {
+          log("hls.js error: " + data.type + " " + data.details);
+          if (data.fatal) {
+            setStatus(streamStatus, "error", "bad");
+          }
+        });
+
+        return;
+      }
+
+      setStatus(streamStatus, "unsupported", "bad");
+      log("HLS is not supported in this browser");
+    }
+
+    function disconnectStream(logIt = true) {
+      if (hls) {
+        hls.destroy();
+        hls = null;
+      }
+
+      video.pause();
+      video.removeAttribute("src");
+      video.load();
+
+      setStatus(streamStatus, "idle", "warn");
+      if (logIt) {
+        log("HLS disconnected");
+      }
+    }
+
+    function workerTextByState(state) {
+      if (!state.updated_at || !state.worker_online) {
+        return ["offline", "bad"];
+      }
+      return ["online", "good"];
+    }
+
+    function withCacheBust(url) {
+      if (!url) return "";
+      const sep = url.includes("?") ? "&" : "?";
+      return url + sep + "t=" + Date.now();
+    }
+
+    async function refreshState() {
+      try {
+        const res = await fetch(STATE_URL, { cache: "no-store" });
+        const state = await res.json();
+
+        const [wText, wCls] = workerTextByState(state);
+        setStatus(workerStatus, wText, wCls);
+
+        setStatus(
+          motionStatus,
+          state.motion_now ? "motion" : "idle",
+          state.motion_now ? "warn" : ""
+        );
+
+        setStatus(
+          aiStatus,
+          state.ai_active ? "active" : "idle",
+          state.ai_active ? "blue" : ""
+        );
+
+        detectionsStatus.textContent = String(state.detections ?? 0);
+        tracksStatus.textContent = String(state.tracks ?? 0);
+
+        if (state.last_overlay_url && overlayImg) {
+          overlayImg.src = withCacheBust(state.last_overlay_url);
+        }
+
+        stateJson.textContent = JSON.stringify(state, null, 2);
+      } catch (err) {
+        setStatus(workerStatus, "api error", "bad");
+        log("State API error: " + err);
+      }
+    }
+
+    function formatTime(value) {
+      if (!value) return "-";
+      try {
+        return new Date(value).toLocaleString();
+      } catch {
+        return value;
+      }
+    }
+
+    function renderEvents(events) {
+      if (!events || events.length === 0) {
+        eventsList.innerHTML = '<div class="empty">Пока событий нет</div>';
+        return;
+      }
+
+      eventsList.innerHTML = "";
+
+      for (const ev of events.slice(0, 4)) {
+        const card = document.createElement("div");
+        card.className = "event-card";
+
+        const img = document.createElement("img");
+        img.alt = "event snapshot";
+        img.onerror = () => { img.style.display = "none"; };
+        if (ev.snapshot_url) {
+          img.src = ev.snapshot_url;
+        }
+
+        const body = document.createElement("div");
+
+        const title = document.createElement("div");
+        title.className = "event-title";
+        title.textContent = `${ev.class_name || ev.class || "object"} ${ev.confidence ? "(" + Number(ev.confidence).toFixed(2) + ")" : ""}`;
+
+        const meta = document.createElement("div");
+        meta.className = "event-meta";
+        const speedPxText = ev.speed_px_s !== null && ev.speed_px_s !== undefined
+          ? Number(ev.speed_px_s).toFixed(1) + " px/s"
+          : "-";
+
+        const speedKmhText = ev.speed_kmh !== null && ev.speed_kmh !== undefined
+          ? Number(ev.speed_kmh).toFixed(1) + " km/h"
+          : "-";
+
+        const eventShortId = ev.event_id ? String(ev.event_id).slice(-8) : "-";
+
+        meta.innerHTML = `
+          <div>time: ${formatTime(ev.created_at)}</div>
+          <div>px: ${speedPxText}</div>
+          <div>km/h: ${speedKmhText}</div>
+          <div>id: ${eventShortId}</div>
+        `;
+
+        body.appendChild(title);
+        body.appendChild(meta);
+
+        if (ev.snapshot_url) {
+          card.appendChild(img);
+        }
+
+        card.appendChild(body);
+        eventsList.appendChild(card);
+      }
+    }
+
+    async function refreshEvents() {
+      try {
+        const res = await fetch(EVENTS_URL, { cache: "no-store" });
+        const data = await res.json();
+        const events = data.events || [];
+        const signature = events.map(ev => ev.event_id || ev.created_at || "").join("|");
+
+        if (signature !== lastEventsSignature) {
+          lastEventsSignature = signature;
+          renderEvents(events);
+        }
+      } catch (err) {
+        eventsList.innerHTML = '<div class="empty">Events API error</div>';
+        log("Events API error: " + err);
+      }
+    }
+
+    connectBtn.addEventListener("click", connectStream);
+    disconnectBtn.addEventListener("click", () => disconnectStream(true));
+
+    bindRoiEditor();
+    bindSpeedLinesEditor();
+    bindSpeedConfig();
+    loadRoi();
+    loadSpeedLines();
+    loadSpeedConfig();
+    refreshState();
+    refreshEvents();
+
+    setInterval(refreshState, 1500);
+    setInterval(refreshEvents, 3000);
+  </script>
+</body>
+</html>
