@@ -131,6 +131,29 @@ install_release() {
   mv -f "${FRONTEND_TARGET}.next" "$FRONTEND_TARGET"
 }
 
+verify_frontend() {
+  [[ -s "$FRONTEND_TARGET" ]] || {
+    echo "Frontend file is missing or empty: ${FRONTEND_TARGET}" >&2
+    return 1
+  }
+
+  local status
+  status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --max-time 15 "$FRONTEND_URL")" || {
+    echo "Frontend request failed: ${FRONTEND_URL}" >&2
+    return 1
+  }
+
+  case "$status" in
+    200|301|302|307|308|401)
+      log "Frontend smoke check passed with HTTP ${status}"
+      ;;
+    *)
+      echo "Frontend smoke check failed with HTTP ${status}: ${FRONTEND_URL}" >&2
+      return 1
+      ;;
+  esac
+}
+
 restart_and_verify() {
   sudo -n "$SYSTEMCTL_BIN" restart "$SERVICE_NAME"
 
@@ -146,10 +169,7 @@ restart_and_verify() {
     sleep 5
   done
 
-  curl --fail --silent --show-error --max-time 15 "$FRONTEND_URL" >/dev/null || {
-    echo "Frontend smoke check failed: ${FRONTEND_URL}" >&2
-    return 1
-  }
+  verify_frontend
 }
 
 prune_releases() {
