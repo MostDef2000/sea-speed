@@ -1,20 +1,12 @@
 # sea-speed-api
 
-## Purpose
+Compatibility entrypoint for VPS FastAPI work.
 
-Use for VPS FastAPI backend work.
+Read and follow:
 
-## Scope
+- `contracts/SEA_SPEED_GOVERNANCE.md`
+- `contracts/runtime/SEA_SPEED_TASK_RUNTIME.md`
+- `contracts/branches/api.md`
+- `contracts/SEA_SPEED_DELIVERY_POLICY.md`
 
-- state endpoint
-- events endpoint
-- ROI configuration
-- speed configuration
-- media storage references
-- backend health checks
-
-## Boundaries
-
-Do not change worker, frontend, deploy, or governance files unless the approved task says so.
-
-Do not change skill files without `SKILL UPDATE APPROVED`.
+Do not treat this file as the canonical workflow contract. API changes require explicit approval; schema changes require separate explicit scope and compatibility/rollout notes. API changes normally require VPS deployment after merge.
