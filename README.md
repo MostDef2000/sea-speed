@@ -27,12 +27,17 @@ skills/      compatibility entrypoints that route to contracts
 
 ## Development control plane
 
+GitHub Issues are the canonical persistent backlog and task history for repository work. A read-only Task Intake step converts each unstructured request into a canonical Task Brief before implementation planning.
+
 Every task follows:
 
 ```text
-state recovery
+request and issue recovery
+→ read-only Task Intake
 → scope lock
+→ Implementation Scope Check
 → explicit approval
+→ capability preflight
 → fresh branch from current main
 → implementation
 → post-write integrity gate
@@ -43,12 +48,15 @@ state recovery
 → COMPLETE / BLOCKED / FAILED
 ```
 
+Repository-write approval is valid only after the Implementation Scope Check identifies the exact files, exclusions, risks, impact, checks, release applicability, and acceptance criteria. Do not begin a partial multi-file implementation unless the complete approved file set can be changed and published safely.
+
 Canonical project rules:
 
 - `contracts/SEA_SPEED_GOVERNANCE.md`
 - `contracts/SEA_SPEED_DELIVERY_POLICY.md`
 - `contracts/runtime/SEA_SPEED_TASK_RUNTIME.md`
 - `contracts/runtime/RELEASE_READINESS_GATE.md`
+- `contracts/branches/task-intake.md`
 - `contracts/branches/project-manager.md`
 - `docs/architecture/sea-speed-control-plane.md`
 
@@ -58,10 +66,10 @@ Repository writes require `COMMIT APPROVED` or an approved equivalent. Changes u
 
 - `api/**` and `frontend/**`: normally require VPS deployment.
 - `worker/**`: normally requires Windows worker update.
-- mixed or schema-changing work may require both and an explicit rollout order.
+- mixed API/worker or schema-changing work requires compatibility notes and an explicit rollout order.
 - contracts/docs/skills/README-only work requires no runtime release.
 
-Merge is not deployment. Deployment is not runtime acceptance.
+Merge is not deployment. Deployment is not runtime acceptance. COMPLETE requires evidence from source integration and every applicable runtime contour.
 
 ## Secrets policy
 
