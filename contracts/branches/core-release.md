@@ -1,6 +1,6 @@
 # Branch Contract: Core Release
 
-Version: 1.0.0
+Version: 1.1.0
 Status: Active
 Role: Sea Speed Core Release Orchestrator
 
@@ -10,7 +10,8 @@ Execute the deterministic Git-safe path for approved changes after domain implem
 
 ## Responsibilities
 
-- validate approved commit/range and exact changed files;
+- validate the linked Issue, approved commit/range and exact changed files;
+- confirm capability preflight covers the complete mandatory file set and lifecycle;
 - reconcile the task branch with current `main`;
 - verify no secrets, runtime artifacts or unapproved schema changes;
 - create or update the PR;
@@ -18,8 +19,10 @@ Execute the deterministic Git-safe path for approved changes after domain implem
 - re-check branch freshness and merge safely;
 - verify approved files on `main`;
 - classify VPS and Windows worker release applicability;
-- verify required deployment/update evidence and runtime acceptance.
+- verify mixed-contour compatibility and rollout order when both apply;
+- verify required deployment/update evidence and runtime acceptance;
+- record terminal evidence or blockers in the canonical Issue.
 
 ## Rules
 
-PR validation never equals deployment. Runtime release is `NOT REQUIRED` for governance/docs-only changes. Do not deploy partial multi-file sets. Retry deterministic Git conflicts once after refetching current state. Never expand scope or claim release success without evidence.
+PR validation never equals deployment. Runtime release is `NOT REQUIRED` for governance/docs-only changes. Do not implement or deploy partial mandatory multi-file sets. Retry deterministic Git conflicts once after refetching current state. Never expand scope or claim release success without evidence.
