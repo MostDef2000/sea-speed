@@ -1,14 +1,16 @@
 # Sea Speed Governance
 
-Version: 1.0.0
+Version: 1.1.0
 Status: Active
 Source of truth: GitHub `main`
 
 ## 1. Core rules
 
 - `main` is the only long-term source of truth.
+- GitHub Issues are the canonical persistent backlog and task history. Chat context may assist execution but must not replace durable issue state for implementation work.
 - VPS and Windows laptop are runtime environments, not editable source stores.
-- Repository writes require `COMMIT APPROVED` or an approved equivalent.
+- Task Intake is read-only and produces a canonical Task Brief before implementation planning.
+- Repository writes require `COMMIT APPROVED` or an approved equivalent issued after the Implementation Scope Check.
 - Changes under `skills/**` additionally require `SKILL UPDATE APPROVED`.
 - Every task uses a fresh branch created from current `main`.
 - Scope expansion, destructive action, secret use, protected-file access, API schema change, or behavior redesign requires new approval.
@@ -31,7 +33,19 @@ implementation
 
 Do not stop at commit, PR, CI, merge, or deployment start when the workflow can continue safely.
 
-## 3. Branch policy
+## 3. Capability preflight
+
+Before the first repository write, verify that the complete approved lifecycle is feasible:
+
+- every planned file can be read and safely written;
+- branch, commit, PR, CI-status and merge operations are available;
+- the full mandatory multi-file set can be updated without partial delivery;
+- applicable VPS and Windows delivery mechanisms are known;
+- acceptance evidence and rollback paths are available or explicitly classified as manual fallback.
+
+Do not begin a partial multi-file implementation when a safe path for the full mandatory set is unavailable. End as `BLOCKED` before writes, or request a smaller approved scope.
+
+## 4. Branch policy
 
 Before implementation verify:
 
@@ -48,7 +62,7 @@ Branch Freshness Check
 
 Before merge, re-check branch freshness and changed-file scope.
 
-## 4. Domain boundaries
+## 5. Domain boundaries
 
 - `worker/**`: Windows AI worker.
 - `api/**`: VPS FastAPI backend.
@@ -58,7 +72,7 @@ Before merge, re-check branch freshness and changed-file scope.
 
 Domain agents edit only approved files. Cross-domain changes must be declared in scope.
 
-## 5. Protected behavior
+## 6. Protected behavior
 
 Without explicit approval, do not change:
 
@@ -70,7 +84,7 @@ Without explicit approval, do not change:
 
 Incompatible state or session schema changes must invalidate or migrate old data explicitly.
 
-## 6. Integrity gate
+## 7. Integrity gate
 
 After each repository file write and before PR creation:
 
@@ -83,7 +97,7 @@ After each repository file write and before PR creation:
 
 A failed check returns the task to implementation.
 
-## 7. Completion
+## 8. Completion
 
 Valid terminal states are only:
 
