@@ -1,6 +1,6 @@
 # Sea Speed Release Readiness Gate
 
-Version: 1.0.0
+Version: 1.1.0
 Status: Active
 
 ## Gate
@@ -9,15 +9,22 @@ Before release execution verify:
 
 ```text
 Release Readiness Gate
+- Canonical Issue linked: YES/NO
 - Approved source committed to main: YES/NO
 - Changed files match scope: YES/NO
 - Secrets/runtime artifacts absent: YES/NO
 - VPS deployment required: YES/NO
 - Windows worker update required: YES/NO
-- Compatibility and rollout order declared when schemas changed: YES/NO/NOT APPLICABLE
+- Mixed-contour compatibility declared: YES/NO/NOT APPLICABLE
+- Rollout and rollback order declared: YES/NO/NOT APPLICABLE
+- Acceptance evidence available: YES/NO
 - Rollback target available: YES/NO/NOT APPLICABLE
 - Safe to continue: YES/NO
 ```
+
+## Capability preflight
+
+Before implementation begins, verify that the complete approved file set can be written and reviewed and that required branch, PR, CI, merge, delivery, verification and rollback operations are available. Do not accept a partial multi-file delivery as a substitute for a blocked mandatory path.
 
 ## VPS gate
 
@@ -25,7 +32,11 @@ When VPS deployment is required, verify the deployed commit, API process, health
 
 ## Worker gate
 
-When a worker update is required, verify the released commit/version, preservation of local secrets/model/environment/output, successful restart, fresh VPS state and affected overlay/event behavior.
+When a worker update is required, verify the released commit/version, preservation of local secrets/model/environment/output, successful restart, fresh VPS state, advancing heartbeat or frame evidence when available, and affected overlay/event behavior.
+
+## Mixed-contour gate
+
+When both VPS and worker updates are required, verify compatibility for old/new component combinations and execute the declared rollout order. The default is backward-compatible VPS/API first, API acceptance second, worker update third, and worker runtime acceptance last.
 
 ## Documentation-only rule
 
@@ -33,7 +44,7 @@ Changes limited to contracts, documentation, skills or README require PR validat
 
 ## Evidence rule
 
-A green PR is not evidence of deployment. Merge is not deployment. Deployment is not acceptance. Report only verified state.
+A green PR is not evidence of deployment. Merge is not deployment. Deployment is not acceptance. Report only verified state. `COMPLETE` requires evidence for every applicable transition.
 
 ## Verdicts
 
