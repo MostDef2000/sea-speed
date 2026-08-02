@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Deploy the API and operator frontend from one exact Git commit after changes reach `main`.
+Deploy the API, root landing page and operator frontend from one exact Git commit after changes reach `main`.
 
 The deployment model keeps only two code releases:
 
@@ -17,8 +17,11 @@ Default live targets:
 
 ```text
 /opt/sea-speed-api/app/main.py
+/var/www/mostdef.ru/index.html
 /var/www/mostdef.ru/sea-speed/index.html
 ```
+
+The root page at `https://mostdef.ru/` is the public entry point. Its primary action opens `/sea-speed/`; `/cams/` remains a small secondary link in the footer.
 
 Deployment state:
 
@@ -28,7 +31,9 @@ Deployment state:
 /opt/sea-speed-deploy/state/previous-release
 ```
 
-The existing live API and frontend are copied once on the first deployment into a bootstrap release. Future deployments retain only the current and previous Git releases.
+The existing live API and both frontend files are copied once on the first deployment into a bootstrap release. When the root frontend is introduced into an already-managed installation, the deploy script adds the current live root page to the current release before replacing it, so the first rollout can still restore the original page.
+
+Future deployments retain only the current and previous Git releases.
 
 The script does not modify or archive:
 
@@ -47,15 +52,16 @@ Data backups remain a separate operation required only before schema migrations,
 ```text
 exact commit SHA
 → download GitHub source archive
-→ stage API and frontend release
+→ stage API, root frontend and operator frontend release
+→ preserve the current root page in the rollback release when needed
 → atomically replace live code files
 → restart sea-speed-api
 → API health check
-→ frontend smoke check
+→ root and operator frontend smoke checks
 → keep current and previous releases only
 ```
 
-If either runtime check fails:
+If any runtime check fails:
 
 ```text
 restore previous code release
@@ -77,6 +83,7 @@ The SSH session runs the deployment script without `sudo`. The user receives wri
 ```text
 /opt/sea-speed-deploy/
 /opt/sea-speed-api/app/
+/var/www/mostdef.ru/
 /var/www/mostdef.ru/sea-speed/
 ```
 
@@ -99,6 +106,9 @@ install -d -o sea-speed-deploy -g sea-speed-deploy -m 0750 /opt/sea-speed-deploy
 
 chown sea-speed-deploy:sea-speed-deploy /opt/sea-speed-api/app
 chmod 0750 /opt/sea-speed-api/app
+
+chown sea-speed-deploy:sea-speed-deploy /var/www/mostdef.ru
+chmod 0755 /var/www/mostdef.ru
 
 chown sea-speed-deploy:sea-speed-deploy /var/www/mostdef.ru/sea-speed
 chmod 0755 /var/www/mostdef.ru/sea-speed
@@ -138,6 +148,7 @@ Run as the deploy user:
 ```bash
 sudo -n /usr/bin/systemctl restart sea-speed-api
 test -w /opt/sea-speed-api/app
+test -w /var/www/mostdef.ru
 test -w /var/www/mostdef.ru/sea-speed
 test -w /opt/sea-speed-deploy
 ```
@@ -175,7 +186,7 @@ After secrets are configured, run the workflow manually once while deployment re
 VPS_DEPLOY_ENABLED=true
 ```
 
-Then run `Deploy VPS` manually for the full current `main` commit SHA. Verify the API, frontend and release-state files before relying on automatic pushes.
+Then run `Deploy VPS` manually for the full current `main` commit SHA. Verify the API, both frontends and release-state files before relying on automatic pushes.
 
 ## Manual run
 
@@ -196,6 +207,7 @@ After the first deployment verify:
 
 ```bash
 curl --fail https://mostdef.ru/sea-speed/api/health
+curl --fail https://mostdef.ru/ >/dev/null
 curl --fail https://mostdef.ru/sea-speed/ >/dev/null
 systemctl status sea-speed-api --no-pager
 cat /opt/sea-speed-deploy/state/current-release
@@ -212,8 +224,10 @@ The deployment script supports these environment overrides when executed directl
 - `SEA_SPEED_DEPLOY_ROOT`;
 - `SEA_SPEED_API_TARGET`;
 - `SEA_SPEED_FRONTEND_TARGET`;
+- `SEA_SPEED_ROOT_FRONTEND_TARGET`;
 - `SEA_SPEED_SYSTEMCTL_BIN`;
 - `SEA_SPEED_HEALTH_URL`;
-- `SEA_SPEED_FRONTEND_URL`.
+- `SEA_SPEED_FRONTEND_URL`;
+- `SEA_SPEED_ROOT_FRONTEND_URL`.
 
 The GitHub workflow intentionally uses the project defaults to keep production behavior deterministic.
