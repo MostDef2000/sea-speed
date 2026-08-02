@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - "deploy/vps/**"
+      - "scripts/release/**"
+      - "schemas/**"
       - ".github/workflows/deploy-vps.yml"
   push:
     branches:
@@ -12,6 +14,8 @@ on:
       - "api/**"
       - "frontend/**"
       - "deploy/vps/**"
+      - "scripts/release/**"
+      - "schemas/**"
       - ".github/workflows/deploy-vps.yml"
   workflow_dispatch:
     inputs:
@@ -34,8 +38,12 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
 
-      - name: Validate deployment script syntax
-        run: bash -n deploy/vps/deploy.sh
+      - name: Validate deployment and provenance tooling
+        run: |
+          bash -n deploy/vps/deploy.sh
+          python -m py_compile scripts/release/build_release_manifest.py scripts/release/validate_release_manifest.py scripts/release/validate_deployment_manifest.py
+          python -m json.tool schemas/release-manifest.schema.json >/dev/null
+          python -m json.tool schemas/deployment-manifest.schema.json >/dev/null
 
   disabled:
     if: ${{ github.event_name != 'pull_request' && vars.VPS_DEPLOY_ENABLED != 'true' }}
@@ -45,6 +53,7 @@ jobs:
       - name: Deployment is not enabled
         run: |
           echo "VPS deployment infrastructure is installed but disabled."
+          echo "State: NOT DEPLOYED"
           echo "Set repository variable VPS_DEPLOY_ENABLED=true after SSH secrets are configured."
 
   deploy:
@@ -58,7 +67,7 @@ jobs:
       - name: Check out exact source
         uses: actions/checkout@v4
         with:
-          fetch-depth: 1
+          fetch-depth: 2
 
       - name: Resolve deployment commit
         id: release
@@ -71,7 +80,28 @@ jobs:
             echo "Deployment commit must be a full 40-character SHA" >&2
             exit 1
           fi
-          echo "sha=$DEPLOY_SHA" >> "$GITHUB_OUTPUT"
+          git fetch origin "$DEPLOY_SHA" --depth=2
+          echo "sha=${DEPLOY_SHA,,}" >> "$GITHUB_OUTPUT"
+
+      - name: Build release provenance
+        env:
+          DEPLOY_SHA: ${{ steps.release.outputs.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          BASE_SHA="$(git rev-parse "${DEPLOY_SHA}^")"
+          mapfile -t CHANGED_FILES < <(git diff --name-only "$BASE_SHA" "$DEPLOY_SHA" | sed '/^$/d')
+          ARGS=(
+            scripts/release/build_release_manifest.py
+            --component vps
+            --source-commit "$DEPLOY_SHA"
+            --base-commit "$BASE_SHA"
+            --state ready_for_deployment
+            --output dist/release-manifest-vps.json
+          )
+          for file in "${CHANGED_FILES[@]}"; do ARGS+=(--file "$file"); done
+          python "${ARGS[@]}"
+          python scripts/release/validate_release_manifest.py dist/release-manifest-vps.json
 
       - name: Configure SSH
         env:
@@ -96,15 +126,30 @@ jobs:
           set -euo pipefail
           [[ -n "$VPS_HOST" ]] || { echo "Missing VPS_HOST" >&2; exit 1; }
           [[ -n "$VPS_USER" ]] || { echo "Missing VPS_USER" >&2; exit 1; }
+          ssh -i "$HOME/.ssh/sea-speed-deploy" -p "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            "$VPS_USER@$VPS_HOST" "bash -s -- '$DEPLOY_SHA'" < deploy/vps/deploy.sh
 
-          ssh \
-            -i "$HOME/.ssh/sea-speed-deploy" \
-            -p "$VPS_PORT" \
-            -o BatchMode=yes \
-            -o StrictHostKeyChecking=yes \
-            "$VPS_USER@$VPS_HOST" \
-            "bash -s -- '$DEPLOY_SHA'" \
-            < deploy/vps/deploy.sh
+      - name: Collect and validate deployment evidence
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_PORT: ${{ vars.VPS_SSH_PORT || '22' }}
+        run: |
+          set -euo pipefail
+          ssh -i "$HOME/.ssh/sea-speed-deploy" -p "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            "$VPS_USER@$VPS_HOST" "cat /opt/sea-speed-deploy/state/deployment-manifest.json" \
+            > dist/deployment-manifest-vps.json
+          python scripts/release/validate_deployment_manifest.py dist/deployment-manifest-vps.json
+
+      - name: Upload release and deployment evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: sea-speed-vps-deployment-${{ steps.release.outputs.sha }}
+          path: |
+            dist/release-manifest-vps.json
+            dist/deployment-manifest-vps.json
+          retention-days: 30
+          if-no-files-found: error
 
       - name: Deployment summary
         env:
@@ -112,6 +157,8 @@ jobs:
         run: |
           echo "### Sea Speed VPS deployment" >> "$GITHUB_STEP_SUMMARY"
           echo "- Commit: \`$DEPLOY_SHA\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- State: \`runtime_verified\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- API health check: passed" >> "$GITHUB_STEP_SUMMARY"
           echo "- Frontend smoke check: passed" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Evidence: release and deployment manifests uploaded" >> "$GITHUB_STEP_SUMMARY"
           echo "- Rollback model: previous code release, no per-deploy data backup" >> "$GITHUB_STEP_SUMMARY"
