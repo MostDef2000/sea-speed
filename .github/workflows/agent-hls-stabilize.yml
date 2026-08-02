@@ -1,0 +1,63 @@
+name: Agent HLS Stabilize
+
+on:
+  push:
+    branches:
+      - agent/stabilize-hls-stream-startup
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/stabilize-hls-stream-startup
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Apply exact approved patch
+        run: python scripts/ci/agent_hls_stabilize.py
+      - name: Validate frontend contracts
+        run: python -m unittest tests.test_frontend_contract
+      - name: Validate inline JavaScript
+        run: |
+          python - <<'PY'
+          from html.parser import HTMLParser
+          from pathlib import Path
+          class Parser(HTMLParser):
+              def __init__(self):
+                  super().__init__()
+                  self.current = None
+                  self.scripts = []
+              def handle_starttag(self, tag, attrs):
+                  if tag == "script" and not dict(attrs).get("src"):
+                      self.current = []
+              def handle_data(self, data):
+                  if self.current is not None:
+                      self.current.append(data)
+              def handle_endtag(self, tag):
+                  if tag == "script" and self.current is not None:
+                      self.scripts.append("".join(self.current))
+                      self.current = None
+          parser = Parser()
+          parser.feed(Path("frontend/sea-speed/index.html").read_text(encoding="utf-8-sig"))
+          assert len(parser.scripts) == 1
+          Path("/tmp/sea-speed-inline.js").write_text(parser.scripts[0], encoding="utf-8")
+          PY
+          node --check /tmp/sea-speed-inline.js
+      - name: Commit validated two-file result and remove helper
+        run: |
+          git config user.name "sea-speed-agent"
+          git config user.email "sea-speed-agent@users.noreply.github.com"
+          git rm .github/workflows/agent-hls-stabilize.yml scripts/ci/agent_hls_stabilize.py
+          git add frontend/sea-speed/index.html tests/test_frontend_contract.py
+          git commit -m "Frontend: stabilize HLS stream startup and recovery" -m "Closes #50"
+          git push origin HEAD:agent/stabilize-hls-stream-startup
