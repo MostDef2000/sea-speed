@@ -20,13 +20,18 @@ CANONICAL_FILES = (
     "docs/architecture/sea-speed-control-plane.md",
     "docs/decision_records/DR-001-two-runtime-delivery-model.md",
     "docs/decision_records/DR-002-task-intake-and-delivery-controls.md",
+    "docs/decision_records/DR-003-release-provenance-and-evidence-loop.md",
     "docs/operations/PRODUCTION_BASELINE.md",
     "docs/operations/RELEASE_PROVENANCE.md",
+    "docs/evidence/POST_RELEASE_REVIEW.md",
     "schemas/release-manifest.schema.json",
     "schemas/deployment-manifest.schema.json",
+    "schemas/telemetry.schema.json",
     "scripts/release/build_release_manifest.py",
     "scripts/release/validate_release_manifest.py",
     "scripts/release/validate_deployment_manifest.py",
+    "scripts/ci/validate_telemetry.py",
+    "scripts/operations/verify_runtime.py",
 )
 
 REFERENCE_FILES = (
@@ -41,6 +46,7 @@ REFERENCE_FILES = (
     "docs/architecture/sea-speed-control-plane.md",
     "docs/operations/PRODUCTION_BASELINE.md",
     "docs/operations/RELEASE_PROVENANCE.md",
+    "docs/evidence/POST_RELEASE_REVIEW.md",
 )
 
 REPO_PATH_PATTERN = re.compile(
@@ -62,9 +68,8 @@ def main() -> int:
     for source_name in REFERENCE_FILES:
         source = ROOT / source_name
         text = source.read_text(encoding="utf-8-sig")
-        if "Status: Active" not in text and source_name != "README.md":
-            fail(f"active status marker missing from {source_name}")
-
+        if source_name != "README.md" and "Status: Active" not in text and "Status: Accepted" not in text:
+            fail(f"active or accepted status marker missing from {source_name}")
         for match in REPO_PATH_PATTERN.finditer(text):
             target = match.group(1)
             if "*" in target or "<" in target or target.endswith("/**"):
