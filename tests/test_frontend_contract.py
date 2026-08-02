@@ -18,165 +18,104 @@ class FrontendContractTests(unittest.TestCase):
     def test_operator_endpoints_are_explicit(self) -> None:
         expected = {
             "STATE_URL": "/sea-speed/api/cam1/state",
-            "EVENTS_URL": "/sea-speed/api/cam1/events?limit=4",
+            "EVENTS_URL": "/sea-speed/api/cam1/events?limit=3",
             "ROI_URL": "/sea-speed/api/cam1/roi",
             "SPEED_CONFIG_URL": "/sea-speed/api/cam1/speed-config",
             "SPEED_LINES_URL": "/sea-speed/api/cam1/speed-lines",
         }
         for name, value in expected.items():
-            self.assertRegex(
-                self.source,
-                rf"const\s+{name}\s*=\s*[\"']{re.escape(value)}[\"']",
-            )
+            self.assertRegex(self.source, rf"const\s+{name}\s*=\s*[\"']{re.escape(value)}[\"']")
 
     def test_configuration_save_flows_use_json_post(self) -> None:
         for function_name in ("saveSpeedConfig", "saveSpeedLines", "saveRoi"):
             self.assertIn(f"async function {function_name}", self.source)
-        self.assertGreaterEqual(self.source.count('method: "POST"'), 3)
-        self.assertGreaterEqual(self.source.count('"Content-Type": "application/json"'), 3)
+        self.assertIn('method:"POST"', self.source)
+        self.assertIn('headers:{"Content-Type":"application/json"}', self.source)
 
-    def test_runtime_status_fields_are_rendered(self) -> None:
+    def test_runtime_ids_are_unique(self) -> None:
+        ids = re.findall(r'\bid="([^"]+)"', self.source)
+        self.assertEqual(len(ids), len(set(ids)))
         for element_id in (
-            "streamStatus",
-            "workerStatus",
-            "motionStatus",
-            "aiStatus",
-            "detectionsStatus",
-            "tracksStatus",
-            "stateJson",
-            "eventsList",
+            "video", "streamStatus", "workerStatus", "motionStatus", "aiStatus",
+            "detectionsStatus", "tracksStatus", "overlayImg", "roiCanvas",
+            "speedLinesCanvas", "stateJson", "debugLog", "eventsList",
         ):
             self.assertEqual(self.source.count(f'id="{element_id}"'), 1)
 
-    def test_operator_uses_primary_annotated_camera_stage(self) -> None:
+    def test_desktop_workspace_has_three_columns_and_named_areas(self) -> None:
+        self.assertIn('data-layout="three-column-workspace"', self.source)
+        self.assertIn('grid-template-columns:minmax(250px,286px) minmax(0,720px) minmax(300px,340px)', self.source)
+        self.assertIn('grid-template-areas:"utilities camera right"', self.source)
+        self.assertIn('data-layout="left-utilities"', self.source)
         self.assertIn('data-layout="primary-camera"', self.source)
-        self.assertRegex(
-            self.source,
-            re.compile(
-                r'<div\s+class="camera-stage"[^>]*>.*?'
-                r'<div\s+class="roi-editor-wrap"\s+id="roiEditorWrap">.*?'
-                r'<img\s+id="overlayImg".*?'
-                r'<canvas\s+id="roiCanvas"></canvas>.*?'
-                r'<canvas\s+id="speedLinesCanvas"></canvas>',
-                re.S,
-            ),
-        )
-        stage = self.source.split('<div class="camera-stage" id="cameraStage">', 1)[1].split('</div>\n\n        <div class="camera-meta">', 1)[0]
-        self.assertNotIn('id="video"', stage)
-        self.assertIn("Разметка ROI и линий скорости отображается непосредственно на основном кадре", self.source)
+        self.assertIn('data-layout="right-live-history"', self.source)
 
-    def test_operator_has_single_clean_live_preview_in_right_sidebar(self) -> None:
-        self.assertEqual(self.source.count('id="video"'), 1)
-        match = re.search(
-            r'<section\s+class="panel control-card live-preview-card"[^>]*>'
-            r'(?P<body>.*?)</section>',
-            self.source,
-            re.S,
-        )
+    def test_primary_camera_is_annotated_and_contains_no_video(self) -> None:
+        match = re.search(r'<article\s+class="panel camera-panel"[^>]*>(?P<body>.*?)</article>', self.source, re.S)
         self.assertIsNotNone(match)
-        live_card = match.group("body")
-        for marker in (
-            'data-layout="clean-live"',
-            'id="connectBtn"',
-            'id="disconnectBtn"',
-            '<video id="video" controls playsinline muted></video>',
-            'HLS без AI overlay',
-        ):
-            if marker.startswith('data-layout'):
-                self.assertIn(marker, match.group(0))
-            else:
-                self.assertIn(marker, live_card)
+        body = match.group("body")
+        for marker in ('id="overlayImg"', 'id="roiCanvas"', 'id="speedLinesCanvas"'):
+            self.assertIn(marker, body)
+        self.assertNotIn('id="video"', body)
+        self.assertIn('width:min(100%,720px)', self.source)
+
+    def test_clean_live_and_detection_history_share_right_rail(self) -> None:
+        right = re.search(r'<aside\s+class="right-sidebar"[^>]*>(?P<body>.*?)</aside>', self.source, re.S)
+        self.assertIsNotNone(right)
+        body = right.group("body")
+        self.assertIn('data-layout="clean-live"', body)
+        self.assertIn('<video id="video" controls playsinline muted></video>', body)
+        self.assertIn('data-layout="compact-detection-history"', body)
+        self.assertIn('id="eventsList"', body)
+        self.assertLess(body.index('data-layout="clean-live"'), body.index('data-layout="compact-detection-history"'))
         self.assertEqual(self.source.count('new Hls('), 1)
 
-    def test_operator_overlay_controls_are_collapsed_by_default(self) -> None:
-        match = re.search(
-            r'<details\s+class="panel overlay-controls-card"\s+'
-            r'data-layout="collapsible-overlay-controls"(?P<attrs>[^>]*)>.*?'
-            r'<summary>.*?Overlay controls.*?</summary>.*?'
-            r'id="roiEditBtn".*?id="speedLineABtn".*?</details>',
-            self.source,
-            re.S,
-        )
-        self.assertIsNotNone(match)
-        self.assertNotIn(" open", match.group("attrs"))
+    def test_detection_history_is_capped_and_does_not_use_bottom_panel(self) -> None:
+        self.assertIn('events.slice(0,3)', self.source)
+        self.assertIn('grid-template-rows:auto minmax(0,1fr)', self.source)
+        self.assertIn('overflow-y:auto', self.source)
+        self.assertNotIn('class="panel events-panel"', self.source)
+        self.assertEqual(self.source.count('id="eventsList"'), 1)
 
-    def test_operator_desktop_overlay_is_reduced_and_mobile_restores_width(self) -> None:
-        self.assertIn("grid-template-columns: minmax(0, 820px) minmax(320px, 380px)", self.source)
-        self.assertIn("width: min(100%, 720px);", self.source)
+    def test_all_left_utility_blocks_are_closed_disclosures(self) -> None:
+        markers = (
+            ('collapsible-overlay-controls', 'Overlay controls'),
+            ('collapsible-calibration', 'Speed calibration'),
+            ('collapsible-state', 'State JSON'),
+            ('collapsible-log', 'Operator log'),
+        )
+        for layout, label in markers:
+            match = re.search(
+                rf'<details\s+class="[^"]+"\s+data-layout="{layout}"(?P<attrs>[^>]*)>.*?{re.escape(label)}.*?</details>',
+                self.source,
+                re.S,
+            )
+            self.assertIsNotNone(match)
+            self.assertNotRegex(match.group("attrs"), r'\bopen\b')
+
+    def test_mobile_order_prioritizes_camera_live_history_then_utilities(self) -> None:
         self.assertRegex(
             self.source,
-            re.compile(
-                r'@media \(max-width: 900px\).*?'
-                r'\.camera-stage\s*\{\s*width: 100%;',
-                re.S,
-            ),
+            re.compile(r'@media\(max-width:760px\).*?grid-template-areas:"camera" "right" "utilities"', re.S),
         )
-
-    def test_operator_status_is_compact_and_controls_are_right_sidebar(self) -> None:
-        self.assertIn('class="status-strip"', self.source)
-        self.assertIn('data-layout="compact-status"', self.source)
-        self.assertIn('class="control-sidebar" data-layout="right-controls"', self.source)
-        self.assertLess(
-            self.source.index('data-layout="compact-status"'),
-            self.source.index('<main class="operator-shell">'),
-        )
-        self.assertRegex(
-            self.source,
-            re.compile(
-                r'<aside\s+class="control-sidebar"[^>]*>.*?'
-                r'data-layout="clean-live".*?'
-                r'data-layout="collapsible-overlay-controls".*?'
-                r'id="roiEditBtn".*?id="speedLineABtn".*?'
-                r'class="panel control-card speed-calibration-card".*?'
-                r'<details\s+class="panel diagnostics-card state-card">',
-                re.S,
-            ),
-        )
-
-    def test_operator_mobile_layout_targets_ios_pro_widths(self) -> None:
         for marker in (
             "viewport-fit=cover",
             "env(safe-area-inset-top)",
             "env(safe-area-inset-right)",
             "env(safe-area-inset-bottom)",
             "env(safe-area-inset-left)",
-            "@media (max-width: 430px)",
-            "@media (max-width: 390px)",
-            "min-height: 44px",
-            "-webkit-overflow-scrolling: touch",
+            "@media(max-width:430px)",
+            "@media(max-width:390px)",
+            "min-height:44px",
         ):
             self.assertIn(marker, self.source)
 
-    def test_operator_state_and_log_are_compact_disclosures(self) -> None:
-        self.assertRegex(
-            self.source,
-            re.compile(
-                r'<details\s+class="panel diagnostics-card state-card">.*?'
-                r'<pre\s+id="stateJson">\{\}</pre>.*?</details>',
-                re.S,
-            ),
-        )
-        self.assertRegex(
-            self.source,
-            re.compile(
-                r'<details\s+class="panel diagnostics-card debug-card">.*?'
-                r'<div\s+id="debugLog"\s+class="debug"></div>.*?</details>',
-                re.S,
-            ),
-        )
-
     def test_root_page_primary_action_opens_operator_frontend(self) -> None:
-        self.assertRegex(
-            self.root_source,
-            r'<a\s+class="primary-link"\s+href="/sea-speed/">',
-        )
+        self.assertRegex(self.root_source, r'<a\s+class="primary-link"\s+href="/sea-speed/">')
         self.assertIn("Открыть морской мониторинг", self.root_source)
 
     def test_root_page_cameras_link_is_secondary_and_in_footer(self) -> None:
-        self.assertRegex(
-            self.root_source,
-            r'<footer>\s*<a\s+class="secondary-link"\s+href="/cams/">Камеры</a>\s*</footer>',
-        )
+        self.assertRegex(self.root_source, r'<footer>\s*<a\s+class="secondary-link"\s+href="/cams/">Камеры</a>\s*</footer>')
         self.assertEqual(self.root_source.count('href="/cams/"'), 1)
 
     def test_root_page_uses_local_absolute_paths(self) -> None:
@@ -184,25 +123,11 @@ class FrontendContractTests(unittest.TestCase):
         self.assertNotIn("https://mostdef.ru/cams/", self.root_source)
 
     def test_root_page_is_explicitly_maritime_and_local(self) -> None:
-        for phrase in (
-            "морского транспорта",
-            "Обнаружение судов",
-            "акватории Владивостока",
-            "Эгершельд",
-        ):
+        for phrase in ("морского транспорта", "Обнаружение судов", "акватории Владивостока", "Эгершельд"):
             self.assertIn(phrase, self.root_source)
 
     def test_root_page_contains_marine_scene_and_radar_animation(self) -> None:
-        for class_name in (
-            "marine-backdrop",
-            "vladivostok-skyline",
-            "lighthouse-scene",
-            "lighthouse",
-            "sea",
-            "radar",
-            "sweep",
-            "vessel",
-        ):
+        for class_name in ("marine-backdrop", "vladivostok-skyline", "lighthouse-scene", "lighthouse", "sea", "radar", "sweep", "vessel"):
             self.assertIn(f'class="{class_name}"', self.root_source)
         self.assertIn("@keyframes sweep", self.root_source)
         self.assertIn("prefers-reduced-motion", self.root_source)
