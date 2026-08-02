@@ -44,7 +44,14 @@ jobs:
           PR_BODY: ${{ github.event.pull_request.body }}
         run: |
           $sourceSha = (git rev-parse HEAD).Trim().ToLowerInvariant()
-          $baseSha = if ($env:PR_BASE_SHA) { $env:PR_BASE_SHA.ToLowerInvariant() } else { (git rev-parse 'HEAD^').Trim().ToLowerInvariant() }
+          if ($env:PR_BASE_SHA) {
+            $baseSha = $env:PR_BASE_SHA.ToLowerInvariant()
+            git fetch origin $baseSha --depth=1
+            if ($LASTEXITCODE -ne 0) { throw "Unable to fetch PR base commit $baseSha" }
+          }
+          else {
+            $baseSha = (git rev-parse 'HEAD^').Trim().ToLowerInvariant()
+          }
           $issue = 0
           if ($env:PR_BODY -match '(?i)(?:closes|fixes|resolves)\s+#(\d+)') {
             $issue = [int]$Matches[1]
