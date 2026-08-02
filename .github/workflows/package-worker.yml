@@ -4,12 +4,16 @@ on:
   pull_request:
     paths:
       - "worker/**"
+      - "scripts/release/**"
+      - "schemas/**"
       - ".github/workflows/package-worker.yml"
   push:
     branches:
       - main
     paths:
       - "worker/**"
+      - "scripts/release/**"
+      - "schemas/**"
       - ".github/workflows/package-worker.yml"
   workflow_dispatch:
 
@@ -26,8 +30,35 @@ jobs:
     timeout-minutes: 10
 
     steps:
-      - name: Check out source
+      - name: Check out exact source
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 2
+
+      - name: Resolve package provenance
+        id: provenance
+        shell: pwsh
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          $sourceSha = (git rev-parse HEAD).Trim().ToLowerInvariant()
+          if ($env:PR_BASE_SHA) {
+            $baseSha = $env:PR_BASE_SHA.ToLowerInvariant()
+            git fetch origin $baseSha --depth=1
+            if ($LASTEXITCODE -ne 0) { throw "Unable to fetch PR base commit $baseSha" }
+          }
+          else {
+            $baseSha = (git rev-parse 'HEAD^').Trim().ToLowerInvariant()
+          }
+          $issue = 0
+          if ($env:PR_BODY -match '(?i)(?:closes|fixes|resolves)\s+#(\d+)') {
+            $issue = [int]$Matches[1]
+          }
+          "source_sha=$sourceSha" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "base_sha=$baseSha" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "issue=$issue" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
       - name: Validate worker PowerShell syntax
         shell: pwsh
@@ -52,6 +83,8 @@ jobs:
 
       - name: Build exact-commit worker package
         shell: pwsh
+        env:
+          SOURCE_SHA: ${{ steps.provenance.outputs.source_sha }}
         run: |
           $packageDir = Join-Path $PWD 'dist/sea-speed-worker'
           New-Item -ItemType Directory -Path $packageDir -Force | Out-Null
@@ -77,22 +110,58 @@ jobs:
             Copy-Item -LiteralPath $source -Destination (Join-Path $packageDir $file) -Force
           }
 
-          Set-Content -LiteralPath (Join-Path $packageDir 'commit-sha.txt') -Value $env:GITHUB_SHA -Encoding ascii
+          Set-Content -LiteralPath (Join-Path $packageDir 'commit-sha.txt') -Value $env:SOURCE_SHA -Encoding ascii
           Compress-Archive -Path "$packageDir/*" -DestinationPath 'dist/sea-speed-worker.zip' -Force
+          $hash = (Get-FileHash -LiteralPath 'dist/sea-speed-worker.zip' -Algorithm SHA256).Hash.ToLowerInvariant()
+          Set-Content -LiteralPath 'dist/sea-speed-worker.zip.sha256' -Value "$hash  sea-speed-worker.zip" -Encoding ascii
 
-      - name: Upload worker package
+      - name: Build and validate release manifest
+        shell: pwsh
+        env:
+          SOURCE_SHA: ${{ steps.provenance.outputs.source_sha }}
+          BASE_SHA: ${{ steps.provenance.outputs.base_sha }}
+          ISSUE_NUMBER: ${{ steps.provenance.outputs.issue }}
+        run: |
+          $changedFiles = @(git diff --name-only $env:BASE_SHA $env:SOURCE_SHA | Where-Object { $_ })
+          $arguments = @(
+            'scripts/release/build_release_manifest.py',
+            '--component', 'windows-worker',
+            '--issue', $env:ISSUE_NUMBER,
+            '--source-commit', $env:SOURCE_SHA,
+            '--base-commit', $env:BASE_SHA,
+            '--state', 'packaged',
+            '--artifact', 'dist/sea-speed-worker.zip',
+            '--output', 'dist/release-manifest-windows-worker.json'
+          )
+          foreach ($file in $changedFiles) {
+            $arguments += '--file'
+            $arguments += $file
+          }
+          & python @arguments
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/release/validate_release_manifest.py dist/release-manifest-windows-worker.json
+
+      - name: Upload worker package and provenance
         uses: actions/upload-artifact@v4
         with:
-          name: sea-speed-worker-${{ github.sha }}
-          path: dist/sea-speed-worker.zip
+          name: sea-speed-worker-${{ steps.provenance.outputs.source_sha }}
+          path: |
+            dist/sea-speed-worker.zip
+            dist/sea-speed-worker.zip.sha256
+            dist/release-manifest-windows-worker.json
           retention-days: 14
           if-no-files-found: error
 
       - name: Package summary
         shell: pwsh
+        env:
+          SOURCE_SHA: ${{ steps.provenance.outputs.source_sha }}
         run: |
+          $checksum = Get-Content 'dist/sea-speed-worker.zip.sha256' -Raw
           '### Sea Speed Windows worker package' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
-          ('- Commit: `{0}`' -f $env:GITHUB_SHA) | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          ('- Commit: `{0}`' -f $env:SOURCE_SHA) | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          ('- SHA-256: `{0}`' -f $checksum.Trim()) | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          '- State: `packaged` (not installed)' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
           '- Target: `D:\sea-speed`' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
           '- Runtime secrets: loaded from preserved local `.env`' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
           '- Preserved: `.env`, `.venv`, `output`, models, patch files and local backups' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append

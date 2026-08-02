@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mostdef.ru/sea-speed/schemas/release-manifest.schema.json",
+  "title": "Sea Speed release manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "deliveryId",
+    "component",
+    "issue",
+    "sourceCommit",
+    "baseCommit",
+    "approvedScopeHash",
+    "approvedFiles",
+    "artifacts",
+    "createdAt",
+    "state"
+  ],
+  "properties": {
+    "schema": {"const": "sea_speed_release_manifest_v1"},
+    "deliveryId": {"type": "string", "minLength": 8},
+    "component": {"enum": ["vps", "windows-worker", "mixed", "governance"]},
+    "issue": {"type": "integer", "minimum": 0},
+    "sourceCommit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "baseCommit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "approvedScopeHash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "approvedFiles": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "sha256", "sizeBytes"],
+        "properties": {
+          "path": {"type": "string", "minLength": 1},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "sizeBytes": {"type": "integer", "minimum": 0}
+        }
+      }
+    },
+    "createdAt": {"type": "string", "format": "date-time"},
+    "state": {"enum": ["validated", "packaged", "ready_for_deployment"]}
+  }
+}
