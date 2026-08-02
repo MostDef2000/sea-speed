@@ -216,7 +216,7 @@ def bbox_intersects_motion(det, motion_boxes):
     if not motion_boxes:
         return False
 
-    x1, y1, x2, y2 = det["bbox_xyxy"]
+    x1, y1, x2, y2 = det["bbox_xxy"]
     det_area = max(1.0, float((x2 - x1) * (y2 - y1)))
 
     for mx, my, mw, mh in motion_boxes:
@@ -239,6 +239,7 @@ def bbox_intersects_motion(det, motion_boxes):
             return True
 
     return False
+
 
 
 def filter_detections_by_motion(detections, motion_boxes):
@@ -878,12 +879,15 @@ def update_speed_lines_estimate(det):
         track_id = int(track_id)
         track_state = _track_states.setdefault(track_id, {})
         track_state["last_seen"] = now
+        track_state.setdefault("event_posted", False)
         state = track_state.setdefault("line_speed", {})
 
+    speed_lines_enabled = bool(cfg.get("enabled"))
     info = {
         "line_speed_kmh": None,
         "speed_kmh": None,
         "speed_source": "detection_first",
+        "speed_lines_enabled": speed_lines_enabled,
         "speed_distance_m": None,
         "speed_travel_time_sec": None,
         "speed_start_line": None,
@@ -903,13 +907,57 @@ def update_speed_lines_estimate(det):
     state.setdefault("samples", [])
     state.setdefault("track_started_ts", now)
     state.setdefault("last_seen_ts", now)
+    state.setdefault("display_speed_kmh", None)
+    state.setdefault("display_speed_ts", None)
 
     max_gap_sec = env_float("DETECTION_TRACK_MAX_GAP_SEC", 2.0)
+    display_hold_sec = max(0.0, env_float("DETECTION_SPEED_DISPLAY_HOLD_SEC", 2.0))
     min_dt = env_float("DETECTION_SPEED_MIN_DT_SEC", 0.05)
     max_dt = env_float("DETECTION_SPEED_MAX_DT_SEC", 1.5)
     min_kmh = env_float("DETECTION_SPEED_MIN_KMH", 1.0)
     max_kmh = env_float("DETECTION_SPEED_MAX_KMH", 180.0)
-    smooth_samples = max(1, int(env_float("DETECTION_SPEED_SMOOTH_SAMPLES", 5)))
+    configured_min_samples = max(1, int(env_float("DETECTION_SPEED_MIN_SAMPLES", 3)))
+    min_samples = 1 if track_id is None else configured_min_samples
+    smooth_samples = max(min_samples, int(env_float("DETECTION_SPEED_SMOOTH_SAMPLES", 5)))
+
+    def median_value(values):
+        ordered = sorted(float(value) for value in values)
+        count = len(ordered)
+        middle = count // 2
+        if count % 2:
+            return ordered[middle]
+        return (ordered[middle - 1] + ordered[middle]) / 2.0
+
+    def update_sample_metadata():
+        samples = list(state.get("samples") or [])
+        info["speed_sample_count"] = len(samples)
+        if not samples:
+            return
+        info["speed_kmh_min"] = round(min(samples), 1)
+        info["speed_kmh_max"] = round(max(samples), 1)
+        info["speed_kmh_avg"] = round(sum(samples) / len(samples), 1)
+
+    def apply_held_speed():
+        display_speed = state.get("display_speed_kmh")
+        display_ts = state.get("display_speed_ts")
+        if display_speed is None or display_ts is None:
+            return False
+        if now - float(display_ts) > display_hold_sec:
+            return False
+        display_speed = round(float(display_speed), 1)
+        info.update({
+            "line_speed_kmh": display_speed,
+            "speed_kmh": display_speed,
+            "speed_source": "detection_first_calibrated_held",
+            "speed_segment_kmh": display_speed,
+            "speed_travel_time_sec": round(
+                now - float(state.get("track_started_ts", now)),
+                3,
+            ),
+            "speed_ready": True,
+        })
+        update_sample_metadata()
+        return True
 
     prev_ts = state.get("prev_ts")
     if prev_ts is not None and now - float(prev_ts) > max_gap_sec:
@@ -918,6 +966,10 @@ def update_speed_lines_estimate(det):
         state["prev_ts"] = None
         state["samples"] = []
         state["track_started_ts"] = now
+        state["display_speed_kmh"] = None
+        state["display_speed_ts"] = None
+        if track_state is not None:
+            track_state["event_posted"] = False
 
     line_a = cfg.get("line_a") or []
     line_b = cfg.get("line_b") or []
@@ -939,7 +991,7 @@ def update_speed_lines_estimate(det):
         )
 
     def progress_m_from_calibration(p):
-        if not valid_line(line_a) or not valid_line(line_b):
+        if not speed_lines_enabled or not valid_line(line_a) or not valid_line(line_b):
             return None
 
         ma = midpoint(line_a)
@@ -965,6 +1017,8 @@ def update_speed_lines_estimate(det):
         state["prev_progress_m"] = None
         state["prev_ts"] = now
         state["last_seen_ts"] = now
+        apply_held_speed()
+        update_sample_metadata()
         if track_state is not None:
             track_state["line_speed_info"] = dict(info)
         return info
@@ -988,44 +1042,59 @@ def update_speed_lines_estimate(det):
 
                 samples = list(state["samples"])
                 recent = samples[-smooth_samples:]
+                update_sample_metadata()
 
-                avg_recent = round(sum(recent) / len(recent), 1)
-                avg_all = round(sum(samples) / len(samples), 1)
-                min_all = round(min(samples), 1)
-                max_all = round(max(samples), 1)
+                if len(samples) >= min_samples:
+                    canonical_kmh = round(median_value(recent), 1)
+                    state["display_speed_kmh"] = canonical_kmh
+                    state["display_speed_ts"] = now
 
-                info.update({
-                    "line_speed_kmh": avg_recent,
-                    "speed_kmh": avg_recent,
-                    "speed_source": "detection_first_calibrated",
-                    "speed_trigger_point": "bottom_center",
-                    "speed_segment_kmh": avg_recent,
-                    "speed_kmh_min": min_all,
-                    "speed_kmh_max": max_all,
-                    "speed_kmh_avg": avg_all,
-                    "speed_sample_count": len(samples),
-                    "speed_travel_time_sec": round(
-                        now - float(state.get("track_started_ts", now)),
-                        3,
-                    ),
-                    "speed_ready": True,
-                })
+                    info.update({
+                        "line_speed_kmh": canonical_kmh,
+                        "speed_kmh": canonical_kmh,
+                        "speed_source": "detection_first_calibrated",
+                        "speed_trigger_point": "bottom_center",
+                        "speed_segment_kmh": canonical_kmh,
+                        "speed_travel_time_sec": round(
+                            now - float(state.get("track_started_ts", now)),
+                            3,
+                        ),
+                        "speed_ready": True,
+                    })
 
-                print(
-                    f"Detection-first speed track={track_id}: {avg_recent} km/h "
-                    f"instant={inst_kmh} min={min_all} avg={avg_all} max={max_all} "
-                    f"samples={len(samples)} trigger=bottom_center"
-                )
+                    print(
+                        f"Detection-first speed track={track_id}: {canonical_kmh} km/h "
+                        f"instant={inst_kmh} min={info['speed_kmh_min']} "
+                        f"avg={info['speed_kmh_avg']} max={info['speed_kmh_max']} "
+                        f"samples={len(samples)} trigger=bottom_center"
+                    )
 
     state["prev_point"] = point
     state["prev_progress_m"] = progress_m
     state["prev_ts"] = now
     state["last_seen_ts"] = now
 
+    if not info["speed_ready"]:
+        apply_held_speed()
+        update_sample_metadata()
+
     if track_state is not None:
         track_state["line_speed_info"] = dict(info)
 
     return info
+
+def track_event_posted(track_id):
+    if track_id is None:
+        return False
+    state = _track_states.get(int(track_id)) or {}
+    return bool(state.get("event_posted"))
+
+
+def mark_track_event_posted(track_id):
+    if track_id is None:
+        return
+    state = _track_states.setdefault(int(track_id), {})
+    state["event_posted"] = True
 
 
 def prune_track_states(now=None):
@@ -1073,10 +1142,14 @@ def build_event(best_det, motion_area, speed_info=None, line_speed_info=None):
 
     speed_px_s = speed_info.get("speed_px_s")
 
-    speed_kmh = line_speed_info.get("speed_kmh")
-    speed_source = line_speed_info.get("speed_source")
+    speed_kmh = best_det.get("speed_kmh")
+    speed_source = best_det.get("speed_source")
 
     if speed_kmh is None:
+        speed_kmh = line_speed_info.get("speed_kmh")
+        speed_source = line_speed_info.get("speed_source")
+
+    if speed_kmh is None and not line_speed_info.get("speed_lines_enabled"):
         try:
             speed_kmh = convert_px_s_to_kmh(speed_px_s)
             if speed_kmh is not None:
@@ -1169,16 +1242,23 @@ def main():
                 line_speed_info = update_speed_lines_estimate(det)
                 speed_px_s = speed_info.get("speed_px_s")
                 speed_kmh = line_speed_info.get("speed_kmh")
+                speed_source = line_speed_info.get("speed_source")
+                speed_lines_enabled = bool(line_speed_info.get("speed_lines_enabled"))
 
-                if speed_kmh is None:
+                if speed_kmh is None and not speed_lines_enabled:
                     try:
                         speed_kmh = convert_px_s_to_kmh(speed_px_s)
+                        if speed_kmh is not None:
+                            speed_source = "px_factor"
                     except Exception:
                         speed_kmh = None
 
                 det["speed_px_s"] = speed_px_s
                 det["speed_kmh"] = speed_kmh
-                det["speed_ready"] = bool(line_speed_info.get("speed_ready")) or speed_kmh is not None
+                det["speed_source"] = speed_source
+                det["speed_ready"] = bool(line_speed_info.get("speed_ready")) or (
+                    not speed_lines_enabled and speed_kmh is not None
+                )
                 det["_speed_info"] = speed_info
                 det["_line_speed_info"] = line_speed_info
 
@@ -1210,20 +1290,27 @@ def main():
                 speed_px_s = speed_info.get("speed_px_s")
                 min_speed = env_float("MIN_EVENT_SPEED_PX_PER_SEC", 10.0)
 
-                line_speed_kmh = line_speed_info.get("speed_kmh")
-                speed_ready = bool(line_speed_info.get("speed_ready")) or line_speed_kmh is not None
+                speed_lines_enabled = bool(line_speed_info.get("speed_lines_enabled"))
+                canonical_speed_kmh = best.get("speed_kmh")
+                speed_ready = (
+                    bool(line_speed_info.get("speed_ready"))
+                    and canonical_speed_kmh is not None
+                )
+                track_id = best.get("track_id")
+                event_already_posted = track_event_posted(track_id)
 
                 has_px_speed = speed_px_s is not None
                 cooldown_ok = now - last_event_post >= event_cooldown
-
-                # Existing event policy is preserved:
-                # - calibrated speed remains immediately eligible;
-                # - pixel-speed fallback remains subject to global cooldown.
-                should_post_event = speed_ready or (
+                legacy_event_ready = speed_ready or (
                     has_px_speed
                     and speed_px_s >= min_speed
                     and cooldown_ok
                 )
+
+                if speed_lines_enabled:
+                    should_post_event = speed_ready and not event_already_posted
+                else:
+                    should_post_event = not event_already_posted and legacy_event_ready
 
                 if should_post_event:
                     event = build_event(best, motion_area, speed_info, line_speed_info)
@@ -1235,8 +1322,9 @@ def main():
                         [cv2.IMWRITE_JPEG_QUALITY, 90],
                     )
 
-                    last_event_post = now
-                    post_event(event, event_snapshot_path)
+                    if post_event(event, event_snapshot_path):
+                        last_event_post = now
+                        mark_track_event_posted(track_id)
 
             if now - last_state_post >= state_interval:
                 track_count = len(active_track_ids)
