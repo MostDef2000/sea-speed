@@ -54,7 +54,6 @@ class FrontendContractTests(unittest.TestCase):
             self.source,
             re.compile(
                 r'<div\s+class="camera-stage"[^>]*>.*?'
-                r'<video\s+id="video".*?'
                 r'<div\s+class="roi-editor-wrap"\s+id="roiEditorWrap">.*?'
                 r'<img\s+id="overlayImg".*?'
                 r'<canvas\s+id="roiCanvas"></canvas>.*?'
@@ -62,7 +61,56 @@ class FrontendContractTests(unittest.TestCase):
                 re.S,
             ),
         )
+        stage = self.source.split('<div class="camera-stage" id="cameraStage">', 1)[1].split('</div>\n\n        <div class="camera-meta">', 1)[0]
+        self.assertNotIn('id="video"', stage)
         self.assertIn("Разметка ROI и линий скорости отображается непосредственно на основном кадре", self.source)
+
+    def test_operator_has_single_clean_live_preview_in_right_sidebar(self) -> None:
+        self.assertEqual(self.source.count('id="video"'), 1)
+        match = re.search(
+            r'<section\s+class="panel control-card live-preview-card"[^>]*>'
+            r'(?P<body>.*?)</section>',
+            self.source,
+            re.S,
+        )
+        self.assertIsNotNone(match)
+        live_card = match.group("body")
+        for marker in (
+            'data-layout="clean-live"',
+            'id="connectBtn"',
+            'id="disconnectBtn"',
+            '<video id="video" controls playsinline muted></video>',
+            'HLS без AI overlay',
+        ):
+            if marker.startswith('data-layout'):
+                self.assertIn(marker, match.group(0))
+            else:
+                self.assertIn(marker, live_card)
+        self.assertEqual(self.source.count('new Hls('), 1)
+
+    def test_operator_overlay_controls_are_collapsed_by_default(self) -> None:
+        match = re.search(
+            r'<details\s+class="panel overlay-controls-card"\s+'
+            r'data-layout="collapsible-overlay-controls"(?P<attrs>[^>]*)>.*?'
+            r'<summary>.*?Overlay controls.*?</summary>.*?'
+            r'id="roiEditBtn".*?id="speedLineABtn".*?</details>',
+            self.source,
+            re.S,
+        )
+        self.assertIsNotNone(match)
+        self.assertNotIn(" open", match.group("attrs"))
+
+    def test_operator_desktop_overlay_is_reduced_and_mobile_restores_width(self) -> None:
+        self.assertIn("grid-template-columns: minmax(0, 820px) minmax(320px, 380px)", self.source)
+        self.assertIn("width: min(100%, 720px);", self.source)
+        self.assertRegex(
+            self.source,
+            re.compile(
+                r'@media \(max-width: 900px\).*?'
+                r'\.camera-stage\s*\{\s*width: 100%;',
+                re.S,
+            ),
+        )
 
     def test_operator_status_is_compact_and_controls_are_right_sidebar(self) -> None:
         self.assertIn('class="status-strip"', self.source)
@@ -76,6 +124,8 @@ class FrontendContractTests(unittest.TestCase):
             self.source,
             re.compile(
                 r'<aside\s+class="control-sidebar"[^>]*>.*?'
+                r'data-layout="clean-live".*?'
+                r'data-layout="collapsible-overlay-controls".*?'
                 r'id="roiEditBtn".*?id="speedLineABtn".*?'
                 r'class="panel control-card speed-calibration-card".*?'
                 r'<details\s+class="panel diagnostics-card state-card">',
