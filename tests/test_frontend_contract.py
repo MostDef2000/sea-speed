@@ -70,6 +70,59 @@ class FrontendContractTests(unittest.TestCase):
         self.assertLess(body.index('data-layout="clean-live"'), body.index('data-layout="compact-detection-history"'))
         self.assertEqual(self.source.count('new Hls('), 1)
 
+    def test_clean_live_has_controlled_retry_lifecycle(self) -> None:
+        for marker in (
+            'const STREAM_RETRY_DELAYS_MS=[1000,2000,4000,8000]',
+            'streamDesired=false',
+            'connectInFlight=false',
+            'playInFlight=false',
+            'reconnectAttempt=0',
+            'reconnectTimer=null',
+            'function scheduleStreamReconnect',
+            'function attemptVideoPlay',
+            'function destroyStreamMedia',
+        ):
+            self.assertIn(marker, self.source)
+        self.assertIn('if(connectInFlight)return', self.source)
+        self.assertEqual(self.source.count('new Hls('), 1)
+
+    def test_hls_errors_use_network_and_media_recovery(self) -> None:
+        for marker in (
+            'Hls.ErrorTypes.NETWORK_ERROR',
+            'instance.startLoad()',
+            'Hls.ErrorTypes.MEDIA_ERROR',
+            'instance.recoverMediaError()',
+        ):
+            self.assertIn(marker, self.source)
+
+    def test_stream_status_tracks_actual_playback_and_stop_cancels_retry(self) -> None:
+        self.assertIn('video.addEventListener("playing"', self.source)
+        self.assertEqual(self.source.count('setStatus(streamStatus,"online","good")'), 1)
+        self.assertNotIn(
+            'MANIFEST_PARSED,()=>video.play().then(()=>setStatus(streamStatus,"online"',
+            self.source,
+        )
+        start = self.source.index('function disconnectStream(')
+        end = self.source.index('async function refreshState', start)
+        disconnect_source = self.source[start:end]
+        for marker in (
+            'streamDesired=false',
+            'clearReconnectTimer()',
+            'destroyStreamMedia()',
+            'setStatus(streamStatus,"idle","warn")',
+        ):
+            self.assertIn(marker, disconnect_source)
+        self.assertIn('video.removeAttribute("src")', self.source)
+
+    def test_stream_autoconnects_and_recovers_video_events(self) -> None:
+        for marker in (
+            'video.addEventListener("stalled"',
+            'video.addEventListener("ended"',
+            'video.addEventListener("error"',
+            'setTimeout(()=>connectStream({resetRetry:true,reason:"auto"}),0)',
+        ):
+            self.assertIn(marker, self.source)
+
     def test_detection_history_is_capped_and_does_not_use_bottom_panel(self) -> None:
         self.assertIn('events.slice(0,3)', self.source)
         self.assertIn('grid-template-rows:auto minmax(0,1fr)', self.source)
