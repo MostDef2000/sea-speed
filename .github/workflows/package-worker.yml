@@ -4,12 +4,16 @@ on:
   pull_request:
     paths:
       - "worker/**"
+      - "scripts/release/**"
+      - "schemas/**"
       - ".github/workflows/package-worker.yml"
   push:
     branches:
       - main
     paths:
       - "worker/**"
+      - "scripts/release/**"
+      - "schemas/**"
       - ".github/workflows/package-worker.yml"
   workflow_dispatch:
 
@@ -28,6 +32,8 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
 
       - name: Validate worker PowerShell syntax
         shell: pwsh
@@ -79,20 +85,53 @@ jobs:
 
           Set-Content -LiteralPath (Join-Path $packageDir 'commit-sha.txt') -Value $env:GITHUB_SHA -Encoding ascii
           Compress-Archive -Path "$packageDir/*" -DestinationPath 'dist/sea-speed-worker.zip' -Force
+          $hash = (Get-FileHash -LiteralPath 'dist/sea-speed-worker.zip' -Algorithm SHA256).Hash.ToLowerInvariant()
+          Set-Content -LiteralPath 'dist/sea-speed-worker.zip.sha256' -Value "$hash  sea-speed-worker.zip" -Encoding ascii
 
-      - name: Upload worker package
+      - name: Build and validate release manifest
+        shell: pwsh
+        env:
+          ISSUE_NUMBER: ${{ github.event.pull_request.number || 0 }}
+        run: |
+          $baseSha = (git rev-parse "$env:GITHUB_SHA^").Trim()
+          $changedFiles = @(git diff --name-only $baseSha $env:GITHUB_SHA | Where-Object { $_ })
+          $arguments = @(
+            'scripts/release/build_release_manifest.py',
+            '--component', 'windows-worker',
+            '--issue', $env:ISSUE_NUMBER,
+            '--source-commit', $env:GITHUB_SHA,
+            '--base-commit', $baseSha,
+            '--state', 'packaged',
+            '--artifact', 'dist/sea-speed-worker.zip',
+            '--output', 'dist/release-manifest-windows-worker.json'
+          )
+          foreach ($file in $changedFiles) {
+            $arguments += '--file'
+            $arguments += $file
+          }
+          & python @arguments
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/release/validate_release_manifest.py dist/release-manifest-windows-worker.json
+
+      - name: Upload worker package and provenance
         uses: actions/upload-artifact@v4
         with:
           name: sea-speed-worker-${{ github.sha }}
-          path: dist/sea-speed-worker.zip
+          path: |
+            dist/sea-speed-worker.zip
+            dist/sea-speed-worker.zip.sha256
+            dist/release-manifest-windows-worker.json
           retention-days: 14
           if-no-files-found: error
 
       - name: Package summary
         shell: pwsh
         run: |
+          $checksum = Get-Content 'dist/sea-speed-worker.zip.sha256' -Raw
           '### Sea Speed Windows worker package' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
           ('- Commit: `{0}`' -f $env:GITHUB_SHA) | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          ('- SHA-256: `{0}`' -f $checksum.Trim()) | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          '- State: `packaged` (not installed)' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
           '- Target: `D:\sea-speed`' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
           '- Runtime secrets: loaded from preserved local `.env`' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
           '- Preserved: `.env`, `.venv`, `output`, models, patch files and local backups' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
