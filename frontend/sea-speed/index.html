@@ -215,7 +215,8 @@
 
     .workspace {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) minmax(320px, 380px);
+      grid-template-columns: minmax(0, 820px) minmax(320px, 380px);
+      justify-content: center;
       gap: 16px;
       align-items: start;
     }
@@ -254,6 +255,7 @@
 
     .panel-heading h2,
     .control-card h2,
+    .overlay-controls-card h2,
     .events-heading h2 {
       margin-bottom: 4px;
       font-size: 1.08rem;
@@ -304,7 +306,7 @@
 
     .camera-stage {
       position: relative;
-      width: min(100%, 1080px);
+      width: min(100%, 720px);
       aspect-ratio: 704 / 576;
       margin: 0 auto;
       overflow: hidden;
@@ -329,22 +331,11 @@
       box-shadow: inset 0 0 58px rgba(0, 12, 22, 0.28);
     }
 
-    #video,
     .roi-editor-wrap {
       position: absolute;
       inset: 0;
       width: 100%;
       height: 100%;
-    }
-
-    #video {
-      z-index: 1;
-      display: block;
-      object-fit: contain;
-      background: #01060a;
-    }
-
-    .roi-editor-wrap {
       z-index: 2;
       overflow: hidden;
       border-radius: inherit;
@@ -445,6 +436,96 @@
       display: grid;
       gap: 12px;
       align-content: start;
+    }
+
+    .live-preview-heading {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+
+    .live-preview-heading h2 {
+      margin-bottom: 3px;
+    }
+
+    .live-preview-frame {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 704 / 576;
+      overflow: hidden;
+      border: 1px solid rgba(94, 234, 212, 0.22);
+      border-radius: 14px;
+      background: #01060a;
+      box-shadow: inset 0 0 34px rgba(0, 12, 22, 0.32);
+    }
+
+    .live-preview-frame #video {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      background: #01060a;
+    }
+
+    .live-preview-note {
+      margin-top: 8px;
+    }
+
+    .overlay-controls-card {
+      padding: 0;
+      border-radius: var(--radius-lg);
+      background: linear-gradient(155deg, rgba(8, 34, 50, 0.92), rgba(3, 18, 30, 0.96));
+      box-shadow: 0 18px 50px rgba(0, 5, 12, 0.28);
+    }
+
+    .overlay-controls-card > summary {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      min-height: 56px;
+      padding: 0 15px;
+      color: #dff8ff;
+      font-size: 0.82rem;
+      font-weight: 800;
+      cursor: pointer;
+      list-style: none;
+    }
+
+    .overlay-controls-card > summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .overlay-controls-card > summary::after {
+      content: "+";
+      flex: 0 0 auto;
+      color: var(--cyan);
+      font-size: 1.12rem;
+    }
+
+    .overlay-controls-card[open] > summary::after {
+      content: "−";
+    }
+
+    .overlay-summary-copy {
+      display: grid;
+      gap: 2px;
+    }
+
+    .overlay-summary-copy .section-note {
+      font-size: 0.67rem;
+      font-weight: 600;
+    }
+
+    .overlay-controls-content {
+      padding: 0 15px 15px;
+      border-top: 1px solid rgba(129, 213, 224, 0.12);
+    }
+
+    .overlay-controls-content .control-header {
+      padding-top: 14px;
     }
 
     .control-card,
@@ -728,8 +809,8 @@
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
 
-      .control-sidebar > :first-child {
-        grid-row: span 2;
+      .live-preview-card {
+        grid-column: 1;
       }
 
       .camera-stage {
@@ -804,8 +885,8 @@
         grid-template-columns: 1fr;
       }
 
-      .control-sidebar > :first-child {
-        grid-row: auto;
+      .live-preview-card {
+        grid-column: auto;
       }
 
       .control-card {
@@ -972,27 +1053,11 @@
           <div>
             <p class="panel-kicker">Camera 1 · AI overlay</p>
             <h2>Главное окно наблюдения</h2>
-            <div class="path">HLS: /cams/hls/cam1/index.m3u8</div>
-          </div>
-
-          <div class="camera-actions">
-            <button id="connectBtn" class="icon-btn connect" title="Подключиться" aria-label="Подключиться">
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M8 5v14l11-7z"></path>
-              </svg>
-            </button>
-
-            <button id="disconnectBtn" class="icon-btn disconnect" title="Отключить" aria-label="Отключить">
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M6 6h12v12H6z"></path>
-              </svg>
-            </button>
+            <div class="path">Аннотированный кадр: /sea-speed/media/overlays/cam1_latest_overlay.jpg</div>
           </div>
         </div>
 
         <div class="camera-stage" id="cameraStage">
-          <video id="video" controls playsinline muted></video>
-
           <div class="roi-editor-wrap" id="roiEditorWrap">
             <img id="overlayImg" class="overlay-img" alt="Аннотированный поток Camera 1" />
             <canvas id="roiCanvas"></canvas>
@@ -1012,12 +1077,49 @@
       </article>
 
       <aside class="control-sidebar" data-layout="right-controls">
-        <section class="panel control-card">
-          <div class="control-header">
-            <p class="panel-kicker">Overlay controls</p>
-            <h2>Разметка акватории</h2>
-            <div class="section-note">Управление зонами и измерительными линиями для главного окна.</div>
+        <section class="panel control-card live-preview-card" data-layout="clean-live">
+          <div class="live-preview-heading">
+            <div>
+              <p class="panel-kicker">Live camera</p>
+              <h2>Чистый поток</h2>
+              <div class="section-note">HLS без AI overlay</div>
+            </div>
+
+            <div class="camera-actions">
+              <button id="connectBtn" class="icon-btn connect" title="Подключиться" aria-label="Подключиться">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M8 5v14l11-7z"></path>
+                </svg>
+              </button>
+
+              <button id="disconnectBtn" class="icon-btn disconnect" title="Отключить" aria-label="Отключить">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M6 6h12v12H6z"></path>
+                </svg>
+              </button>
+            </div>
           </div>
+
+          <div class="live-preview-frame">
+            <video id="video" controls playsinline muted></video>
+          </div>
+          <div class="section-note live-preview-note">Camera 1 · /cams/hls/cam1/index.m3u8</div>
+        </section>
+
+        <details class="panel overlay-controls-card" data-layout="collapsible-overlay-controls">
+          <summary>
+            <span class="overlay-summary-copy">
+              <span>Overlay controls</span>
+              <span class="section-note">ROI / speed lines</span>
+            </span>
+          </summary>
+
+          <div class="overlay-controls-content">
+            <div class="control-header">
+              <p class="panel-kicker">Overlay setup</p>
+              <h2>Разметка акватории</h2>
+              <div class="section-note">Управление зонами и измерительными линиями для главного окна.</div>
+            </div>
 
           <div class="control-label">
             <span>ROI</span>
@@ -1054,7 +1156,8 @@
 
             <div id="speedLinesStatus" class="roi-status">Speed lines: loading</div>
           </div>
-        </section>
+          </div>
+        </details>
 
         <section class="panel control-card speed-calibration-card">
           <div class="control-header">
