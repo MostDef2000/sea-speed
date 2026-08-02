@@ -13,19 +13,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 ALLOWED_TOP_LEVEL = {
-    ".github",
-    ".gitignore",
-    "README.md",
-    "api",
-    "contracts",
-    "deploy",
-    "docs",
-    "frontend",
-    "schemas",
-    "scripts",
-    "skills",
-    "tests",
-    "worker",
+    ".github", ".gitignore", "README.md", "api", "contracts", "deploy", "docs",
+    "frontend", "schemas", "scripts", "skills", "tests", "worker",
 }
 
 REQUIRED_FILES = {
@@ -33,46 +22,37 @@ REQUIRED_FILES = {
     "api/app/main.py",
     "frontend/sea-speed/index.html",
     "worker/hls_motion_yolo_worker_events.py",
+    "worker/hls_motion_yolo_runtime.py",
+    "worker/run_worker_once.ps1",
     "contracts/SEA_SPEED_GOVERNANCE.md",
     "contracts/SEA_SPEED_DELIVERY_POLICY.md",
     "contracts/runtime/SEA_SPEED_TASK_RUNTIME.md",
     "contracts/runtime/RELEASE_READINESS_GATE.md",
     "scripts/ci/validate_contracts.py",
+    "scripts/ci/validate_telemetry.py",
     "scripts/release/build_release_manifest.py",
     "scripts/release/validate_release_manifest.py",
     "scripts/release/validate_deployment_manifest.py",
     "schemas/release-manifest.schema.json",
     "schemas/deployment-manifest.schema.json",
+    "schemas/telemetry.schema.json",
     "tests/test_api_contract.py",
     "tests/test_worker_contract.py",
     "tests/test_frontend_contract.py",
     "tests/test_release_manifest.py",
+    "tests/test_telemetry_contract.py",
     "docs/operations/PRODUCTION_BASELINE.md",
     "docs/operations/RELEASE_PROVENANCE.md",
+    "docs/evidence/POST_RELEASE_REVIEW.md",
+    "docs/decision_records/DR-003-release-provenance-and-evidence-loop.md",
+    ".github/ISSUE_TEMPLATE/loop-engineering.yml",
+    ".github/pull_request_template.md",
 }
 
-FORBIDDEN_DIRECTORY_NAMES = {
-    ".venv",
-    "venv",
-    "__pycache__",
-    "output",
-    "snapshots",
-    "overlays",
-}
-
-FORBIDDEN_PATH_PREFIXES = {
-    "worker/runtime",
-    "worker/events",
-    "worker/output",
-    "api/data",
-    "api/media",
-}
-
+FORBIDDEN_DIRECTORY_NAMES = {".venv", "venv", "__pycache__", "output", "snapshots", "overlays"}
+FORBIDDEN_PATH_PREFIXES = {"worker/runtime", "worker/events", "worker/output", "api/data", "api/media"}
 FORBIDDEN_FILENAMES = {".env", ".env.local"}
-
-FORBIDDEN_SUFFIXES = {
-    ".engine", ".jpeg", ".jpg", ".log", ".mkv", ".mp4", ".onnx", ".png", ".pt", ".pyc",
-}
+FORBIDDEN_SUFFIXES = {".engine", ".jpeg", ".jpg", ".log", ".mkv", ".mp4", ".onnx", ".png", ".pt", ".pyc"}
 
 SECRET_PATTERNS = {
     "private key": re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"),
@@ -82,7 +62,7 @@ SECRET_PATTERNS = {
     "hard-coded HLS auth": re.compile(r"(?im)^\s*(?:set\s+\"?)?HLS_BASIC_AUTH_BASE64\s*=\s*[^\s\"']+"),
 }
 
-TEXT_SUFFIXES = {".cmd", ".html", ".js", ".json", ".md", ".py", ".sh", ".txt", ".yaml", ".yml"}
+TEXT_SUFFIXES = {".cmd", ".html", ".js", ".json", ".md", ".ps1", ".py", ".sh", ".txt", ".yaml", ".yml"}
 
 
 class HtmlStructureValidator(HTMLParser):
