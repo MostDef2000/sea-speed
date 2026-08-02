@@ -37,6 +37,7 @@ class FrontendContractTests(unittest.TestCase):
 
     def test_runtime_status_fields_are_rendered(self) -> None:
         for element_id in (
+            "streamStatus",
             "workerStatus",
             "motionStatus",
             "aiStatus",
@@ -45,7 +46,74 @@ class FrontendContractTests(unittest.TestCase):
             "stateJson",
             "eventsList",
         ):
-            self.assertIn(f'id="{element_id}"', self.source)
+            self.assertEqual(self.source.count(f'id="{element_id}"'), 1)
+
+    def test_operator_uses_primary_annotated_camera_stage(self) -> None:
+        self.assertIn('data-layout="primary-camera"', self.source)
+        self.assertRegex(
+            self.source,
+            re.compile(
+                r'<div\s+class="camera-stage"[^>]*>.*?'
+                r'<video\s+id="video".*?'
+                r'<div\s+class="roi-editor-wrap"\s+id="roiEditorWrap">.*?'
+                r'<img\s+id="overlayImg".*?'
+                r'<canvas\s+id="roiCanvas"></canvas>.*?'
+                r'<canvas\s+id="speedLinesCanvas"></canvas>',
+                re.S,
+            ),
+        )
+        self.assertIn("Разметка ROI и линий скорости отображается непосредственно на основном кадре", self.source)
+
+    def test_operator_status_is_compact_and_controls_are_right_sidebar(self) -> None:
+        self.assertIn('class="status-strip"', self.source)
+        self.assertIn('data-layout="compact-status"', self.source)
+        self.assertIn('class="control-sidebar" data-layout="right-controls"', self.source)
+        self.assertLess(
+            self.source.index('data-layout="compact-status"'),
+            self.source.index('<main class="operator-shell">'),
+        )
+        self.assertRegex(
+            self.source,
+            re.compile(
+                r'<aside\s+class="control-sidebar"[^>]*>.*?'
+                r'id="roiEditBtn".*?id="speedLineABtn".*?'
+                r'class="panel control-card speed-calibration-card".*?'
+                r'<details\s+class="panel diagnostics-card state-card">',
+                re.S,
+            ),
+        )
+
+    def test_operator_mobile_layout_targets_ios_pro_widths(self) -> None:
+        for marker in (
+            "viewport-fit=cover",
+            "env(safe-area-inset-top)",
+            "env(safe-area-inset-right)",
+            "env(safe-area-inset-bottom)",
+            "env(safe-area-inset-left)",
+            "@media (max-width: 430px)",
+            "@media (max-width: 390px)",
+            "min-height: 44px",
+            "-webkit-overflow-scrolling: touch",
+        ):
+            self.assertIn(marker, self.source)
+
+    def test_operator_state_and_log_are_compact_disclosures(self) -> None:
+        self.assertRegex(
+            self.source,
+            re.compile(
+                r'<details\s+class="panel diagnostics-card state-card">.*?'
+                r'<pre\s+id="stateJson">\{\}</pre>.*?</details>',
+                re.S,
+            ),
+        )
+        self.assertRegex(
+            self.source,
+            re.compile(
+                r'<details\s+class="panel diagnostics-card debug-card">.*?'
+                r'<div\s+id="debugLog"\s+class="debug"></div>.*?</details>',
+                re.S,
+            ),
+        )
 
     def test_root_page_primary_action_opens_operator_frontend(self) -> None:
         self.assertRegex(
