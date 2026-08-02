@@ -11,10 +11,12 @@ REPOSITORY="${SEA_SPEED_REPOSITORY:-MostDef2000/sea-speed}"
 DEPLOY_ROOT="${SEA_SPEED_DEPLOY_ROOT:-/opt/sea-speed-deploy}"
 API_TARGET="${SEA_SPEED_API_TARGET:-/opt/sea-speed-api/app/main.py}"
 FRONTEND_TARGET="${SEA_SPEED_FRONTEND_TARGET:-/var/www/mostdef.ru/sea-speed/index.html}"
+ROOT_FRONTEND_TARGET="${SEA_SPEED_ROOT_FRONTEND_TARGET:-/var/www/mostdef.ru/index.html}"
 SERVICE_NAME="sea-speed-api"
 SYSTEMCTL_BIN="${SEA_SPEED_SYSTEMCTL_BIN:-/usr/bin/systemctl}"
 HEALTH_URL="${SEA_SPEED_HEALTH_URL:-https://mostdef.ru/sea-speed/api/health}"
 FRONTEND_URL="${SEA_SPEED_FRONTEND_URL:-https://mostdef.ru/sea-speed/}"
+ROOT_FRONTEND_URL="${SEA_SPEED_ROOT_FRONTEND_URL:-https://mostdef.ru/}"
 RELEASES_DIR="${DEPLOY_ROOT}/releases"
 STATE_DIR="${DEPLOY_ROOT}/state"
 CURRENT_FILE="${STATE_DIR}/current-release"
@@ -38,14 +40,17 @@ validate_sha() {
 validate_runtime_access() {
   [[ -x "$SYSTEMCTL_BIN" ]] || { echo "systemctl executable not found at ${SYSTEMCTL_BIN}" >&2; exit 1; }
   [[ -w "$(dirname "$API_TARGET")" ]] || { echo "Deploy user cannot write API directory: $(dirname "$API_TARGET")" >&2; exit 1; }
-  [[ -w "$(dirname "$FRONTEND_TARGET")" ]] || { echo "Deploy user cannot write frontend directory: $(dirname "$FRONTEND_TARGET")" >&2; exit 1; }
+  [[ -w "$(dirname "$FRONTEND_TARGET")" ]] || { echo "Deploy user cannot write operator frontend directory: $(dirname "$FRONTEND_TARGET")" >&2; exit 1; }
+  [[ -w "$(dirname "$ROOT_FRONTEND_TARGET")" ]] || { echo "Deploy user cannot write root frontend directory: $(dirname "$ROOT_FRONTEND_TARGET")" >&2; exit 1; }
   command -v python3 >/dev/null || { echo "python3 is required to write deployment evidence" >&2; exit 1; }
 }
 
 ensure_layout() { mkdir -p "$RELEASES_DIR" "$STATE_DIR"; }
 
 download_release() {
-  if [[ -f "$TARGET_RELEASE/api/app/main.py" && -f "$TARGET_RELEASE/frontend/sea-speed/index.html" ]]; then
+  if [[ -f "$TARGET_RELEASE/api/app/main.py" && \
+        -f "$TARGET_RELEASE/frontend/sea-speed/index.html" && \
+        -f "$TARGET_RELEASE/frontend/root/index.html" ]]; then
     log "Release ${COMMIT_SHA} already exists"
     return
   fi
@@ -64,18 +69,20 @@ download_release() {
 
   [[ -f "$extracted/api/app/main.py" ]] || { echo "Release does not contain api/app/main.py" >&2; exit 1; }
   [[ -f "$extracted/frontend/sea-speed/index.html" ]] || { echo "Release does not contain frontend/sea-speed/index.html" >&2; exit 1; }
+  [[ -f "$extracted/frontend/root/index.html" ]] || { echo "Release does not contain frontend/root/index.html" >&2; exit 1; }
 
   rm -rf "$TARGET_RELEASE"
-  mkdir -p "$TARGET_RELEASE/api/app" "$TARGET_RELEASE/frontend/sea-speed"
+  mkdir -p "$TARGET_RELEASE/api/app" "$TARGET_RELEASE/frontend/sea-speed" "$TARGET_RELEASE/frontend/root"
   install -m 0644 "$extracted/api/app/main.py" "$TARGET_RELEASE/api/app/main.py"
   install -m 0644 "$extracted/frontend/sea-speed/index.html" "$TARGET_RELEASE/frontend/sea-speed/index.html"
+  install -m 0644 "$extracted/frontend/root/index.html" "$TARGET_RELEASE/frontend/root/index.html"
   printf '%s\n' "$COMMIT_SHA" > "$TARGET_RELEASE/commit-sha"
   printf '%s\n' "$archive_sha" > "$TARGET_RELEASE/archive-sha256"
 }
 
 bootstrap_current_release() {
   if [[ -s "$CURRENT_FILE" ]]; then return; fi
-  if [[ ! -f "$API_TARGET" || ! -f "$FRONTEND_TARGET" ]]; then
+  if [[ ! -f "$API_TARGET" || ! -f "$FRONTEND_TARGET" || ! -f "$ROOT_FRONTEND_TARGET" ]]; then
     echo "Cannot bootstrap rollback release: current API or frontend file is missing" >&2
     exit 1
   fi
@@ -83,35 +90,65 @@ bootstrap_current_release() {
   local bootstrap_name="bootstrap-$(date -u +%Y%m%dT%H%M%SZ)"
   local bootstrap_release="$RELEASES_DIR/$bootstrap_name"
   log "Capturing the existing live code once as bootstrap rollback"
-  mkdir -p "$bootstrap_release/api/app" "$bootstrap_release/frontend/sea-speed"
+  mkdir -p "$bootstrap_release/api/app" "$bootstrap_release/frontend/sea-speed" "$bootstrap_release/frontend/root"
   install -m 0644 "$API_TARGET" "$bootstrap_release/api/app/main.py"
   install -m 0644 "$FRONTEND_TARGET" "$bootstrap_release/frontend/sea-speed/index.html"
+  install -m 0644 "$ROOT_FRONTEND_TARGET" "$bootstrap_release/frontend/root/index.html"
   printf '%s\n' "$bootstrap_name" > "$bootstrap_release/commit-sha"
   printf '%s\n' "$bootstrap_name" > "$CURRENT_FILE"
+}
+
+ensure_current_release_has_root_frontend() {
+  local current_name current_release
+  current_name="$(cat "$CURRENT_FILE")"
+  current_release="$RELEASES_DIR/$current_name"
+
+  if [[ -f "$current_release/frontend/root/index.html" ]]; then
+    return
+  fi
+  if [[ ! -f "$ROOT_FRONTEND_TARGET" ]]; then
+    echo "Cannot preserve current root frontend for rollback: ${ROOT_FRONTEND_TARGET} is missing" >&2
+    exit 1
+  fi
+
+  log "Adding the existing live root frontend to current rollback release ${current_name}"
+  mkdir -p "$current_release/frontend/root"
+  install -m 0644 "$ROOT_FRONTEND_TARGET" "$current_release/frontend/root/index.html"
 }
 
 install_release() {
   local release_name="$1"
   local release_dir="$RELEASES_DIR/$release_name"
   [[ -f "$release_dir/api/app/main.py" ]] || { echo "Release ${release_name} has no API file" >&2; return 1; }
-  [[ -f "$release_dir/frontend/sea-speed/index.html" ]] || { echo "Release ${release_name} has no frontend file" >&2; return 1; }
+  [[ -f "$release_dir/frontend/sea-speed/index.html" ]] || { echo "Release ${release_name} has no operator frontend file" >&2; return 1; }
+  [[ -f "$release_dir/frontend/root/index.html" ]] || { echo "Release ${release_name} has no root frontend file" >&2; return 1; }
   install -m 0644 "$release_dir/api/app/main.py" "${API_TARGET}.next"
   install -m 0644 "$release_dir/frontend/sea-speed/index.html" "${FRONTEND_TARGET}.next"
+  install -m 0644 "$release_dir/frontend/root/index.html" "${ROOT_FRONTEND_TARGET}.next"
   mv -f "${API_TARGET}.next" "$API_TARGET"
   mv -f "${FRONTEND_TARGET}.next" "$FRONTEND_TARGET"
+  mv -f "${ROOT_FRONTEND_TARGET}.next" "$ROOT_FRONTEND_TARGET"
 }
 
-verify_frontend() {
-  [[ -s "$FRONTEND_TARGET" ]] || { echo "Frontend file is missing or empty: ${FRONTEND_TARGET}" >&2; return 1; }
+verify_url() {
+  local label="$1"
+  local target="$2"
   local status
-  status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --max-time 15 "$FRONTEND_URL")" || {
-    echo "Frontend request failed: ${FRONTEND_URL}" >&2
+  status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --max-time 15 "$target")" || {
+    echo "${label} request failed: ${target}" >&2
     return 1
   }
   case "$status" in
-    200|301|302|307|308|401) log "Frontend smoke check passed with HTTP ${status}" ;;
-    *) echo "Frontend smoke check failed with HTTP ${status}: ${FRONTEND_URL}" >&2; return 1 ;;
+    200|301|302|307|308|401) log "${label} smoke check passed with HTTP ${status}" ;;
+    *) echo "${label} smoke check failed with HTTP ${status}: ${target}" >&2; return 1 ;;
   esac
+}
+
+verify_frontends() {
+  [[ -s "$FRONTEND_TARGET" ]] || { echo "Operator frontend file is missing or empty: ${FRONTEND_TARGET}" >&2; return 1; }
+  [[ -s "$ROOT_FRONTEND_TARGET" ]] || { echo "Root frontend file is missing or empty: ${ROOT_FRONTEND_TARGET}" >&2; return 1; }
+  verify_url "Operator frontend" "$FRONTEND_URL"
+  verify_url "Root frontend" "$ROOT_FRONTEND_URL"
 }
 
 restart_and_verify() {
@@ -122,7 +159,7 @@ restart_and_verify() {
     if [[ "$attempt" -eq 12 ]]; then echo "API health check failed: ${HEALTH_URL}" >&2; return 1; fi
     sleep 5
   done
-  verify_frontend
+  verify_frontends
 }
 
 write_deployment_manifest() {
@@ -157,7 +194,8 @@ payload = {
     "checks": [
         {"name": "source_install", "status": "passed"},
         {"name": "api_health", "status": "passed"},
-        {"name": "frontend_smoke", "status": "passed"},
+        {"name": "operator_frontend_smoke", "status": "passed"},
+        {"name": "root_frontend_smoke", "status": "passed"},
     ],
     "rollbackTarget": previous or None,
     "runtimeVerified": verified == "true",
@@ -186,6 +224,7 @@ main() {
   ensure_layout
   download_release
   bootstrap_current_release
+  ensure_current_release_has_root_frontend
 
   local old_current previous
   old_current="$(cat "$CURRENT_FILE")"
