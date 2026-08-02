@@ -1,16 +1,20 @@
 from __future__ import annotations
 
 import ast
+import hashlib
 import copy
+from contextlib import contextmanager
 import json
 import os
 import re
+import sqlite3
 import tempfile
 import time
 import unittest
+import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict, List, Optional
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "api/app/main.py"
@@ -29,7 +33,7 @@ def load_functions(names: set[str], namespace: dict[str, Any]) -> dict[str, Any]
     for node in tree.body:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in names:
             cloned = copy.deepcopy(node)
-            cloned.decorator_list = []
+            cloned.decorator_list = copy.deepcopy(node.decorator_list) if node.name == "open_objects_db" else []
             selected.append(cloned)
     missing = names - {node.name for node in selected}
     if missing:
@@ -38,6 +42,44 @@ def load_functions(names: set[str], namespace: dict[str, Any]) -> dict[str, Any]
     ast.fix_missing_locations(module)
     exec(compile(module, str(SOURCE), "exec"), namespace)
     return namespace
+
+
+def objects_namespace(temp_dir: str) -> dict[str, Any]:
+    return {
+        "Any": Any,
+        "Dict": Dict,
+        "List": List,
+        "Optional": Optional,
+        "Path": Path,
+        "json": json,
+        "hashlib": hashlib,
+        "sqlite3": sqlite3,
+        "contextmanager": contextmanager,
+        "uuid": uuid,
+        "HTTPException": HTTPExceptionStub,
+        "OBJECT_STATUSES": {"new", "reviewed", "ignored"},
+        "OBJECTS_DB_FILE": Path(temp_dir) / "objects.sqlite3",
+        "EVENTS_FILE": Path(temp_dir) / "events.json",
+        "now_iso": lambda: "2026-08-02T00:00:00+00:00",
+    }
+
+
+OBJECT_FUNCTIONS = {
+    "read_json_file",
+    "open_objects_db",
+    "initialize_objects_db",
+    "optional_float",
+    "optional_int",
+    "stable_object_id",
+    "persist_object_event",
+    "import_existing_events",
+    "object_row_to_dict",
+    "build_objects_where",
+    "get_cam1_objects",
+    "get_cam1_object",
+    "patch_cam1_object",
+    "delete_cam1_object",
+}
 
 
 class ApiContractTests(unittest.TestCase):
@@ -155,6 +197,106 @@ class ApiContractTests(unittest.TestCase):
         self.assertTrue(lines["enabled"])
         self.assertEqual(lines["distance_m"], 57.0)
         self.assertEqual(len(writes), 2)
+
+    def test_objects_registry_import_is_idempotent(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            ns = objects_namespace(temp_dir)
+            load_functions(OBJECT_FUNCTIONS, ns)
+            ns["initialize_objects_db"]()
+            event = {
+                "event_id": "event-1",
+                "camera_id": "cam1",
+                "track_id": 23,
+                "created_at": "2026-08-02T10:00:00+00:00",
+                "class_name": "car",
+                "confidence": 0.91,
+                "speed_kmh": 37.4,
+                "snapshot_url": "/sea-speed/media/events/event-1.jpg",
+            }
+            ns["EVENTS_FILE"].write_text(json.dumps([event]), encoding="utf-8")
+
+            self.assertEqual(ns["import_existing_events"](), 1)
+            self.assertEqual(ns["import_existing_events"](), 0)
+            with ns["open_objects_db"]() as connection:
+                row = connection.execute("SELECT * FROM objects").fetchone()
+            self.assertEqual(row["object_id"], "event-1")
+            self.assertEqual(row["track_id"], 23)
+            self.assertEqual(row["speed_kmh"], 37.4)
+            self.assertEqual(row["status"], "new")
+
+            legacy_event = {
+                "created_at": "2026-08-02T10:05:00+00:00",
+                "class_name": "truck",
+                "speed_kmh": 41.2,
+            }
+            ns["EVENTS_FILE"].write_text(json.dumps([legacy_event]), encoding="utf-8")
+            self.assertEqual(ns["import_existing_events"](), 1)
+            self.assertEqual(ns["import_existing_events"](), 0)
+            with ns["open_objects_db"]() as connection:
+                legacy_ids = [
+                    row["object_id"]
+                    for row in connection.execute(
+                        "SELECT object_id FROM objects WHERE object_id LIKE 'legacy-%'"
+                    ).fetchall()
+                ]
+            self.assertEqual(len(legacy_ids), 1)
+
+    def test_objects_list_edit_filter_and_soft_delete(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            ns = objects_namespace(temp_dir)
+            load_functions(OBJECT_FUNCTIONS, ns)
+            ns["initialize_objects_db"]()
+            ns["persist_object_event"]({
+                "event_id": "event-1",
+                "created_at": "2026-08-02T10:00:00+00:00",
+                "class_name": "car",
+                "speed_kmh": 37.4,
+            })
+            ns["persist_object_event"]({
+                "event_id": "event-2",
+                "created_at": "2026-08-02T11:00:00+00:00",
+                "class_name": "truck",
+                "speed_kmh": 52.0,
+            })
+
+            listing = ns["get_cam1_objects"](limit=10, status="new", speed_min=40)
+            self.assertEqual(listing["total"], 1)
+            self.assertEqual(listing["objects"][0]["object_id"], "event-2")
+
+            edited = ns["patch_cam1_object"]("event-2", {
+                "class_name": "vessel",
+                "speed_kmh": 49.5,
+                "comment": "Проверено оператором",
+                "status": "reviewed",
+            })["object"]
+            self.assertEqual(edited["class_name"], "vessel")
+            self.assertEqual(edited["speed_kmh"], 49.5)
+            self.assertEqual(edited["status"], "reviewed")
+            self.assertEqual(edited["comment"], "Проверено оператором")
+            self.assertEqual(
+                ns["get_cam1_object"]("event-2")["object"]["original_event"]["class_name"],
+                "truck",
+            )
+
+            deleted = ns["delete_cam1_object"]("event-2")
+            self.assertEqual(deleted["object_id"], "event-2")
+            self.assertEqual(ns["get_cam1_objects"](limit=10)["total"], 1)
+            self.assertEqual(ns["get_cam1_objects"](limit=10, include_deleted=True)["total"], 2)
+            with self.assertRaises(HTTPExceptionStub) as missing:
+                ns["get_cam1_object"]("event-2")
+            self.assertEqual(missing.exception.status_code, 404)
+
+    def test_objects_validation_rejects_invalid_status_and_speed_range(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            ns = objects_namespace(temp_dir)
+            load_functions(OBJECT_FUNCTIONS, ns)
+            ns["initialize_objects_db"]()
+            with self.assertRaises(HTTPExceptionStub) as invalid_status:
+                ns["get_cam1_objects"](status="closed")
+            self.assertEqual(invalid_status.exception.status_code, 400)
+            with self.assertRaises(HTTPExceptionStub) as invalid_range:
+                ns["get_cam1_objects"](speed_min=50, speed_max=10)
+            self.assertEqual(invalid_range.exception.status_code, 400)
 
 
 if __name__ == "__main__":

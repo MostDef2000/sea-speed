@@ -22,6 +22,7 @@ REQUIRED_FILES = {
     "api/app/main.py",
     "frontend/root/index.html",
     "frontend/sea-speed/index.html",
+    "frontend/sea-speed/objects/index.html",
     "worker/hls_motion_yolo_worker_events.py",
     "worker/hls_motion_yolo_runtime.py",
     "worker/run_worker_once.ps1",
@@ -129,6 +130,7 @@ def validate_frontend() -> None:
     html_paths = (
         ROOT / "frontend/root/index.html",
         ROOT / "frontend/sea-speed/index.html",
+        ROOT / "frontend/sea-speed/objects/index.html",
     )
 
     with tempfile.TemporaryDirectory(prefix="sea-speed-js-") as temp_dir:
