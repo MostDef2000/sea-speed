@@ -40,5 +40,10 @@ jobs:
       - name: Validate contracts
         run: python scripts/ci/validate_contracts.py
 
+      - name: Validate manifest schemas
+        run: |
+          python -m json.tool schemas/release-manifest.schema.json >/dev/null
+          python -m json.tool schemas/deployment-manifest.schema.json >/dev/null
+
       - name: Run behavioral contract tests
         run: python -m unittest discover -s tests -p "test_*.py" -v
