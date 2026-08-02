@@ -22,6 +22,8 @@ frontend/    Operator web UI
 deploy/      VPS and Windows delivery helpers
 contracts/   canonical governance, runtime and branch contracts
 docs/        architecture, decisions, operations and diagnostics
+scripts/     repository validation and release tooling
+tests/       dependency-free behavioral contract tests
 skills/      compatibility entrypoints that route to contracts
 ```
 
@@ -62,6 +64,17 @@ Canonical project rules:
 
 Repository writes require `COMMIT APPROVED` or an approved equivalent. Changes under `skills/**` additionally require `SKILL UPDATE APPROVED`.
 
+## Validation
+
+Pull requests run repository validation plus dependency-free behavioral contract tests for:
+
+- API authorization, JSON persistence, state freshness and configuration validation;
+- worker line geometry, calibrated speed calculation, event identity and cooldown policy;
+- operator frontend endpoint and JSON POST contracts;
+- canonical contract presence and repository-link consistency.
+
+The production baseline procedure is documented in `docs/operations/PRODUCTION_BASELINE.md`.
+
 ## Release contours
 
 - `api/**` and `frontend/**`: normally require VPS deployment.
@@ -75,6 +88,6 @@ Merge is not deployment. Deployment is not runtime acceptance. COMPLETE requires
 
 Never commit tokens, passwords, camera credentials, `.env`, SSH keys, runtime logs, event snapshots, overlays, videos, model binaries, local virtual environments or other runtime data.
 
-## Current baseline note
+## Current baseline
 
-The historical runtime baseline remains in `agent/migrate-baseline-v0` until it is separately reviewed and integrated. This governance change does not merge or modify that runtime baseline.
+The reviewed runtime baseline is integrated into `main`. Installed VPS and Windows revisions must still be verified independently because repository state does not prove runtime state. Use `docs/operations/PRODUCTION_BASELINE.md` and record only non-secret commit and health evidence.
