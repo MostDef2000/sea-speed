@@ -73,7 +73,7 @@ if ($ValidateOnly) {
 }
 
 $pythonPath = Join-Path $InstallDir '.venv\Scripts\python.exe'
-$workerPath = Join-Path $InstallDir 'hls_motion_yolo_worker_events.py'
+$workerPath = Join-Path $InstallDir 'hls_motion_yolo_runtime.py'
 
 if (-not (Test-Path -LiteralPath $pythonPath -PathType Leaf)) {
     throw "Worker Python is missing: $pythonPath"
