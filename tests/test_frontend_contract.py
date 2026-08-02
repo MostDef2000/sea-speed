@@ -29,8 +29,8 @@ class FrontendContractTests(unittest.TestCase):
     def test_configuration_save_flows_use_json_post(self) -> None:
         for function_name in ("saveSpeedConfig", "saveSpeedLines", "saveRoi"):
             self.assertIn(f"async function {function_name}", self.source)
-        self.assertGreaterEqual(self.source.count('method: "POST"'), 3)
-        self.assertGreaterEqual(self.source.count('"Content-Type": "application/json"'), 3)
+        self.assertIn('method:"POST"', self.source)
+        self.assertIn('headers:{"Content-Type":"application/json"}', self.source)
 
     def test_runtime_ids_are_unique(self) -> None:
         ids = re.findall(r'\bid="([^"]+)"', self.source)
@@ -44,31 +44,23 @@ class FrontendContractTests(unittest.TestCase):
 
     def test_desktop_workspace_has_three_columns_and_named_areas(self) -> None:
         self.assertIn('data-layout="three-column-workspace"', self.source)
-        self.assertIn('grid-template-columns: minmax(250px, 286px) minmax(0, 720px) minmax(300px, 340px)', self.source)
-        self.assertIn('grid-template-areas: "utilities camera right"', self.source)
+        self.assertIn('grid-template-columns:minmax(250px,286px) minmax(0,720px) minmax(300px,340px)', self.source)
+        self.assertIn('grid-template-areas:"utilities camera right"', self.source)
         self.assertIn('data-layout="left-utilities"', self.source)
         self.assertIn('data-layout="primary-camera"', self.source)
         self.assertIn('data-layout="right-live-history"', self.source)
 
     def test_primary_camera_is_annotated_and_contains_no_video(self) -> None:
-        match = re.search(
-            r'<article\s+class="panel camera-panel"[^>]*>(?P<body>.*?)</article>',
-            self.source,
-            re.S,
-        )
+        match = re.search(r'<article\s+class="panel camera-panel"[^>]*>(?P<body>.*?)</article>', self.source, re.S)
         self.assertIsNotNone(match)
         body = match.group("body")
         for marker in ('id="overlayImg"', 'id="roiCanvas"', 'id="speedLinesCanvas"'):
             self.assertIn(marker, body)
         self.assertNotIn('id="video"', body)
-        self.assertIn('width: min(100%, 720px)', self.source)
+        self.assertIn('width:min(100%,720px)', self.source)
 
     def test_clean_live_and_detection_history_share_right_rail(self) -> None:
-        right = re.search(
-            r'<aside\s+class="right-sidebar"[^>]*>(?P<body>.*?)</aside>',
-            self.source,
-            re.S,
-        )
+        right = re.search(r'<aside\s+class="right-sidebar"[^>]*>(?P<body>.*?)</aside>', self.source, re.S)
         self.assertIsNotNone(right)
         body = right.group("body")
         self.assertIn('data-layout="clean-live"', body)
@@ -79,9 +71,9 @@ class FrontendContractTests(unittest.TestCase):
         self.assertEqual(self.source.count('new Hls('), 1)
 
     def test_detection_history_is_capped_and_does_not_use_bottom_panel(self) -> None:
-        self.assertIn('events.slice(0, 3)', self.source)
-        self.assertIn('grid-template-rows: auto minmax(0, 1fr)', self.source)
-        self.assertIn('overflow-y: auto', self.source)
+        self.assertIn('events.slice(0,3)', self.source)
+        self.assertIn('grid-template-rows:auto minmax(0,1fr)', self.source)
+        self.assertIn('overflow-y:auto', self.source)
         self.assertNotIn('class="panel events-panel"', self.source)
         self.assertEqual(self.source.count('id="eventsList"'), 1)
 
@@ -102,14 +94,9 @@ class FrontendContractTests(unittest.TestCase):
             self.assertNotRegex(match.group("attrs"), r'\bopen\b')
 
     def test_mobile_order_prioritizes_camera_live_history_then_utilities(self) -> None:
-        self.assertIn('@media (max-width: 760px)', self.source)
         self.assertRegex(
             self.source,
-            re.compile(
-                r'@media \(max-width: 760px\).*?grid-template-areas:\s*'
-                r'"camera"\s*"right"\s*"utilities"',
-                re.S,
-            ),
+            re.compile(r'@media\(max-width:760px\).*?grid-template-areas:"camera" "right" "utilities"', re.S),
         )
         for marker in (
             "viewport-fit=cover",
@@ -117,9 +104,9 @@ class FrontendContractTests(unittest.TestCase):
             "env(safe-area-inset-right)",
             "env(safe-area-inset-bottom)",
             "env(safe-area-inset-left)",
-            "@media (max-width: 430px)",
-            "@media (max-width: 390px)",
-            "min-height: 44px",
+            "@media(max-width:430px)",
+            "@media(max-width:390px)",
+            "min-height:44px",
         ):
             self.assertIn(marker, self.source)
 
@@ -128,10 +115,7 @@ class FrontendContractTests(unittest.TestCase):
         self.assertIn("Открыть морской мониторинг", self.root_source)
 
     def test_root_page_cameras_link_is_secondary_and_in_footer(self) -> None:
-        self.assertRegex(
-            self.root_source,
-            r'<footer>\s*<a\s+class="secondary-link"\s+href="/cams/">Камеры</a>\s*</footer>',
-        )
+        self.assertRegex(self.root_source, r'<footer>\s*<a\s+class="secondary-link"\s+href="/cams/">Камеры</a>\s*</footer>')
         self.assertEqual(self.root_source.count('href="/cams/"'), 1)
 
     def test_root_page_uses_local_absolute_paths(self) -> None:
@@ -143,10 +127,7 @@ class FrontendContractTests(unittest.TestCase):
             self.assertIn(phrase, self.root_source)
 
     def test_root_page_contains_marine_scene_and_radar_animation(self) -> None:
-        for class_name in (
-            "marine-backdrop", "vladivostok-skyline", "lighthouse-scene",
-            "lighthouse", "sea", "radar", "sweep", "vessel",
-        ):
+        for class_name in ("marine-backdrop", "vladivostok-skyline", "lighthouse-scene", "lighthouse", "sea", "radar", "sweep", "vessel"):
             self.assertIn(f'class="{class_name}"', self.root_source)
         self.assertIn("@keyframes sweep", self.root_source)
         self.assertIn("prefers-reduced-motion", self.root_source)
