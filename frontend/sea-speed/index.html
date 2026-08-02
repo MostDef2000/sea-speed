@@ -2,140 +2,200 @@
 <html lang="ru">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="theme-color" content="#031624" />
+  <meta name="description" content="Sea Speed Operator — морской мониторинг судов, скорости и событий в акватории Владивостока." />
   <title>Sea Speed Operator</title>
 
   <style>
     :root {
-      --bg: #0f172a;
-      --panel: #111827;
-      --panel2: #0b1220;
-      --border: #263244;
-      --text: #e5e7eb;
-      --muted: #9ca3af;
-      --good: #22c55e;
-      --bad: #ef4444;
-      --warn: #f59e0b;
-      --blue: #60a5fa;
+      color-scheme: dark;
+      --bg-deep: #020b13;
+      --bg: #041624;
+      --panel: rgba(7, 29, 45, 0.88);
+      --panel-strong: rgba(4, 20, 33, 0.96);
+      --panel-soft: rgba(10, 42, 62, 0.72);
+      --border: rgba(129, 213, 224, 0.18);
+      --border-strong: rgba(111, 231, 220, 0.34);
+      --text: #edfaff;
+      --muted: #93b8c5;
+      --cyan: #5eead4;
+      --cyan-strong: #22d3c5;
+      --blue: #62b6ff;
+      --good: #4ade80;
+      --bad: #fb7185;
+      --warn: #fbbf24;
+      --violet: #c084fc;
+      --orange: #fb923c;
+      --shadow: 0 28px 80px rgba(0, 5, 12, 0.46);
+      --radius-xl: 26px;
+      --radius-lg: 18px;
+      --radius-md: 13px;
     }
 
     * {
       box-sizing: border-box;
     }
 
+    html {
+      min-height: 100%;
+      background: var(--bg-deep);
+    }
+
     body {
+      min-height: 100vh;
       margin: 0;
-      background: var(--bg);
+      overflow-x: hidden;
+      background:
+        radial-gradient(circle at 12% 4%, rgba(55, 214, 204, 0.12), transparent 34rem),
+        radial-gradient(circle at 88% 2%, rgba(62, 132, 201, 0.16), transparent 38rem),
+        linear-gradient(155deg, #020b13 0%, #041827 48%, #03121e 100%);
       color: var(--text);
-      font-family: Arial, sans-serif;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      -webkit-font-smoothing: antialiased;
     }
 
-    header {
-      padding: 18px 22px;
-      border-bottom: 1px solid var(--border);
-      background: #0b1120;
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      z-index: -1;
+      pointer-events: none;
+      opacity: 0.35;
+      background:
+        repeating-radial-gradient(ellipse at 50% 105%, transparent 0 42px, rgba(74, 222, 213, 0.08) 44px 45px, transparent 47px 74px),
+        linear-gradient(transparent 72%, rgba(4, 45, 61, 0.38));
+      mask-image: linear-gradient(to bottom, transparent 25%, #000 88%);
     }
 
-    h1 {
-      margin: 0 0 4px 0;
-      font-size: 24px;
+    button,
+    input,
+    summary {
+      font: inherit;
     }
 
-    .subtitle {
-      color: var(--muted);
-      font-size: 14px;
-    }
-
-    main {
-      display: grid;
-      grid-template-columns: minmax(0, 1.35fr) minmax(360px, 0.65fr);
-      gap: 16px;
-      padding: 16px;
-      align-items: start;
-    }
-
-    .panel {
-      min-width: 0;
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 14px;
-      overflow: hidden;
-    }
-
-    .panel h2 {
-      margin: 0 0 12px 0;
-      font-size: 18px;
-    }
-
-    .path {
-      color: var(--muted);
-      font-size: 13px;
-      word-break: break-all;
-      margin-bottom: 10px;
-    }
-
-    .video-wrap {
-      width: 50%;
-      max-width: 560px;
-      min-width: 320px;
-      margin: 16px auto;
-      background: #000;
-      border-radius: 10px;
-      overflow: hidden;
-      border: 1px solid var(--border);
-    }
-
-    video {
-      display: block;
-      width: 100%;
-      height: auto;
-      background: #000;
-    }
-
-    .buttons {
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-      margin-top: 10px;
+    button,
+    summary {
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
     }
 
     button {
+      min-height: 44px;
       border: 1px solid var(--border);
-      background: #1f2937;
+      border-radius: 12px;
+      background: rgba(8, 34, 52, 0.88);
       color: var(--text);
-      padding: 9px 12px;
-      border-radius: 8px;
       cursor: pointer;
+      transition: transform 150ms ease, border-color 150ms ease, background 150ms ease, box-shadow 150ms ease;
     }
 
-    button:hover {
-      background: #374151;
+    button:hover,
+    button:focus-visible {
+      border-color: var(--border-strong);
+      background: rgba(13, 53, 75, 0.96);
+      box-shadow: 0 10px 30px rgba(0, 10, 20, 0.25);
     }
 
-    .status-grid {
+    button:active {
+      transform: translateY(1px);
+    }
+
+    button:focus-visible,
+    input:focus-visible,
+    summary:focus-visible {
+      outline: 3px solid rgba(94, 234, 212, 0.42);
+      outline-offset: 2px;
+    }
+
+    .operator-header {
+      position: relative;
+      z-index: 10;
       display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 10px;
-      margin-bottom: 14px;
+      grid-template-columns: minmax(250px, 1fr) minmax(0, auto);
+      gap: 24px;
+      align-items: center;
+      width: min(1600px, 100%);
+      margin: 0 auto;
+      padding:
+        max(18px, env(safe-area-inset-top))
+        max(22px, env(safe-area-inset-right))
+        16px
+        max(22px, env(safe-area-inset-left));
     }
 
-    .status-card {
-      background: var(--panel2);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 10px;
+    .brand-block {
+      min-width: 0;
     }
 
-    .label {
+    .eyebrow {
+      margin: 0 0 6px;
+      color: var(--cyan);
+      font-size: 0.72rem;
+      font-weight: 800;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin-top: 0;
+    }
+
+    h1 {
+      margin-bottom: 4px;
+      font-size: clamp(1.7rem, 3vw, 2.5rem);
+      line-height: 1;
+      letter-spacing: -0.045em;
+    }
+
+    .subtitle {
+      margin: 0;
       color: var(--muted);
-      font-size: 12px;
-      margin-bottom: 5px;
+      font-size: 0.88rem;
+      line-height: 1.45;
     }
 
-    .value {
-      font-size: 18px;
-      font-weight: bold;
+    .status-strip {
+      display: flex;
+      justify-content: flex-end;
+      gap: 7px;
+      min-width: 0;
+      overflow-x: auto;
+      padding: 2px;
+      scrollbar-width: none;
+    }
+
+    .status-strip::-webkit-scrollbar {
+      display: none;
+    }
+
+    .status-item {
+      flex: 0 0 auto;
+      min-width: 82px;
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      border-radius: 13px;
+      background: rgba(4, 24, 38, 0.8);
+      box-shadow: inset 0 1px rgba(255, 255, 255, 0.02);
+    }
+
+    .status-item .label {
+      margin-bottom: 3px;
+      color: var(--muted);
+      font-size: 0.62rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .status-item .value {
+      font-size: 0.84rem;
+      font-weight: 800;
+      line-height: 1.15;
+      white-space: nowrap;
     }
 
     .good { color: var(--good); }
@@ -143,666 +203,169 @@
     .warn { color: var(--warn); }
     .blue { color: var(--blue); }
 
-    .overlay-img {
-      display: block;
-      width: 100%;
-      max-width: 360px;
-      max-height: 240px;
-      object-fit: contain;
+    .operator-shell {
+      width: min(1600px, 100%);
       margin: 0 auto;
-      border-radius: 8px;
-      border: 1px solid var(--border);
-      background: #000;
+      padding:
+        0
+        max(22px, env(safe-area-inset-right))
+        max(32px, env(safe-area-inset-bottom))
+        max(22px, env(safe-area-inset-left));
     }
 
-    .debug {
-      margin-top: 12px;
-      background: #050b16;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 10px;
-      font-family: Consolas, monospace;
-      font-size: 12px;
-      color: #cbd5e1;
-      max-height: 130px;
-      overflow: auto;
-      white-space: pre-wrap;
-    }
-
-    .wide {
-      grid-column: 1 / -1;
-    }
-
-    .events-list {
+    .workspace {
       display: grid;
-      gap: 10px;
-    }
-
-    .event-card {
-      display: grid;
-      grid-template-columns: 170px minmax(0, 1fr);
-      gap: 12px;
-      background: var(--panel2);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 10px;
+      grid-template-columns: minmax(0, 1fr) minmax(320px, 380px);
+      gap: 16px;
       align-items: start;
     }
 
-    .event-card img {
-      width: 170px;
-      max-height: 120px;
-      object-fit: contain;
-      border-radius: 8px;
-      border: 1px solid var(--border);
-      background: #000;
-    }
-
-    .event-title {
-      font-weight: bold;
-      font-size: 15px;
-      margin-bottom: 6px;
-    }
-
-    .event-meta {
-      color: var(--muted);
-      font-size: 13px;
-      line-height: 1.5;
-      word-break: break-word;
-    }
-
-    .empty {
-      color: var(--muted);
-      background: var(--panel2);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 14px;
-    }
-
-    pre {
-      background: #050b16;
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 12px;
-      overflow: auto;
-      max-height: 260px;
-      font-size: 12px;
-    }
-
-    @media (max-width: 1000px) {
-      main {
-        grid-template-columns: 1fr;
-      }
-
-      .video-wrap {
-        width: 90%;
-        min-width: 0;
-      }
-
-      .overlay-img {
-        max-width: 100%;
-        max-height: 260px;
-      }
-
-      .event-card {
-        grid-template-columns: 1fr;
-      }
-
-      .event-card img {
-        width: 100%;
-        max-height: 260px;
-      }
-    }
-  
-    .camera-head {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 14px;
-      margin-bottom: 10px;
-    }
-
-    .camera-head h2 {
-      margin-bottom: 6px;
-    }
-
-    .camera-actions {
-      display: flex;
-      gap: 10px;
-      flex-shrink: 0;
-    }
-
-    .icon-btn {
-      width: 44px;
-      height: 44px;
-      display: inline-grid;
-      place-items: center;
-      padding: 0;
-      border-radius: 14px;
-      background: #0b1220;
-      border: 1px solid var(--border);
-      color: var(--text);
-    }
-
-    .icon-btn svg {
-      width: 22px;
-      height: 22px;
-      fill: currentColor;
-    }
-
-    .icon-btn.connect {
-      color: var(--good);
-      border-color: rgba(34, 197, 94, 0.35);
-      background: rgba(34, 197, 94, 0.08);
-    }
-
-    .icon-btn.disconnect {
-      color: var(--bad);
-      border-color: rgba(239, 68, 68, 0.35);
-      background: rgba(239, 68, 68, 0.08);
-    }
-
-    .icon-btn:hover {
-      transform: translateY(-1px);
-      filter: brightness(1.16);
-    }
-
-    @media (max-width: 640px) {
-      .camera-head {
-        flex-direction: column;
-      }
-    }
-
-  
-    .camera-media-grid {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) 320px;
-      gap: 14px;
-      align-items: start;
-      margin-top: 12px;
-    }
-
-    .camera-media-grid .video-wrap {
-      width: 100%;
-      max-width: none;
+    .panel {
       min-width: 0;
-      margin: 0;
-    }
-
-    .camera-overlay-box {
-      background: var(--panel2);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 10px;
-      min-width: 0;
-    }
-
-    .camera-overlay-title {
-      font-size: 13px;
-      color: var(--muted);
-      margin-bottom: 8px;
-    }
-
-    .camera-overlay-box .overlay-img {
-      width: 100%;
-      max-width: 100%;
-      max-height: 220px;
-      margin: 0;
-    }
-
-    @media (max-width: 1000px) {
-      .camera-media-grid {
-        grid-template-columns: 1fr;
-      }
-    }
-
-  
-    /* sea-speed compact camera overlay/events start */
-    .camera-media-grid {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) 320px;
-      gap: 14px;
-      align-items: start;
-      margin-top: 12px;
-    }
-
-    .camera-media-grid .video-wrap {
-      width: 100%;
-      max-width: none;
-      min-width: 0;
-      margin: 0;
-    }
-
-    .camera-overlay-box {
-      background: var(--panel2);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 10px;
-      min-width: 0;
-    }
-
-    .camera-overlay-title {
-      font-size: 13px;
-      color: var(--muted);
-      margin-bottom: 8px;
-    }
-
-    .camera-overlay-box .overlay-img {
-      display: block;
-      width: 100%;
-      max-width: 100%;
-      height: 220px;
-      max-height: 220px;
-      object-fit: contain;
-      margin: 0;
-      background: #000;
-    }
-
-    .events-list {
-      display: flex !important;
-      flex-direction: row;
-      gap: 12px;
-      overflow-x: auto;
-      padding-bottom: 8px;
-      scroll-snap-type: x proximity;
-    }
-
-    .event-card {
-      flex: 0 0 calc((100% - 24px) / 3);
-      min-width: 360px;
-      display: grid;
-      grid-template-columns: 145px minmax(0, 1fr);
-      gap: 12px;
-      background: var(--panel2);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 10px;
-      align-items: start;
-      scroll-snap-align: start;
-    }
-
-    .event-card img {
-      width: 145px;
-      height: 100px;
-      max-height: 100px;
-      object-fit: cover;
-      border-radius: 8px;
-      border: 1px solid var(--border);
-      background: #000;
-    }
-
-    .event-title {
-      white-space: nowrap;
       overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .event-meta {
-      font-size: 12px;
-      line-height: 1.45;
-    }
-
-    @media (max-width: 1000px) {
-      .camera-media-grid {
-        grid-template-columns: 1fr;
-      }
-
-      .camera-overlay-box .overlay-img {
-        height: auto;
-        max-height: 260px;
-      }
-
-      .event-card {
-        flex-basis: 88%;
-        min-width: 300px;
-        grid-template-columns: 130px minmax(0, 1fr);
-      }
-
-      .event-card img {
-        width: 130px;
-        height: 92px;
-      }
-    }
-    /* sea-speed compact camera overlay/events end */
-
-  
-    /* sea-speed compact v2 start */
-    main {
-      grid-template-columns: minmax(0, 1.85fr) minmax(360px, 0.9fr);
-      align-items: start;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-xl);
+      background: linear-gradient(155deg, rgba(9, 35, 52, 0.9), rgba(4, 20, 33, 0.94));
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
     }
 
     .camera-panel {
-      min-width: 0;
+      padding: clamp(14px, 2vw, 22px);
     }
 
-    .camera-head {
+    .panel-heading {
       display: flex;
       align-items: flex-start;
       justify-content: space-between;
-      gap: 14px;
-      margin-bottom: 12px;
+      gap: 18px;
+      margin-bottom: 14px;
+    }
+
+    .panel-kicker {
+      margin: 0 0 5px;
+      color: var(--cyan);
+      font-size: 0.7rem;
+      font-weight: 800;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+
+    .panel-heading h2,
+    .control-card h2,
+    .events-heading h2 {
+      margin-bottom: 4px;
+      font-size: 1.08rem;
+      letter-spacing: -0.02em;
+    }
+
+    .path,
+    .section-note {
+      color: var(--muted);
+      font-size: 0.76rem;
+      line-height: 1.45;
+      overflow-wrap: anywhere;
     }
 
     .camera-actions {
       display: flex;
-      gap: 10px;
-      flex-shrink: 0;
+      gap: 8px;
+      flex: 0 0 auto;
     }
 
     .icon-btn {
-      width: 44px;
-      height: 44px;
       display: inline-grid;
       place-items: center;
+      width: 46px;
+      min-width: 46px;
+      height: 46px;
       padding: 0;
-      border-radius: 14px;
-      background: #0b1220;
-      border: 1px solid var(--border);
-      color: var(--text);
+      border-radius: 15px;
     }
 
     .icon-btn svg {
-      width: 22px;
-      height: 22px;
+      width: 21px;
+      height: 21px;
       fill: currentColor;
     }
 
     .icon-btn.connect {
       color: var(--good);
-      border-color: rgba(34, 197, 94, 0.35);
-      background: rgba(34, 197, 94, 0.08);
+      border-color: rgba(74, 222, 128, 0.32);
+      background: rgba(22, 101, 52, 0.18);
     }
 
     .icon-btn.disconnect {
       color: var(--bad);
-      border-color: rgba(239, 68, 68, 0.35);
-      background: rgba(239, 68, 68, 0.08);
+      border-color: rgba(251, 113, 133, 0.28);
+      background: rgba(159, 18, 57, 0.16);
     }
 
-    .camera-media-grid {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) 330px;
-      gap: 14px;
-      align-items: stretch;
-    }
-
-    .camera-media-grid .video-wrap {
-      width: 100%;
-      max-width: none;
-      min-width: 0;
-      margin: 0;
-    }
-
-    .camera-side-stack {
-      min-width: 0;
-      height: 100%;
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-    }
-
-    .camera-overlay-box,
-    .camera-events-box {
-      background: var(--panel2);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 10px;
-      min-width: 0;
-    }
-
-    .camera-overlay-title {
-      font-size: 13px;
-      color: var(--muted);
-      margin-bottom: 8px;
-    }
-
-    .camera-overlay-box .overlay-img {
-      display: block;
-      width: 100%;
-      max-width: 100%;
-      height: 215px;
-      max-height: 215px;
-      object-fit: contain;
-      margin: 0;
-      background: #000;
-      border-radius: 8px;
-      border: 1px solid var(--border);
-    }
-
-    .camera-events-box {
-      flex: 1;
-      min-height: 0;
-      overflow: hidden;
-    }
-
-    .compact-events {
-      display: flex !important;
-      flex-direction: row;
-      gap: 10px;
-      overflow-x: auto;
-      overflow-y: hidden;
-      padding-bottom: 6px;
-      scroll-snap-type: x proximity;
-    }
-
-    .compact-events .event-card {
-      flex: 0 0 300px;
-      width: 300px;
-      min-width: 300px;
-      display: grid;
-      grid-template-columns: 112px minmax(0, 1fr);
-      gap: 10px;
-      padding: 9px;
-      scroll-snap-align: start;
-    }
-
-    .compact-events .event-card img {
-      width: 112px;
-      height: 84px;
-      max-height: 84px;
-      object-fit: cover;
-      border-radius: 8px;
-    }
-
-    .compact-events .event-title {
-      font-size: 14px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      margin-bottom: 4px;
-    }
-
-    .compact-events .event-meta {
-      font-size: 11px;
-      line-height: 1.35;
-      color: var(--muted);
-    }
-
-    .state-inline-box {
-      margin-top: 14px;
-    }
-
-    .state-inline-box pre {
-      max-height: 220px;
-      margin-bottom: 0;
-    }
-
-    @media (max-width: 1200px) {
-      main {
-        grid-template-columns: 1fr;
-      }
-
-      .camera-media-grid {
-        grid-template-columns: 1fr;
-      }
-
-      .camera-overlay-box .overlay-img {
-        height: auto;
-        max-height: 260px;
-      }
-
-      .compact-events .event-card {
-        flex-basis: 300px;
-      }
-    }
-    /* sea-speed compact v2 end */
-
-  
-    /* sea-speed compact v3 events/state start */
-
-    .camera-events-box {
-      flex: 1;
-      overflow: visible;
-    }
-
-    .compact-events {
-      display: flex !important;
-      flex-direction: column !important;
-      gap: 10px;
-      overflow-x: hidden !important;
-      overflow-y: visible !important;
-      padding-bottom: 0;
-    }
-
-    .compact-events .event-card {
-      width: 100% !important;
-      min-width: 0 !important;
-      flex: none !important;
-      display: grid;
-      grid-template-columns: 108px minmax(0, 1fr);
-      gap: 10px;
-      padding: 9px;
-    }
-
-    .compact-events .event-card img {
-      width: 108px;
-      height: 78px;
-      max-height: 78px;
-      object-fit: cover;
-      border-radius: 8px;
-    }
-
-    .compact-events .event-title {
-      font-size: 14px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      margin-bottom: 4px;
-    }
-
-    .compact-events .event-meta {
-      font-size: 11px;
-      line-height: 1.35;
-      white-space: normal;
-      overflow-wrap: anywhere;
-    }
-
-    .state-inline-box pre,
-    #stateJson {
-      max-height: none !important;
-      height: auto !important;
-      overflow: visible !important;
-      white-space: pre-wrap !important;
-      overflow-wrap: anywhere !important;
-    }
-
-    /* sea-speed compact v3 events/state end */
-
-  
-    /* sea-speed roi editor start */
-    .roi-editor-wrap {
+    .camera-stage {
       position: relative;
-      width: 100%;
-      background: #000;
-      border-radius: 8px;
+      width: min(100%, 1080px);
+      aspect-ratio: 704 / 576;
+      margin: 0 auto;
       overflow: hidden;
+      isolation: isolate;
+      border: 1px solid rgba(94, 234, 212, 0.24);
+      border-radius: 20px;
+      background:
+        radial-gradient(circle at 50% 48%, rgba(38, 117, 138, 0.18), transparent 48%),
+        #01060a;
+      box-shadow:
+        0 24px 70px rgba(0, 3, 8, 0.48),
+        inset 0 0 0 1px rgba(255, 255, 255, 0.018);
     }
 
-    .roi-editor-wrap .overlay-img {
+    .camera-stage::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      z-index: 5;
+      pointer-events: none;
+      border-radius: inherit;
+      box-shadow: inset 0 0 58px rgba(0, 12, 22, 0.28);
+    }
+
+    #video,
+    .roi-editor-wrap {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+    }
+
+    #video {
+      z-index: 1;
+      display: block;
+      object-fit: contain;
+      background: #01060a;
+    }
+
+    .roi-editor-wrap {
+      z-index: 2;
+      overflow: hidden;
+      border-radius: inherit;
+    }
+
+    .overlay-img {
       display: block;
       width: 100%;
+      height: 100%;
       border: 0;
+      opacity: 0;
+      object-fit: fill;
+      background: transparent;
+      transition: opacity 180ms ease;
     }
 
-    #roiCanvas {
-      position: absolute;
-      inset: 0;
-      width: 100%;
-      height: 100%;
-      pointer-events: none;
+    .roi-editor-wrap.has-overlay .overlay-img {
+      opacity: 1;
     }
 
-    .roi-editor-wrap.editing #roiCanvas {
-      pointer-events: auto;
-      cursor: crosshair;
-    }
-
-    .roi-actions {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 6px;
-      margin-top: 8px;
-    }
-
-    .mini-btn {
-      padding: 6px 8px;
-      border-radius: 8px;
-      font-size: 12px;
-      background: #0b1220;
-      border: 1px solid var(--border);
-      color: var(--text);
-    }
-
-    .mini-btn.primary {
-      color: var(--good);
-      border-color: rgba(34, 197, 94, 0.35);
-      background: rgba(34, 197, 94, 0.08);
-    }
-
-    .roi-status {
-      margin-top: 7px;
-      font-size: 12px;
-      color: var(--muted);
-      line-height: 1.35;
-    }
-    /* sea-speed roi editor end */
-
-  
-    /* sea-speed speed config start */
-    .speed-config-box {
-      margin-top: 14px;
-      background: var(--panel2);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 10px;
-    }
-
-    .speed-config-row {
-      display: grid;
-      grid-template-columns: 1fr 120px 70px;
-      gap: 8px;
-      align-items: center;
-    }
-
-    .speed-config-row label {
-      color: var(--muted);
-      font-size: 13px;
-    }
-
-    .speed-config-row input {
-      width: 100%;
-      background: #050b16;
-      color: var(--text);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 7px 8px;
-      font-size: 13px;
-    }
-    /* sea-speed speed config end */
-
-  
-    /* sea-speed speed lines editor start */
+    #roiCanvas,
     #speedLinesCanvas {
       position: absolute;
       inset: 0;
@@ -811,203 +374,734 @@
       pointer-events: none;
     }
 
-    .speed-lines-panel {
-      margin-top: 10px;
-      border-top: 1px solid var(--border);
-      padding-top: 10px;
-    }
-
-    .speed-lines-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 6px;
-      margin-bottom: 8px;
-    }
-
-    .speed-distance-row {
-      display: grid;
-      grid-template-columns: 1fr 84px 58px;
-      gap: 6px;
-      align-items: center;
-    }
-
-    .speed-distance-row label {
-      color: var(--muted);
-      font-size: 12px;
-    }
-
-    .speed-distance-row input {
-      width: 100%;
-      background: #050b16;
-      color: var(--text);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 6px 7px;
-      font-size: 12px;
-    }
-    /* sea-speed speed lines editor end */
-
-  
-    /* sea-speed speed lines click fix start */
     #roiCanvas {
-      z-index: 2;
-    }
-
-    #speedLinesCanvas {
       z-index: 3;
-      pointer-events: none;
     }
 
+    #speedLinesCanvas {
+      z-index: 4;
+    }
+
+    .roi-editor-wrap.editing #roiCanvas,
     .roi-editor-wrap.speed-lines-editing #speedLinesCanvas {
       pointer-events: auto;
       cursor: crosshair;
     }
 
-    .roi-editor-wrap.editing #roiCanvas {
-      pointer-events: auto;
-      cursor: crosshair;
+    .stage-badges {
+      position: absolute;
+      z-index: 7;
+      top: 12px;
+      left: 12px;
+      right: 12px;
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      pointer-events: none;
     }
-    /* sea-speed speed lines click fix end */
 
+    .stage-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      min-height: 28px;
+      padding: 5px 9px;
+      border: 1px solid rgba(167, 243, 235, 0.2);
+      border-radius: 999px;
+      background: rgba(1, 13, 21, 0.72);
+      color: #dffcff;
+      font-size: 0.67rem;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      backdrop-filter: blur(10px);
+    }
+
+    .stage-badge::before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--cyan);
+      box-shadow: 0 0 14px rgba(94, 234, 212, 0.9);
+    }
+
+    .stage-badge.secondary::before {
+      background: var(--blue);
+      box-shadow: 0 0 14px rgba(98, 182, 255, 0.8);
+    }
+
+    .camera-meta {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      margin-top: 12px;
+      color: var(--muted);
+      font-size: 0.72rem;
+      line-height: 1.45;
+    }
+
+    .control-sidebar {
+      display: grid;
+      gap: 12px;
+      align-content: start;
+    }
+
+    .control-card,
+    .diagnostics-card {
+      padding: 15px;
+      border-radius: var(--radius-lg);
+      background: linear-gradient(155deg, rgba(8, 34, 50, 0.92), rgba(3, 18, 30, 0.96));
+      box-shadow: 0 18px 50px rgba(0, 5, 12, 0.28);
+    }
+
+    .control-card h2 {
+      margin-bottom: 5px;
+    }
+
+    .control-header {
+      margin-bottom: 12px;
+    }
+
+    .control-label {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 7px;
+      color: #dff8ff;
+      font-size: 0.76rem;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .control-label span:last-child {
+      color: var(--muted);
+      font-size: 0.64rem;
+      font-weight: 700;
+    }
+
+    .roi-actions,
+    .speed-lines-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 7px;
+    }
+
+    .mini-btn {
+      min-height: 44px;
+      padding: 8px 10px;
+      font-size: 0.78rem;
+      font-weight: 750;
+    }
+
+    .mini-btn.primary {
+      color: var(--good);
+      border-color: rgba(74, 222, 128, 0.34);
+      background: rgba(22, 101, 52, 0.17);
+    }
+
+    .mini-btn.active,
+    .mini-btn.primary:hover,
+    .mini-btn.primary:focus-visible {
+      border-color: rgba(74, 222, 128, 0.54);
+      background: rgba(22, 101, 52, 0.28);
+    }
+
+    .roi-status {
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 0.72rem;
+      line-height: 1.45;
+      overflow-wrap: anywhere;
+    }
+
+    .speed-lines-panel {
+      margin-top: 14px;
+      padding-top: 14px;
+      border-top: 1px solid var(--border);
+    }
+
+    .speed-distance-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 88px 64px;
+      gap: 7px;
+      align-items: center;
+      margin-top: 8px;
+    }
+
+    .speed-distance-row label,
+    .speed-config-row label {
+      color: var(--muted);
+      font-size: 0.76rem;
+    }
+
+    input {
+      width: 100%;
+      min-height: 44px;
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      border-radius: 11px;
+      background: rgba(1, 12, 21, 0.86);
+      color: var(--text);
+      font-size: 0.86rem;
+    }
+
+    .speed-config-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 96px 64px;
+      gap: 7px;
+      align-items: center;
+    }
+
+    .diagnostics-card {
+      padding: 0;
+    }
+
+    .diagnostics-card summary {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      min-height: 52px;
+      padding: 0 15px;
+      color: #dff8ff;
+      font-size: 0.82rem;
+      font-weight: 800;
+      cursor: pointer;
+      list-style: none;
+    }
+
+    .diagnostics-card summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .diagnostics-card summary::after {
+      content: "+";
+      color: var(--cyan);
+      font-size: 1.1rem;
+    }
+
+    .diagnostics-card[open] summary::after {
+      content: "−";
+    }
+
+    .diagnostics-content {
+      padding: 0 12px 12px;
+    }
+
+    pre,
+    .debug {
+      margin: 0;
+      overflow: auto;
+      border: 1px solid rgba(129, 213, 224, 0.14);
+      border-radius: 12px;
+      background: rgba(0, 8, 15, 0.84);
+      color: #cdeff7;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: 0.68rem;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+
+    pre {
+      max-height: 280px;
+      padding: 11px;
+    }
+
+    .debug {
+      max-height: 160px;
+      padding: 10px;
+    }
+
+    .events-panel {
+      margin-top: 16px;
+      padding: clamp(14px, 2vw, 20px);
+    }
+
+    .events-heading {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 12px;
+    }
+
+    .events-heading h2 {
+      margin: 0;
+    }
+
+    .events-list {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .event-card,
+    .empty {
+      min-width: 0;
+      border: 1px solid var(--border);
+      border-radius: 15px;
+      background: rgba(4, 23, 37, 0.88);
+    }
+
+    .event-card {
+      display: grid;
+      grid-template-columns: 112px minmax(0, 1fr);
+      gap: 10px;
+      padding: 9px;
+      align-items: start;
+    }
+
+    .event-card img {
+      width: 112px;
+      height: 82px;
+      border-radius: 10px;
+      object-fit: cover;
+      background: #000;
+    }
+
+    .event-title {
+      margin-bottom: 4px;
+      overflow: hidden;
+      color: var(--text);
+      font-size: 0.82rem;
+      font-weight: 800;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .event-meta {
+      color: var(--muted);
+      font-size: 0.66rem;
+      line-height: 1.42;
+      overflow-wrap: anywhere;
+    }
+
+    .empty {
+      grid-column: 1 / -1;
+      padding: 16px;
+      color: var(--muted);
+      font-size: 0.82rem;
+    }
+
+    .operator-footer {
+      width: min(1600px, 100%);
+      margin: 0 auto;
+      padding:
+        16px
+        max(22px, env(safe-area-inset-right))
+        max(22px, env(safe-area-inset-bottom))
+        max(22px, env(safe-area-inset-left));
+      color: rgba(147, 184, 197, 0.58);
+      font-size: 0.68rem;
+      text-align: center;
+    }
+
+    @media (max-width: 1280px) {
+      .operator-header {
+        grid-template-columns: 1fr;
+        gap: 12px;
+      }
+
+      .status-strip {
+        justify-content: flex-start;
+      }
+
+      .workspace {
+        grid-template-columns: minmax(0, 1fr) minmax(300px, 340px);
+      }
+
+      .events-list {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 900px) {
+      .workspace {
+        grid-template-columns: 1fr;
+      }
+
+      .control-sidebar {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .control-sidebar > :first-child {
+        grid-row: span 2;
+      }
+
+      .camera-stage {
+        width: 100%;
+      }
+    }
+
+    @media (max-width: 640px) {
+      .operator-header {
+        padding-right: max(12px, env(safe-area-inset-right));
+        padding-left: max(12px, env(safe-area-inset-left));
+      }
+
+      .operator-shell {
+        padding-right: max(10px, env(safe-area-inset-right));
+        padding-left: max(10px, env(safe-area-inset-left));
+      }
+
+      .status-strip {
+        margin-right: -2px;
+        padding-bottom: 4px;
+        scroll-snap-type: x proximity;
+      }
+
+      .status-item {
+        min-width: 78px;
+        scroll-snap-align: start;
+      }
+
+      .panel {
+        border-radius: 20px;
+      }
+
+      .camera-panel,
+      .events-panel {
+        padding: 11px;
+      }
+
+      .panel-heading {
+        align-items: center;
+      }
+
+      .panel-heading .path {
+        display: none;
+      }
+
+      .camera-stage {
+        border-radius: 15px;
+      }
+
+      .stage-badges {
+        top: 8px;
+        left: 8px;
+        right: 8px;
+      }
+
+      .stage-badge {
+        min-height: 25px;
+        padding: 4px 7px;
+        font-size: 0.58rem;
+      }
+
+      .camera-meta {
+        display: block;
+      }
+
+      .camera-meta span:last-child {
+        display: none;
+      }
+
+      .control-sidebar {
+        grid-template-columns: 1fr;
+      }
+
+      .control-sidebar > :first-child {
+        grid-row: auto;
+      }
+
+      .control-card {
+        padding: 13px;
+      }
+
+      .events-heading {
+        align-items: start;
+      }
+
+      .events-list {
+        display: flex;
+        gap: 9px;
+        overflow-x: auto;
+        padding-bottom: 5px;
+        scroll-snap-type: x mandatory;
+        -webkit-overflow-scrolling: touch;
+      }
+
+      .event-card {
+        flex: 0 0 min(86vw, 350px);
+        scroll-snap-align: start;
+      }
+
+      .empty {
+        flex: 1 0 100%;
+      }
+
+      input {
+        font-size: 16px;
+      }
+    }
+
+    @media (max-width: 430px) {
+      .operator-header {
+        gap: 10px;
+      }
+
+      h1 {
+        font-size: 1.72rem;
+      }
+
+      .subtitle {
+        max-width: 34ch;
+        font-size: 0.78rem;
+      }
+
+      .status-item {
+        min-width: 74px;
+        padding: 7px 8px;
+      }
+
+      .status-item .value {
+        font-size: 0.78rem;
+      }
+
+      .panel-heading h2 {
+        font-size: 1rem;
+      }
+
+      .icon-btn {
+        width: 44px;
+        min-width: 44px;
+        height: 44px;
+      }
+
+      .speed-distance-row,
+      .speed-config-row {
+        grid-template-columns: minmax(0, 1fr) 82px 62px;
+      }
+
+      .event-card {
+        grid-template-columns: 102px minmax(0, 1fr);
+      }
+
+      .event-card img {
+        width: 102px;
+        height: 76px;
+      }
+    }
+
+    @media (max-width: 390px) {
+      .eyebrow {
+        font-size: 0.65rem;
+      }
+
+      .camera-actions {
+        gap: 6px;
+      }
+
+      .roi-actions,
+      .speed-lines-grid {
+        gap: 6px;
+      }
+
+      .mini-btn {
+        padding-right: 7px;
+        padding-left: 7px;
+        font-size: 0.72rem;
+      }
+
+      .stage-badge.secondary {
+        display: none;
+      }
+
+      .speed-distance-row,
+      .speed-config-row {
+        grid-template-columns: minmax(0, 1fr) 78px 58px;
+        gap: 5px;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *,
+      *::before,
+      *::after {
+        scroll-behavior: auto !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
   </style>
 </head>
 
 <body>
-  <header>
-    <h1>Sea Speed Operator</h1>
-    <div class="subtitle">Live HLS + motion-gate + YOLO status + event capture MVP</div>
+  <header class="operator-header">
+    <div class="brand-block">
+      <p class="eyebrow">Vladivostok maritime monitoring</p>
+      <h1>Sea Speed Operator</h1>
+      <p class="subtitle">Суда, скорость и события в акватории — единый операторский экран.</p>
+    </div>
+
+    <section class="status-strip" aria-label="AI Status" data-layout="compact-status">
+      <div class="status-item">
+        <div class="label">Stream</div>
+        <div id="streamStatus" class="value warn">idle</div>
+      </div>
+      <div class="status-item">
+        <div class="label">Worker</div>
+        <div id="workerStatus" class="value bad">offline</div>
+      </div>
+      <div class="status-item">
+        <div class="label">Motion</div>
+        <div id="motionStatus" class="value">idle</div>
+      </div>
+      <div class="status-item">
+        <div class="label">AI</div>
+        <div id="aiStatus" class="value">idle</div>
+      </div>
+      <div class="status-item">
+        <div class="label">Detections</div>
+        <div id="detectionsStatus" class="value">0</div>
+      </div>
+      <div class="status-item">
+        <div class="label">Tracks</div>
+        <div id="tracksStatus" class="value">0</div>
+      </div>
+    </section>
   </header>
 
-  <main>
-        <section class="panel camera-panel">
-      <div class="camera-head">
-        <div>
-          <h2>Camera 1</h2>
-          <div class="path">HLS: /cams/hls/cam1/index.m3u8</div>
+  <main class="operator-shell">
+    <section class="workspace">
+      <article class="panel camera-panel" data-layout="primary-camera">
+        <div class="panel-heading">
+          <div>
+            <p class="panel-kicker">Camera 1 · AI overlay</p>
+            <h2>Главное окно наблюдения</h2>
+            <div class="path">HLS: /cams/hls/cam1/index.m3u8</div>
+          </div>
+
+          <div class="camera-actions">
+            <button id="connectBtn" class="icon-btn connect" title="Подключиться" aria-label="Подключиться">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M8 5v14l11-7z"></path>
+              </svg>
+            </button>
+
+            <button id="disconnectBtn" class="icon-btn disconnect" title="Отключить" aria-label="Отключить">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M6 6h12v12H6z"></path>
+              </svg>
+            </button>
+          </div>
         </div>
 
-        <div class="camera-actions">
-          <button id="connectBtn" class="icon-btn connect" title="Подключиться" aria-label="Подключиться">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M8 5v14l11-7z"></path>
-            </svg>
-          </button>
-
-          <button id="disconnectBtn" class="icon-btn disconnect" title="Отключить" aria-label="Отключить">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M6 6h12v12H6z"></path>
-            </svg>
-          </button>
-        </div>
-      </div>
-
-      <div class="camera-media-grid">
-        <div class="video-wrap">
+        <div class="camera-stage" id="cameraStage">
           <video id="video" controls playsinline muted></video>
-        </div>
 
-        <aside class="camera-side-stack">
-          <div class="camera-overlay-box">
-            <div class="camera-overlay-title">Latest overlay</div>
-            <div class="roi-editor-wrap" id="roiEditorWrap">
-              <img id="overlayImg" class="overlay-img" alt="Latest overlay" />
-              <canvas id="roiCanvas"></canvas>
-              <canvas id="speedLinesCanvas"></canvas>
-            </div>
-
-            <div class="roi-actions">
-              <button id="roiEditBtn" class="mini-btn" type="button">ROI edit</button>
-              <button id="roiUndoBtn" class="mini-btn" type="button">Undo</button>
-              <button id="roiClearBtn" class="mini-btn" type="button">Clear</button>
-              <button id="roiSaveBtn" class="mini-btn primary" type="button">Save ROI</button>
-            </div>
-
-            <div id="roiStatus" class="roi-status">ROI: loading</div>
-
-            <div class="speed-lines-panel">
-              <div class="camera-overlay-title">Speed lines</div>
-
-              <div class="speed-lines-grid">
-                <button id="speedLineABtn" class="mini-btn" type="button">Line A</button>
-                <button id="speedLineBBtn" class="mini-btn" type="button">Line B</button>
-                <button id="speedLineUndoBtn" class="mini-btn" type="button">Undo</button>
-                <button id="speedLineClearBtn" class="mini-btn" type="button">Clear</button>
-              </div>
-
-              <div class="speed-distance-row">
-                <label for="speedLinesDistanceInput">Distance, m</label>
-                <input id="speedLinesDistanceInput" type="number" step="0.1" min="0" value="57" />
-                <button id="speedLinesSaveBtn" class="mini-btn primary" type="button">Save</button>
-              </div>
-
-              <div id="speedLinesStatus" class="roi-status">Speed lines: loading</div>
-            </div>
+          <div class="roi-editor-wrap" id="roiEditorWrap">
+            <img id="overlayImg" class="overlay-img" alt="Аннотированный поток Camera 1" />
+            <canvas id="roiCanvas"></canvas>
+            <canvas id="speedLinesCanvas"></canvas>
           </div>
 
-          <div class="camera-events-box">
-            <div class="camera-overlay-title">Последние события</div>
-            <div id="eventsList" class="events-list compact-events">
-              <div class="empty">Пока событий нет</div>
-            </div>
+          <div class="stage-badges" aria-hidden="true">
+            <span class="stage-badge">AI overlay</span>
+            <span class="stage-badge secondary">Vladivostok · Cam 1</span>
           </div>
-        </aside>
-      </div>
+        </div>
+
+        <div class="camera-meta">
+          <span>Разметка ROI и линий скорости отображается непосредственно на основном кадре.</span>
+          <span>704 × 576 · live telemetry</span>
+        </div>
+      </article>
+
+      <aside class="control-sidebar" data-layout="right-controls">
+        <section class="panel control-card">
+          <div class="control-header">
+            <p class="panel-kicker">Overlay controls</p>
+            <h2>Разметка акватории</h2>
+            <div class="section-note">Управление зонами и измерительными линиями для главного окна.</div>
+          </div>
+
+          <div class="control-label">
+            <span>ROI</span>
+            <span>polygon</span>
+          </div>
+
+          <div class="roi-actions">
+            <button id="roiEditBtn" class="mini-btn" type="button">ROI edit</button>
+            <button id="roiUndoBtn" class="mini-btn" type="button">Undo</button>
+            <button id="roiClearBtn" class="mini-btn" type="button">Clear</button>
+            <button id="roiSaveBtn" class="mini-btn primary" type="button">Save ROI</button>
+          </div>
+
+          <div id="roiStatus" class="roi-status">ROI: loading</div>
+
+          <div class="speed-lines-panel">
+            <div class="control-label">
+              <span>Speed lines</span>
+              <span>A / B</span>
+            </div>
+
+            <div class="speed-lines-grid">
+              <button id="speedLineABtn" class="mini-btn" type="button">Line A</button>
+              <button id="speedLineBBtn" class="mini-btn" type="button">Line B</button>
+              <button id="speedLineUndoBtn" class="mini-btn" type="button">Undo</button>
+              <button id="speedLineClearBtn" class="mini-btn" type="button">Clear</button>
+            </div>
+
+            <div class="speed-distance-row">
+              <label for="speedLinesDistanceInput">Distance, m</label>
+              <input id="speedLinesDistanceInput" type="number" step="0.1" min="0" value="57" />
+              <button id="speedLinesSaveBtn" class="mini-btn primary" type="button">Save</button>
+            </div>
+
+            <div id="speedLinesStatus" class="roi-status">Speed lines: loading</div>
+          </div>
+        </section>
+
+        <section class="panel control-card speed-calibration-card">
+          <div class="control-header">
+            <p class="panel-kicker">Calibration</p>
+            <h2>Speed calibration</h2>
+          </div>
+
+          <div class="speed-config-row">
+            <label for="speedFactorInput">km/h per px/s</label>
+            <input id="speedFactorInput" type="number" step="0.001" min="0" placeholder="0.000" />
+            <button id="speedSaveBtn" class="mini-btn primary" type="button">Save</button>
+          </div>
+          <div id="speedConfigStatus" class="roi-status">Speed config: loading</div>
+        </section>
+
+        <details class="panel diagnostics-card state-card">
+          <summary>State JSON <span class="section-note">runtime</span></summary>
+          <div class="diagnostics-content">
+            <pre id="stateJson">{}</pre>
+          </div>
+        </details>
+
+        <details class="panel diagnostics-card debug-card">
+          <summary>Operator log <span class="section-note">local</span></summary>
+          <div class="diagnostics-content">
+            <div id="debugLog" class="debug"></div>
+          </div>
+        </details>
+      </aside>
     </section>
 
-
-    <section class="panel">
-      <h2>AI Status</h2>
-
-      <div class="status-grid">
-        <div class="status-card">
-          <div class="label">Stream</div>
-          <div id="streamStatus" class="value warn">idle</div>
+    <section class="panel events-panel">
+      <div class="events-heading">
+        <div>
+          <p class="panel-kicker">Detection history</p>
+          <h2>Последние события</h2>
         </div>
-        <div class="status-card">
-          <div class="label">Worker</div>
-          <div id="workerStatus" class="value bad">offline</div>
-        </div>
-        <div class="status-card">
-          <div class="label">Motion</div>
-          <div id="motionStatus" class="value">idle</div>
-        </div>
-        <div class="status-card">
-          <div class="label">AI</div>
-          <div id="aiStatus" class="value">idle</div>
-        </div>
-        <div class="status-card">
-          <div class="label">Detections</div>
-          <div id="detectionsStatus" class="value">0</div>
-        </div>
-        <div class="status-card">
-          <div class="label">Tracks</div>
-          <div id="tracksStatus" class="value">0</div>
-        </div>
-      </div>
-<div id="debugLog" class="debug"></div>
-    
-      <div class="speed-config-box">
-        <h2>Speed calibration</h2>
-        <div class="speed-config-row">
-          <label for="speedFactorInput">km/h per px/s</label>
-          <input id="speedFactorInput" type="number" step="0.001" min="0" placeholder="0.000" />
-          <button id="speedSaveBtn" class="mini-btn primary" type="button">Save</button>
-        </div>
-        <div id="speedConfigStatus" class="roi-status">Speed config: loading</div>
+        <div class="section-note">До четырёх последних фиксаций</div>
       </div>
 
-      <div class="state-inline-box">
-        <h2>State JSON</h2>
-        <pre id="stateJson">{}</pre>
+      <div id="eventsList" class="events-list">
+        <div class="empty">Пока событий нет</div>
       </div>
     </section>
-
-    
-
-
-    
-
   </main>
+
+  <footer class="operator-footer">Sea Speed · Maritime computer vision prototype</footer>
 
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 
@@ -1064,7 +1158,14 @@
       line_b: []
     };
 
-
+    if (overlayImg && roiEditorWrap) {
+      overlayImg.addEventListener("load", () => {
+        roiEditorWrap.classList.add("has-overlay");
+      });
+      overlayImg.addEventListener("error", () => {
+        roiEditorWrap.classList.remove("has-overlay");
+      });
+    }
 
     async function loadSpeedConfig() {
       try {
@@ -1140,8 +1241,6 @@
         speedSaveBtn.addEventListener("click", saveSpeedConfig);
       }
     }
-
-
 
     function resizeSpeedLinesCanvas() {
       if (!speedLinesCanvas || !overlayImg) return;
@@ -1267,7 +1366,6 @@
       }
     }
 
-
     async function clearSavedSpeedLines() {
       speedLines.line_a = [];
       speedLines.line_b = [];
@@ -1315,7 +1413,6 @@
         log("Speed lines clear save error: " + err);
       }
     }
-
 
     async function saveSpeedLines() {
       const distance = Number(speedLinesDistanceInput ? speedLinesDistanceInput.value : 57);
@@ -1378,7 +1475,6 @@
     }
 
     function bindSpeedLinesEditor() {
-
       if (speedLinesCanvas && !speedLinesCanvas.dataset.boundClick) {
         speedLinesCanvas.dataset.boundClick = "1";
 
@@ -1444,7 +1540,6 @@
         overlayImg.addEventListener("load", resizeSpeedLinesCanvas);
       }
     }
-
 
     function resizeRoiCanvas() {
       if (!roiCanvas || !overlayImg) return;
@@ -1578,7 +1673,6 @@
       }
     }
 
-
     async function clearSavedRoi() {
       roiPoints = [];
       drawRoi();
@@ -1619,7 +1713,6 @@
         log("ROI clear save error: " + err);
       }
     }
-
 
     async function saveRoi() {
       if (roiPoints.length < 3) {
@@ -1723,7 +1816,6 @@
         roiSaveBtn.addEventListener("click", saveRoi);
       }
     }
-
 
     function log(msg) {
       const d = new Date();
