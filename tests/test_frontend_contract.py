@@ -7,6 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 OPERATOR_SOURCE = ROOT / "frontend/sea-speed/index.html"
 ROOT_SOURCE = ROOT / "frontend/root/index.html"
+OBJECTS_SOURCE = ROOT / "frontend/sea-speed/objects/index.html"
 
 
 class FrontendContractTests(unittest.TestCase):
@@ -14,6 +15,7 @@ class FrontendContractTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.source = OPERATOR_SOURCE.read_text(encoding="utf-8-sig")
         cls.root_source = ROOT_SOURCE.read_text(encoding="utf-8-sig")
+        cls.objects_source = OBJECTS_SOURCE.read_text(encoding="utf-8-sig")
 
     def test_operator_endpoints_are_explicit(self) -> None:
         expected = {
@@ -218,6 +220,43 @@ class FrontendContractTests(unittest.TestCase):
             "min-height:44px",
         ):
             self.assertIn(marker, self.source)
+
+    def test_operator_links_to_objects_registry(self) -> None:
+        self.assertRegex(
+            self.source,
+            r'<a\s+class="objects-link"\s+href="/sea-speed/objects/">Реестр объектов</a>',
+        )
+
+    def test_objects_page_api_and_operator_actions(self) -> None:
+        self.assertRegex(
+            self.objects_source,
+            r'const\s+OBJECTS_URL\s*=\s*["\']/sea-speed/api/cam1/objects["\']',
+        )
+        for marker in (
+            'method:"PATCH"',
+            'method:"DELETE"',
+            'credentials:"same-origin"',
+            'const PAGE_SIZE=24',
+            'id="objectsGrid"',
+            'id="detailPhoto"',
+            'id="editClassName"',
+            'id="editSpeed"',
+            'id="editStatus"',
+            'id="editComment"',
+            'id="editForm"',
+            'id="deleteBtn"',
+            'id="prevBtn"',
+            'id="nextBtn"',
+            'href="/sea-speed/"',
+        ):
+            self.assertIn(marker, self.objects_source)
+        ids = re.findall(r'\bid="([^"]+)"', self.objects_source)
+        self.assertEqual(len(ids), len(set(ids)))
+
+    def test_objects_page_mobile_and_accessibility_baseline(self) -> None:
+        self.assertIn('@media(max-width:760px)', self.objects_source)
+        self.assertIn('min-height:44px', self.objects_source)
+        self.assertIn('viewport-fit=cover', self.objects_source)
 
     def test_root_page_primary_action_opens_operator_frontend(self) -> None:
         self.assertRegex(self.root_source, r'<a\s+class="primary-link"\s+href="/sea-speed/">')
