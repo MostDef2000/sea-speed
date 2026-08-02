@@ -1,16 +1,20 @@
 name: Repair speed stability branch
 
 on:
-  push:
+  pull_request:
     branches:
-      - agent/stabilize-track-speed-events
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
 
 permissions:
   contents: write
 
 jobs:
   repair:
-    if: github.actor != 'github-actions[bot]'
+    if: github.head_ref == 'agent/stabilize-track-speed-events' && github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -40,13 +44,14 @@ jobs:
           python -m py_compile worker/hls_motion_yolo_worker_events.py
           python -m unittest tests.test_worker_tracking_overlay tests.test_worker_contract
 
-      - name: Commit repaired files
+      - name: Commit repaired approved files and remove helper workflow
         shell: bash
         run: |
           worker_hash=$(git hash-object worker/hls_motion_yolo_worker_events.py)
           tests_hash=$(git hash-object tests/test_worker_tracking_overlay.py)
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git rm .github/workflows/repair-speed-stability-branch.yml
           git add worker/hls_motion_yolo_worker_events.py tests/test_worker_tracking_overlay.py
           git commit -m 'Worker: repair exact speed stability files' -m "worker=${worker_hash} tests=${tests_hash}"
           git push origin HEAD:agent/stabilize-track-speed-events
