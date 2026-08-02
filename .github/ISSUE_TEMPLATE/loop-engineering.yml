@@ -1,0 +1,65 @@
+name: Loop Engineering task
+description: Scope a repository, release, runtime or evidence change
+title: "[Loop] "
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem and evidence
+      description: Describe the observed problem and current evidence without secrets or private media.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope and likely files
+      description: Include explicit out-of-scope boundaries.
+    validations:
+      required: true
+  - type: dropdown
+    id: contours
+    attributes:
+      label: Runtime contours
+      multiple: true
+      options:
+        - VPS API or frontend
+        - Windows worker
+        - Mixed VPS and worker
+        - Governance or documentation only
+    validations:
+      required: true
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: Schema, compatibility and rollout
+      description: State old/new component compatibility, migration needs and rollout order.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance and evidence
+      description: List CI, deployment, runtime, telemetry and product-quality checks.
+    validations:
+      required: true
+  - type: textarea
+    id: rollback
+    attributes:
+      label: Rollback and risks
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety confirmation
+      options:
+        - label: No secret values or private runtime media are included.
+          required: true
+        - label: Repository writes still require an Implementation Scope Check and explicit approval.
+          required: true

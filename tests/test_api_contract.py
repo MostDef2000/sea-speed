@@ -3,6 +3,8 @@ from __future__ import annotations
 import ast
 import copy
 import json
+import os
+import re
 import tempfile
 import time
 import unittest
@@ -40,10 +42,7 @@ def load_functions(names: set[str], namespace: dict[str, Any]) -> dict[str, Any]
 
 class ApiContractTests(unittest.TestCase):
     def test_atomic_json_round_trip_and_invalid_fallback(self) -> None:
-        ns = load_functions(
-            {"read_json_file", "write_json_file"},
-            {"json": json, "Any": Any},
-        )
+        ns = load_functions({"read_json_file", "write_json_file"}, {"json": json, "Any": Any})
         with tempfile.TemporaryDirectory() as temp_dir:
             path = Path(temp_dir) / "state.json"
             payload = {"frame_no": 42, "worker_online": True}
@@ -68,6 +67,27 @@ class ApiContractTests(unittest.TestCase):
         self.assertEqual(forbidden.exception.status_code, 403)
         ns["require_auth"]("Bearer test-token")
 
+    def test_deployed_source_commit_is_non_secret_and_exact(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            marker = Path(temp_dir) / "current-release"
+            marker.write_text("a" * 40 + "\n", encoding="utf-8")
+            previous = os.environ.pop("SEA_SPEED_SOURCE_COMMIT", None)
+            try:
+                ns = load_functions(
+                    {"deployed_source_commit"},
+                    {
+                        "os": os,
+                        "SHA_RE": re.compile(r"^[0-9a-fA-F]{40}$"),
+                        "DEPLOYED_COMMIT_FILE": marker,
+                    },
+                )
+                self.assertEqual(ns["deployed_source_commit"](), "a" * 40)
+                marker.write_text("bootstrap-local\n", encoding="utf-8")
+                self.assertEqual(ns["deployed_source_commit"](), "unknown")
+            finally:
+                if previous is not None:
+                    os.environ["SEA_SPEED_SOURCE_COMMIT"] = previous
+
     def test_state_freshness_marks_stale_worker_offline(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             state_file = Path(temp_dir) / "cam1_state.json"
@@ -78,12 +98,16 @@ class ApiContractTests(unittest.TestCase):
                 "STATE_FILE": state_file,
                 "datetime": datetime,
                 "time": time,
+                "WORKER_STATE_SCHEMA": "sea_speed_worker_state_v1",
+                "TELEMETRY_SCHEMA": "sea_speed_telemetry_v1",
             }
             load_functions({"read_json_file", "default_state", "get_cam1_state"}, ns)
 
             stale = (datetime.now(timezone.utc) - timedelta(seconds=31)).isoformat()
             state_file.write_text(json.dumps({"updated_at": stale, "worker_online": True}), encoding="utf-8")
-            self.assertFalse(ns["get_cam1_state"]()["worker_online"])
+            stale_state = ns["get_cam1_state"]()
+            self.assertFalse(stale_state["worker_online"])
+            self.assertEqual(stale_state["state_schema"], "sea_speed_worker_state_v1")
 
             fresh = datetime.now(timezone.utc).isoformat()
             state_file.write_text(json.dumps({"updated_at": fresh, "worker_online": False}), encoding="utf-8")

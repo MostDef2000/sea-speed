@@ -1,6 +1,6 @@
 # Sea Speed Governance
 
-Version: 1.1.0
+Version: 1.2.0
 Status: Active
 Source of truth: GitHub `main`
 
@@ -26,12 +26,15 @@ implementation
 → pull request
 → CI validation
 → merge into main
-→ applicable VPS deployment and/or Windows worker release
+→ applicable release manifest
+→ applicable VPS deployment and/or Windows worker installation
+→ deployment manifest
 → runtime verification
+→ post-release evidence review
 → COMPLETE
 ```
 
-Do not stop at commit, PR, CI, merge, or deployment start when the workflow can continue safely.
+Do not stop at commit, PR, CI, merge, package creation, deployment start or process start when the workflow can continue safely.
 
 ## 3. Capability preflight
 
@@ -41,7 +44,7 @@ Before the first repository write, verify that the complete approved lifecycle i
 - branch, commit, PR, CI-status and merge operations are available;
 - the full mandatory multi-file set can be updated without partial delivery;
 - applicable VPS and Windows delivery mechanisms are known;
-- acceptance evidence and rollback paths are available or explicitly classified as manual fallback.
+- release/deployment manifests, acceptance evidence and rollback paths are available or explicitly classified as manual fallback.
 
 Do not begin a partial multi-file implementation when a safe path for the full mandatory set is unavailable. End as `BLOCKED` before writes, or request a smaller approved scope.
 
@@ -68,6 +71,7 @@ Before merge, re-check branch freshness and changed-file scope.
 - `api/**`: VPS FastAPI backend.
 - `frontend/**`: operator UI.
 - `deploy/**`: deployment, service, updater, health and rollback infrastructure.
+- `schemas/**`: release, deployment and telemetry contracts.
 - `contracts/**`, `docs/**`, `skills/**`: governance and documentation.
 
 Domain agents edit only approved files. Cross-domain changes must be declared in scope.
@@ -84,7 +88,19 @@ Without explicit approval, do not change:
 
 Incompatible state or session schema changes must invalidate or migrate old data explicitly.
 
-## 7. Integrity gate
+## 7. Provenance and runtime identity
+
+Applicable delivery work must use:
+
+- `schemas/release-manifest.schema.json` for source, approved file set, scope hash and artifact identity;
+- `schemas/deployment-manifest.schema.json` for installed version, checks and rollback identity;
+- `schemas/telemetry.schema.json` for worker state and vehicle-event identity.
+
+`packaged`, `installed`, `deployed` and `runtime_verified` are different states. A green workflow, uploaded ZIP or running process does not prove runtime acceptance.
+
+Runtime telemetry may expose only non-secret identities such as source commit, schema ID and calibration hash. It must not expose credentials, environment values, private keys, raw private media or model contents.
+
+## 8. Integrity gate
 
 After each repository file write and before PR creation:
 
@@ -97,7 +113,17 @@ After each repository file write and before PR creation:
 
 A failed check returns the task to implementation.
 
-## 8. Completion
+## 9. Evidence and feedback
+
+Post-release evidence follows `docs/evidence/POST_RELEASE_REVIEW.md` and ends with exactly one product verdict:
+
+- `accepted`;
+- `regressed`;
+- `insufficient_evidence`.
+
+A regression requires a linked Issue and an explicit rollback decision. Insufficient evidence must not be represented as acceptance.
+
+## 10. Completion
 
 Valid terminal states are only:
 
@@ -105,4 +131,4 @@ Valid terminal states are only:
 - `BLOCKED`;
 - `FAILED`.
 
-Merge is not deployment. Deployment is not runtime acceptance. Evidence determines completion.
+Merge is not deployment. Packaging is not installation. Deployment is not runtime acceptance. Evidence determines completion.

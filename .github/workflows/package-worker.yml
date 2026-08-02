@@ -79,7 +79,7 @@ jobs:
 
       - name: Validate worker Python syntax
         shell: pwsh
-        run: python -m py_compile worker/hls_motion_yolo_worker_events.py
+        run: python -m py_compile worker/hls_motion_yolo_worker_events.py worker/hls_motion_yolo_runtime.py
 
       - name: Build exact-commit worker package
         shell: pwsh
@@ -91,6 +91,7 @@ jobs:
 
           $managedFiles = @(
             'hls_motion_yolo_worker_events.py',
+            'hls_motion_yolo_runtime.py',
             'README.txt',
             'start_worker.cmd',
             'stop_worker.cmd',
