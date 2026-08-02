@@ -163,6 +163,35 @@ class WorkerTrackingOverlayTests(unittest.TestCase):
         self.assertEqual(ready, "ID 23 | car 0.87 | 31.4 km/h")
         self.assertEqual(pending, "ID 24 | truck 0.80 | speed: --")
 
+    def test_overlay_label_opacity_defaults_and_clamps(self) -> None:
+        configured = {"value": None}
+
+        def env_float(_name: str, default: float) -> float:
+            value = configured["value"]
+            return default if value is None else float(value)
+
+        ns = load_functions({"overlay_label_opacity"}, {"env_float": env_float})
+
+        self.assertEqual(ns["overlay_label_opacity"](), 0.38)
+        configured["value"] = -1
+        self.assertEqual(ns["overlay_label_opacity"](), 0.15)
+        configured["value"] = 2
+        self.assertEqual(ns["overlay_label_opacity"](), 0.85)
+
+    def test_overlay_uses_translucent_blending_not_opaque_label_fill(self) -> None:
+        source = SOURCE.read_text(encoding="utf-8-sig")
+        start = source.index("def draw_overlay(")
+        end = source.index("def post_state(", start)
+        draw_source = source[start:end]
+
+        self.assertIn("label_layer = out.copy()", draw_source)
+        self.assertIn("cv2.addWeighted(", draw_source)
+        self.assertIn("opacity = overlay_label_opacity()", draw_source)
+        self.assertNotIn(
+            "(label_x, max(0, label_y - text_height - 7))",
+            draw_source,
+        )
+
     def test_stale_track_state_is_pruned_by_max_gap(self) -> None:
         states = {
             7: {"last_seen": 7.9},

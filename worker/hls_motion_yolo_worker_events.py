@@ -396,6 +396,14 @@ def format_detection_label(det):
     return f"{id_text} | {class_name} {confidence:.2f} | {speed_text}"
 
 
+def overlay_label_opacity():
+    # JPEG has no alpha channel, so translucency is rendered by blending a
+    # dark label layer back into the camera frame. Keep the configured value
+    # inside a readable range even when the environment is misconfigured.
+    configured = env_float("OVERLAY_LABEL_OPACITY", 0.38)
+    return max(0.15, min(0.85, float(configured)))
+
+
 def draw_overlay(frame, motion_now, motion_area, ai_active, detections, motion_boxes):
     out = frame.copy()
 
@@ -421,12 +429,31 @@ def draw_overlay(frame, motion_now, motion_area, ai_active, detections, motion_b
         label_y = max(text_height + 8, y1 - 7)
         label_right = min(out.shape[1] - 1, label_x + text_width + 8)
 
+        label_top = max(0, label_y - text_height - 7)
+        label_bottom = min(out.shape[0] - 1, label_y + baseline + 2)
+        label_layer = out.copy()
+        cv2.rectangle(
+            label_layer,
+            (label_x, label_top),
+            (label_right, label_bottom),
+            (0, 18, 18),
+            -1,
+        )
+        opacity = overlay_label_opacity()
+        cv2.addWeighted(
+            label_layer,
+            opacity,
+            out,
+            1.0 - opacity,
+            0.0,
+            dst=out,
+        )
         cv2.rectangle(
             out,
-            (label_x, max(0, label_y - text_height - 7)),
-            (label_right, min(out.shape[0] - 1, label_y + baseline + 2)),
-            (0, 0, 0),
-            -1,
+            (label_x, label_top),
+            (label_right, label_bottom),
+            (0, 210, 140),
+            1,
         )
         cv2.putText(
             out,
