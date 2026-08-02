@@ -36,3 +36,9 @@ jobs:
 
       - name: Validate repository
         run: python scripts/ci/validate_repo.py
+
+      - name: Validate contracts
+        run: python scripts/ci/validate_contracts.py
+
+      - name: Run behavioral contract tests
+        run: python -m unittest discover -s tests -p "test_*.py" -v
