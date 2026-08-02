@@ -23,6 +23,7 @@ ALLOWED_TOP_LEVEL = {
     "frontend",
     "scripts",
     "skills",
+    "tests",
     "worker",
 }
 
@@ -35,6 +36,11 @@ REQUIRED_FILES = {
     "contracts/SEA_SPEED_DELIVERY_POLICY.md",
     "contracts/runtime/SEA_SPEED_TASK_RUNTIME.md",
     "contracts/runtime/RELEASE_READINESS_GATE.md",
+    "scripts/ci/validate_contracts.py",
+    "tests/test_api_contract.py",
+    "tests/test_worker_contract.py",
+    "tests/test_frontend_contract.py",
+    "docs/operations/PRODUCTION_BASELINE.md",
 }
 
 FORBIDDEN_DIRECTORY_NAMES = {
