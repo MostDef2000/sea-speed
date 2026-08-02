@@ -20,6 +20,7 @@ ALLOWED_TOP_LEVEL = {
 REQUIRED_FILES = {
     "README.md",
     "api/app/main.py",
+    "frontend/root/index.html",
     "frontend/sea-speed/index.html",
     "worker/hls_motion_yolo_worker_events.py",
     "worker/hls_motion_yolo_runtime.py",
@@ -125,23 +126,37 @@ def validate_python(files: list[Path]) -> None:
 
 
 def validate_frontend() -> None:
-    html_path = ROOT / "frontend/sea-speed/index.html"
-    parser = HtmlStructureValidator()
-    try:
-        parser.feed(html_path.read_text(encoding="utf-8-sig")); parser.close()
-    except Exception as exc:
-        fail(f"HTML parsing failed: {exc}")
-    if not (parser.has_html and parser.has_head and parser.has_body):
-        fail("frontend HTML must contain html, head and body elements")
+    html_paths = (
+        ROOT / "frontend/root/index.html",
+        ROOT / "frontend/sea-speed/index.html",
+    )
+
     with tempfile.TemporaryDirectory(prefix="sea-speed-js-") as temp_dir:
-        for index, script in enumerate(parser.inline_scripts, start=1):
-            if not script.strip(): continue
-            script_path = Path(temp_dir) / f"inline-{index}.js"
-            script_path.write_text(script, encoding="utf-8")
-            result = subprocess.run(["node", "--check", str(script_path)], cwd=ROOT, text=True, capture_output=True)
-            if result.returncode != 0:
-                details = (result.stderr or result.stdout).strip()
-                fail(f"JavaScript syntax failed for inline script {index}: {details}")
+        for html_path in html_paths:
+            parser = HtmlStructureValidator()
+            try:
+                parser.feed(html_path.read_text(encoding="utf-8-sig"))
+                parser.close()
+            except Exception as exc:
+                fail(f"HTML parsing failed for {html_path.relative_to(ROOT)}: {exc}")
+
+            if not (parser.has_html and parser.has_head and parser.has_body):
+                fail(f"frontend HTML must contain html, head and body elements: {html_path.relative_to(ROOT)}")
+
+            for index, script in enumerate(parser.inline_scripts, start=1):
+                if not script.strip():
+                    continue
+                script_path = Path(temp_dir) / f"{html_path.parent.name}-inline-{index}.js"
+                script_path.write_text(script, encoding="utf-8")
+                result = subprocess.run(
+                    ["node", "--check", str(script_path)],
+                    cwd=ROOT,
+                    text=True,
+                    capture_output=True,
+                )
+                if result.returncode != 0:
+                    details = (result.stderr or result.stdout).strip()
+                    fail(f"JavaScript syntax failed for {html_path.relative_to(ROOT)} inline script {index}: {details}")
 
 
 def validate_secrets(files: list[Path]) -> None:
