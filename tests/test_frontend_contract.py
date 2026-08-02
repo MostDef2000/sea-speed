@@ -114,6 +114,62 @@ class FrontendContractTests(unittest.TestCase):
             self.assertIn(marker, disconnect_source)
         self.assertIn('video.removeAttribute("src")', self.source)
 
+    def test_stalled_stream_uses_progress_watchdog_before_reconnect(self) -> None:
+        for marker in (
+            'const STREAM_STALL_GRACE_MS=2500',
+            'playbackWatchdogTimer=null',
+            'function schedulePlaybackWatchdog',
+            'video.currentTime)||0',
+            'current>baseline+0.05',
+            'video.addEventListener("timeupdate",notePlaybackProgress)',
+            'schedulePlaybackWatchdog("waiting timeout")',
+            'schedulePlaybackWatchdog("stalled timeout")',
+            'schedulePlaybackWatchdog("video error timeout")',
+        ):
+            self.assertIn(marker, self.source)
+        self.assertNotIn('scheduleStreamReconnect("stalled")', self.source)
+        self.assertNotIn('scheduleStreamReconnect("video error")', self.source)
+
+    def test_hls_builtin_recovery_gets_grace_period(self) -> None:
+        for marker in (
+            'const STREAM_RECOVERY_GRACE_MS=3500',
+            'recoveryTimer=null',
+            'function scheduleRecoveryCheck',
+            'scheduleRecoveryCheck("network recovery timeout")',
+            'scheduleRecoveryCheck("media recovery timeout")',
+        ):
+            self.assertIn(marker, self.source)
+        self.assertNotIn('scheduleStreamReconnect("network error")', self.source)
+        self.assertNotIn('scheduleStreamReconnect("media error")', self.source)
+
+    def test_playback_progress_clears_stale_reconnect_status(self) -> None:
+        self.assertIn('function markStreamOnline()', self.source)
+        self.assertIn('function playbackIsAdvancing', self.source)
+        self.assertIn('if(playbackIsAdvancing()){markStreamOnline();return}', self.source)
+        mark_start = self.source.index('function markStreamOnline()')
+        mark_end = self.source.index('function notePlaybackProgress()', mark_start)
+        mark_source = self.source[mark_start:mark_end]
+        for marker in (
+            'clearStreamRecoveryTimers()',
+            'reconnectAttempt=0',
+            'connectInFlight=false',
+            'setStatus(streamStatus,"online","good")',
+        ):
+            self.assertIn(marker, mark_source)
+
+    def test_stop_cancels_watchdog_and_recovery_timers(self) -> None:
+        start = self.source.index('function disconnectStream(')
+        end = self.source.index('video.addEventListener("loadedmetadata"', start)
+        disconnect_source = self.source[start:end]
+        for marker in (
+            'clearReconnectTimer()',
+            'clearPlaybackWatchdog()',
+            'clearRecoveryTimer()',
+            'lastPlaybackTime=0',
+            'lastPlaybackProgressAt=0',
+        ):
+            self.assertIn(marker, disconnect_source)
+
     def test_stream_autoconnects_and_recovers_video_events(self) -> None:
         for marker in (
             'video.addEventListener("stalled"',
