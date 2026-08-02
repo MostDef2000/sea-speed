@@ -12,6 +12,7 @@ Set-StrictMode -Version Latest
 
 $ManagedFiles = @(
     "hls_motion_yolo_worker_events.py",
+    "hls_motion_yolo_runtime.py",
     "README.txt",
     "start_worker.cmd",
     "stop_worker.cmd",
@@ -61,7 +62,7 @@ function Test-WorkerProcess {
     $targets = Get-CimInstance Win32_Process | Where-Object {
         $_.Name -in @('python.exe', 'pythonw.exe', 'cmd.exe', 'powershell.exe') -and
         $_.CommandLine -match $escapedPath -and
-        ($_.CommandLine -like '*hls_motion_yolo_worker_events.py*' -or $_.CommandLine -like '*run_event_worker_forever.cmd*' -or $_.CommandLine -like '*run_worker_once.ps1*')
+        ($_.CommandLine -like '*hls_motion_yolo_runtime.py*' -or $_.CommandLine -like '*hls_motion_yolo_worker_events.py*' -or $_.CommandLine -like '*run_event_worker_forever.cmd*' -or $_.CommandLine -like '*run_worker_once.ps1*')
     }
     return @($targets).Count -gt 0
 }
@@ -157,7 +158,7 @@ try {
     $pythonPath = Join-Path $InstallDir ".venv\Scripts\python.exe"
     if (-not (Test-Path $pythonPath -PathType Leaf)) { throw "Worker virtual environment Python is missing: $pythonPath" }
     Write-Step "Validating downloaded worker Python syntax"
-    & $pythonPath -m py_compile (Join-Path $sourceWorkerDir "hls_motion_yolo_worker_events.py")
+    & $pythonPath -m py_compile (Join-Path $sourceWorkerDir "hls_motion_yolo_worker_events.py") (Join-Path $sourceWorkerDir "hls_motion_yolo_runtime.py")
     if ($LASTEXITCODE -ne 0) { throw "Downloaded worker failed Python syntax validation." }
 
     Stop-Worker
