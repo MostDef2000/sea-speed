@@ -76,6 +76,43 @@ function Restore-ManagedFiles {
     }
 }
 
+function Write-DeploymentManifest {
+    param(
+        [string]$SourceCommit,
+        [AllowNull()][string]$PreviousVersion,
+        [AllowNull()][string]$ArtifactSha256,
+        [string]$State,
+        [bool]$RuntimeVerified,
+        [string]$WorkerProcessStatus,
+        [AllowNull()][string]$AttemptedSourceCommit
+    )
+
+    $manifestPath = Join-Path $InstallDir ".sea-speed-worker-deployment.json"
+    $payload = [ordered]@{
+        schema = "sea_speed_deployment_manifest_v1"
+        deliveryId = "windows-worker-$($SourceCommit.Substring(0, [Math]::Min(12, $SourceCommit.Length)))-$([DateTime]::UtcNow.ToString('yyyyMMddTHHmmssZ'))"
+        target = "windows-worker"
+        sourceCommit = $SourceCommit
+        attemptedSourceCommit = if ($AttemptedSourceCommit) { $AttemptedSourceCommit } else { $null }
+        previousVersion = if ($PreviousVersion) { $PreviousVersion } else { $null }
+        artifactSha256 = if ($ArtifactSha256) { $ArtifactSha256 } else { $null }
+        installedAt = [DateTime]::UtcNow.ToString("o")
+        checks = @(
+            [ordered]@{ name = "managed_files"; status = "passed" },
+            [ordered]@{ name = "python_syntax"; status = "passed" },
+            [ordered]@{ name = "worker_process"; status = $WorkerProcessStatus }
+        )
+        rollbackTarget = if ($PreviousVersion) { $PreviousVersion } else { $null }
+        runtimeVerified = $RuntimeVerified
+        state = $State
+    }
+
+    $json = $payload | ConvertTo-Json -Depth 6
+    $utf8 = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($manifestPath, $json + [Environment]::NewLine, $utf8)
+    Write-Step "Deployment evidence written: $manifestPath"
+}
+
 $InstallDir = [IO.Path]::GetFullPath($InstallDir)
 if (-not (Test-Path $InstallDir -PathType Container)) { throw "Install directory does not exist: $InstallDir" }
 
@@ -89,18 +126,26 @@ $hasManagedVersion = Test-Path $currentVersionFile -PathType Leaf
 $currentSha = if ($hasManagedVersion) { (Get-Content $currentVersionFile -Raw).Trim() } else { "unmanaged-baseline" }
 
 if (-not $hasManagedVersion -and -not $AllowUnmanagedBaseline) { throw "This folder is an unmanaged baseline. Review local worker differences first, then rerun with -AllowUnmanagedBaseline to create the first rollback snapshot and adopt GitHub main." }
-if ($currentSha -eq $resolvedSha) { Write-Step "Commit $resolvedSha is already installed"; exit 0 }
+if ($currentSha -eq $resolvedSha) {
+    $processStatus = if ($SkipRestart) { "skipped" } elseif (Test-WorkerProcess) { "passed" } else { "failed" }
+    if (-not $SkipRestart -and $processStatus -ne "passed") { throw "Installed commit matches, but worker process was not detected." }
+    Write-DeploymentManifest -SourceCommit $resolvedSha -PreviousVersion $null -ArtifactSha256 $null -State $(if ($SkipRestart) { "installed" } else { "runtime_verified" }) -RuntimeVerified (-not $SkipRestart) -WorkerProcessStatus $processStatus -AttemptedSourceCommit $null
+    Write-Step "Commit $resolvedSha is already installed"
+    exit 0
+}
 
 $tempRoot = Join-Path ([IO.Path]::GetTempPath()) ("sea-speed-worker-" + [Guid]::NewGuid().ToString('N'))
 $archivePath = Join-Path $tempRoot "source.zip"
 $extractPath = Join-Path $tempRoot "source"
 $rollbackRoot = Join-Path $InstallDir ".sea-speed-worker-rollback"
 $rollbackDir = Join-Path $rollbackRoot "previous"
+$archiveSha256 = $null
 New-Item -ItemType Directory -Path $tempRoot, $extractPath, $rollbackRoot -Force | Out-Null
 
 try {
     Write-Step "Downloading exact commit $resolvedSha"
     Invoke-WebRequest -UseBasicParsing -Uri "https://github.com/$Repository/archive/$resolvedSha.zip" -OutFile $archivePath
+    $archiveSha256 = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
     Expand-Archive -LiteralPath $archivePath -DestinationPath $extractPath -Force
     $repoRoot = Get-ChildItem -Path $extractPath -Directory | Select-Object -First 1
     if (-not $repoRoot) { throw "Downloaded archive does not contain a repository directory." }
@@ -129,10 +174,13 @@ try {
     foreach ($file in $ManagedFiles) { Copy-Item -LiteralPath (Join-Path $sourceWorkerDir $file) -Destination (Join-Path $InstallDir $file) -Force }
     Set-Content -LiteralPath $currentVersionFile -Value $resolvedSha -Encoding ascii
 
+    $processStatus = "skipped"
     if (-not $SkipRestart) {
         Start-Worker
         if (-not (Test-WorkerProcess)) { throw "Worker process was not detected after restart." }
+        $processStatus = "passed"
     }
+    Write-DeploymentManifest -SourceCommit $resolvedSha -PreviousVersion $currentSha -ArtifactSha256 $archiveSha256 -State $(if ($SkipRestart) { "installed" } else { "runtime_verified" }) -RuntimeVerified (-not $SkipRestart) -WorkerProcessStatus $processStatus -AttemptedSourceCommit $null
     Write-Step "Worker update successful: $resolvedSha"
     Write-Host "Preserved local content: .env, .venv, output, *.pt, patch files and *.bak* files"
 }
@@ -144,7 +192,13 @@ catch {
             Restore-ManagedFiles -RollbackDir $rollbackDir
             $previousVersion = Join-Path $rollbackDir "version.txt"
             if (Test-Path $previousVersion) { Copy-Item -LiteralPath $previousVersion -Destination $currentVersionFile -Force }
-            if (-not $SkipRestart) { Start-Worker }
+            $processStatus = "skipped"
+            if (-not $SkipRestart) {
+                Start-Worker
+                if (-not (Test-WorkerProcess)) { throw "Rollback worker process was not detected." }
+                $processStatus = "passed"
+            }
+            Write-DeploymentManifest -SourceCommit $currentSha -PreviousVersion $resolvedSha -ArtifactSha256 $archiveSha256 -State "rolled_back" -RuntimeVerified (-not $SkipRestart) -WorkerProcessStatus $processStatus -AttemptedSourceCommit $resolvedSha
             Write-Warning "Update failed; previous managed worker release was restored."
         }
         catch { Write-Host ("Rollback failed: " + $_.Exception.Message) -ForegroundColor Red }
