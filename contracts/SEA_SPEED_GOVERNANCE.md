@@ -1,6 +1,6 @@
 # Sea Speed Governance
 
-Version: 1.2.0
+Version: 1.3.0
 Status: Active
 Source of truth: GitHub `main`
 
@@ -8,6 +8,7 @@ Source of truth: GitHub `main`
 
 - `main` is the only long-term source of truth.
 - GitHub Issues are the canonical persistent backlog and task history. Chat context may assist execution but must not replace durable issue state for implementation work.
+- All GitHub repository operations must use the connected GitHub Connector. GitHub CLI `gh`, local GitHub authentication, `git push`, and direct local repository publication are not part of the Sea Speed delivery workflow.
 - VPS and Windows laptop are runtime environments, not editable source stores.
 - Task Intake is read-only and produces a canonical Task Brief before implementation planning.
 - Repository writes require `COMMIT APPROVED` or an approved equivalent issued after the Implementation Scope Check.
@@ -38,13 +39,17 @@ Do not stop at commit, PR, CI, merge, package creation, deployment start or proc
 
 ## 3. Capability preflight
 
-Before the first repository write, verify that the complete approved lifecycle is feasible:
+Before the first repository write, verify that the complete approved lifecycle is feasible through the GitHub Connector:
 
 - every planned file can be read and safely written;
-- branch, commit, PR, CI-status and merge operations are available;
+- Issue, branch, file update, commit, PR, CI-status, workflow evidence and merge operations required by the task are available through the Connector;
 - the full mandatory multi-file set can be updated without partial delivery;
 - applicable VPS and Windows delivery mechanisms are known;
 - release/deployment manifests, acceptance evidence and rollback paths are available or explicitly classified as manual fallback.
+
+The absence of GitHub CLI `gh`, a local GitHub login, a local git remote, or permission to run `git push` is not a blocker and must not be presented as one. Do not ask the user to install or authenticate `gh`. Do not fall back to `gh`, local GitHub commands or direct local publication.
+
+If a required Connector operation is unavailable, identify the exact missing capability and end as `BLOCKED` before repository writes or before any partial multi-file delivery. Local tools may be used to prepare content and run validation, but repository reading, writing, publication and lifecycle state changes remain Connector-only.
 
 Do not begin a partial multi-file implementation when a safe path for the full mandatory set is unavailable. End as `BLOCKED` before writes, or request a smaller approved scope.
 
