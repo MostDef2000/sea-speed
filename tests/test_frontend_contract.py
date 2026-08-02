@@ -52,7 +52,7 @@ class FrontendContractTests(unittest.TestCase):
             self.root_source,
             r'<a\s+class="primary-link"\s+href="/sea-speed/">',
         )
-        self.assertIn("Открыть Sea Speed", self.root_source)
+        self.assertIn("Открыть морской мониторинг", self.root_source)
 
     def test_root_page_cameras_link_is_secondary_and_in_footer(self) -> None:
         self.assertRegex(
@@ -64,6 +64,34 @@ class FrontendContractTests(unittest.TestCase):
     def test_root_page_uses_local_absolute_paths(self) -> None:
         self.assertNotIn("https://mostdef.ru/sea-speed/", self.root_source)
         self.assertNotIn("https://mostdef.ru/cams/", self.root_source)
+
+    def test_root_page_is_explicitly_maritime_and_local(self) -> None:
+        for phrase in (
+            "морского транспорта",
+            "Обнаружение судов",
+            "акватории Владивостока",
+            "Эгершельд",
+        ):
+            self.assertIn(phrase, self.root_source)
+
+    def test_root_page_contains_marine_scene_and_radar_animation(self) -> None:
+        for class_name in (
+            "marine-backdrop",
+            "vladivostok-skyline",
+            "lighthouse-scene",
+            "lighthouse",
+            "sea",
+            "radar",
+            "sweep",
+            "vessel",
+        ):
+            self.assertIn(f'class="{class_name}"', self.root_source)
+        self.assertIn("@keyframes sweep", self.root_source)
+        self.assertIn("prefers-reduced-motion", self.root_source)
+
+    def test_root_page_has_no_external_visual_assets(self) -> None:
+        self.assertNotRegex(self.root_source, r'<img\b')
+        self.assertNotRegex(self.root_source, r'url\(["\']?https?://')
 
 
 if __name__ == "__main__":
