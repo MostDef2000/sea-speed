@@ -20,6 +20,13 @@ CANONICAL_FILES = (
     "docs/architecture/sea-speed-control-plane.md",
     "docs/decision_records/DR-001-two-runtime-delivery-model.md",
     "docs/decision_records/DR-002-task-intake-and-delivery-controls.md",
+    "docs/operations/PRODUCTION_BASELINE.md",
+    "docs/operations/RELEASE_PROVENANCE.md",
+    "schemas/release-manifest.schema.json",
+    "schemas/deployment-manifest.schema.json",
+    "scripts/release/build_release_manifest.py",
+    "scripts/release/validate_release_manifest.py",
+    "scripts/release/validate_deployment_manifest.py",
 )
 
 REFERENCE_FILES = (
@@ -32,6 +39,8 @@ REFERENCE_FILES = (
     "contracts/branches/project-manager.md",
     "contracts/branches/core-release.md",
     "docs/architecture/sea-speed-control-plane.md",
+    "docs/operations/PRODUCTION_BASELINE.md",
+    "docs/operations/RELEASE_PROVENANCE.md",
 )
 
 REPO_PATH_PATTERN = re.compile(
