@@ -1,4 +1,4 @@
-﻿import json
+import json
 import os
 import subprocess
 import time
@@ -160,8 +160,16 @@ class MotionDetector:
 def detect_vehicles(model, frame):
     confidence = env_float("YOLO_CONFIDENCE", 0.25)
     image_size = env_int("YOLO_IMAGE_SIZE", 960)
+    tracker = env_str("YOLO_TRACKER", "bytetrack.yaml").strip() or "bytetrack.yaml"
 
-    results = model(frame, imgsz=image_size, conf=confidence, verbose=False)
+    results = model.track(
+        frame,
+        persist=True,
+        tracker=tracker,
+        imgsz=image_size,
+        conf=confidence,
+        verbose=False,
+    )
 
     detections = []
 
@@ -174,7 +182,9 @@ def detect_vehicles(model, frame):
     if r.boxes is None:
         return detections
 
-    for box in r.boxes:
+    track_ids = getattr(r.boxes, "id", None)
+
+    for index, box in enumerate(r.boxes):
         cls_id = int(box.cls[0].item())
         class_name = str(names.get(cls_id, cls_id))
         conf = float(box.conf[0].item())
@@ -182,10 +192,18 @@ def detect_vehicles(model, frame):
         if class_name not in VEHICLE_CLASSES:
             continue
 
+        track_id = None
+        if track_ids is not None:
+            try:
+                track_id = int(track_ids[index].item())
+            except Exception:
+                track_id = None
+
         xyxy = box.xyxy[0].tolist()
         x1, y1, x2, y2 = [int(round(v)) for v in xyxy]
 
         detections.append({
+            "track_id": track_id,
             "class_name": class_name,
             "confidence": conf,
             "bbox_xyxy": [x1, y1, x2, y2],
@@ -230,8 +248,6 @@ def filter_detections_by_motion(detections, motion_boxes):
     ]
 
 
-
-
 _roi_cache = {
     "ts": 0.0,
     "enabled": False,
@@ -257,7 +273,6 @@ def get_roi_url():
 def fetch_remote_roi():
     refresh_sec = env_float("ROI_REFRESH_SEC", 5.0)
     now = time.time()
-
     if now - _roi_cache["ts"] < refresh_sec:
         return _roi_cache["enabled"], _roi_cache["points"]
 
@@ -366,6 +381,21 @@ def draw_roi_polygon(frame):
     cv2.polylines(frame, [polygon], True, (255, 0, 0), 2)
 
 
+def format_detection_label(det):
+    track_id = det.get("track_id")
+    id_text = f"ID {int(track_id)}" if track_id is not None else "ID --"
+    class_name = str(det.get("class_name", "object"))
+    confidence = float(det.get("confidence") or 0.0)
+    speed_kmh = det.get("speed_kmh")
+
+    if speed_kmh is None:
+        speed_text = "speed: --"
+    else:
+        speed_text = f"{float(speed_kmh):.1f} km/h"
+
+    return f"{id_text} | {class_name} {confidence:.2f} | {speed_text}"
+
+
 def draw_overlay(frame, motion_now, motion_area, ai_active, detections, motion_boxes):
     out = frame.copy()
 
@@ -374,25 +404,52 @@ def draw_overlay(frame, motion_now, motion_area, ai_active, detections, motion_b
 
     for det in detections:
         x1, y1, x2, y2 = det["bbox_xyxy"]
-        label = f'{det["class_name"]} {det["confidence"]:.2f}'
+        label = format_detection_label(det)
 
         cv2.rectangle(out, (x1, y1), (x2, y2), (0, 255, 0), 2)
+
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 0.5
+        thickness = 2
+        (text_width, text_height), baseline = cv2.getTextSize(
+            label,
+            font,
+            font_scale,
+            thickness,
+        )
+        label_x = max(0, x1)
+        label_y = max(text_height + 8, y1 - 7)
+        label_right = min(out.shape[1] - 1, label_x + text_width + 8)
+
+        cv2.rectangle(
+            out,
+            (label_x, max(0, label_y - text_height - 7)),
+            (label_right, min(out.shape[0] - 1, label_y + baseline + 2)),
+            (0, 0, 0),
+            -1,
+        )
         cv2.putText(
             out,
             label,
-            (x1, max(18, y1 - 8)),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.55,
+            (label_x + 4, label_y),
+            font,
+            font_scale,
             (0, 255, 0),
-            2,
+            thickness,
             cv2.LINE_AA,
         )
 
+    active_track_ids = {
+        int(det["track_id"])
+        for det in detections
+        if det.get("track_id") is not None
+    }
     lines = [
         f"motion_now: {motion_now}",
         f"motion_area: {int(motion_area)}",
         f"ai_active: {ai_active}",
         f"detections: {len(detections)}",
+        f"tracks: {len(active_track_ids)}",
         f"posted_to: mostdef.ru/sea-speed",
     ]
 
@@ -499,28 +556,37 @@ def post_event(event, snapshot_path):
         return False
 
 
-
 _speed_track = {
     "center": None,
     "ts": None,
     "class_name": None,
 }
 
-
+# Per-object runtime state. The legacy singleton states remain as a
+# compatibility fallback for trackless detections and dependency-free tests.
+_track_states = {}
 
 
 def detection_center_px(det):
-    # Detection-first speed trigger point:
-    # bottom-center of bbox, not the geometric center.
-    #
-    # bbox_xyxy = [x1, y1, x2, y2]
-    # point = ((x1 + x2) / 2, y2)
-    x1, y1, x2, y2 = det["bbox_xyxy"]
+    # Bottom-center is the speed trigger point for both pixel and calibrated
+    # measurements. A single definition prevents geometric-center drift.
+    x1, _y1, x2, y2 = det["bbox_xyxy"]
     return ((x1 + x2) / 2.0, y2)
+
 
 def update_speed_estimate(det):
     now = time.time()
     cx, cy = detection_center_px(det)
+    track_id = det.get("track_id")
+
+    if track_id is None:
+        state = _speed_track
+        track_state = None
+    else:
+        track_id = int(track_id)
+        track_state = _track_states.setdefault(track_id, {})
+        track_state["last_seen"] = now
+        state = track_state.setdefault("pixel_speed", {})
 
     info = {
         "center_x": round(cx, 2),
@@ -532,9 +598,9 @@ def update_speed_estimate(det):
         "speed_px_s": None,
     }
 
-    prev_center = _speed_track.get("center")
-    prev_ts = _speed_track.get("ts")
-    prev_class = _speed_track.get("class_name")
+    prev_center = state.get("center")
+    prev_ts = state.get("ts")
+    prev_class = state.get("class_name")
 
     if prev_center is not None and prev_ts is not None and prev_class == det["class_name"]:
         dt = now - prev_ts
@@ -553,14 +619,14 @@ def update_speed_estimate(det):
                 "speed_px_s": round(speed, 2),
             })
 
-    _speed_track["center"] = (cx, cy)
-    _speed_track["ts"] = now
-    _speed_track["class_name"] = det["class_name"]
+    state["center"] = (cx, cy)
+    state["ts"] = now
+    state["class_name"] = det["class_name"]
+
+    if track_state is not None:
+        track_state["pixel_speed_info"] = dict(info)
 
     return info
-
-
-
 
 
 _speed_config_cache = {
@@ -640,8 +706,6 @@ def convert_px_s_to_kmh(speed_px_s):
     return round(float(speed_px_s) * factor, 1)
 
 
-
-
 _speed_lines_cache = {
     "ts": 0.0,
     "enabled": False,
@@ -658,11 +722,6 @@ _line_speed_state = {
     "prev_side_b": None,
     "pending": None,
 }
-
-
-def detection_center_px(det):
-    x1, y1, x2, y2 = det["bbox_xyxy"]
-    return ((x1 + x2) / 2.0, (y1 + y2) / 2.0)
 
 
 def get_speed_lines_url():
@@ -778,27 +837,21 @@ def crossed_line(prev_side, current_side):
     return ps != cs
 
 
-
-
 def update_speed_lines_estimate(det):
-    # Detection-first speed model.
-    #
-    # Line A / Line B are NOT start/finish gates anymore.
-    # They are only calibration anchors:
-    #   distance_m = real road distance between midpoint(Line A) and midpoint(Line B)
-    #
-    # For every detection frame:
-    #   1. Take bottom-center of bbox.
-    #   2. Project it onto A->B road axis.
-    #   3. Compare with previous detection point.
-    #   4. Calculate instant km/h.
-    #   5. Maintain min / max / avg stats for the active track.
-    #
-    # This means speed is calculated from detection movement itself,
-    # not from waiting for line crossing.
+    # Detection-first calibrated speed, isolated by persistent track ID.
     cfg = fetch_speed_lines_config()
     now = time.time()
     point = detection_center_px(det)
+    track_id = det.get("track_id")
+
+    if track_id is None:
+        state = _line_speed_state
+        track_state = None
+    else:
+        track_id = int(track_id)
+        track_state = _track_states.setdefault(track_id, {})
+        track_state["last_seen"] = now
+        state = track_state.setdefault("line_speed", {})
 
     info = {
         "line_speed_kmh": None,
@@ -817,27 +870,27 @@ def update_speed_lines_estimate(det):
         "speed_ready": False,
     }
 
-    _line_speed_state.setdefault("prev_point", None)
-    _line_speed_state.setdefault("prev_progress_m", None)
-    _line_speed_state.setdefault("prev_ts", None)
-    _line_speed_state.setdefault("samples", [])
-    _line_speed_state.setdefault("track_started_ts", now)
-    _line_speed_state.setdefault("last_seen_ts", now)
+    state.setdefault("prev_point", None)
+    state.setdefault("prev_progress_m", None)
+    state.setdefault("prev_ts", None)
+    state.setdefault("samples", [])
+    state.setdefault("track_started_ts", now)
+    state.setdefault("last_seen_ts", now)
 
     max_gap_sec = env_float("DETECTION_TRACK_MAX_GAP_SEC", 2.0)
     min_dt = env_float("DETECTION_SPEED_MIN_DT_SEC", 0.05)
     max_dt = env_float("DETECTION_SPEED_MAX_DT_SEC", 1.5)
     min_kmh = env_float("DETECTION_SPEED_MIN_KMH", 1.0)
     max_kmh = env_float("DETECTION_SPEED_MAX_KMH", 180.0)
-    smooth_samples = int(env_float("DETECTION_SPEED_SMOOTH_SAMPLES", 5))
+    smooth_samples = max(1, int(env_float("DETECTION_SPEED_SMOOTH_SAMPLES", 5)))
 
-    prev_ts = _line_speed_state.get("prev_ts")
+    prev_ts = state.get("prev_ts")
     if prev_ts is not None and now - float(prev_ts) > max_gap_sec:
-        _line_speed_state["prev_point"] = None
-        _line_speed_state["prev_progress_m"] = None
-        _line_speed_state["prev_ts"] = None
-        _line_speed_state["samples"] = []
-        _line_speed_state["track_started_ts"] = now
+        state["prev_point"] = None
+        state["prev_progress_m"] = None
+        state["prev_ts"] = None
+        state["samples"] = []
+        state["track_started_ts"] = now
 
     line_a = cfg.get("line_a") or []
     line_b = cfg.get("line_b") or []
@@ -881,14 +934,16 @@ def update_speed_lines_estimate(det):
     progress_m = progress_m_from_calibration(point)
 
     if progress_m is None:
-        _line_speed_state["prev_point"] = point
-        _line_speed_state["prev_progress_m"] = None
-        _line_speed_state["prev_ts"] = now
-        _line_speed_state["last_seen_ts"] = now
+        state["prev_point"] = point
+        state["prev_progress_m"] = None
+        state["prev_ts"] = now
+        state["last_seen_ts"] = now
+        if track_state is not None:
+            track_state["line_speed_info"] = dict(info)
         return info
 
-    prev_progress_m = _line_speed_state.get("prev_progress_m")
-    prev_ts = _line_speed_state.get("prev_ts")
+    prev_progress_m = state.get("prev_progress_m")
+    prev_ts = state.get("prev_ts")
 
     if prev_progress_m is not None and prev_ts is not None:
         dt = now - float(prev_ts)
@@ -899,13 +954,13 @@ def update_speed_lines_estimate(det):
 
             if min_kmh <= inst_kmh <= max_kmh:
                 inst_kmh = round(inst_kmh, 1)
-                _line_speed_state["samples"].append(inst_kmh)
+                state["samples"].append(inst_kmh)
 
-                if len(_line_speed_state["samples"]) > 120:
-                    _line_speed_state["samples"] = _line_speed_state["samples"][-120:]
+                if len(state["samples"]) > 120:
+                    state["samples"] = state["samples"][-120:]
 
-                samples = list(_line_speed_state["samples"])
-                recent = samples[-smooth_samples:] if smooth_samples > 0 else samples
+                samples = list(state["samples"])
+                recent = samples[-smooth_samples:]
 
                 avg_recent = round(sum(recent) / len(recent), 1)
                 avg_all = round(sum(samples) / len(samples), 1)
@@ -922,22 +977,45 @@ def update_speed_lines_estimate(det):
                     "speed_kmh_max": max_all,
                     "speed_kmh_avg": avg_all,
                     "speed_sample_count": len(samples),
-                    "speed_travel_time_sec": round(now - float(_line_speed_state.get("track_started_ts", now)), 3),
+                    "speed_travel_time_sec": round(
+                        now - float(state.get("track_started_ts", now)),
+                        3,
+                    ),
                     "speed_ready": True,
                 })
 
                 print(
-                    f"Detection-first speed: {avg_recent} km/h "
+                    f"Detection-first speed track={track_id}: {avg_recent} km/h "
                     f"instant={inst_kmh} min={min_all} avg={avg_all} max={max_all} "
                     f"samples={len(samples)} trigger=bottom_center"
                 )
 
-    _line_speed_state["prev_point"] = point
-    _line_speed_state["prev_progress_m"] = progress_m
-    _line_speed_state["prev_ts"] = now
-    _line_speed_state["last_seen_ts"] = now
+    state["prev_point"] = point
+    state["prev_progress_m"] = progress_m
+    state["prev_ts"] = now
+    state["last_seen_ts"] = now
+
+    if track_state is not None:
+        track_state["line_speed_info"] = dict(info)
 
     return info
+
+
+def prune_track_states(now=None):
+    if now is None:
+        now = time.time()
+
+    max_gap_sec = env_float("DETECTION_TRACK_MAX_GAP_SEC", 2.0)
+    stale_track_ids = []
+
+    for track_id, state in list(_track_states.items()):
+        last_seen = state.get("last_seen")
+        if last_seen is None or now - float(last_seen) > max_gap_sec:
+            stale_track_ids.append(track_id)
+            _track_states.pop(track_id, None)
+
+    return stale_track_ids
+
 
 def draw_speed_lines_overlay(frame):
     cfg = fetch_speed_lines_config()
@@ -955,7 +1033,6 @@ def draw_speed_lines_overlay(frame):
     if len(line_b) == 2:
         cv2.line(frame, line_b[0], line_b[1], (255, 0, 255), 2)
         cv2.putText(frame, "B", line_b[0], cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 255), 2, cv2.LINE_AA)
-
 
 
 def build_event(best_det, motion_area, speed_info=None, line_speed_info=None):
@@ -983,6 +1060,7 @@ def build_event(best_det, motion_area, speed_info=None, line_speed_info=None):
     return {
         "event_id": event_id,
         "created_at": now_iso(),
+        "track_id": best_det.get("track_id"),
         "class_name": best_det["class_name"],
         "confidence": best_det["confidence"],
         "bbox": best_det["bbox_xyxy"],
@@ -1001,7 +1079,7 @@ def build_event(best_det, motion_area, speed_info=None, line_speed_info=None):
         "speed_end_line": line_speed_info.get("speed_end_line"),
         "motion_area": int(motion_area),
         "model_name": env_str("MODEL_NAME", "yolo11s.pt"),
-        "message": "motion-filtered vehicle detection with speed lines",
+        "message": "motion-filtered tracked vehicle detection with speed lines",
     }
 
 
@@ -1011,7 +1089,9 @@ def main():
     frame_size = width * height * 3
 
     model_name = env_str("MODEL_NAME", "yolo11s.pt")
+    tracker_name = env_str("YOLO_TRACKER", "bytetrack.yaml").strip() or "bytetrack.yaml"
     print(f"Loading model: {model_name}")
+    print(f"Tracking: {tracker_name}")
     model = YOLO(model_name)
 
     state_interval = env_float("STATE_POST_INTERVAL_SEC", 1.0)
@@ -1039,7 +1119,6 @@ def main():
                 break
 
             frame_no += 1
-
             frame = np.frombuffer(raw, np.uint8).reshape((height, width, 3))
 
             motion_now, motion_area, motion_boxes = motion_detector.process(frame)
@@ -1051,6 +1130,33 @@ def main():
                 raw_detections = detect_vehicles(model, frame)
                 detections = filter_detections_by_motion(raw_detections, motion_boxes)
                 detections = filter_detections_by_roi(detections)
+
+            active_track_ids = set()
+
+            for det in detections:
+                track_id = det.get("track_id")
+                if track_id is not None:
+                    active_track_ids.add(int(track_id))
+
+                speed_info = update_speed_estimate(det)
+                line_speed_info = update_speed_lines_estimate(det)
+                speed_px_s = speed_info.get("speed_px_s")
+                speed_kmh = line_speed_info.get("speed_kmh")
+
+                if speed_kmh is None:
+                    try:
+                        speed_kmh = convert_px_s_to_kmh(speed_px_s)
+                    except Exception:
+                        speed_kmh = None
+
+                det["speed_px_s"] = speed_px_s
+                det["speed_kmh"] = speed_kmh
+                det["speed_ready"] = bool(line_speed_info.get("speed_ready")) or speed_kmh is not None
+                det["_speed_info"] = speed_info
+                det["_line_speed_info"] = line_speed_info
+
+            now = time.time()
+            prune_track_states(now)
 
             overlay = draw_overlay(
                 frame=frame,
@@ -1070,12 +1176,10 @@ def main():
                 [cv2.IMWRITE_JPEG_QUALITY, 85],
             )
 
-            now = time.time()
-
             if detections:
                 best = max(detections, key=lambda d: d["confidence"])
-                speed_info = update_speed_estimate(best)
-                line_speed_info = update_speed_lines_estimate(best)
+                speed_info = best.get("_speed_info") or {}
+                line_speed_info = best.get("_line_speed_info") or {}
                 speed_px_s = speed_info.get("speed_px_s")
                 min_speed = env_float("MIN_EVENT_SPEED_PX_PER_SEC", 10.0)
 
@@ -1085,10 +1189,9 @@ def main():
                 has_px_speed = speed_px_s is not None
                 cooldown_ok = now - last_event_post >= event_cooldown
 
-                # Detection-first event policy:
-                # - Do not post empty events with no px speed and no km/h.
-                # - Post calibrated km/h event immediately when ready.
-                # - Otherwise post px-speed event by cooldown.
+                # Existing event policy is preserved:
+                # - calibrated speed remains immediately eligible;
+                # - pixel-speed fallback remains subject to global cooldown.
                 should_post_event = speed_ready or (
                     has_px_speed
                     and speed_px_s >= min_speed
@@ -1097,7 +1200,6 @@ def main():
 
                 if should_post_event:
                     event = build_event(best, motion_area, speed_info, line_speed_info)
-
                     event_snapshot_path = EVENTS_DIR / f'{event["event_id"]}.jpg'
 
                     cv2.imwrite(
@@ -1110,16 +1212,17 @@ def main():
                     post_event(event, event_snapshot_path)
 
             if now - last_state_post >= state_interval:
+                track_count = len(active_track_ids)
                 metadata = {
                     "camera_id": env_str("CAMERA_ID", "cam1_road_test"),
                     "motion_now": bool(motion_now),
                     "motion_area": int(motion_area),
                     "ai_active": bool(ai_active),
                     "detections": len(detections),
-                    "tracks": len(detections),
+                    "tracks": track_count,
                     "frame_no": frame_no,
                     "model_name": model_name,
-                    "message": "event-worker running",
+                    "message": "event-worker running with persistent tracking",
                 }
 
                 ok = post_state(metadata, latest_overlay_path)
@@ -1128,7 +1231,7 @@ def main():
                 if ok:
                     print(
                         f"POST state ok motion={motion_now} "
-                        f"ai={ai_active} detections={len(detections)} tracks={len(detections)}"
+                        f"ai={ai_active} detections={len(detections)} tracks={track_count}"
                     )
 
     except KeyboardInterrupt:
