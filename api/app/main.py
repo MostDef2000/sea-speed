@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import time
 import uuid
 from datetime import datetime, timezone
@@ -15,6 +16,7 @@ DATA_DIR = BASE_DIR / "data"
 MEDIA_DIR = BASE_DIR / "media"
 OVERLAY_DIR = MEDIA_DIR / "overlays"
 EVENTS_MEDIA_DIR = MEDIA_DIR / "events"
+DEPLOYED_COMMIT_FILE = Path("/opt/sea-speed-deploy/state/current-release")
 
 STATE_FILE = DATA_DIR / "cam1_state.json"
 EVENTS_FILE = DATA_DIR / "events.json"
@@ -23,18 +25,33 @@ SPEED_CONFIG_FILE = DATA_DIR / "cam1_speed_config.json"
 SPEED_LINES_FILE = DATA_DIR / "cam1_speed_lines.json"
 
 API_TOKEN = os.environ.get("SEA_SPEED_API_TOKEN", "")
+API_SCHEMA = "sea_speed_api_v1"
+WORKER_STATE_SCHEMA = "sea_speed_worker_state_v1"
+VEHICLE_EVENT_SCHEMA = "sea_speed_vehicle_event_v1"
+TELEMETRY_SCHEMA = "sea_speed_telemetry_v1"
+SHA_RE = re.compile(r"^[0-9a-fA-F]{40}$")
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 OVERLAY_DIR.mkdir(parents=True, exist_ok=True)
 EVENTS_MEDIA_DIR.mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title="Sea Speed API")
-
 app.mount("/media", StaticFiles(directory=str(MEDIA_DIR)), name="media")
 
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def deployed_source_commit() -> str:
+    configured = os.environ.get("SEA_SPEED_SOURCE_COMMIT", "").strip()
+    if SHA_RE.fullmatch(configured):
+        return configured.lower()
+    try:
+        value = DEPLOYED_COMMIT_FILE.read_text(encoding="utf-8-sig").strip()
+    except OSError:
+        return "unknown"
+    return value.lower() if SHA_RE.fullmatch(value) else "unknown"
 
 
 def require_auth(authorization: Optional[str]) -> None:
@@ -65,6 +82,9 @@ def write_json_file(path: Path, data: Any) -> None:
 def default_state() -> Dict[str, Any]:
     return {
         "camera_id": "cam1",
+        "state_schema": WORKER_STATE_SCHEMA,
+        "telemetry_schema": TELEMETRY_SCHEMA,
+        "worker_source_commit": None,
         "updated_at": None,
         "worker_online": False,
         "motion_now": False,
@@ -72,6 +92,7 @@ def default_state() -> Dict[str, Any]:
         "ai_active": False,
         "detections": 0,
         "tracks": 0,
+        "frame_no": 0,
         "last_overlay_url": None,
         "message": "No worker state received yet",
     }
@@ -80,6 +101,10 @@ def default_state() -> Dict[str, Any]:
 @app.get("/api/cam1/state")
 def get_cam1_state() -> Dict[str, Any]:
     state = read_json_file(STATE_FILE, default_state())
+    state.setdefault("state_schema", WORKER_STATE_SCHEMA)
+    state.setdefault("telemetry_schema", TELEMETRY_SCHEMA)
+    state.setdefault("worker_source_commit", None)
+    state.setdefault("frame_no", 0)
 
     updated_at = state.get("updated_at")
     if not updated_at:
@@ -110,6 +135,9 @@ async def post_cam1_state(
         raise HTTPException(status_code=400, detail="metadata must be valid JSON")
 
     data["camera_id"] = "cam1"
+    data.setdefault("state_schema", WORKER_STATE_SCHEMA)
+    data.setdefault("telemetry_schema", TELEMETRY_SCHEMA)
+    data.setdefault("worker_source_commit", None)
     data["updated_at"] = now_iso()
     data["worker_online"] = True
 
@@ -124,22 +152,14 @@ async def post_cam1_state(
 
     write_json_file(STATE_FILE, data)
 
-    return {
-        "ok": True,
-        "state": data,
-    }
+    return {"ok": True, "state": data}
 
 
 @app.get("/api/cam1/events")
 def get_cam1_events(limit: int = 50) -> Dict[str, Any]:
     events = read_json_file(EVENTS_FILE, [])
     events = events[: max(1, min(limit, 200))]
-    return {
-        "ok": True,
-        "camera_id": "cam1",
-        "count": len(events),
-        "events": events,
-    }
+    return {"ok": True, "camera_id": "cam1", "count": len(events), "events": events}
 
 
 @app.post("/api/cam1/events")
@@ -158,6 +178,10 @@ async def post_cam1_event(
     event_id = str(event.get("event_id") or uuid.uuid4())
     event["event_id"] = event_id
     event["camera_id"] = "cam1"
+    event.setdefault("event_schema", VEHICLE_EVENT_SCHEMA)
+    event.setdefault("telemetry_schema", TELEMETRY_SCHEMA)
+    event.setdefault("worker_source_commit", None)
+    event.setdefault("calibration_version", None)
     event["created_at"] = event.get("created_at") or now_iso()
 
     if snapshot is not None:
@@ -170,25 +194,14 @@ async def post_cam1_event(
     events: List[Dict[str, Any]] = read_json_file(EVENTS_FILE, [])
     events.insert(0, event)
     events = events[:500]
-
     write_json_file(EVENTS_FILE, events)
 
-    return {
-        "ok": True,
-        "event": event,
-    }
+    return {"ok": True, "event": event}
 
 
 @app.get("/api/cam1/roi")
 def get_cam1_roi() -> Dict[str, Any]:
-    default_roi = {
-        "ok": True,
-        "camera_id": "cam1",
-        "enabled": False,
-        "polygon": [],
-        "updated_at": None,
-    }
-
+    default_roi = {"ok": True, "camera_id": "cam1", "enabled": False, "polygon": [], "updated_at": None}
     roi = read_json_file(ROI_FILE, default_roi)
     roi["ok"] = True
     roi["camera_id"] = "cam1"
@@ -213,7 +226,6 @@ def post_cam1_roi(payload: Dict[str, Any]) -> Dict[str, Any]:
                 y = int(round(float(point.get("y"))))
             except Exception:
                 continue
-
             clean_polygon.append({"x": x, "y": y})
 
     if enabled and len(clean_polygon) < 3:
@@ -226,7 +238,6 @@ def post_cam1_roi(payload: Dict[str, Any]) -> Dict[str, Any]:
         "polygon": clean_polygon,
         "updated_at": now_iso(),
     }
-
     write_json_file(ROI_FILE, roi)
     return roi
 
@@ -240,7 +251,6 @@ def get_cam1_speed_config() -> Dict[str, Any]:
         "kmh_per_px_s": 0.0,
         "updated_at": None,
     }
-
     config = read_json_file(SPEED_CONFIG_FILE, default_config)
     config["ok"] = True
     config["camera_id"] = "cam1"
@@ -253,12 +263,10 @@ def get_cam1_speed_config() -> Dict[str, Any]:
 @app.post("/api/cam1/speed-config")
 def post_cam1_speed_config(payload: Dict[str, Any]) -> Dict[str, Any]:
     enabled = bool(payload.get("enabled", True))
-
     try:
         kmh_per_px_s = float(payload.get("kmh_per_px_s", 0.0))
     except Exception:
         raise HTTPException(status_code=400, detail="kmh_per_px_s must be a number")
-
     if kmh_per_px_s < 0:
         raise HTTPException(status_code=400, detail="kmh_per_px_s must be >= 0")
 
@@ -269,29 +277,23 @@ def post_cam1_speed_config(payload: Dict[str, Any]) -> Dict[str, Any]:
         "kmh_per_px_s": kmh_per_px_s,
         "updated_at": now_iso(),
     }
-
     write_json_file(SPEED_CONFIG_FILE, config)
     return config
 
 
 def clean_points_list(raw_points: Any, max_points: int = 2) -> List[Dict[str, int]]:
     clean = []
-
     if not isinstance(raw_points, list):
         return clean
-
     for point in raw_points[:max_points]:
         if not isinstance(point, dict):
             continue
-
         try:
             x = int(round(float(point.get("x"))))
             y = int(round(float(point.get("y"))))
         except Exception:
             continue
-
         clean.append({"x": x, "y": y})
-
     return clean
 
 
@@ -306,7 +308,6 @@ def get_cam1_speed_lines() -> Dict[str, Any]:
         "line_b": [],
         "updated_at": None,
     }
-
     config = read_json_file(SPEED_LINES_FILE, default_config)
     config["ok"] = True
     config["camera_id"] = "cam1"
@@ -324,15 +325,12 @@ def post_cam1_speed_lines(payload: Dict[str, Any]) -> Dict[str, Any]:
         distance_m = float(payload.get("distance_m", 57.0))
     except Exception:
         raise HTTPException(status_code=400, detail="distance_m must be a number")
-
     if distance_m <= 0:
         raise HTTPException(status_code=400, detail="distance_m must be > 0")
 
     line_a = clean_points_list(payload.get("line_a"), max_points=2)
     line_b = clean_points_list(payload.get("line_b"), max_points=2)
-
     enabled = bool(payload.get("enabled", True))
-
     if enabled and (len(line_a) != 2 or len(line_b) != 2):
         raise HTTPException(status_code=400, detail="line_a and line_b must contain exactly 2 points each")
 
@@ -345,7 +343,6 @@ def post_cam1_speed_lines(payload: Dict[str, Any]) -> Dict[str, Any]:
         "line_b": line_b,
         "updated_at": now_iso(),
     }
-
     write_json_file(SPEED_LINES_FILE, config)
     return config
 
@@ -355,5 +352,7 @@ def health() -> Dict[str, Any]:
     return {
         "ok": True,
         "service": "sea-speed-api",
+        "api_schema": API_SCHEMA,
+        "source_commit": deployed_source_commit(),
         "time": now_iso(),
     }
