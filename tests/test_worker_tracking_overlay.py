@@ -97,7 +97,7 @@ class WorkerTrackingOverlayTests(unittest.TestCase):
         model = FakeModel()
         detections = ns["detect_vehicles"](model, object())
 
-        self.assertEqual(len(model.cals, 1)
+        self.assertEqual(len(model.calls), 1)
         self.assertTrue(model.calls[0]["persist"])
         self.assertEqual(model.calls[0]["tracker"], "bytetrack.yaml")
         self.assertEqual(detections[0]["track_id"], 17)
@@ -124,7 +124,7 @@ class WorkerTrackingOverlayTests(unittest.TestCase):
         )
 
         track_a = {"track_id": 7, "bbox_xyxy": [-1, -1, 1, 1], "class_name": "car"}
-        track_b = {"track_id": 12, "bbox_xxy": [4, -1, 6, 1], "class_name": "truck"}
+        track_b = {"track_id": 12, "bbox_xyxy": [4, -1, 6, 1], "class_name": "truck"}
         ns["update_speed_estimate"](track_a)
         ns["update_speed_lines_estimate"](track_a)
         ns["update_speed_estimate"](track_b)
