@@ -21,6 +21,7 @@ ALLOWED_TOP_LEVEL = {
     "deploy",
     "docs",
     "frontend",
+    "schemas",
     "scripts",
     "skills",
     "tests",
@@ -37,10 +38,17 @@ REQUIRED_FILES = {
     "contracts/runtime/SEA_SPEED_TASK_RUNTIME.md",
     "contracts/runtime/RELEASE_READINESS_GATE.md",
     "scripts/ci/validate_contracts.py",
+    "scripts/release/build_release_manifest.py",
+    "scripts/release/validate_release_manifest.py",
+    "scripts/release/validate_deployment_manifest.py",
+    "schemas/release-manifest.schema.json",
+    "schemas/deployment-manifest.schema.json",
     "tests/test_api_contract.py",
     "tests/test_worker_contract.py",
     "tests/test_frontend_contract.py",
+    "tests/test_release_manifest.py",
     "docs/operations/PRODUCTION_BASELINE.md",
+    "docs/operations/RELEASE_PROVENANCE.md",
 }
 
 FORBIDDEN_DIRECTORY_NAMES = {
@@ -60,53 +68,24 @@ FORBIDDEN_PATH_PREFIXES = {
     "api/media",
 }
 
-FORBIDDEN_FILENAMES = {
-    ".env",
-    ".env.local",
-}
+FORBIDDEN_FILENAMES = {".env", ".env.local"}
 
 FORBIDDEN_SUFFIXES = {
-    ".engine",
-    ".jpeg",
-    ".jpg",
-    ".log",
-    ".mkv",
-    ".mp4",
-    ".onnx",
-    ".png",
-    ".pt",
-    ".pyc",
+    ".engine", ".jpeg", ".jpg", ".log", ".mkv", ".mp4", ".onnx", ".png", ".pt", ".pyc",
 }
 
 SECRET_PATTERNS = {
     "private key": re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"),
     "GitHub token": re.compile(r"\b(?:ghp|github_pat)_[A-Za-z0-9_]{20,}\b"),
     "AWS access key": re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
-    "hard-coded Sea Speed token": re.compile(
-        r"(?im)^\s*(?:set\s+\"?)?SEA_SPEED_API_TOKEN\s*=\s*[^\s\"']+"
-    ),
-    "hard-coded HLS auth": re.compile(
-        r"(?im)^\s*(?:set\s+\"?)?HLS_BASIC_AUTH_BASE64\s*=\s*[^\s\"']+"
-    ),
+    "hard-coded Sea Speed token": re.compile(r"(?im)^\s*(?:set\s+\"?)?SEA_SPEED_API_TOKEN\s*=\s*[^\s\"']+"),
+    "hard-coded HLS auth": re.compile(r"(?im)^\s*(?:set\s+\"?)?HLS_BASIC_AUTH_BASE64\s*=\s*[^\s\"']+"),
 }
 
-TEXT_SUFFIXES = {
-    ".cmd",
-    ".html",
-    ".js",
-    ".json",
-    ".md",
-    ".py",
-    ".sh",
-    ".txt",
-    ".yaml",
-    ".yml",
-}
+TEXT_SUFFIXES = {".cmd", ".html", ".js", ".json", ".md", ".py", ".sh", ".txt", ".yaml", ".yml"}
 
 
 class HtmlStructureValidator(HTMLParser):
-    """Track essential document elements and inline scripts."""
-
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.has_html = False
@@ -117,20 +96,13 @@ class HtmlStructureValidator(HTMLParser):
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         tag = tag.lower()
-        if tag == "html":
-            self.has_html = True
-        elif tag == "head":
-            self.has_head = True
-        elif tag == "body":
-            self.has_body = True
-        elif tag == "script":
-            attributes = dict(attrs)
-            if not attributes.get("src"):
-                self._script_buffer = []
+        if tag == "html": self.has_html = True
+        elif tag == "head": self.has_head = True
+        elif tag == "body": self.has_body = True
+        elif tag == "script" and not dict(attrs).get("src"): self._script_buffer = []
 
     def handle_data(self, data: str) -> None:
-        if self._script_buffer is not None:
-            self._script_buffer.append(data)
+        if self._script_buffer is not None: self._script_buffer.append(data)
 
     def handle_endtag(self, tag: str) -> None:
         if tag.lower() == "script" and self._script_buffer is not None:
@@ -144,47 +116,29 @@ def fail(message: str) -> None:
 
 
 def tracked_files() -> list[Path]:
-    result = subprocess.run(
-        ["git", "ls-files", "-z"],
-        cwd=ROOT,
-        check=True,
-        capture_output=True,
-    )
+    result = subprocess.run(["git", "ls-files", "-z"], cwd=ROOT, check=True, capture_output=True)
     return [Path(item.decode("utf-8")) for item in result.stdout.split(b"\0") if item]
 
 
 def validate_paths(files: list[Path]) -> None:
     missing = sorted(path for path in REQUIRED_FILES if not (ROOT / path).is_file())
-    if missing:
-        fail("required files are missing: " + ", ".join(missing))
-
+    if missing: fail("required files are missing: " + ", ".join(missing))
     for path in files:
         top = path.parts[0]
-        if top not in ALLOWED_TOP_LEVEL:
-            fail(f"unexpected top-level path: {path}")
-
+        if top not in ALLOWED_TOP_LEVEL: fail(f"unexpected top-level path: {path}")
         normalized = path.as_posix().lower()
         directory_parts = {part.lower() for part in path.parts[:-1]}
-
-        if path.name.lower() in FORBIDDEN_FILENAMES:
-            fail(f"local environment file is tracked: {path}")
-
-        if directory_parts & FORBIDDEN_DIRECTORY_NAMES:
-            fail(f"runtime or local directory is tracked: {path}")
-
+        if path.name.lower() in FORBIDDEN_FILENAMES: fail(f"local environment file is tracked: {path}")
+        if directory_parts & FORBIDDEN_DIRECTORY_NAMES: fail(f"runtime or local directory is tracked: {path}")
         if any(normalized == prefix or normalized.startswith(prefix + "/") for prefix in FORBIDDEN_PATH_PREFIXES):
             fail(f"runtime data path is tracked: {path}")
-
-        if path.suffix.lower() in FORBIDDEN_SUFFIXES:
-            fail(f"forbidden generated or binary artifact is tracked: {path}")
+        if path.suffix.lower() in FORBIDDEN_SUFFIXES: fail(f"forbidden generated or binary artifact is tracked: {path}")
 
 
 def validate_python(files: list[Path]) -> None:
-    python_files = [path for path in files if path.suffix.lower() == ".py"]
-    for path in python_files:
-        full_path = ROOT / path
+    for path in [item for item in files if item.suffix.lower() == ".py"]:
         try:
-            source = full_path.read_text(encoding="utf-8-sig")
+            source = (ROOT / path).read_text(encoding="utf-8-sig")
             compile(source, str(path), "exec")
         except (SyntaxError, UnicodeDecodeError) as exc:
             fail(f"Python syntax failed for {path}: {exc}")
@@ -194,26 +148,17 @@ def validate_frontend() -> None:
     html_path = ROOT / "frontend/sea-speed/index.html"
     parser = HtmlStructureValidator()
     try:
-        parser.feed(html_path.read_text(encoding="utf-8-sig"))
-        parser.close()
+        parser.feed(html_path.read_text(encoding="utf-8-sig")); parser.close()
     except Exception as exc:
         fail(f"HTML parsing failed: {exc}")
-
     if not (parser.has_html and parser.has_head and parser.has_body):
         fail("frontend HTML must contain html, head and body elements")
-
     with tempfile.TemporaryDirectory(prefix="sea-speed-js-") as temp_dir:
         for index, script in enumerate(parser.inline_scripts, start=1):
-            if not script.strip():
-                continue
+            if not script.strip(): continue
             script_path = Path(temp_dir) / f"inline-{index}.js"
             script_path.write_text(script, encoding="utf-8")
-            result = subprocess.run(
-                ["node", "--check", str(script_path)],
-                cwd=ROOT,
-                text=True,
-                capture_output=True,
-            )
+            result = subprocess.run(["node", "--check", str(script_path)], cwd=ROOT, text=True, capture_output=True)
             if result.returncode != 0:
                 details = (result.stderr or result.stdout).strip()
                 fail(f"JavaScript syntax failed for inline script {index}: {details}")
@@ -221,18 +166,11 @@ def validate_frontend() -> None:
 
 def validate_secrets(files: list[Path]) -> None:
     for path in files:
-        if path.suffix.lower() not in TEXT_SUFFIXES and path.name not in {"README.md", ".gitignore"}:
-            continue
-
-        full_path = ROOT / path
-        try:
-            content = full_path.read_text(encoding="utf-8-sig")
-        except UnicodeDecodeError:
-            fail(f"text file is not valid UTF-8: {path}")
-
+        if path.suffix.lower() not in TEXT_SUFFIXES and path.name not in {"README.md", ".gitignore"}: continue
+        try: content = (ROOT / path).read_text(encoding="utf-8-sig")
+        except UnicodeDecodeError: fail(f"text file is not valid UTF-8: {path}")
         for label, pattern in SECRET_PATTERNS.items():
-            if pattern.search(content):
-                fail(f"possible {label} detected in {path}")
+            if pattern.search(content): fail(f"possible {label} detected in {path}")
 
 
 def main() -> int:
@@ -241,7 +179,6 @@ def main() -> int:
     validate_python(files)
     validate_frontend()
     validate_secrets(files)
-
     print("Sea Speed repository validation passed")
     print(f"Tracked files checked: {len(files)}")
     return 0
