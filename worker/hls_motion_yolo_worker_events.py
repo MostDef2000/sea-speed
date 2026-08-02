@@ -216,7 +216,7 @@ def bbox_intersects_motion(det, motion_boxes):
     if not motion_boxes:
         return False
 
-    x1, y1, x2, y2 = det["bbox_xxy"]
+    x1, y1, x2, y2 = det["bbox_xyxy"]
     det_area = max(1.0, float((x2 - x1) * (y2 - y1)))
 
     for mx, my, mw, mh in motion_boxes:

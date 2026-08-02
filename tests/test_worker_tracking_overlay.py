@@ -135,12 +135,12 @@ class WorkerTrackingOverlayTests(unittest.TestCase):
             FakeTime.current = second
             track_a = {
                 "track_id": 7,
-                "bbox_xxy": [second - 1, -1, second + 1, 1],
+                "bbox_xyxy": [second - 1, -1, second + 1, 1],
                 "class_name": "car",
             }
             track_b = {
                 "track_id": 12,
-                "bbox_xxy": [4 + second * 2 - 1, -1, 4 + second * 2 + 1, 1],
+                "bbox_xyxy": [4 + second * 2 - 1, -1, 4 + second * 2 + 1, 1],
                 "class_name": "truck",
             }
             ns["update_speed_estimate"](track_a)
