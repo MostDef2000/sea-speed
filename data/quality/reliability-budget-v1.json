@@ -1,0 +1,15 @@
+{
+  "schema": "sea_speed_reliability_budget_v1",
+  "version": 1,
+  "limits": {
+    "minimum_deterministic_fuzz_cases": 128,
+    "maximum_duplicate_logical_objects": 0,
+    "maximum_corrupt_records_after_interrupted_write": 0,
+    "maximum_orphan_records_in_quality_fixture": 0,
+    "maximum_quality_evidence_bytes": 262144,
+    "maximum_exact_artifact_bytes_each": 10485760,
+    "minimum_property_assertions": 12,
+    "maximum_open_critical_risks": 0
+  },
+  "change_policy": "Increasing a merge-blocking upper limit requires a linked issue and explicit justification."
+}

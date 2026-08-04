@@ -1,0 +1,161 @@
+name: Quality integration gate
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-integration-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  static-contract-security:
+    name: static-contract-security
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out exact source
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Validate repository and canonical contracts
+        run: |
+          set -euo pipefail
+          python scripts/ci/validate_repo.py
+          python scripts/ci/validate_contracts.py
+          python scripts/quality/validate_quality_contracts.py
+          python scripts/quality/validate_workflow_policy.py
+      - name: Validate JSON and Python syntax
+        run: |
+          set -euo pipefail
+          find data/contracts data/quality schemas -type f -name '*.json' -print0 | xargs -0 -n1 python -m json.tool >/dev/null
+          python -m py_compile scripts/quality/*.py
+      - name: Run repository behavioral tests
+        run: python -W error::ResourceWarning -m unittest discover -s tests -p 'test_*.py' -v
+
+  property-fuzz-reliability:
+    name: property-fuzz-reliability
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out exact source
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run deterministic property checks
+        run: python scripts/quality/test_properties.py
+      - name: Run deterministic fuzz and recovery checks
+        run: python scripts/quality/test_fuzz_recovery.py
+      - name: Run quality architecture tests
+        run: python -W error::ResourceWarning -m unittest tests.quality.test_quality_architecture -v
+
+  exact-artifact-e2e:
+    name: exact-artifact-e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out exact source
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build exact artifacts twice
+        env:
+          SOURCE_COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          python scripts/quality/build_exact_artifacts.py --source-commit "$SOURCE_COMMIT" --output-dir dist/exact-a
+          python scripts/quality/build_exact_artifacts.py --source-commit "$SOURCE_COMMIT" --output-dir dist/exact-b
+          cmp "dist/exact-a/sea-speed-vps-${SOURCE_COMMIT}.tar.gz" "dist/exact-b/sea-speed-vps-${SOURCE_COMMIT}.tar.gz"
+          cmp "dist/exact-a/sea-speed-edge-${SOURCE_COMMIT}.tar.gz" "dist/exact-b/sea-speed-edge-${SOURCE_COMMIT}.tar.gz"
+          cmp dist/exact-a/exact-artifacts.json dist/exact-b/exact-artifacts.json
+      - name: Validate exact artifact bytes
+        run: python scripts/quality/validate_exact_artifacts.py --manifest dist/exact-a/exact-artifacts.json
+      - name: Upload exact artifacts on failure or success
+        uses: actions/upload-artifact@v4
+        with:
+          name: sea-speed-exact-artifacts-${{ github.sha }}
+          path: dist/exact-a
+          retention-days: 14
+          if-no-files-found: error
+
+  release-deployment-evidence:
+    name: release-deployment-evidence
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out exact source
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build exact release artifacts
+        env:
+          SOURCE_COMMIT: ${{ github.sha }}
+        run: python scripts/quality/build_exact_artifacts.py --source-commit "$SOURCE_COMMIT" --output-dir dist/release
+      - name: Generate quality evidence
+        env:
+          SOURCE_COMMIT: ${{ github.sha }}
+        run: |
+          python scripts/quality/build_quality_evidence.py \
+            --source-commit "$SOURCE_COMMIT" \
+            --artifacts-manifest dist/release/exact-artifacts.json \
+            --output dist/quality-evidence.json
+      - name: Validate release and deployment evidence
+        run: |
+          python scripts/quality/validate_exact_artifacts.py --manifest dist/release/exact-artifacts.json
+          python scripts/quality/validate_quality_evidence.py \
+            --evidence dist/quality-evidence.json \
+            --artifacts-manifest dist/release/exact-artifacts.json
+      - name: Upload quality evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: sea-speed-quality-evidence-${{ github.sha }}
+          path: |
+            dist/release
+            dist/quality-evidence.json
+          retention-days: 30
+          if-no-files-found: error
+
+  quality-integration:
+    name: quality-integration
+    if: always()
+    needs:
+      - static-contract-security
+      - property-fuzz-reliability
+      - exact-artifact-e2e
+      - release-deployment-evidence
+    runs-on: ubuntu-latest
+    steps:
+      - name: Aggregate independent quality domains
+        env:
+          STATIC_RESULT: ${{ needs.static-contract-security.result }}
+          RELIABILITY_RESULT: ${{ needs.property-fuzz-reliability.result }}
+          ARTIFACT_RESULT: ${{ needs.exact-artifact-e2e.result }}
+          EVIDENCE_RESULT: ${{ needs.release-deployment-evidence.result }}
+        run: |
+          set -euo pipefail
+          printf 'static-contract-security=%s\n' "$STATIC_RESULT"
+          printf 'property-fuzz-reliability=%s\n' "$RELIABILITY_RESULT"
+          printf 'exact-artifact-e2e=%s\n' "$ARTIFACT_RESULT"
+          printf 'release-deployment-evidence=%s\n' "$EVIDENCE_RESULT"
+          [[ "$STATIC_RESULT" == success ]]
+          [[ "$RELIABILITY_RESULT" == success ]]
+          [[ "$ARTIFACT_RESULT" == success ]]
+          [[ "$EVIDENCE_RESULT" == success ]]

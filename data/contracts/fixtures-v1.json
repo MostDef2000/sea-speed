@@ -1,0 +1,97 @@
+{
+  "schema": "sea_speed_contract_fixtures_v1",
+  "fixtures": [
+    {
+      "name": "edge event valid",
+      "contract": "sea_speed_edge_event_v1",
+      "valid": true,
+      "payload": {
+        "schema": "sea_speed_edge_event_v1",
+        "event_id": "evt-20260804-0001",
+        "node_id": "edge-01",
+        "camera_id": "cam1",
+        "track_id": 42,
+        "detected_at": "2026-08-04T13:45:00Z",
+        "class_name": "boat",
+        "confidence": 0.93,
+        "speed_kmh": 24.7,
+        "media": {
+          "schema": "sea_speed_media_ref_v1",
+          "node_id": "edge-01",
+          "media_key": "2026/08/04/evt-20260804-0001.jpg",
+          "storage": "edge",
+          "content_type": "image/jpeg"
+        },
+        "retry_count": 0
+      }
+    },
+    {
+      "name": "media traversal rejected",
+      "contract": "sea_speed_media_ref_v1",
+      "valid": false,
+      "payload": {
+        "schema": "sea_speed_media_ref_v1",
+        "node_id": "edge-01",
+        "media_key": "../../etc/passwd",
+        "storage": "edge",
+        "content_type": "image/jpeg"
+      }
+    },
+    {
+      "name": "edge v2 boundary valid",
+      "contract": "sea_speed_media_boundary_v1",
+      "valid": true,
+      "payload": {
+        "schema": "sea_speed_media_boundary_v1",
+        "mode": "edge_v2",
+        "edge_durable_media": true,
+        "vps_durable_media": false,
+        "vps_stream_proxy_allowed": true
+      }
+    },
+    {
+      "name": "edge v2 cannot persist VPS media",
+      "contract": "sea_speed_media_boundary_v1",
+      "valid": false,
+      "payload": {
+        "schema": "sea_speed_media_boundary_v1",
+        "mode": "edge_v2",
+        "edge_durable_media": true,
+        "vps_durable_media": true,
+        "vps_stream_proxy_allowed": true
+      }
+    },
+    {
+      "name": "release manifest valid",
+      "contract": "sea_speed_release_manifest_v2",
+      "valid": true,
+      "payload": {
+        "schema": "sea_speed_release_manifest_v2",
+        "component": "edge",
+        "source_commit": "0123456789abcdef0123456789abcdef01234567",
+        "artifact_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "state": "ready_for_deployment"
+      }
+    },
+    {
+      "name": "unknown object status rejected",
+      "contract": "sea_speed_object_v2",
+      "valid": false,
+      "payload": {
+        "schema": "sea_speed_object_v2",
+        "object_id": "evt-1",
+        "event_id": "evt-1",
+        "node_id": "edge-01",
+        "detected_at": "2026-08-04T13:45:00Z",
+        "status": "deleted",
+        "comment": "",
+        "media": {
+          "schema": "sea_speed_media_ref_v1",
+          "node_id": "edge-01",
+          "media_key": "2026/08/04/evt-1.jpg",
+          "storage": "edge"
+        }
+      }
+    }
+  ]
+}

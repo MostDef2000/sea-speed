@@ -1,87 +1,87 @@
 name: Deploy VPS
 
 on:
-  pull_request:
-    paths:
-      - "deploy/vps/**"
-      - "scripts/release/**"
-      - "schemas/**"
-      - ".github/workflows/deploy-vps.yml"
-  push:
-    branches:
-      - main
-    paths:
-      - "api/**"
-      - "frontend/**"
-      - "deploy/vps/**"
-      - "scripts/release/**"
-      - "schemas/**"
-      - ".github/workflows/deploy-vps.yml"
   workflow_dispatch:
     inputs:
       commit_sha:
-        description: "Exact 40-character commit SHA to deploy; defaults to the selected branch SHA"
-        required: false
+        description: "Exact 40-character commit SHA with a successful aggregate quality gate"
+        required: true
         type: string
 
 permissions:
   contents: read
+  actions: read
+  checks: read
 
 concurrency:
-  group: sea-speed-vps-production-${{ github.event_name }}
+  group: sea-speed-vps-production
   cancel-in-progress: false
 
 jobs:
-  validate:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out source
-        uses: actions/checkout@v4
-
-      - name: Validate deployment and provenance tooling
-        run: |
-          bash -n deploy/vps/deploy.sh
-          python -m py_compile scripts/release/build_release_manifest.py scripts/release/validate_release_manifest.py scripts/release/validate_deployment_manifest.py
-          python -m json.tool schemas/release-manifest.schema.json >/dev/null
-          python -m json.tool schemas/deployment-manifest.schema.json >/dev/null
-
-  disabled:
-    if: ${{ github.event_name != 'pull_request' && vars.VPS_DEPLOY_ENABLED != 'true' }}
-    needs: validate
-    runs-on: ubuntu-latest
-    steps:
-      - name: Deployment is not enabled
-        run: |
-          echo "VPS deployment infrastructure is installed but disabled."
-          echo "State: NOT DEPLOYED"
-          echo "Set repository variable VPS_DEPLOY_ENABLED=true after SSH secrets are configured."
-
   deploy:
-    if: ${{ github.event_name != 'pull_request' && vars.VPS_DEPLOY_ENABLED == 'true' }}
-    needs: validate
+    name: Deploy exact quality-approved commit
     runs-on: ubuntu-latest
     environment: production
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
-      - name: Check out exact source
+      - name: Check out selected source
         uses: actions/checkout@v4
         with:
           fetch-depth: 2
 
-      - name: Resolve deployment commit
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Resolve exact deployment commit
         id: release
         env:
           INPUT_COMMIT: ${{ inputs.commit_sha }}
         run: |
           set -euo pipefail
-          DEPLOY_SHA="${INPUT_COMMIT:-${GITHUB_SHA}}"
-          if [[ ! "$DEPLOY_SHA" =~ ^[0-9a-fA-F]{40}$ ]]; then
-            echo "Deployment commit must be a full 40-character SHA" >&2
+          DEPLOY_SHA="${INPUT_COMMIT,,}"
+          if [[ ! "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Deployment commit must be a full lowercase 40-character SHA" >&2
             exit 1
           fi
           git fetch origin "$DEPLOY_SHA" --depth=2
-          echo "sha=${DEPLOY_SHA,,}" >> "$GITHUB_OUTPUT"
+          git checkout --detach "$DEPLOY_SHA"
+          [[ "$(git rev-parse HEAD)" == "$DEPLOY_SHA" ]]
+          echo "sha=$DEPLOY_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Verify aggregate quality status
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          DEPLOY_SHA: ${{ steps.release.outputs.sha }}
+        run: |
+          python scripts/quality/verify_quality_status.py \
+            --repository "$GITHUB_REPOSITORY" \
+            --commit "$DEPLOY_SHA" \
+            --required-name quality-integration
+
+      - name: Validate deployment and provenance tooling
+        run: |
+          set -euo pipefail
+          bash -n deploy/vps/deploy.sh
+          python -m py_compile \
+            scripts/release/build_release_manifest.py \
+            scripts/release/validate_release_manifest.py \
+            scripts/release/validate_deployment_manifest.py \
+            scripts/quality/*.py
+          python scripts/quality/validate_quality_contracts.py
+          python scripts/quality/validate_workflow_policy.py
+
+      - name: Build exact deployment artifacts
+        env:
+          DEPLOY_SHA: ${{ steps.release.outputs.sha }}
+        run: |
+          python scripts/quality/build_exact_artifacts.py \
+            --source-commit "$DEPLOY_SHA" \
+            --output-dir dist/exact
+          python scripts/quality/validate_exact_artifacts.py \
+            --manifest dist/exact/exact-artifacts.json
 
       - name: Build release provenance
         env:
@@ -102,6 +102,18 @@ jobs:
           for file in "${CHANGED_FILES[@]}"; do ARGS+=(--file "$file"); done
           python "${ARGS[@]}"
           python scripts/release/validate_release_manifest.py dist/release-manifest-vps.json
+
+      - name: Build and validate quality evidence
+        env:
+          DEPLOY_SHA: ${{ steps.release.outputs.sha }}
+        run: |
+          python scripts/quality/build_quality_evidence.py \
+            --source-commit "$DEPLOY_SHA" \
+            --artifacts-manifest dist/exact/exact-artifacts.json \
+            --output dist/quality-evidence.json
+          python scripts/quality/validate_quality_evidence.py \
+            --evidence dist/quality-evidence.json \
+            --artifacts-manifest dist/exact/exact-artifacts.json
 
       - name: Configure SSH
         env:
@@ -147,6 +159,8 @@ jobs:
           name: sea-speed-vps-deployment-${{ steps.release.outputs.sha }}
           path: |
             dist/release-manifest-vps.json
+            dist/quality-evidence.json
+            dist/exact/exact-artifacts.json
             dist/deployment-manifest-vps.json
           retention-days: 30
           if-no-files-found: error
@@ -157,8 +171,7 @@ jobs:
         run: |
           echo "### Sea Speed VPS deployment" >> "$GITHUB_STEP_SUMMARY"
           echo "- Commit: \`$DEPLOY_SHA\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- State: \`runtime_verified\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- API health check: passed" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Frontend smoke check: passed" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Evidence: release and deployment manifests uploaded" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Rollback model: previous code release, no per-deploy data backup" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Aggregate quality gate: verified" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Deployment approval: production environment" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Runtime state: verified by deployment manifest" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Rollback: previous runtime-verified commit" >> "$GITHUB_STEP_SUMMARY"
