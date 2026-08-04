@@ -4,6 +4,8 @@ Camera-based vehicle detection and speed-estimation project.
 
 ## Runtime architecture
 
+Current MVP runtime:
+
 ```text
 camera / HLS stream
 → Windows AI worker
@@ -11,19 +13,31 @@ camera / HLS stream
 → operator web UI
 ```
 
-GitHub `main` is the source of truth. The VPS and Windows laptop are runtime environments, not places for manual source edits.
+Target edge runtime:
+
+```text
+IP camera
+→ local edge server: worker, local database and durable media
+→ VPS: frontend, backend and metadata only
+```
+
+The target `edge_v2` media contract requires durable images and video to remain on the edge node. Until that migration is delivered, current VPS JPEG persistence remains an explicit temporary accepted risk.
+
+GitHub `main` is the source of truth. The VPS and edge/Windows hosts are runtime environments, not places for manual source edits.
 
 ## Repository layout
 
 ```text
-worker/      Windows AI worker source and runtime scripts
+worker/      Edge/Windows AI worker source and runtime scripts
 api/         FastAPI backend
 frontend/    Operator web UI
-deploy/      VPS and Windows delivery helpers
+deploy/      VPS and worker delivery helpers
 contracts/   canonical governance, runtime and branch contracts
-docs/        architecture, decisions, operations and diagnostics
-scripts/     repository validation and release tooling
-tests/       dependency-free behavioral contract tests
+data/        versioned data contracts, quality rollout and risk registers
+docs/        architecture, decisions, operations, quality and diagnostics
+scripts/     repository validation, quality and release tooling
+tests/       behavioral, contract, reliability and exact-artifact tests
+schemas/     release, deployment, telemetry and quality-evidence schemas
 skills/      compatibility entrypoints that route to contracts
 ```
 
@@ -43,9 +57,12 @@ request and issue recovery
 → fresh branch from current main
 → implementation
 → post-write integrity gate
-→ pull request and CI
+→ pull request
+→ four independent quality domains
+→ aggregate quality context
 → merge into main
-→ applicable VPS deployment and/or Windows worker update
+→ deterministic exact artifacts and evidence
+→ separately approved applicable deployment
 → runtime verification
 → COMPLETE / BLOCKED / FAILED
 ```
@@ -61,28 +78,52 @@ Canonical project rules:
 - `contracts/branches/task-intake.md`
 - `contracts/branches/project-manager.md`
 - `docs/architecture/sea-speed-control-plane.md`
+- `docs/quality/testing-policy.md`
+- `docs/quality/quality-gate-architecture.md`
 
 Repository writes require `COMMIT APPROVED` or an approved equivalent. Changes under `skills/**` additionally require `SKILL UPDATE APPROVED`.
 
+## Quality integration gate
+
+The merge-facing quality context is:
+
+```text
+Quality integration gate / quality-integration
+```
+
+It runs without path filters and aggregates four independent domains:
+
+- `static-contract-security`;
+- `property-fuzz-reliability`;
+- `exact-artifact-e2e`;
+- `release-deployment-evidence`.
+
+A failure or cancellation in any domain fails the aggregate context. Source installation of the gate does not prove GitHub branch-protection enforcement; that state is recorded separately in `data/quality/quality-gates-v1.json`.
+
 ## Validation
 
-Pull requests run repository validation plus dependency-free behavioral contract tests for:
+Pull requests execute:
 
-- API authorization, JSON persistence, state freshness and configuration validation;
-- worker line geometry, calibrated speed calculation, event identity and cooldown policy;
-- operator frontend endpoint and JSON POST contracts;
-- canonical contract presence and repository-link consistency.
+- repository structure, syntax, secret-pattern and canonical-reference validation;
+- versioned contract schemas with positive and negative fixtures;
+- API, worker and frontend behavioral contract tests;
+- deterministic property, fuzz and interrupted-write recovery checks;
+- deterministic VPS and edge archive construction and byte-for-byte rebuild comparison;
+- artifact inventory, SHA-256, safe extraction and executable-boundary checks;
+- quality evidence tied to exact source commit and artifact digests.
 
 The production baseline procedure is documented in `docs/operations/PRODUCTION_BASELINE.md`.
 
 ## Release contours
 
 - `api/**` and `frontend/**`: normally require VPS deployment.
-- `worker/**`: normally requires Windows worker update.
+- `worker/**`: normally requires worker update.
 - mixed API/worker or schema-changing work requires compatibility notes and an explicit rollout order.
 - contracts/docs/skills/README-only work requires no runtime release.
 
-Merge is not deployment. Deployment is not runtime acceptance. COMPLETE requires evidence from source integration and every applicable runtime contour.
+Production deployment never runs merely because a commit was pushed or merged to `main`. It requires explicit dispatch of a full 40-character commit SHA, a successful aggregate quality check for that exact commit, production-environment approval, validated evidence and rollback availability.
+
+Merge is not release. Release is not deployment. Deployment is not runtime acceptance. COMPLETE requires evidence from source integration and every applicable runtime contour.
 
 ## Secrets policy
 
@@ -90,4 +131,4 @@ Never commit tokens, passwords, camera credentials, `.env`, SSH keys, runtime lo
 
 ## Current baseline
 
-The reviewed runtime baseline is integrated into `main`. Installed VPS and Windows revisions must still be verified independently because repository state does not prove runtime state. Use `docs/operations/PRODUCTION_BASELINE.md` and record only non-secret commit and health evidence.
+The reviewed runtime baseline is integrated into `main`. Installed VPS and worker revisions must still be verified independently because repository state does not prove runtime state. Use `docs/operations/PRODUCTION_BASELINE.md` and record only non-secret commit and health evidence.

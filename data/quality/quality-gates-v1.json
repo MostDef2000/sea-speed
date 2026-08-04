@@ -1,0 +1,14 @@
+{
+  "schema": "sea_speed_quality_gates_v1",
+  "state": "aggregate_installed_not_enforced",
+  "required_context": "Quality integration gate / quality-integration",
+  "domains": [
+    "static-contract-security",
+    "property-fuzz-reliability",
+    "exact-artifact-e2e",
+    "release-deployment-evidence"
+  ],
+  "branch_protection_verified": false,
+  "deployment_from_push_main": false,
+  "notes": "Branch protection must be verified independently in GitHub settings before state becomes aggregate_enforced."
+}

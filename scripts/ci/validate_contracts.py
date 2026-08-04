@@ -17,7 +17,15 @@ CANONICAL_FILES = (
     "contracts/branches/task-intake.md",
     "contracts/branches/project-manager.md",
     "contracts/branches/core-release.md",
+    "data/contracts/sea-speed-contracts-v1.schema.json",
+    "data/contracts/fixtures-v1.json",
+    "data/contracts/contract-policy-v1.json",
+    "data/quality/quality-gates-v1.json",
+    "data/quality/reliability-budget-v1.json",
+    "data/quality/accepted-risks-v1.json",
     "docs/architecture/sea-speed-control-plane.md",
+    "docs/quality/testing-policy.md",
+    "docs/quality/quality-gate-architecture.md",
     "docs/decision_records/DR-001-two-runtime-delivery-model.md",
     "docs/decision_records/DR-002-task-intake-and-delivery-controls.md",
     "docs/decision_records/DR-003-release-provenance-and-evidence-loop.md",
@@ -27,11 +35,21 @@ CANONICAL_FILES = (
     "schemas/release-manifest.schema.json",
     "schemas/deployment-manifest.schema.json",
     "schemas/telemetry.schema.json",
+    "schemas/quality-evidence.schema.json",
     "scripts/release/build_release_manifest.py",
     "scripts/release/validate_release_manifest.py",
     "scripts/release/validate_deployment_manifest.py",
     "scripts/ci/validate_telemetry.py",
+    "scripts/quality/validate_quality_contracts.py",
+    "scripts/quality/validate_workflow_policy.py",
+    "scripts/quality/build_exact_artifacts.py",
+    "scripts/quality/validate_exact_artifacts.py",
+    "scripts/quality/build_quality_evidence.py",
+    "scripts/quality/validate_quality_evidence.py",
+    "scripts/quality/verify_quality_status.py",
     "scripts/operations/verify_runtime.py",
+    ".github/workflows/quality-integration.yml",
+    ".github/workflows/deploy-vps.yml",
 )
 
 REFERENCE_FILES = (
@@ -44,13 +62,15 @@ REFERENCE_FILES = (
     "contracts/branches/project-manager.md",
     "contracts/branches/core-release.md",
     "docs/architecture/sea-speed-control-plane.md",
+    "docs/quality/testing-policy.md",
+    "docs/quality/quality-gate-architecture.md",
     "docs/operations/PRODUCTION_BASELINE.md",
     "docs/operations/RELEASE_PROVENANCE.md",
     "docs/evidence/POST_RELEASE_REVIEW.md",
 )
 
 REPO_PATH_PATTERN = re.compile(
-    r"`((?:contracts|docs|scripts|deploy|api|frontend|worker|tests|schemas|\.github)/[^`\n]+)`"
+    r"`((?:contracts|data|docs|scripts|deploy|api|frontend|worker|tests|schemas|\.github)/[^`\n]+)`"
 )
 
 

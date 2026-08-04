@@ -1,0 +1,38 @@
+{
+  "schema": "sea_speed_accepted_risks_v1",
+  "risks": [
+    {
+      "id": "RISK-MEDIA-001",
+      "severity": "high",
+      "status": "accepted-temporary",
+      "owner": "project owner",
+      "trust_boundary": "VPS durable media storage",
+      "consequence": "The MVP still persists event JPEG files on the VPS and duplicates edge media.",
+      "compensating_controls": ["media mode is explicitly mvp_v1", "edge_v2 contract forbids VPS durable media", "migration requires a separate approved change"],
+      "remediation_target": "Activate edge_v2 during edge-server migration",
+      "review_date": "2026-10-01"
+    },
+    {
+      "id": "RISK-EDGE-E2E-001",
+      "severity": "medium",
+      "status": "accepted-temporary",
+      "owner": "project owner",
+      "trust_boundary": "NVIDIA CUDA and physical RTSP runtime",
+      "consequence": "GitHub-hosted CI validates the exact edge package without proving GPU inference on the target server.",
+      "compensating_controls": ["exact source package validation", "Python syntax validation", "deterministic contract tests", "runtime acceptance remains separate"],
+      "remediation_target": "Install a self-hosted edge staging runner with NVIDIA and RTSP fixtures",
+      "review_date": "2026-10-01"
+    },
+    {
+      "id": "RISK-ACTIONS-PIN-001",
+      "severity": "low",
+      "status": "accepted-temporary",
+      "owner": "project owner",
+      "trust_boundary": "GitHub Actions dependencies",
+      "consequence": "Existing workflows use official major-version action tags instead of immutable commit SHAs.",
+      "compensating_controls": ["only official actions are allowed by workflow policy", "workflow permissions are explicit and minimal"],
+      "remediation_target": "Pin all actions to reviewed commit SHAs",
+      "review_date": "2026-10-01"
+    }
+  ]
+}

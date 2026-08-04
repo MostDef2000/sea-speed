@@ -1,0 +1,23 @@
+{
+  "schema": "sea_speed_contract_policy_v1",
+  "version": 1,
+  "active_media_mode": "mvp_v1",
+  "target_media_mode": "edge_v2",
+  "rules": {
+    "optional_field_addition_within_version": true,
+    "required_field_removal_requires_new_version": true,
+    "identity_semantics_change_requires_new_version": true,
+    "legacy_storage_read_for_migration_only": true,
+    "release_artifact_must_match_contract": true,
+    "edge_v2_requires_edge_durable_media": true,
+    "edge_v2_forbids_vps_durable_media": true
+  },
+  "records": [
+    {"contract": "sea_speed_edge_event_v1", "identity_key": "event_id", "producer": "edge worker", "consumer": "edge storage and sync", "migration": "none"},
+    {"contract": "sea_speed_media_ref_v1", "identity_key": "node_id + media_key", "producer": "edge media service", "consumer": "VPS metadata API and media proxy", "migration": "MVP snapshot_url to media reference"},
+    {"contract": "sea_speed_event_sync_v1", "identity_key": "event_id", "producer": "edge sync", "consumer": "VPS API", "migration": "none"},
+    {"contract": "sea_speed_worker_state_v2", "identity_key": "node_id", "producer": "edge monitor", "consumer": "VPS API", "migration": "worker state v1 to v2"},
+    {"contract": "sea_speed_object_v2", "identity_key": "object_id", "producer": "VPS API", "consumer": "frontend", "migration": "object v1 to v2"},
+    {"contract": "sea_speed_release_manifest_v2", "identity_key": "component + source_commit", "producer": "CI", "consumer": "deployment", "migration": "release manifest v1 to v2"}
+  ]
+}

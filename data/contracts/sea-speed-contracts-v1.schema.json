@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mostdef.ru/sea-speed/contracts/sea-speed-contracts-v1.schema.json",
+  "title": "Sea Speed versioned contracts v1",
+  "type": "object",
+  "required": ["contract", "payload"],
+  "properties": {
+    "contract": {"type": "string", "enum": [
+      "sea_speed_edge_event_v1",
+      "sea_speed_media_ref_v1",
+      "sea_speed_event_sync_v1",
+      "sea_speed_worker_state_v2",
+      "sea_speed_object_v2",
+      "sea_speed_release_manifest_v2",
+      "sea_speed_media_boundary_v1"
+    ]},
+    "payload": {"type": "object"}
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "sha40": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "eventId": {"type": "string", "minLength": 1, "maxLength": 160},
+    "mediaKey": {"type": "string", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\)[A-Za-z0-9._/-]+$", "minLength": 1, "maxLength": 512},
+    "sea_speed_edge_event_v1": {
+      "type": "object",
+      "required": ["schema", "event_id", "node_id", "camera_id", "detected_at", "class_name", "media"],
+      "properties": {
+        "schema": {"const": "sea_speed_edge_event_v1"},
+        "event_id": {"$ref": "#/$defs/eventId"},
+        "node_id": {"type": "string", "minLength": 1},
+        "camera_id": {"type": "string", "minLength": 1},
+        "track_id": {"type": ["integer", "null"]},
+        "detected_at": {"type": "string", "minLength": 10},
+        "class_name": {"type": "string", "minLength": 1},
+        "confidence": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+        "speed_kmh": {"type": ["number", "null"], "minimum": 0},
+        "media": {"$ref": "#/$defs/sea_speed_media_ref_v1"},
+        "retry_count": {"type": "integer", "minimum": 0}
+      },
+      "additionalProperties": true
+    },
+    "sea_speed_media_ref_v1": {
+      "type": "object",
+      "required": ["schema", "node_id", "media_key", "storage"],
+      "properties": {
+        "schema": {"const": "sea_speed_media_ref_v1"},
+        "node_id": {"type": "string", "minLength": 1},
+        "media_key": {"$ref": "#/$defs/mediaKey"},
+        "storage": {"const": "edge"},
+        "content_type": {"type": "string", "enum": ["image/jpeg", "image/webp"]}
+      },
+      "additionalProperties": false
+    },
+    "sea_speed_event_sync_v1": {
+      "type": "object",
+      "required": ["schema", "event_id", "delivery_id", "attempt"],
+      "properties": {
+        "schema": {"const": "sea_speed_event_sync_v1"},
+        "event_id": {"$ref": "#/$defs/eventId"},
+        "delivery_id": {"type": "string", "minLength": 1},
+        "attempt": {"type": "integer", "minimum": 1},
+        "last_error": {"type": ["string", "null"]}
+      },
+      "additionalProperties": false
+    },
+    "sea_speed_worker_state_v2": {
+      "type": "object",
+      "required": ["schema", "node_id", "camera_id", "updated_at", "worker_online", "frame_no"],
+      "properties": {
+        "schema": {"const": "sea_speed_worker_state_v2"},
+        "node_id": {"type": "string", "minLength": 1},
+        "camera_id": {"type": "string", "minLength": 1},
+        "updated_at": {"type": "string", "minLength": 10},
+        "worker_online": {"type": "boolean"},
+        "frame_no": {"type": "integer", "minimum": 0},
+        "source_commit": {"oneOf": [{"$ref": "#/$defs/sha40"}, {"type": "null"}]}
+      },
+      "additionalProperties": true
+    },
+    "sea_speed_object_v2": {
+      "type": "object",
+      "required": ["schema", "object_id", "event_id", "node_id", "detected_at", "status", "media"],
+      "properties": {
+        "schema": {"const": "sea_speed_object_v2"},
+        "object_id": {"$ref": "#/$defs/eventId"},
+        "event_id": {"$ref": "#/$defs/eventId"},
+        "node_id": {"type": "string", "minLength": 1},
+        "detected_at": {"type": "string", "minLength": 10},
+        "status": {"type": "string", "enum": ["new", "reviewed", "ignored"]},
+        "comment": {"type": "string", "maxLength": 2000},
+        "media": {"$ref": "#/$defs/sea_speed_media_ref_v1"}
+      },
+      "additionalProperties": true
+    },
+    "sea_speed_release_manifest_v2": {
+      "type": "object",
+      "required": ["schema", "component", "source_commit", "artifact_sha256", "state"],
+      "properties": {
+        "schema": {"const": "sea_speed_release_manifest_v2"},
+        "component": {"type": "string", "enum": ["edge", "vps"]},
+        "source_commit": {"$ref": "#/$defs/sha40"},
+        "artifact_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "state": {"type": "string", "enum": ["built", "ready_for_deployment", "deployed", "runtime_verified"]}
+      },
+      "additionalProperties": true
+    },
+    "sea_speed_media_boundary_v1": {
+      "type": "object",
+      "required": ["schema", "mode", "edge_durable_media", "vps_durable_media"],
+      "properties": {
+        "schema": {"const": "sea_speed_media_boundary_v1"},
+        "mode": {"type": "string", "enum": ["mvp_v1", "edge_v2"]},
+        "edge_durable_media": {"type": "boolean"},
+        "vps_durable_media": {"type": "boolean"},
+        "vps_stream_proxy_allowed": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    }
+  }
+}
