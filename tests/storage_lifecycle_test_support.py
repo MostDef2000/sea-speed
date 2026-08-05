@@ -25,11 +25,22 @@ OTHER = "e" * 40
 TEST_RUNNER = """
 import os
 import runpy
+import stat
 import sys
 from pathlib import Path
 
 script = Path(sys.argv[1])
 sys.path.insert(0, str(script.parent))
+import storage_lifecycle_common as common
+
+def require_fixture_mode(path, mode):
+    info = path.stat()
+    if stat.S_IMODE(info.st_mode) != mode:
+        raise common.LifecycleError(
+            f"protected fixture file must be mode {mode:o}: {path}"
+        )
+
+common.require_root_owned_file = require_fixture_mode
 os.geteuid = lambda: 0
 sys.argv = [str(script), *sys.argv[2:]]
 runpy.run_path(str(script), run_name="__main__")
