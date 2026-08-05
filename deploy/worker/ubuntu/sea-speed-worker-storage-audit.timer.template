@@ -1,0 +1,12 @@
+[Unit]
+Description=Daily Sea Speed worker storage audit
+
+[Timer]
+OnBootSec=15min
+OnUnitActiveSec=24h
+RandomizedDelaySec=30min
+Persistent=true
+Unit=sea-speed-worker-storage-audit.service
+
+[Install]
+WantedBy=timers.target
