@@ -1,0 +1,14 @@
+[Unit]
+Description=Run Sea Speed worker health check periodically
+Documentation=https://github.com/MostDef2000/sea-speed
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+AccuracySec=10s
+RandomizedDelaySec=15s
+Persistent=true
+Unit=sea-speed-worker-health.service
+
+[Install]
+WantedBy=timers.target
