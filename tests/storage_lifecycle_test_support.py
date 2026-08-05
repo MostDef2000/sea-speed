@@ -1,14 +1,9 @@
 from __future__ import annotations
 
-import json
 import os
-import shutil
-import stat
 import subprocess
 import sys
-import tempfile
 import time
-import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -26,6 +21,19 @@ RETAINED = "b" * 40
 PINNED = "c" * 40
 CANDIDATE = "d" * 40
 OTHER = "e" * 40
+
+TEST_RUNNER = """
+import os
+import runpy
+import sys
+from pathlib import Path
+
+script = Path(sys.argv[1])
+sys.path.insert(0, str(script.parent))
+os.geteuid = lambda: 0
+sys.argv = [str(script), *sys.argv[2:]]
+runpy.run_path(str(script), run_name="__main__")
+"""
 
 
 class StorageFixture:
@@ -116,7 +124,7 @@ class StorageFixture:
 
     def command(self, *args: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
-            [sys.executable, str(MANAGER), *args],
+            [sys.executable, "-c", TEST_RUNNER, str(MANAGER), *args],
             cwd=ROOT,
             env=self.env,
             text=True,
@@ -154,4 +162,3 @@ class StorageFixture:
             "--expected-active",
             expected,
         )
-
