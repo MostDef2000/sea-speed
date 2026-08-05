@@ -31,6 +31,13 @@ FORBIDDEN_SOURCE_MARKERS = (
 )
 
 
+def display_path(path: Path) -> str:
+    try:
+        return str(path.resolve().relative_to(ROOT))
+    except ValueError:
+        return str(path.resolve())
+
+
 def inspect_worker(path: Path) -> dict[str, object]:
     source = path.read_text(encoding="utf-8-sig")
     tree = ast.parse(source, filename=str(path))
@@ -69,7 +76,7 @@ def inspect_worker(path: Path) -> dict[str, object]:
     )
 
     findings = {
-        "worker": str(path.relative_to(ROOT)),
+        "worker": display_path(path),
         "uses_pathlib": "pathlib" in imports,
         "uses_subprocess": "subprocess" in imports,
         "subprocess_uses_argument_list": subprocess_uses_argument_list,
