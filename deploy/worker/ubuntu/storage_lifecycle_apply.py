@@ -29,6 +29,8 @@ from storage_lifecycle_common import (
 def validate_item_path(item: dict[str, Any], install_root: Path) -> tuple[Path, Path]:
     path = Path(item["path"])
     allowed_root = Path(item["allowed_root"])
+    if allowed_root.is_symlink() or not allowed_root.is_dir():
+        raise LifecycleError(f"planned allowed root is missing or unsafe: {allowed_root}")
     permitted_roots = {
         (install_root / "releases").resolve(),
         (install_root / "shared/output/events").resolve(),
