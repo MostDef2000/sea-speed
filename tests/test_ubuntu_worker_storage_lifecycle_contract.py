@@ -28,6 +28,7 @@ class UbuntuWorkerStorageLifecycleContractTests(unittest.TestCase):
         self.assertIn("--expected-active", source)
         self.assertIn("active commit changed after planning", source)
         self.assertIn("fingerprint changed", source)
+        self.assertIn("allowed root is missing or unsafe", source)
 
     def test_destructive_scope_is_narrow(self) -> None:
         source = "\n".join(path.read_text(encoding="utf-8") for path in (MANAGER, COMMON, INVENTORY, APPLY))
