@@ -1,0 +1,23 @@
+[Unit]
+Description=Sea Speed worker storage audit
+Documentation=https://github.com/MostDef2000/sea-speed
+After=sea-speed-worker.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=__INSTALL_ROOT__/releases/__SOURCE_COMMIT__/venv/bin/python __INSTALL_ROOT__/releases/__SOURCE_COMMIT__/source/deploy/worker/ubuntu/manage-storage.py inventory --install-root __INSTALL_ROOT__ --report-file __INSTALL_ROOT__/storage/storage-inventory.json --keep-releases 2
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+ReadWritePaths=__INSTALL_ROOT__/storage __INSTALL_ROOT__/updater
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=sea-speed-worker-storage-audit
