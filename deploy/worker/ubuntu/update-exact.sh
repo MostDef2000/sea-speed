@@ -83,7 +83,7 @@ if [[ ! "$service_user" =~ ^[a-z_][a-z0-9_-]*$ ]]; then
   exit 3
 fi
 
-for command_name in git python3 ffmpeg tar flock stat; do
+for command_name in git python3 ffmpeg tar flock stat install; do
   if ! command -v "$command_name" >/dev/null 2>&1; then
     echo "ERROR required command missing: $command_name" >&2
     exit 4
@@ -107,14 +107,17 @@ if [[ "$(stat -c '%u' "$token_file")" != "0" ]]; then
   exit 5
 fi
 
-mkdir -p "$install_root/shared/runtime"
-exec 9>"$install_root/shared/runtime/update.lock"
+updater_root="$install_root/updater"
+install -d -o root -g root -m 0700 "$updater_root"
+exec 9>"$updater_root/update.lock"
+chmod 0600 "$updater_root/update.lock"
 if ! flock -n 9; then
   echo "ERROR another worker update is already running" >&2
   exit 6
 fi
 
-staging_root="$(mktemp -d "$install_root/shared/runtime/update.XXXXXX")"
+staging_root="$(mktemp -d "$updater_root/staging.XXXXXX")"
+chmod 0700 "$staging_root"
 cleanup() {
   rm -rf "$staging_root"
 }
@@ -187,17 +190,17 @@ fi
 
 if ! systemctl restart "$service_name"; then
   echo "ERROR activation failed; automatic rollback is not implemented" >&2
-  exit 20
+  exit 30
 fi
 if ! systemctl is-active --quiet "$service_name"; then
   echo "ERROR service is not active; automatic rollback is not implemented" >&2
-  exit 21
+  exit 31
 fi
 
 exec_start="$(systemctl show -p ExecStart --value "$service_name")"
 if [[ "$exec_start" != *"$source_commit"* ]]; then
   echo "ERROR active unit does not reference requested commit" >&2
-  exit 22
+  exit 32
 fi
 
 active_marker="$install_root/shared/runtime/active-source-commit"
