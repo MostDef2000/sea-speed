@@ -20,7 +20,7 @@ if [[ ! "$expected_commit" =~ ^[0-9a-f]{40}$ ]]; then
   exit 2
 fi
 
-for command_name in git python3 ffmpeg; do
+for command_name in git python3 ffmpeg tar; do
   if ! command -v "$command_name" >/dev/null 2>&1; then
     echo "ERROR required command missing: $command_name" >&2
     exit 3
@@ -50,46 +50,61 @@ if [[ ! -f deploy/worker/ubuntu/requirements-runtime.txt ]]; then
   exit 6
 fi
 
-mkdir -p "$install_root/releases/$expected_commit"
+mkdir -p "$install_root/releases"
 mkdir -p "$install_root/shared/models"
 mkdir -p "$install_root/shared/datasets"
 mkdir -p "$install_root/shared/output"
 mkdir -p "$install_root/shared/config"
 
 release_root="$install_root/releases/$expected_commit"
-if [[ -e "$release_root/source" ]]; then
-  echo "ERROR release already prepared: $release_root/source" >&2
-  exit 7
+source_root="$release_root/source"
+venv_root="$release_root/venv"
+mkdir -p "$release_root"
+
+if [[ ! -e "$source_root" ]]; then
+  mkdir "$source_root"
+  git archive "$expected_commit" | tar -x -C "$source_root"
+  printf '%s\n' "$expected_commit" > "$release_root/source-commit"
+else
+  if [[ ! -f "$release_root/source-commit" ]] || \
+     [[ "$(cat "$release_root/source-commit")" != "$expected_commit" ]]; then
+    echo "ERROR existing release provenance mismatch" >&2
+    exit 7
+  fi
 fi
 
-mkdir "$release_root/source"
-git archive "$expected_commit" | tar -x -C "$release_root/source"
+if [[ ! -x "$venv_root/bin/python" ]]; then
+  python3 -m venv "$venv_root"
+  "$venv_root/bin/python" -m pip install --upgrade pip setuptools wheel
+fi
 
-python3 -m venv "$release_root/venv"
-"$release_root/venv/bin/python" -m pip install --upgrade pip setuptools wheel
-
-if ! "$release_root/venv/bin/python" -c 'import torch' >/dev/null 2>&1; then
-  cat >&2 <<'EOF'
-ERROR PyTorch is not installed in the release environment.
-Install the hardware-compatible PyTorch build after verifying the NVIDIA
-runtime, then rerun dependency installation manually:
-  <venv>/bin/python -m pip install -r deploy/worker/ubuntu/requirements-runtime.txt
-The installer does not guess a CUDA or PyTorch build before hardware exists.
+if ! "$venv_root/bin/python" -c 'import torch' >/dev/null 2>&1; then
+  cat >&2 <<EOF
+NEXT_ACTION PyTorch is not installed in the prepared release environment.
+Verify the NVIDIA driver on the physical server, obtain the compatible command
+from the official PyTorch installation selector, and install it with:
+  $venv_root/bin/python -m pip install <verified-pytorch-build>
+Then rerun this exact installer command. The prepared source and protected
+shared directories will be reused without overwrite.
 EOF
-  exit 8
+  exit 20
 fi
 
-"$release_root/venv/bin/python" -m pip install \
-  -r "$release_root/source/deploy/worker/ubuntu/requirements-runtime.txt"
+"$venv_root/bin/python" -m pip install \
+  -r "$source_root/deploy/worker/ubuntu/requirements-runtime.txt"
 
-if [[ ! -f "$install_root/shared/config/worker.env" ]]; then
-  cp "$release_root/source/deploy/worker/ubuntu/worker.env.example" \
+"$venv_root/bin/python" -c \
+  'import cv2, numpy, requests, torch, ultralytics; print("PASS runtime_imports")'
+
+if [[ ! -e "$install_root/shared/config/worker.env" ]] && \
+   [[ ! -e "$install_root/shared/config/worker.env.example" ]]; then
+  cp "$source_root/deploy/worker/ubuntu/worker.env.example" \
     "$install_root/shared/config/worker.env.example"
   chmod 600 "$install_root/shared/config/worker.env.example"
 fi
 
-printf '%s\n' "$expected_commit" > "$release_root/source-commit"
 printf 'PREPARED %s\n' "$release_root"
+printf 'SOURCE_COMMIT %s\n' "$expected_commit"
 printf 'PROTECTED %s\n' "$install_root/shared/config"
 printf 'PROTECTED %s\n' "$install_root/shared/models"
 printf 'PROTECTED %s\n' "$install_root/shared/datasets"
