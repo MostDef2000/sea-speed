@@ -30,7 +30,8 @@ class UbuntuWorkerManualInstallTests(unittest.TestCase):
         requirements = REQUIREMENTS.read_text(encoding="utf-8")
         self.assertNotRegex(requirements, re.compile(r"^torch(?:[=<>]|$)", re.MULTILINE))
         installer = INSTALLER.read_text(encoding="utf-8")
-        self.assertIn("hardware-compatible PyTorch", installer)
+        self.assertIn("verified-pytorch-build", installer)
+        self.assertIn("official PyTorch installation selector", installer)
         self.assertNotIn("cu12", installer.lower())
 
     def test_environment_template_contains_names_not_secrets(self) -> None:
