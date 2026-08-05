@@ -14,7 +14,7 @@ WorkingDirectory=__INSTALL_ROOT__/shared/runtime
 EnvironmentFile=__INSTALL_ROOT__/shared/config/worker.env
 Environment=PYTHONUNBUFFERED=1
 Environment=SEA_SPEED_SOURCE_COMMIT=__SOURCE_COMMIT__
-ExecStart=__INSTALL_ROOT__/releases/__SOURCE_COMMIT__/venv/bin/python __INSTALL_ROOT__/releases/__SOURCE_COMMIT__/source/worker/hls_motion_yolo_worker_events.py
+ExecStart=__INSTALL_ROOT__/releases/__SOURCE_COMMIT__/venv/bin/python __INSTALL_ROOT__/releases/__SOURCE_COMMIT__/source/deploy/worker/ubuntu/observed-worker-runner.py --source-commit __SOURCE_COMMIT__ --heartbeat __INSTALL_ROOT__/shared/runtime/worker-heartbeat.json --overlay __INSTALL_ROOT__/shared/runtime/output/latest/latest_overlay.jpg __INSTALL_ROOT__/releases/__SOURCE_COMMIT__/source/worker/hls_motion_yolo_worker_events.py
 Restart=on-failure
 RestartSec=10s
 TimeoutStopSec=30s
