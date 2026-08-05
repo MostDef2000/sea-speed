@@ -28,8 +28,9 @@ class UbuntuWorkerExactUpdaterTests(unittest.TestCase):
         self.assertIn("--required-name quality-integration", self.source)
         self.assertIn("GitHub token file mode must be 600", self.source)
         self.assertIn("GitHub token file must be owned by root", self.source)
-        self.assertIn('IFS= read -r GITHUB_TOKEN < "$token_file"', self.source)
-        self.assertNotIn('echo "$GITHUB_TOKEN"', self.source)
+        self.assertIn('IFS= read -r github_token < "$token_file"', self.source)
+        self.assertIn('GITHUB_TOKEN="$github_token" python3', self.source)
+        self.assertNotIn('echo "$github_token"', self.source)
         self.assertNotIn('cat "$token_file"', self.source)
 
     def test_updates_are_serialized_and_staged(self) -> None:
@@ -37,6 +38,7 @@ class UbuntuWorkerExactUpdaterTests(unittest.TestCase):
         self.assertIn("flock -n 9", self.source)
         self.assertIn("mktemp -d", self.source)
         self.assertIn("trap cleanup EXIT", self.source)
+        self.assertIn('cd "$staging_root"', self.source)
         self.assertIn("install-manual.sh", self.source)
 
     def test_activation_is_explicit_and_exact(self) -> None:
