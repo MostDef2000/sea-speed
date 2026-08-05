@@ -17,6 +17,11 @@ Automatic rollback is intentionally not implemented by this stage.
 EOF
 }
 
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  usage
+  exit 0
+fi
+
 source_commit="${1:-}"
 if [[ -z "$source_commit" ]]; then
   usage >&2
@@ -136,21 +141,24 @@ if [[ "$actual_commit" != "$source_commit" ]]; then
   exit 8
 fi
 
-IFS= read -r GITHUB_TOKEN < "$token_file" || true
-if [[ -z "${GITHUB_TOKEN:-}" ]]; then
+IFS= read -r github_token < "$token_file" || true
+if [[ -z "${github_token:-}" ]]; then
   echo "ERROR GitHub token file is empty" >&2
   exit 5
 fi
-export GITHUB_TOKEN
-python3 "$staging_root/scripts/quality/verify_quality_status.py" \
+GITHUB_TOKEN="$github_token" python3 \
+  "$staging_root/scripts/quality/verify_quality_status.py" \
   --repository "$repository" \
   --commit "$source_commit" \
   --required-name quality-integration
-unset GITHUB_TOKEN
+unset github_token
 
-bash "$staging_root/deploy/worker/ubuntu/install-manual.sh" \
-  "$source_commit" \
-  "$install_root"
+(
+  cd "$staging_root"
+  bash deploy/worker/ubuntu/install-manual.sh \
+    "$source_commit" \
+    "$install_root"
+)
 
 release_root="$install_root/releases/$source_commit"
 if [[ ! -x "$release_root/venv/bin/python" ]] || \
@@ -169,10 +177,13 @@ if [[ "$activate" != true ]]; then
   exit 0
 fi
 
-bash "$staging_root/deploy/worker/ubuntu/install-systemd.sh" \
-  "$source_commit" \
-  "$install_root" \
-  "$service_user"
+(
+  cd "$staging_root"
+  bash deploy/worker/ubuntu/install-systemd.sh \
+    "$source_commit" \
+    "$install_root" \
+    "$service_user"
+)
 
 if ! systemctl restart "$service_name"; then
   echo "ERROR activation failed; automatic rollback is not implemented" >&2
