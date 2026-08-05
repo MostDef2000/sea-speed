@@ -30,6 +30,12 @@ class UbuntuWorkerStorageLifecycleContractTests(unittest.TestCase):
         self.assertIn("fingerprint changed", source)
         self.assertIn("allowed root is missing or unsafe", source)
 
+    def test_protected_files_require_root_ownership_and_exact_mode(self) -> None:
+        source = COMMON.read_text(encoding="utf-8")
+        self.assertIn("info.st_uid != 0", source)
+        self.assertIn("stat.S_IMODE(info.st_mode) != mode", source)
+        self.assertIn("root-owned mode", source)
+
     def test_destructive_scope_is_narrow(self) -> None:
         source = "\n".join(path.read_text(encoding="utf-8") for path in (MANAGER, COMMON, INVENTORY, APPLY))
         self.assertIn('install_root / "releases"', source)
