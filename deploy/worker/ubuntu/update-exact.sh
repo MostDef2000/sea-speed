@@ -13,7 +13,7 @@ Options:
   --activate            Install the exact-release unit and restart the service
 
 Without --activate, the updater only verifies and prepares the exact release.
-Automatic rollback is intentionally not implemented by this stage.
+Automatic rollback is intentionally not performed by the updater.
 EOF
 }
 
@@ -112,7 +112,7 @@ install -d -o root -g root -m 0700 "$updater_root"
 exec 9>"$updater_root/update.lock"
 chmod 0600 "$updater_root/update.lock"
 if ! flock -n 9; then
-  echo "ERROR another worker update is already running" >&2
+  echo "ERROR another worker update or rollback is already running" >&2
   exit 6
 fi
 
@@ -171,7 +171,14 @@ if [[ ! -x "$release_root/venv/bin/python" ]] || \
   exit 9
 fi
 
+quality_marker="$release_root/quality-approved"
+printf 'source_commit=%s\nquality_check=quality-integration\n' \
+  "$source_commit" > "$quality_marker"
+chown root:root "$quality_marker"
+chmod 0644 "$quality_marker"
+
 printf 'PREPARED source_commit=%s\n' "$source_commit"
+printf 'QUALITY_APPROVED source_commit=%s check=quality-integration\n' "$source_commit"
 printf 'PRESERVED shared_config_models_datasets_output=true\n'
 
 if [[ "$activate" != true ]]; then
@@ -189,11 +196,11 @@ fi
 )
 
 if ! systemctl restart "$service_name"; then
-  echo "ERROR activation failed; automatic rollback is not implemented" >&2
+  echo "ERROR activation failed; use rollback-exact.sh for an explicit recovery" >&2
   exit 30
 fi
 if ! systemctl is-active --quiet "$service_name"; then
-  echo "ERROR service is not active; automatic rollback is not implemented" >&2
+  echo "ERROR service is not active; use rollback-exact.sh for an explicit recovery" >&2
   exit 31
 fi
 
@@ -210,4 +217,4 @@ chmod 0644 "$active_marker"
 
 printf 'ACTIVATED source_commit=%s\n' "$source_commit"
 printf 'SERVICE_ACTIVE %s\n' "$service_name"
-printf 'ROLLBACK automatic=false stage=5\n'
+printf 'ROLLBACK explicit_command=rollback-exact.sh\n'
