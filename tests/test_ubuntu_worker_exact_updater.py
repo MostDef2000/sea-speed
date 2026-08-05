@@ -56,11 +56,12 @@ class UbuntuWorkerExactUpdaterTests(unittest.TestCase):
         self.assertNotIn('rm -rf "$install_root/releases', self.source)
         self.assertNotIn("git pull", self.source)
 
-    def test_rollback_is_explicitly_out_of_scope(self) -> None:
-        self.assertIn("automatic rollback is not implemented", self.source)
-        self.assertNotIn("rollback-exact.sh", self.source)
+    def test_prepared_release_is_marked_for_explicit_rollback(self) -> None:
+        self.assertIn("quality-approved", self.source)
+        self.assertIn("quality_check=quality-integration", self.source)
+        self.assertIn("rollback-exact.sh", self.source)
         doc = DOC.read_text(encoding="utf-8")
-        self.assertIn("Stage 5", doc)
+        self.assertIn("UBUNTU_WORKER_ROLLBACK.md", doc)
         self.assertIn("Runtime remains `UNKNOWN`", doc)
 
 
