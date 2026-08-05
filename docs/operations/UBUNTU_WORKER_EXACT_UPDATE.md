@@ -4,9 +4,9 @@ Status: repository update flow prepared; physical worker server is not commissio
 
 ## Scope
 
-This procedure prepares or activates one exact Sea Speed worker commit. It does not follow a branch, run `git pull`, schedule updates, remove previous releases, or automatically roll back a failed activation.
+This procedure prepares or activates one exact Sea Speed worker commit. It does not follow a branch, run `git pull`, schedule updates, remove previous releases, or automatically choose a rollback target.
 
-Rollback is a separate Stage 5 capability.
+Explicit transactional rollback is documented in `UBUNTU_WORKER_ROLLBACK.md`.
 
 ## Security and quality boundary
 
@@ -45,15 +45,16 @@ sudo bash deploy/worker/ubuntu/update-exact.sh \
 The updater:
 
 1. creates a root-owned updater directory with mode `0700`;
-2. acquires an exclusive update lock;
+2. acquires an exclusive update-and-rollback lock;
 3. creates a temporary clean Git repository in the root-only updater directory;
 4. fetches `origin/main` from the canonical repository;
 5. proves that the requested commit is an ancestor of `origin/main`;
 6. checks out that exact commit in detached mode;
 7. verifies `quality-integration=success` for the exact commit;
 8. invokes `install-manual.sh` from that exact staged checkout;
-9. preserves shared config, models, datasets and output;
-10. exits without changing or restarting the active systemd service.
+9. writes a root-owned `quality-approved` marker for the exact release;
+10. preserves shared config, models, datasets and output;
+11. exits without changing or restarting the active systemd service.
 
 The first preparation attempt can stop with exit code `20` when the new release virtual environment does not yet contain a hardware-compatible PyTorch build. Install the verified build into that exact release environment, then rerun the same updater command. The existing prepared source and protected shared state are reused.
 
@@ -61,8 +62,17 @@ A successful preparation prints:
 
 ```text
 PREPARED source_commit=<commit>
+QUALITY_APPROVED source_commit=<commit> check=quality-integration
 NOT_ACTIVATED explicit_flag_required=--activate
 ```
+
+The quality marker is stored at:
+
+```text
+/opt/sea-speed-worker/releases/<commit>/quality-approved
+```
+
+It contains only the source commit and quality-check name. It is required before that release can be selected by `rollback-exact.sh`.
 
 ## Explicit activation
 
@@ -92,19 +102,21 @@ Activation:
 
 ## Failure behavior
 
-If restart, active-state verification, or exact `ExecStart` verification fails, the updater exits nonzero and reports that automatic rollback is not implemented. It does not silently switch to another release.
+If restart, active-state verification or exact `ExecStart` verification fails, the updater exits nonzero. It does not silently select another release.
 
-Do not delete previous release directories. They are required for the Stage 5 rollback implementation.
+Use `rollback-exact.sh` with an explicitly selected, previously prepared and quality-approved target. The rollback command validates the current active identity and restores the previous unit if the selected target fails acceptance.
+
+Do not delete previous release directories. They are rollback inputs and remain protected until the Stage 7 storage lifecycle policy is implemented.
 
 ## Concurrency
 
-The updater uses an exclusive lock at:
+Update and rollback use the same exclusive lock:
 
 ```text
 /opt/sea-speed-worker/updater/update.lock
 ```
 
-A second updater process fails instead of modifying release or service state concurrently. The root-only updater directory prevents the worker service account from modifying the staged source or lock.
+A concurrent operation fails instead of modifying release or service state. The root-only updater directory prevents the worker service account from modifying staged source, quality evidence, lock or temporary unit backups.
 
 ## Runtime validation boundary
 
@@ -116,4 +128,5 @@ Repository CI proves the updater contract, syntax, source selection and quality-
 - API connectivity;
 - worker health and event publishing;
 - service restart behavior;
-- exact active commit reporting.
+- exact active commit reporting;
+- successful rollback and failed-target restoration.
