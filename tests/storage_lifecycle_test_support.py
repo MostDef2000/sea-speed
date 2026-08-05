@@ -40,7 +40,22 @@ def require_fixture_mode(path, mode):
             f"protected fixture file must be mode {mode:o}: {path}"
         )
 
+def quality_marker_valid_fixture(release, commit):
+    marker = release / "quality-approved"
+    try:
+        info = marker.stat()
+        expected = f"source_commit={commit}\\nquality_check=quality-integration"
+        return (
+            marker.is_file()
+            and not marker.is_symlink()
+            and stat.S_IMODE(info.st_mode) == 0o644
+            and marker.read_text(encoding="utf-8").strip() == expected
+        )
+    except OSError:
+        return False
+
 common.require_root_owned_file = require_fixture_mode
+common.quality_marker_valid = quality_marker_valid_fixture
 os.geteuid = lambda: 0
 sys.argv = [str(script), *sys.argv[2:]]
 runpy.run_path(str(script), run_name="__main__")
