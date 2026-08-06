@@ -1,7 +1,7 @@
 # Sea Speed Quality Gate Architecture
 
 Status: Active
-Version: 1.0.0
+Version: 1.1.0
 
 ## Delivery flow
 
@@ -24,6 +24,16 @@ The canonical contract set defines edge events, media references, sync deliverie
 The aggregate workflow runs on pull requests, pushes to `main` and manual dispatch. It has no path filter. Only the aggregate context should become a required branch-protection check.
 
 Rollout state begins as `aggregate_installed_not_enforced`. It may become `aggregate_enforced` only after GitHub branch protection is independently verified.
+
+### GitHub Actions supply-chain boundary
+
+Every external `uses:` reference in repository workflows is pinned to an immutable 40-character commit SHA. Mutable tags and branches are prohibited. Local actions may use `./` paths.
+
+Every workflow declares explicit top-level permissions. `permissions: write-all`, `pull_request_target`, and downloads piped directly into `sh` or `bash` are prohibited. The policy validator scans every YAML workflow, not only the aggregate and deployment workflows.
+
+Checkout steps disable persisted Git credentials because repository workflows do not publish source changes. Adding a new external action requires explicit allow-list review and an immutable SHA.
+
+These source controls do not prove GitHub repository settings. Required checks, branch protection, code scanning and secret-scanning settings require separate settings evidence.
 
 ## Stage 2: property, fuzz and reliability
 
