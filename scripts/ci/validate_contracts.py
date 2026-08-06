@@ -9,6 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 CANONICAL_FILES = (
+    "AGENTS.md",
     "README.md",
     "contracts/SEA_SPEED_GOVERNANCE.md",
     "contracts/SEA_SPEED_DELIVERY_POLICY.md",
@@ -20,6 +21,7 @@ CANONICAL_FILES = (
     "data/contracts/sea-speed-contracts-v1.schema.json",
     "data/contracts/fixtures-v1.json",
     "data/contracts/contract-policy-v1.json",
+    "data/contracts/change-control-policy-v1.json",
     "data/quality/quality-gates-v1.json",
     "data/quality/reliability-budget-v1.json",
     "data/quality/accepted-risks-v1.json",
@@ -39,6 +41,7 @@ CANONICAL_FILES = (
     "scripts/release/build_release_manifest.py",
     "scripts/release/validate_release_manifest.py",
     "scripts/release/validate_deployment_manifest.py",
+    "scripts/ci/validate_change_contract.py",
     "scripts/ci/validate_telemetry.py",
     "scripts/quality/validate_quality_contracts.py",
     "scripts/quality/validate_workflow_policy.py",
@@ -53,6 +56,7 @@ CANONICAL_FILES = (
 )
 
 REFERENCE_FILES = (
+    "AGENTS.md",
     "README.md",
     "contracts/SEA_SPEED_GOVERNANCE.md",
     "contracts/SEA_SPEED_DELIVERY_POLICY.md",
