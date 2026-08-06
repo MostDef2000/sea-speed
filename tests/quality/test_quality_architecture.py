@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import subprocess
 import sys
@@ -9,6 +10,16 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 COMMIT = "0123456789abcdef0123456789abcdef01234567"
+WORKFLOW_POLICY = ROOT / "scripts/quality/validate_workflow_policy.py"
+
+
+def load_workflow_policy():
+    spec = importlib.util.spec_from_file_location("sea_speed_workflow_policy", WORKFLOW_POLICY)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("cannot load workflow policy validator")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 class QualityArchitectureTests(unittest.TestCase):
@@ -31,6 +42,32 @@ class QualityArchitectureTests(unittest.TestCase):
         ):
             result = self.run_script(*command)
             self.assertIn("passed" if "test_" in command[0] else "valid", result.stdout.lower())
+
+    def test_workflow_policy_rejects_mutable_and_dangerous_workflows(self) -> None:
+        policy = load_workflow_policy()
+        valid = """name: test
+on: workflow_dispatch
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+"""
+        policy.validate_workflow_source(valid, "valid.yml")
+
+        invalid_sources = {
+            "mutable action": valid.replace("11d5960a326750d5838078e36cf38b85af677262", "v4"),
+            "write-all": valid.replace("permissions:\n  contents: read", "permissions: write-all"),
+            "dangerous trigger": valid.replace("on: workflow_dispatch", "on:\n  pull_request_target:"),
+            "download pipe": valid + "      - run: curl https://example.invalid/tool | bash\n",
+            "missing permissions": valid.replace("permissions:\n  contents: read\n", ""),
+        }
+        for name, source in invalid_sources.items():
+            with self.subTest(name=name):
+                with self.assertRaises(ValueError):
+                    policy.validate_workflow_source(source, f"{name}.yml")
 
     def test_exact_artifacts_are_deterministic_and_valid(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
