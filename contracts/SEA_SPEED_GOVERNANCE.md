@@ -1,6 +1,6 @@
 # Sea Speed Governance
 
-Version: 1.3.0
+Version: 1.4.0
 Status: Active
 Source of truth: GitHub `main`
 
@@ -137,3 +137,36 @@ Valid terminal states are only:
 - `FAILED`.
 
 Merge is not deployment. Packaging is not installation. Deployment is not runtime acceptance. Evidence determines completion.
+
+## 11. Executable Change Contract
+
+Every implementation pull request must keep a machine-readable Change Contract in its body. The canonical template is `.github/pull_request_template.md`, the versioned path policy is `data/contracts/change-control-policy-v1.json`, and enforcement is implemented by `scripts/ci/validate_change_contract.py`.
+
+The Change Contract must include:
+
+- one canonical Issue reference;
+- the approved scope and acceptance criteria;
+- `YES` for the Implementation Scope Check approval;
+- the exact changed-file set, matching the Git diff without missing or extra paths;
+- one derived production-impact class: `NONE`, `CONTROL_PLANE`, `VPS`, `WINDOWS_WORKER`, or `MIXED`;
+- production-impact rationale and compatibility statements;
+- deployment applicability, rollout, evidence and rollback declarations;
+- local, CI and applicable runtime-validation plans.
+
+A changed-file mismatch, placeholder field, missing required section, incorrect production-impact class, or incorrect deterministic deployment declaration fails the pull-request quality gate. Scope expansion requires new approval and a synchronized Issue and PR body before implementation continues.
+
+`AGENTS.md` is an agent-facing entry point only. It must point to this contract and must not become an independent source of governance truth.
+
+## 12. Merge authorization
+
+Successful CI does not authorize merge by itself. Merge requires:
+
+- a fresh comparison against current `main`;
+- the approved exact changed-file scope;
+- successful required checks for the current head SHA;
+- no unresolved review threads;
+- separate `MERGE APPROVED` authorization or an approved equivalent issued after CI evidence is available.
+
+If the PR head changes after merge authorization, the authorization is stale and must be obtained again. The merge operation must use an expected-head-SHA guard when supported.
+
+Repository rulesets, branch protection, required approvals and protected environments are GitHub settings, not facts proven by source installation. They may be reported as enforced only after independent settings verification and durable evidence.
