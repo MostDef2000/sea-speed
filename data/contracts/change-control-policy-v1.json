@@ -1,0 +1,50 @@
+{
+  "schema": "sea-speed-change-control-policy/v1",
+  "version": "1.0.0",
+  "impact_classes": [
+    "NONE",
+    "CONTROL_PLANE",
+    "VPS",
+    "WINDOWS_WORKER",
+    "MIXED"
+  ],
+  "rules": [
+    {
+      "impact": "VPS",
+      "patterns": [
+        "api/**",
+        "frontend/**",
+        "deploy/vps/**"
+      ]
+    },
+    {
+      "impact": "WINDOWS_WORKER",
+      "patterns": [
+        "worker/**"
+      ]
+    },
+    {
+      "impact": "CONTROL_PLANE",
+      "patterns": [
+        ".github/workflows/**",
+        "deploy/**",
+        "schemas/**",
+        "scripts/ci/**",
+        "scripts/operations/**",
+        "scripts/quality/**",
+        "scripts/release/**",
+        "contracts/**",
+        "data/contracts/**",
+        "data/quality/**"
+      ]
+    }
+  ],
+  "required_sections": [
+    "Canonical task",
+    "Change",
+    "Impact",
+    "Delivery",
+    "Validation",
+    "Completion"
+  ]
+}
