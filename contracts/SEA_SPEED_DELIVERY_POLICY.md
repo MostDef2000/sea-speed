@@ -1,6 +1,6 @@
 # Sea Speed Delivery Policy
 
-Version: 1.3.0
+Version: 1.4.0
 Status: Active
 
 ## 1. Purpose
@@ -44,6 +44,8 @@ The aggregate workflow has no path filters and its final job runs with `if: alwa
 
 A PR may create exact test artifacts and evidence, but their states remain `built` or `ready_for_deployment`, never `installed` or `runtime_verified`.
 
+The static contract domain also validates the pull-request Change Contract against the exact base-to-head Git diff. This check is executed in both PR Validation and the merge-facing Quality integration gate.
+
 ## 4. Release and deployment identity
 
 Every applicable release must identify:
@@ -70,6 +72,7 @@ Schemas and policies:
 - `schemas/deployment-manifest.schema.json`;
 - `schemas/quality-evidence.schema.json`;
 - `data/contracts/contract-policy-v1.json`;
+- `data/contracts/change-control-policy-v1.json`;
 - `data/quality/reliability-budget-v1.json`;
 - `data/quality/accepted-risks-v1.json`.
 
@@ -177,6 +180,8 @@ Do not compare quality windows that use incompatible camera, ROI, calibration or
 
 The target required branch context is `Quality integration gate / quality-integration`. Source installation does not prove branch protection. Enforcement may be reported only after independent GitHub settings verification and an approved update of `data/quality/quality-gates-v1.json` from `aggregate_installed_not_enforced` to `aggregate_enforced`.
 
+The same evidence rule applies to required pull-request approvals, stale-approval dismissal, unresolved-thread blocking, force-push restrictions, protected environments and other repository ruleset controls. Source contracts describe the target state; GitHub settings evidence proves enforcement.
+
 ## 12. Manual fallback
 
 Manual deployment or worker update is fallback-only when automation is unavailable. Provide the exact target, commit, commands or UI path, health checks, manifest locations, rollback steps and expected result.
@@ -184,3 +189,26 @@ Manual deployment or worker update is fallback-only when automation is unavailab
 ## 13. Documentation-only changes
 
 Governance, quality architecture and documentation-only tasks complete after aggregate PR validation and merge. They must not claim a VPS or worker release and must report both as `NOT REQUIRED`.
+
+## 14. Production-impact classification
+
+`data/contracts/change-control-policy-v1.json` derives one production-impact class from the exact changed-file set:
+
+- `NONE`: no versioned production or control-plane path is affected;
+- `CONTROL_PLANE`: CI, release tooling, schemas, governance or operational control paths are affected without a deterministic runtime contour;
+- `VPS`: VPS API, frontend or VPS deployment source is affected;
+- `WINDOWS_WORKER`: Windows worker source is affected;
+- `MIXED`: both VPS and Windows worker source are affected.
+
+For deterministic runtime contours, deployment declarations are enforced:
+
+| Impact | VPS deployment | Windows worker update |
+|---|---:|---:|
+| `NONE` | NOT REQUIRED | NOT REQUIRED |
+| `VPS` | REQUIRED | NOT REQUIRED |
+| `WINDOWS_WORKER` | NOT REQUIRED | REQUIRED |
+| `MIXED` | REQUIRED | REQUIRED |
+
+`CONTROL_PLANE` requires explicit rationale because the path alone cannot prove whether installation or deployment is needed. The PR must still declare both delivery fields and explain the selected applicability.
+
+Production-impact classification does not authorize deployment. It determines which release and runtime evidence obligations become applicable after merge authorization.

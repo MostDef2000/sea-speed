@@ -1,17 +1,21 @@
 ## Canonical task
 
-- Issue:
+- Issue: #
 - Approved scope:
 - Approval recorded after Implementation Scope Check: YES/NO
+- Acceptance criteria:
 
 ## Change
 
 - Intended behavior:
 - Changed files:
+  - `path/to/file`
 - Out of scope:
 
 ## Impact
 
+- Production impact: NONE / CONTROL_PLANE / VPS / WINDOWS_WORKER / MIXED
+- Production-impact rationale:
 - Security impact:
 - API/event/state/storage schema impact:
 - Detection/tracking/calibration/speed formula impact:
@@ -38,4 +42,4 @@
 - [ ] Secrets and runtime artifacts absent
 - [ ] Required tests passed
 - [ ] Applicable release and deployment evidence identified
-- [ ] `COMPLETE` will not be claimed before runtime acceptance
+- [ ] `COMPLETE` will not be claimed before applicable runtime acceptance

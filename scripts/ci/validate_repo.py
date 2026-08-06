@@ -13,11 +13,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 ALLOWED_TOP_LEVEL = {
-    ".github", ".gitignore", "README.md", "api", "contracts", "data", "deploy", "docs",
+    ".github", ".gitignore", "AGENTS.md", "README.md", "api", "contracts", "data", "deploy", "docs",
     "frontend", "schemas", "scripts", "skills", "tests", "worker",
 }
 
 REQUIRED_FILES = {
+    "AGENTS.md",
     "README.md",
     "api/app/main.py",
     "frontend/root/index.html",
@@ -33,9 +34,11 @@ REQUIRED_FILES = {
     "data/contracts/sea-speed-contracts-v1.schema.json",
     "data/contracts/fixtures-v1.json",
     "data/contracts/contract-policy-v1.json",
+    "data/contracts/change-control-policy-v1.json",
     "data/quality/quality-gates-v1.json",
     "data/quality/reliability-budget-v1.json",
     "data/quality/accepted-risks-v1.json",
+    "scripts/ci/validate_change_contract.py",
     "scripts/ci/validate_contracts.py",
     "scripts/ci/validate_telemetry.py",
     "scripts/release/build_release_manifest.py",
@@ -56,6 +59,7 @@ REQUIRED_FILES = {
     "schemas/telemetry.schema.json",
     "schemas/quality-evidence.schema.json",
     "tests/test_api_contract.py",
+    "tests/test_change_contract.py",
     "tests/test_worker_contract.py",
     "tests/test_frontend_contract.py",
     "tests/test_release_manifest.py",
