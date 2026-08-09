@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import ast
 import copy
+import io
 import time as real_time
 import unittest
 import uuid
+from contextlib import redirect_stdout
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "worker/hls_motion_yolo_worker_events.py"
@@ -84,7 +87,149 @@ class FakeModel:
         return [FakeResult()]
 
 
+class FakeSubprocess:
+    PIPE = object()
+    calls: list[tuple[list[str], dict[str, Any]]] = []
+
+    @classmethod
+    def Popen(cls, cmd: list[str], **kwargs: Any) -> object:
+        cls.calls.append((list(cmd), dict(kwargs)))
+        return object()
+
+
+class FakeResponse:
+    status_code = 200
+    text = ""
+
+    def json(self) -> dict[str, Any]:
+        return {
+            "enabled": True,
+            "polygon": [
+                {"x": 1, "y": 1},
+                {"x": 10, "y": 1},
+                {"x": 10, "y": 10},
+            ],
+        }
+
+
+class FakeRequests:
+    calls: list[tuple[str, dict[str, str], int]] = []
+
+    @classmethod
+    def get(cls, url: str, headers: dict[str, str], timeout: int) -> FakeResponse:
+        cls.calls.append((url, dict(headers), timeout))
+        return FakeResponse()
+
+
 class WorkerTrackingOverlayTests(unittest.TestCase):
+    def test_rtsp_input_is_redacted_and_legacy_basic_auth_is_not_attached(self) -> None:
+        input_url = (
+            "rtsp://camera-user:camera-pass@192.0.2.10:554/Streaming/Channels/101"
+            "?token=query-secret#fragment-secret"
+        )
+        values = {
+            "HLS_URL": input_url,
+            "HLS_BASIC_AUTH_BASE64": "legacy-secret",
+        }
+
+        def env_str(name: str, default: str = "") -> str:
+            return values.get(name, default)
+
+        FakeSubprocess.calls = []
+        ns: dict[str, Any] = {
+            "env_str": env_str,
+            "env_int": lambda _name, default: default,
+            "env_float": lambda _name, default: default,
+            "urlsplit": urlsplit,
+            "subprocess": FakeSubprocess,
+        }
+        load_functions(
+            {
+                "_media_input_scheme",
+                "safe_media_input_label",
+                "media_basic_auth_for_input",
+                "start_ffmpeg",
+            },
+            ns,
+        )
+
+        output = io.StringIO()
+        with redirect_stdout(output):
+            ns["start_ffmpeg"]()
+
+        cmd = FakeSubprocess.calls[0][0]
+        self.assertEqual(cmd[cmd.index("-i") + 1], input_url)
+        self.assertNotIn("-headers", cmd)
+
+        logged = output.getvalue()
+        self.assertIn("HLS: rtsp://192.0.2.10:554", logged)
+        for secret in (
+            "camera-user",
+            "camera-pass",
+            "query-secret",
+            "fragment-secret",
+            "legacy-secret",
+        ):
+            self.assertNotIn(secret, logged)
+
+    def test_http_media_auth_supports_explicit_value_and_legacy_fallback(self) -> None:
+        values = {
+            "HLS_BASIC_AUTH_BASE64": "legacy-media-auth",
+            "HLS_MEDIA_BASIC_AUTH_BASE64": "",
+        }
+
+        def env_str(name: str, default: str = "") -> str:
+            return values.get(name, default)
+
+        ns = load_functions(
+            {"_media_input_scheme", "media_basic_auth_for_input"},
+            {"env_str": env_str, "urlsplit": urlsplit},
+        )
+
+        hls_url = "https://media.example/stream.m3u8"
+        self.assertEqual(ns["media_basic_auth_for_input"](hls_url), "legacy-media-auth")
+
+        values["HLS_MEDIA_BASIC_AUTH_BASE64"] = "explicit-media-auth"
+        self.assertEqual(ns["media_basic_auth_for_input"](hls_url), "explicit-media-auth")
+        self.assertEqual(
+            ns["media_basic_auth_for_input"]("rtsp://camera.example/stream"),
+            "explicit-media-auth",
+        )
+
+    def test_roi_auth_is_independent_with_legacy_fallback(self) -> None:
+        values = {
+            "SEA_SPEED_ROI_URL": "https://api.example/roi",
+            "SEA_SPEED_ROI_BASIC_AUTH_BASE64": "explicit-roi-auth",
+            "HLS_BASIC_AUTH_BASE64": "legacy-config-auth",
+        }
+
+        def env_str(name: str, default: str = "") -> str:
+            return values.get(name, default)
+
+        FakeRequests.calls = []
+        cache = {"ts": 0.0, "enabled": False, "points": [], "signature": ""}
+        ns: dict[str, Any] = {
+            "env_str": env_str,
+            "env_float": lambda _name, _default: 0.0,
+            "time": real_time,
+            "requests": FakeRequests,
+            "_roi_cache": cache,
+        }
+        load_functions({"roi_basic_auth", "get_roi_url", "fetch_remote_roi"}, ns)
+
+        ns["fetch_remote_roi"]()
+        self.assertEqual(
+            FakeRequests.calls[-1][1]["Authorization"],
+            "Basic explicit-roi-auth",
+        )
+
+        values["SEA_SPEED_ROI_BASIC_AUTH_BASE64"] = ""
+        ns["fetch_remote_roi"]()
+        self.assertEqual(
+            FakeRequests.calls[-1][1]["Authorization"],
+            "Basic legacy-config-auth",
+        )
+
     def test_bytetrack_persistent_id_is_attached_to_detection(self) -> None:
         ns: dict[str, Any] = {
             "env_float": lambda name, default: default,
