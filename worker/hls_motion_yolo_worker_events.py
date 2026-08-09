@@ -747,7 +747,6 @@ def fetch_speed_config():
             return _speed_config_cache
 
         data = r.json()
-
         _speed_config_cache["enabled"] = bool(data.get("enabled"))
         _speed_config_cache["kmh_per_px_s"] = float(data.get("kmh_per_px_s") or 0.0)
 
@@ -789,8 +788,6 @@ _line_speed_state = {
     "prev_ts": None,
     "prev_side_a": None,
     "prev_side_b": None,
-    "start_ts": None,
-    "start_line": None,
     "pending": None,
 }
 
@@ -1125,7 +1122,6 @@ def update_speed_lines_estimate(det):
         track_state["line_speed_info"] = dict(info)
 
     return info
-
 def track_event_posted(track_id):
     if track_id is None:
         return False
