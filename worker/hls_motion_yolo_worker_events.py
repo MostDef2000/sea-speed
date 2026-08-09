@@ -5,6 +5,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import cv2
 import numpy as np
@@ -44,6 +45,46 @@ def now_iso():
     return datetime.now(timezone.utc).isoformat()
 
 
+def _media_input_scheme(input_url):
+    try:
+        return urlsplit(input_url).scheme.lower()
+    except Exception:
+        return ""
+
+
+def safe_media_input_label(input_url):
+    try:
+        parsed = urlsplit(input_url)
+        scheme = parsed.scheme.lower()
+        host = parsed.hostname
+        if not scheme or not host:
+            return "<configured>"
+        try:
+            port = parsed.port
+        except ValueError:
+            port = None
+        authority = host if port is None else f"{host}:{port}"
+        return f"{scheme}://{authority}"
+    except Exception:
+        return "<configured>"
+
+
+def media_basic_auth_for_input(input_url):
+    explicit = env_str("HLS_MEDIA_BASIC_AUTH_BASE64", "").strip()
+    if explicit:
+        return explicit
+    if _media_input_scheme(input_url) in {"http", "https"}:
+        return env_str("HLS_BASIC_AUTH_BASE64", "").strip()
+    return ""
+
+
+def roi_basic_auth():
+    explicit = env_str("SEA_SPEED_ROI_BASIC_AUTH_BASE64", "").strip()
+    if explicit:
+        return explicit
+    return env_str("HLS_BASIC_AUTH_BASE64", "").strip()
+
+
 def start_ffmpeg():
     hls_url = env_str("HLS_URL")
     if not hls_url:
@@ -52,7 +93,7 @@ def start_ffmpeg():
     width = env_int("FRAME_WIDTH", 704)
     height = env_int("FRAME_HEIGHT", 576)
     sample_fps = env_float("SAMPLE_FPS", 5.0)
-    auth = env_str("HLS_BASIC_AUTH_BASE64")
+    auth = media_basic_auth_for_input(hls_url)
 
     cmd = [
         "ffmpeg",
@@ -80,7 +121,7 @@ def start_ffmpeg():
     ]
 
     print("Starting FFmpeg HLS reader")
-    print(f"HLS: {hls_url}")
+    print(f"HLS: {safe_media_input_label(hls_url)}")
     print(f"Frame: {width}x{height}")
     print(f"Sample FPS: {sample_fps}")
 
@@ -287,7 +328,7 @@ def fetch_remote_roi():
         return False, []
 
     headers = {}
-    basic_auth = env_str("HLS_BASIC_AUTH_BASE64", "").strip()
+    basic_auth = roi_basic_auth()
 
     if basic_auth:
         headers["Authorization"] = f"Basic {basic_auth}"
@@ -748,6 +789,8 @@ _line_speed_state = {
     "prev_ts": None,
     "prev_side_a": None,
     "prev_side_b": None,
+    "start_ts": None,
+    "start_line": None,
     "pending": None,
 }
 
