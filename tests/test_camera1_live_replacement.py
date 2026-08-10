@@ -44,6 +44,7 @@ paths:
   cam1:
     source: rtsp://legacy.example.invalid/live
     sourceOnDemand: no
+    rtspTransport: automatic
     runOnReady: echo-safe-marker
   cam1-new:
     source: rtsp://10.0.0.8:8554/cam1-test
@@ -52,14 +53,33 @@ paths:
 
 
 class Camera1LiveReplacementTests(unittest.TestCase):
-    def test_path_switch_preserves_unrelated_fields_and_temporary_path(self) -> None:
+    def test_path_switch_preserves_unrelated_fields_and_pins_tcp_idempotently(self) -> None:
         relay = "rtsp://10.0.0.8:8554/cam1"
-        rendered = mediamtx.set_path_source(BASE_CONFIG, "cam1", relay, source_on_demand=True)
+        rendered = mediamtx.set_path_source(
+            BASE_CONFIG,
+            "cam1",
+            relay,
+            source_on_demand=True,
+            rtsp_transport="tcp",
+        )
         self.assertIn('source: "rtsp://10.0.0.8:8554/cam1"', rendered)
         self.assertIn("sourceOnDemand: yes", rendered)
+        self.assertIn("rtspTransport: tcp", rendered)
+        self.assertNotIn("rtspTransport: automatic", rendered)
         self.assertIn("runOnReady: echo-safe-marker", rendered)
         self.assertIn("cam1-new:", rendered)
         self.assertNotIn("legacy.example.invalid", mediamtx.get_path_field(rendered, "cam1", "source") or "")
+        mediamtx.verify_vps_relay_path(rendered, "cam1", relay)
+        self.assertEqual(
+            mediamtx.set_path_source(
+                rendered,
+                "cam1",
+                relay,
+                source_on_demand=True,
+                rtsp_transport="tcp",
+            ),
+            rendered,
+        )
 
     def test_reader_auth_is_single_peer_read_only_idempotent_and_preserves_existing_rules(self) -> None:
         original_auth = BASE_CONFIG.split("rtsp: yes", 1)[0]
@@ -145,14 +165,69 @@ class Camera1LiveReplacementTests(unittest.TestCase):
         with self.assertRaises(mediamtx.ConfigError):
             mediamtx.validate_private_relay_url("rtsp://10.0.0.8:8554/cam2", "cam1")
 
-    def test_cleanup_requires_expected_canonical_source_then_removes_only_cam1_new(self) -> None:
+    def test_vps_renderer_writes_and_verifies_tcp_candidate(self) -> None:
         relay = "rtsp://10.0.0.8:8554/cam1"
-        switched = mediamtx.set_path_source(BASE_CONFIG, "cam1", relay)
-        self.assertEqual(mediamtx.get_path_field(switched, "cam1", "source"), relay)
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            config = root / "mediamtx.yml"
+            candidate = root / "candidate.yml"
+            config.write_text(BASE_CONFIG, encoding="utf-8")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(RENDERER),
+                    "vps-switch",
+                    "--config",
+                    str(config),
+                    "--relay-url",
+                    relay,
+                    "--path",
+                    "cam1",
+                    "--output",
+                    str(candidate),
+                ],
+                check=True,
+                text=True,
+                capture_output=True,
+            )
+            self.assertIn("rtsp_transport=tcp", result.stdout)
+            self.assertEqual(candidate.stat().st_mode & 0o777, 0o600)
+            rendered = candidate.read_text(encoding="utf-8")
+            mediamtx.verify_vps_relay_path(rendered, "cam1", relay)
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(RENDERER),
+                    "verify-vps-switch",
+                    "--config",
+                    str(candidate),
+                    "--relay-url",
+                    relay,
+                    "--path",
+                    "cam1",
+                ],
+                check=True,
+                text=True,
+                capture_output=True,
+            )
+
+    def test_cleanup_requires_expected_tcp_canonical_source_then_removes_only_cam1_new(self) -> None:
+        relay = "rtsp://10.0.0.8:8554/cam1"
+        switched = mediamtx.set_path_source(
+            BASE_CONFIG,
+            "cam1",
+            relay,
+            rtsp_transport="tcp",
+        )
+        mediamtx.verify_vps_relay_path(switched, "cam1", relay)
         cleaned = mediamtx.remove_path(switched, "cam1-new")
         self.assertNotIn("cam1-new:", cleaned)
-        self.assertEqual(mediamtx.get_path_field(cleaned, "cam1", "source"), relay)
+        mediamtx.verify_vps_relay_path(cleaned, "cam1", relay)
         self.assertIn("runOnReady: echo-safe-marker", cleaned)
+
+        wrong_transport = switched.replace("rtspTransport: tcp", "rtspTransport: automatic", 1)
+        with self.assertRaises(mediamtx.ConfigError):
+            mediamtx.verify_vps_relay_path(wrong_transport, "cam1", relay)
 
     def test_shell_contracts_are_explicit_and_ai_worker_is_not_controlled(self) -> None:
         subprocess.run(["bash", "-n", str(UBUNTU)], check=True)
@@ -173,6 +248,8 @@ class Camera1LiveReplacementTests(unittest.TestCase):
 
         self.assertIn("--confirmed-public-hls", vps)
         self.assertIn("cam1-new", vps)
+        self.assertIn("verify-vps-switch", vps)
+        self.assertIn("RTSP_TRANSPORT=tcp", vps)
         self.assertIn("LOCAL_CANONICAL_HLS=PASS", vps)
         self.assertIn("automatic rollback is not authorized", vps)
         self.assertNotIn("worker.env", vps)
@@ -184,6 +261,7 @@ class Camera1LiveReplacementTests(unittest.TestCase):
         self.assertIn("independent of `sea-speed-worker.service`", source)
         self.assertIn("single VPS ZeroTier peer", source)
         self.assertIn("--reader-ip", source)
+        self.assertIn("rtspTransport: tcp", source)
         self.assertIn("cam1-new", source)
         self.assertIn("runtime remains `UNKNOWN`", source)
         self.assertIn("explicit rollback decision", source)
