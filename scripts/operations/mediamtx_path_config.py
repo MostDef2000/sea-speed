@@ -26,6 +26,7 @@ RFC1918_NETWORKS = tuple(
     for value in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
 )
 READER_MARKER = "# Sea Speed least-privilege reader for canonical cam1"
+RTSP_TRANSPORTS = {"automatic", "udp", "multicast", "tcp"}
 
 
 class ConfigError(ValueError):
@@ -124,24 +125,42 @@ def _path_ranges(lines: list[str], paths_start: int, paths_end: int) -> dict[str
     return ranges
 
 
-def set_path_source(text: str, path_name: str, source: str, *, source_on_demand: bool = True) -> str:
+def set_path_source(
+    text: str,
+    path_name: str,
+    source: str,
+    *,
+    source_on_demand: bool = True,
+    rtsp_transport: str | None = None,
+) -> str:
     if not re.fullmatch(r"[A-Za-z0-9._-]+", path_name):
         raise ConfigError("MediaMTX path name must be a simple literal name")
+    if rtsp_transport is not None and rtsp_transport not in RTSP_TRANSPORTS:
+        raise ConfigError("unsupported MediaMTX RTSP source transport")
     lines = _split_lines(text)
     paths_start, paths_end = _paths_bounds(lines)
     ranges = _path_ranges(lines, paths_start, paths_end)
     source_line = f"    source: {_yaml_string(source)}\n"
     demand_line = f"    sourceOnDemand: {'yes' if source_on_demand else 'no'}\n"
-    field_re = re.compile(r"^    (source|sourceOnDemand)\s*:")
+    transport_line = f"    rtspTransport: {rtsp_transport}\n" if rtsp_transport is not None else None
+    managed = "source|sourceOnDemand"
+    if rtsp_transport is not None:
+        managed += "|rtspTransport"
+    field_re = re.compile(rf"^    ({managed})\s*:")
 
     if path_name in ranges:
         start, end = ranges[path_name]
         kept = [line for line in lines[start + 1 : end] if not field_re.match(line)]
-        lines[start:end] = [_ensure_newline(lines[start]), source_line, demand_line, *kept]
+        replacement = [_ensure_newline(lines[start]), source_line, demand_line]
+        if transport_line is not None:
+            replacement.append(transport_line)
+        lines[start:end] = [*replacement, *kept]
         return "".join(lines)
 
     insertion = paths_end
     block = [f"  {path_name}:\n", source_line, demand_line]
+    if transport_line is not None:
+        block.append(transport_line)
     if insertion > 0 and lines[insertion - 1].strip():
         block.insert(0, "\n")
     lines[insertion:insertion] = block
@@ -335,6 +354,16 @@ def validate_private_rtsp_address(address: str) -> None:
         raise ConfigError("private RTSP listen address must use RFC1918 IPv4 and valid port")
 
 
+def verify_vps_relay_path(text: str, path_name: str, relay_url: str) -> None:
+    validate_private_relay_url(relay_url, path_name)
+    if get_path_field(text, path_name, "source") != relay_url:
+        raise ConfigError("canonical path is not bound to the expected private relay")
+    if get_path_field(text, path_name, "sourceOnDemand") != "yes":
+        raise ConfigError("canonical private relay must use sourceOnDemand=yes")
+    if get_path_field(text, path_name, "rtspTransport") != "tcp":
+        raise ConfigError("canonical private relay must use rtspTransport=tcp")
+
+
 def read_config(path: Path) -> str:
     try:
         info = os.lstat(path)
@@ -402,29 +431,41 @@ def render_verify_reader_auth(args: argparse.Namespace) -> str:
     return ""
 
 
+def render_verify_vps_switch(args: argparse.Namespace) -> str:
+    text = read_config(args.config)
+    verify_vps_relay_path(text, args.path, args.relay_url)
+    print(f"VERIFIED mode=vps-switch path={args.path} rtsp_transport=tcp relay_userinfo=NO")
+    return ""
+
+
 def render_vps_switch(args: argparse.Namespace) -> str:
     text = read_config(args.config)
     validate_private_relay_url(args.relay_url, args.path)
-    text = set_path_source(text, args.path, args.relay_url, source_on_demand=True)
+    text = set_path_source(
+        text,
+        args.path,
+        args.relay_url,
+        source_on_demand=True,
+        rtsp_transport="tcp",
+    )
+    verify_vps_relay_path(text, args.path, args.relay_url)
     digest = write_candidate(args.output, text)
     print(
         f"RENDERED mode=vps-switch path={args.path} relay_userinfo=NO "
-        f"output_sha256={digest}"
+        f"rtsp_transport=tcp output_sha256={digest}"
     )
     return digest
 
 
 def render_vps_cleanup(args: argparse.Namespace) -> str:
     text = read_config(args.config)
-    validate_private_relay_url(args.relay_url, args.path)
-    current = get_path_field(text, args.path, "source")
-    if current != args.relay_url:
-        raise ConfigError("canonical path is not bound to the expected private relay")
+    verify_vps_relay_path(text, args.path, args.relay_url)
     text = remove_path(text, args.remove_path)
+    verify_vps_relay_path(text, args.path, args.relay_url)
     digest = write_candidate(args.output, text)
     print(
         f"RENDERED mode=vps-cleanup path={args.path} removed={args.remove_path} "
-        f"output_sha256={digest}"
+        f"rtsp_transport=tcp output_sha256={digest}"
     )
     return digest
 
@@ -448,6 +489,12 @@ def build_parser() -> argparse.ArgumentParser:
     verify.add_argument("--reader-ip", required=True)
     verify.add_argument("--path", default="cam1")
     verify.set_defaults(handler=render_verify_reader_auth)
+
+    verify_vps = sub.add_parser("verify-vps-switch")
+    verify_vps.add_argument("--config", type=Path, required=True)
+    verify_vps.add_argument("--relay-url", required=True)
+    verify_vps.add_argument("--path", default="cam1")
+    verify_vps.set_defaults(handler=render_verify_vps_switch)
 
     switch = sub.add_parser("vps-switch")
     switch.add_argument("--config", type=Path, required=True)
