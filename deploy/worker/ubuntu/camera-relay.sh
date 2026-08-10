@@ -4,18 +4,21 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage:
-  camera-relay.sh prepare --config PATH --private-rtsp-address IPv4:PORT [options]
-  camera-relay.sh activate --config PATH --private-rtsp-address IPv4:PORT --expected-sha256 SHA256 [options]
+  camera-relay.sh prepare --config PATH --private-rtsp-address IPv4:PORT --reader-ip IPv4 [options]
+  camera-relay.sh activate --config PATH --private-rtsp-address IPv4:PORT --reader-ip IPv4 --expected-sha256 SHA256 [options]
   camera-relay.sh status [--private-rtsp-address IPv4:PORT] [options]
 
 Options:
+  --reader-ip IPv4         Exact RFC1918 VPS ZeroTier reader IP allowed to read cam1
   --source-env-file PATH   Protected worker env file (default: /opt/sea-speed-worker/shared/config/worker.env)
   --service NAME           Independent relay service (default: sea-speed-stream.service)
   --worker-service NAME    AI worker service that must remain stopped (default: sea-speed-worker.service)
   --state-root PATH        Root-only candidate/backup state (default: /var/lib/sea-speed-camera-relay)
 
 prepare renders a protected candidate MediaMTX config and does not modify or
-restart any service. activate installs only the reviewed candidate, restarts the
+restart any service. The candidate preserves existing authentication rules and
+adds one credential-free read permission scoped only to cam1 and the exact
+RFC1918 reader IP. activate installs only the reviewed candidate, restarts the
 independent relay service, and verifies the private RTSP listener. It never
 starts, stops, restarts or enables the AI worker. Automatic rollback is not
 performed; a root-only backup is preserved for an explicit rollback decision.
@@ -31,6 +34,7 @@ esac
 
 config=""
 private_rtsp_address=""
+reader_ip=""
 source_env_file="/opt/sea-speed-worker/shared/config/worker.env"
 service_name="sea-speed-stream.service"
 worker_service="sea-speed-worker.service"
@@ -41,6 +45,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --config) [[ $# -ge 2 ]] || { echo "ERROR --config requires a path" >&2; exit 2; }; config="$2"; shift 2 ;;
     --private-rtsp-address) [[ $# -ge 2 ]] || { echo "ERROR --private-rtsp-address requires IPv4:PORT" >&2; exit 2; }; private_rtsp_address="$2"; shift 2 ;;
+    --reader-ip) [[ $# -ge 2 ]] || { echo "ERROR --reader-ip requires IPv4" >&2; exit 2; }; reader_ip="$2"; shift 2 ;;
     --source-env-file) [[ $# -ge 2 ]] || { echo "ERROR --source-env-file requires a path" >&2; exit 2; }; source_env_file="$2"; shift 2 ;;
     --service) [[ $# -ge 2 ]] || { echo "ERROR --service requires a name" >&2; exit 2; }; service_name="$2"; shift 2 ;;
     --worker-service) [[ $# -ge 2 ]] || { echo "ERROR --worker-service requires a name" >&2; exit 2; }; worker_service="$2"; shift 2 ;;
@@ -107,6 +112,20 @@ print(port)
 PY
 }
 
+validate_reader_ip() {
+  python3 - "$reader_ip" <<'PY'
+import ipaddress
+import sys
+networks = tuple(ipaddress.ip_network(v) for v in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"))
+try:
+    ip = ipaddress.ip_address(sys.argv[1])
+except ValueError:
+    raise SystemExit(1)
+if ip.version != 4 or not any(ip in network for network in networks):
+    raise SystemExit(1)
+PY
+}
+
 check_private_listener() {
   local parsed host port
   parsed="$(parse_address)" || { echo "ERROR invalid private RTSP address" >&2; return 1; }
@@ -122,6 +141,15 @@ try:
 except OSError:
     raise SystemExit(1)
 PY
+}
+
+check_auth_environment_override() {
+  local environment
+  environment="$(systemctl show -p Environment --value "$service_name" 2>/dev/null || true)"
+  if [[ "$environment" == *"MTX_AUTHMETHOD="* || "$environment" == *"MTX_AUTHINTERNALUSERS"* ]]; then
+    echo "ERROR relay authentication is overridden by systemd environment; bounded config remediation cannot proceed" >&2
+    exit 10
+  fi
 }
 
 validate_common
@@ -146,8 +174,11 @@ fi
 require_root
 [[ -n "$config" ]] || { echo "ERROR --config is required" >&2; exit 2; }
 [[ -n "$private_rtsp_address" ]] || { echo "ERROR --private-rtsp-address is required" >&2; exit 2; }
+[[ -n "$reader_ip" ]] || { echo "ERROR --reader-ip is required" >&2; exit 2; }
 parse_address >/dev/null || { echo "ERROR private RTSP address must be RFC1918 IPv4:PORT" >&2; exit 3; }
+validate_reader_ip || { echo "ERROR reader IP must be a literal RFC1918 IPv4 address" >&2; exit 3; }
 [[ -f "$config" && ! -L "$config" ]] || { echo "ERROR MediaMTX config must be a regular non-symlink file" >&2; exit 5; }
+check_auth_environment_override
 
 install -d -o root -g root -m 0700 "$state_root" "$backup_root"
 
@@ -160,6 +191,7 @@ if [[ "$command" == "prepare" ]]; then
     --source-env-file "$source_env_file" \
     --source-env-key HLS_URL \
     --private-rtsp-address "$private_rtsp_address" \
+    --reader-ip "$reader_ip" \
     --path cam1 \
     --output "$candidate"
 
@@ -173,6 +205,8 @@ if [[ "$command" == "prepare" ]]; then
   printf 'CAMERA_SOURCE_SCHEME=rtsp\n'
   printf 'CAMERA_SOURCE_USERINFO=YES\n'
   printf 'RELAY_PATH=cam1\n'
+  printf 'READER_AUTH_SCOPE=cam1-single-rfc1918-peer\n'
+  printf 'READER_AUTH_PERMISSION=read-only\n'
   printf 'RELAY_ENABLED=%s\n' "$(service_value is-enabled "$service_name")"
   printf 'RELAY_ACTIVE=%s\n' "$(service_value is-active "$service_name")"
   printf 'AI_WORKER_ACTIVE=%s\n' "$(service_value is-active "$worker_service")"
@@ -188,6 +222,10 @@ fi
 actual_sha256="$(sha256sum "$candidate" | awk '{print $1}')"
 [[ "$actual_sha256" == "$expected_sha256" ]] || { echo "ERROR prepared candidate digest mismatch" >&2; exit 7; }
 [[ "$(stat -c '%a' "$candidate")" == "600" ]] || { echo "ERROR candidate mode must be 600" >&2; exit 7; }
+python3 "$renderer" verify-reader-auth \
+  --config "$candidate" \
+  --reader-ip "$reader_ip" \
+  --path cam1 >/dev/null
 
 if systemctl is-active --quiet "$worker_service"; then
   echo "ERROR AI worker must remain stopped during live-relay activation" >&2
@@ -238,6 +276,8 @@ fi
 printf 'ACTIVATED_RELAY=YES\n'
 printf 'RELAY_PATH=cam1\n'
 printf 'PRIVATE_RELAY_TCP=PASS\n'
+printf 'READER_AUTH_SCOPE=cam1-single-rfc1918-peer\n'
+printf 'READER_AUTH_PERMISSION=read-only\n'
 printf 'RELAY_ACTIVE=active\n'
 printf 'AI_WORKER_ACTIVE=inactive\n'
 printf 'AI_WORKER_STARTED=NO\n'

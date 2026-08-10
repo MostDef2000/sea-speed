@@ -25,6 +25,7 @@ RFC1918_NETWORKS = tuple(
     ipaddress.ip_network(value)
     for value in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
 )
+READER_MARKER = "# Sea Speed least-privilege reader for canonical cam1"
 
 
 class ConfigError(ValueError):
@@ -67,6 +68,26 @@ def set_top_level_scalar(text: str, key: str, value: str, *, quote: bool) -> str
         raise ConfigError("MediaMTX config must contain exactly one top-level paths block")
     lines.insert(paths[0], rendered)
     return "".join(lines)
+
+
+def get_top_level_scalar(text: str, key: str) -> str | None:
+    lines = _split_lines(text)
+    matches = _find_top_level(lines, key)
+    if len(matches) > 1:
+        raise ConfigError(f"duplicate top-level MediaMTX key: {key}")
+    if not matches:
+        return None
+    raw = lines[matches[0]].split(":", 1)[1].strip()
+    if not raw or raw.startswith("#"):
+        return ""
+    raw = raw.split(" #", 1)[0].strip()
+    if raw.startswith('"'):
+        try:
+            value = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise ConfigError(f"invalid quoted top-level field: {key}") from exc
+        return str(value)
+    return raw
 
 
 def _paths_bounds(lines: list[str]) -> tuple[int, int]:
@@ -163,6 +184,81 @@ def get_path_field(text: str, path_name: str, field: str) -> str | None:
             raise ConfigError(f"invalid quoted field {field} in MediaMTX path {path_name}") from exc
         return str(value)
     return raw.split(" #", 1)[0].strip()
+
+
+def validate_reader_ip(value: str) -> None:
+    try:
+        address = ipaddress.ip_address(value)
+    except ValueError as exc:
+        raise ConfigError("reader IP must be a literal RFC1918 IPv4 address") from exc
+    if not _is_rfc1918_ipv4(address):
+        raise ConfigError("reader IP must be a literal RFC1918 IPv4 address")
+
+
+def _auth_internal_users_bounds(lines: list[str]) -> tuple[int, int]:
+    matches = _find_top_level(lines, "authInternalUsers")
+    if len(matches) != 1:
+        raise ConfigError("MediaMTX config must contain exactly one top-level authInternalUsers block")
+    start = matches[0]
+    if not re.match(r"^authInternalUsers\s*:\s*(?:#.*)?(?:\n)?$", lines[start]):
+        raise ConfigError("authInternalUsers must use a block sequence")
+    end = len(lines)
+    for index in range(start + 1, len(lines)):
+        line = lines[index]
+        if not line.strip():
+            continue
+        if line[0] not in " \t":
+            end = index
+            break
+    return start, end
+
+
+def _reader_rule_lines(path_name: str, reader_ip: str) -> list[str]:
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", path_name):
+        raise ConfigError("MediaMTX path name must be a simple literal name")
+    validate_reader_ip(reader_ip)
+    return [
+        f"  {READER_MARKER}\n",
+        "  - user: any\n",
+        "    pass:\n",
+        f"    ips: [{_yaml_string(reader_ip)}]\n",
+        "    permissions:\n",
+        "      - action: read\n",
+        f"        path: {_yaml_string(path_name)}\n",
+    ]
+
+
+def verify_internal_reader_rule(text: str, path_name: str, reader_ip: str) -> None:
+    method = get_top_level_scalar(text, "authMethod")
+    if method not in (None, "internal"):
+        raise ConfigError("MediaMTX authMethod must be internal for bounded reader authorization")
+    lines = _split_lines(text)
+    start, end = _auth_internal_users_bounds(lines)
+    expected = _reader_rule_lines(path_name, reader_ip)
+    markers = [index for index in range(start + 1, end) if lines[index].strip() == READER_MARKER]
+    if len(markers) != 1:
+        raise ConfigError("exactly one Sea Speed reader authorization rule is required")
+    index = markers[0]
+    if lines[index : index + len(expected)] != expected:
+        raise ConfigError("Sea Speed reader authorization rule differs from the expected least-privilege rule")
+
+
+def ensure_internal_reader_rule(text: str, path_name: str, reader_ip: str) -> str:
+    method = get_top_level_scalar(text, "authMethod")
+    if method not in (None, "internal"):
+        raise ConfigError("MediaMTX authMethod must be internal for bounded reader authorization")
+    lines = _split_lines(text)
+    start, end = _auth_internal_users_bounds(lines)
+    expected = _reader_rule_lines(path_name, reader_ip)
+    markers = [index for index in range(start + 1, end) if lines[index].strip() == READER_MARKER]
+    if markers:
+        if len(markers) != 1 or lines[markers[0] : markers[0] + len(expected)] != expected:
+            raise ConfigError("existing Sea Speed reader authorization rule does not match the requested VPS reader IP")
+        return text
+    lines[end:end] = expected
+    rendered = "".join(lines)
+    verify_internal_reader_rule(rendered, path_name, reader_ip)
+    return rendered
 
 
 def read_protected_env_value(path: Path, key: str) -> str:
@@ -275,6 +371,7 @@ def render_ubuntu_relay(args: argparse.Namespace) -> str:
     source = read_protected_env_value(args.source_env_file, args.source_env_key)
     validate_camera_source(source)
     validate_private_rtsp_address(args.private_rtsp_address)
+    validate_reader_ip(args.reader_ip)
     for key, value, quote in (
         ("rtsp", "yes", False),
         ("rtspAddress", args.private_rtsp_address, True),
@@ -285,12 +382,24 @@ def render_ubuntu_relay(args: argparse.Namespace) -> str:
     ):
         text = set_top_level_scalar(text, key, value, quote=quote)
     text = set_path_source(text, args.path, source, source_on_demand=True)
+    text = ensure_internal_reader_rule(text, args.path, args.reader_ip)
     digest = write_candidate(args.output, text)
     print(
         f"RENDERED mode=ubuntu-relay path={args.path} source_scheme=rtsp "
-        f"source_has_userinfo=YES output_sha256={digest}"
+        f"source_has_userinfo=YES reader_scope=single-rfc1918-ip "
+        f"reader_permission=read-only output_sha256={digest}"
     )
     return digest
+
+
+def render_verify_reader_auth(args: argparse.Namespace) -> str:
+    text = read_config(args.config)
+    verify_internal_reader_rule(text, args.path, args.reader_ip)
+    print(
+        f"VERIFIED mode=reader-auth path={args.path} "
+        "reader_scope=single-rfc1918-ip reader_permission=read-only"
+    )
+    return ""
 
 
 def render_vps_switch(args: argparse.Namespace) -> str:
@@ -329,9 +438,16 @@ def build_parser() -> argparse.ArgumentParser:
     ubuntu.add_argument("--source-env-file", type=Path, required=True)
     ubuntu.add_argument("--source-env-key", default="HLS_URL")
     ubuntu.add_argument("--private-rtsp-address", required=True)
+    ubuntu.add_argument("--reader-ip", required=True)
     ubuntu.add_argument("--path", default="cam1")
     ubuntu.add_argument("--output", type=Path, required=True)
     ubuntu.set_defaults(handler=render_ubuntu_relay)
+
+    verify = sub.add_parser("verify-reader-auth")
+    verify.add_argument("--config", type=Path, required=True)
+    verify.add_argument("--reader-ip", required=True)
+    verify.add_argument("--path", default="cam1")
+    verify.set_defaults(handler=render_verify_reader_auth)
 
     switch = sub.add_parser("vps-switch")
     switch.add_argument("--config", type=Path, required=True)
