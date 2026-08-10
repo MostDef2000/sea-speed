@@ -92,6 +92,7 @@ parse_address() {
   python3 - "$private_rtsp_address" <<'PY'
 import ipaddress
 import sys
+networks = tuple(ipaddress.ip_network(v) for v in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"))
 value = sys.argv[1]
 try:
     host, raw_port = value.rsplit(":", 1)
@@ -99,7 +100,7 @@ try:
     port = int(raw_port)
 except Exception:
     raise SystemExit(1)
-if ip.version != 4 or not ip.is_private or not (1 <= port <= 65535):
+if ip.version != 4 or not any(ip in network for network in networks) or not (1 <= port <= 65535):
     raise SystemExit(1)
 print(host)
 print(port)
@@ -145,7 +146,7 @@ fi
 require_root
 [[ -n "$config" ]] || { echo "ERROR --config is required" >&2; exit 2; }
 [[ -n "$private_rtsp_address" ]] || { echo "ERROR --private-rtsp-address is required" >&2; exit 2; }
-parse_address >/dev/null || { echo "ERROR private RTSP address must be private IPv4:PORT" >&2; exit 3; }
+parse_address >/dev/null || { echo "ERROR private RTSP address must be RFC1918 IPv4:PORT" >&2; exit 3; }
 [[ -f "$config" && ! -L "$config" ]] || { echo "ERROR MediaMTX config must be a regular non-symlink file" >&2; exit 5; }
 
 install -d -o root -g root -m 0700 "$state_root" "$backup_root"
