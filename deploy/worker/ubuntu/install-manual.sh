@@ -2,13 +2,13 @@
 set -euo pipefail
 
 usage() {
-  cat <<'EOF'
+  cat <<'EOU'
 Usage: install-manual.sh <40-character-source-commit> [install-root]
 
 Run from the root of an exact Sea Speed checkout. This script prepares a
 manual Ubuntu worker installation only. It does not install NVIDIA drivers,
 CUDA, PyTorch, systemd services, secrets, models, or production data.
-EOF
+EOU
 }
 
 expected_commit="${1:-}"
@@ -79,14 +79,14 @@ if [[ ! -x "$venv_root/bin/python" ]]; then
 fi
 
 if ! "$venv_root/bin/python" -c 'import torch' >/dev/null 2>&1; then
-  cat >&2 <<EOF
+  cat >&2 <<EOA
 NEXT_ACTION PyTorch is not installed in the prepared release environment.
 Verify the NVIDIA driver on the physical server, obtain the compatible command
 from the official PyTorch installation selector, and install it with:
   $venv_root/bin/python -m pip install <verified-pytorch-build>
 Then rerun this exact installer command. The prepared source and protected
 shared directories will be reused without overwrite.
-EOF
+EOA
   exit 20
 fi
 
@@ -94,7 +94,7 @@ fi
   -r "$source_root/deploy/worker/ubuntu/requirements-runtime.txt"
 
 "$venv_root/bin/python" -c \
-  'import cv2, numpy, requests, torch, ultralytics; print("PASS runtime_imports")'
+  'import av, cv2, numpy, requests, torch, ultralytics; print("PASS runtime_imports")'
 
 if [[ ! -e "$install_root/shared/config/worker.env" ]] && \
    [[ ! -e "$install_root/shared/config/worker.env.example" ]]; then
