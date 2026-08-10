@@ -1,6 +1,6 @@
 # Sea Speed Delivery Policy
 
-Version: 1.4.0
+Version: 1.4.1
 Status: Active
 
 ## 1. Purpose
@@ -146,6 +146,20 @@ A worker release is complete only when applicable evidence confirms:
 
 Hosted CI does not prove NVIDIA, CUDA, physical-camera or RTSP runtime. Such claims require target or self-hosted evidence.
 
+### Worker remote-operations transport
+
+The normal interactive administration path for the commissioned Ubuntu worker is OpenCode running on the operator-managed Windows control laptop and connecting to the worker over SSH. OpenCode is not installed on the production worker solely to administer it.
+
+The primary connection target is `seaspeedadmin@10.123.239.102:22` over ZeroTier, with `sea-speed-worker` as the recommended logical SSH alias. Reachability must be verified at execution time; storing the address in this contract defines the intended access route, not proof that the runtime route is currently healthy.
+
+If direct ZeroTier SSH is unavailable, an operator-owned VPS SSH tunnel may expose the worker locally as `127.0.0.1:2222`. The tunnel-owning terminal must remain open while that fallback is in use. The fallback transport does not change release identity, evidence requirements, rollback obligations or deployment authorization.
+
+OpenCode may perform approved unprivileged diagnostics and preparation remotely. Root-required actions must stop at a human privilege boundary: OpenCode prepares a bounded helper or exact command, and the operator invokes it with `sudo` and enters the password locally. Sudo passwords, private keys, GitHub tokens, API tokens, camera credentials and protected environment contents must not be transferred through prompts, command arguments, logs, reports or repository files.
+
+SSH access is an execution transport only. It must not replace GitHub Connector operations for repository source changes, and it must not be treated as authorization to start, stop, restart, enable, activate, deploy or roll back production runtime.
+
+The concrete connection procedure is versioned in `docs/operations/OPENCODE_WORKER_REMOTE_ACCESS.md`.
+
 ## 9. Media-storage transition
 
 Versioned media modes are defined in `data/contracts/contract-policy-v1.json`.
@@ -185,6 +199,8 @@ The same evidence rule applies to required pull-request approvals, stale-approva
 ## 12. Manual fallback
 
 Manual deployment or worker update is fallback-only when automation is unavailable. Provide the exact target, commit, commands or UI path, health checks, manifest locations, rollback steps and expected result.
+
+The operator-owned SSH tunnel described above is a network transport fallback and does not by itself make an otherwise automated deployment a manual fallback.
 
 ## 13. Documentation-only changes
 

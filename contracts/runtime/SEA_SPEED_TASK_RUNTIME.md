@@ -1,6 +1,6 @@
 # Sea Speed Task Runtime
 
-Version: 1.2.0
+Version: 1.2.1
 Status: Active
 
 ## States
@@ -90,6 +90,32 @@ New approval is required only for scope expansion, destructive action, secrets, 
 ## Capability rule
 
 Before the first write, verify that the full approved file set and required delivery lifecycle are executable. Do not create a partial implementation when mandatory files, PR operations, CI evidence, merge, release, deployment, verification or rollback paths are unavailable.
+
+## Remote worker execution boundary
+
+The normal interactive operations station for the Ubuntu worker is the operator-managed Windows laptop running OpenCode. OpenCode is not installed on the production worker solely to administer that worker.
+
+The canonical primary SSH target for the commissioned worker is:
+
+```text
+alias: sea-speed-worker
+user: seaspeedadmin
+host: 10.123.239.102
+port: 22
+transport: ZeroTier
+```
+
+Before a protected operation, runtime reachability must still be checked because network addresses and routes are runtime facts rather than repository proof.
+
+If direct ZeroTier SSH is unavailable, the approved fallback is an operator-owned SSH tunnel that exposes the worker locally as `127.0.0.1:2222`. The terminal holding that tunnel must remain open for the lifetime of the fallback connection. The fallback route is transport only; it does not grant additional deployment or privilege authorization.
+
+OpenCode should execute ordinary unprivileged worker diagnostics and approved configuration preparation remotely through SSH. When root is required, OpenCode prepares a bounded helper or exact command, validates it where possible, and stops at the privilege boundary. The human operator runs the bounded command with `sudo` and enters the sudo password locally. Sudo passwords, private keys, camera credentials, API tokens, GitHub tokens and protected environment contents must not be passed to OpenCode prompts, command arguments, logs or repository files.
+
+Production start, stop, restart, enable, activation, rollback and other protected runtime transitions remain subject to the task's explicit approval and evidence gates. SSH reachability or OpenCode access does not authorize those actions.
+
+Repository source publication remains GitHub-Connector-only. Runtime SSH access must not be used as a substitute for repository branch, commit, PR, merge or source-of-truth operations.
+
+Operational details and the primary/fallback connection procedure are defined in `docs/operations/OPENCODE_WORKER_REMOTE_ACCESS.md`.
 
 ## Integrity rule
 

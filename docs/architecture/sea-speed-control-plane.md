@@ -1,6 +1,6 @@
 # Sea Speed Control Plane
 
-Version: 1.1.0
+Version: 1.1.1
 Status: Active
 
 ## Overview
@@ -14,7 +14,7 @@ Camera/HLS
 → Operator frontend
 ```
 
-GitHub `main` is the source of truth. VPS and Windows laptop are independent runtime contours.
+GitHub `main` is the source of truth. Runtime worker hosts and the VPS are independent runtime contours. The operator-managed Windows laptop is also the normal interactive control station for remote worker operations; it is not a substitute source store.
 
 ## Control layers
 
@@ -26,6 +26,40 @@ GitHub `main` is the source of truth. VPS and Windows laptop are independent run
 6. Domain agents: worker, API, frontend, deploy, diagnostics and governance.
 7. Review gate: scope, safety, compatibility and rollback validation.
 8. Core Release: PR, CI, merge and applicable runtime release verification.
+9. Windows OpenCode control station: approved remote diagnostics and worker preparation over the versioned SSH access path, while human privilege and secret boundaries remain local to the operator.
+
+## Remote worker operations plane
+
+The normal worker-management path is separate from the repository publication path:
+
+```text
+GitHub Connector
+→ repository source / Issues / PR / CI / merge
+
+Operator Windows laptop
+→ OpenCode
+→ ZeroTier SSH
+→ sea-speed-worker (10.123.239.102:22, user seaspeedadmin)
+```
+
+The recommended SSH alias is `sea-speed-worker`. This concrete target defines the intended commissioned-worker access route; runtime reachability must be re-verified before protected actions.
+
+When direct ZeroTier SSH is unavailable, the approved transport fallback is:
+
+```text
+Operator Windows laptop
+→ operator-owned SSH tunnel
+→ local 127.0.0.1:2222
+→ worker 10.123.239.102:22
+```
+
+The terminal that owns the fallback tunnel must stay open while the fallback connection is in use. The VPS/tunnel is only a transport bridge; it does not become the worker's control-plane source of truth and it does not grant additional deployment authorization.
+
+OpenCode remains installed on the Windows control station rather than on the production worker solely for administration. It performs approved unprivileged remote diagnostics and preparation directly. If a task requires root, OpenCode prepares a bounded helper or exact command and stops; the operator invokes that command with `sudo` and supplies the password locally. Credentials, private keys and protected environment values are not transferred into prompts, repository files, command arguments or reports.
+
+Production start, stop, restart, activation and rollback remain protected task transitions. SSH connectivity proves only transport availability, not authorization or runtime acceptance.
+
+See `docs/operations/OPENCODE_WORKER_REMOTE_ACCESS.md` for the concrete primary and fallback connection procedure.
 
 ## Canonical Task Brief
 
@@ -84,7 +118,9 @@ Do not begin a partial multi-file implementation when the full mandatory set can
 
 ## User boundary
 
-The user normally provides the task, grants repository-write approval after the Implementation Scope Check, grants skill-update approval when `skills/**` changes, supplies secrets only through approved secure channels when unavoidable, and performs physical/browser checks that cannot be automated.
+The user normally provides the task, grants repository-write approval after the Implementation Scope Check, grants skill-update approval when `skills/**` changes, supplies secrets only through approved secure channels when unavoidable, and performs physical/browser or privilege-bound checks that cannot be automated.
+
+For worker-host operations, OpenCode on the Windows control station should perform approved unprivileged remote work so the user does not need to manually reproduce ordinary diagnostics. The user retains passwords and performs bounded privilege-bound commands when required.
 
 The user should not normally transfer handoffs, merge PRs, infer release applicability or manually run delivery steps when the connected tools can continue safely.
 
