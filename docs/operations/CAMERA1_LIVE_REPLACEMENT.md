@@ -33,7 +33,9 @@ The VPS receives only a credential-free private relay URL such as:
 rtsp://<ubuntu-private-ip>:8554/cam1
 ```
 
-The renderer rejects VPS relay URLs containing userinfo and rejects non-private literal IP addresses. It also rejects a camera source that is not RTSP or does not contain protected userinfo.
+Ubuntu MediaMTX keeps internal authentication enabled. The repository renderer preserves all existing authentication rules and adds exactly one generated credential-free rule that grants only `read` on `cam1` to a single VPS ZeroTier peer identified by one literal RFC1918 IPv4 address. It does not grant publish, playback, API, metrics, pprof, or read access to any other path. The generated rule is idempotent and a later prepare attempt with a different reader IP is rejected instead of silently widening or replacing access.
+
+The renderer rejects VPS relay URLs containing userinfo and rejects non-private literal IP addresses. It also rejects a camera source that is not RTSP or does not contain protected userinfo. Ubuntu relay preparation rejects a non-RFC1918 reader IP, a non-internal MediaMTX auth method, or a systemd environment override of MediaMTX authentication because those states cannot be safely reconciled by the bounded config renderer.
 
 Do not print or copy:
 
@@ -48,7 +50,7 @@ Do not use camera credentials in CLI arguments, process titles, issue comments, 
 
 ## Repository components
 
-- `scripts/operations/mediamtx_path_config.py` performs bounded MediaMTX YAML transformations without a PyYAML dependency.
+- `scripts/operations/mediamtx_path_config.py` performs bounded MediaMTX YAML transformations without a PyYAML dependency, including the exact `cam1` reader authorization rule.
 - `deploy/worker/ubuntu/camera-relay.sh` prepares and activates the Ubuntu private relay while refusing to activate the AI worker.
 - `deploy/vps/camera-source-switch.sh` prepares and activates the canonical VPS `cam1` switch and separately retires `cam1-new` after public validation.
 
@@ -64,7 +66,8 @@ Before production use, require:
 2. successful `Quality integration gate / quality-integration` for that exact source;
 3. explicit production rollout approval for Issue #87;
 4. fresh discovery of the actual Ubuntu and VPS MediaMTX config paths and service names;
-5. confirmed current rollback state.
+5. fresh discovery of the exact VPS ZeroTier peer IPv4 that will be allowed to read `cam1`;
+6. confirmed current rollback state.
 
 OpenCode may perform non-secret diagnostics remotely. A root-required operation follows `docs/operations/OPENCODE_WORKER_REMOTE_ACCESS.md`: OpenCode prepares the bounded exact command/helper, then the operator runs the exact `sudo ...` command and enters the password locally. Never pass a sudo password to OpenCode.
 
@@ -72,12 +75,12 @@ OpenCode may perform non-secret diagnostics remotely. A root-required operation 
 
 ### 1. Prepare Ubuntu relay candidate
 
-From an exact merged repository checkout on the Ubuntu host, determine the existing MediaMTX config path and the ZeroTier-only RTSP listen address without displaying secret configuration.
+From an exact merged repository checkout on the Ubuntu host, determine the existing MediaMTX config path, the ZeroTier-only RTSP listen address, and the exact VPS ZeroTier peer IPv4 without displaying secret configuration.
 
 Then run the repository command with `prepare` under the approved root boundary:
 
 ```text
-camera-relay.sh prepare --config <ubuntu-mediamtx-config> --private-rtsp-address <ubuntu-private-ip>:8554
+camera-relay.sh prepare --config <ubuntu-mediamtx-config> --private-rtsp-address <ubuntu-private-ip>:8554 --reader-ip <vps-zerotier-ip>
 ```
 
 Expected sanitized evidence includes:
@@ -87,24 +90,29 @@ PREPARED_RELAY_CANDIDATE=YES
 CAMERA_SOURCE_SCHEME=rtsp
 CAMERA_SOURCE_USERINFO=YES
 RELAY_PATH=cam1
+READER_AUTH_SCOPE=cam1-single-rfc1918-peer
+READER_AUTH_PERMISSION=read-only
 SERVICE_RESTARTED=NO
 AI_WORKER_STARTED=NO
 SECRETS_DISPLAYED=NO
 ```
 
-Preparation writes only a protected candidate under `/var/lib/sea-speed-camera-relay`. It does not restart MediaMTX and does not touch the AI worker.
+Preparation writes only a protected candidate under `/var/lib/sea-speed-camera-relay`. It does not restart MediaMTX and does not touch the AI worker. Existing MediaMTX authentication rules remain unchanged; the candidate only appends the exact generated reader rule described above.
 
 ### 2. Activate Ubuntu private relay
 
-Use only the exact SHA-256 returned by preparation:
+Use only the exact SHA-256 returned by preparation and the same VPS reader IP:
 
 ```text
-camera-relay.sh activate --config <ubuntu-mediamtx-config> --private-rtsp-address <ubuntu-private-ip>:8554 --expected-sha256 <candidate-sha256>
+camera-relay.sh activate --config <ubuntu-mediamtx-config> --private-rtsp-address <ubuntu-private-ip>:8554 --reader-ip <vps-zerotier-ip> --expected-sha256 <candidate-sha256>
 ```
+
+Before installing the candidate, activation verifies that it contains exactly one generated `cam1` read rule for the supplied reader IP and no broader generated permission.
 
 The activation:
 
 - requires `sea-speed-worker.service` to be inactive;
+- rejects MediaMTX auth environment overrides that would supersede the bounded file configuration;
 - makes a root-only backup of the prior MediaMTX config;
 - installs the reviewed candidate with permissions suitable for the existing relay service identity;
 - restarts only `sea-speed-stream.service`;
@@ -116,11 +124,11 @@ At this point the VPS canonical public source is still unchanged.
 
 ### 3. Validate private relay from the VPS
 
-Before changing canonical `cam1`, validate the credential-free private relay from the VPS over ZeroTier.
+Before changing canonical `cam1`, validate the credential-free private relay from the exact VPS ZeroTier peer that was authorized in the Ubuntu candidate.
 
 A controlled media probe may be used only after production rollout approval. Its command line must contain only the credential-free private relay URL. Confirm that the relay can produce actual media from the new camera while `sea-speed-worker.service` remains stopped.
 
-Do not proceed to the VPS switch on TCP reachability alone; private media must be proven.
+Do not proceed to the VPS switch on TCP reachability alone; private media must be proven. A reader from an unapproved peer must not be treated as an acceptance path.
 
 ### 4. Prepare VPS canonical switch
 
@@ -160,6 +168,7 @@ Using the existing protected website authentication path, verify:
 - video is from the new physical camera;
 - video advances for multiple samples;
 - live video continues while `sea-speed-worker.service` is inactive;
+- Ubuntu relay read access is limited to the approved single VPS ZeroTier peer and canonical path `cam1`;
 - no camera credentials appear in browser-visible URLs, process argv, sanitized service logs or reports.
 
 Only after this evidence is accepted may the temporary `cam1-new` mapping be retired.
@@ -202,6 +211,7 @@ Issue #87 is runtime-accepted only when:
 - the public path remains `/cams/hls/cam1/index.m3u8`;
 - it shows the new physical camera;
 - the Ubuntu relay supplies canonical private `cam1` over ZeroTier;
+- Ubuntu MediaMTX grants credential-free `cam1` read only to the exact approved VPS ZeroTier peer and preserves all unrelated auth rules;
 - the VPS canonical `cam1` contains no camera credentials;
 - the live view works with the AI worker stopped;
 - `cam1-new` has been retired after validation;
