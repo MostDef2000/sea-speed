@@ -87,6 +87,7 @@ validate_relay_url() {
 import ipaddress
 import sys
 from urllib.parse import urlsplit
+networks = tuple(ipaddress.ip_network(v) for v in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"))
 try:
     value = urlsplit(sys.argv[1])
     host = value.hostname
@@ -96,7 +97,7 @@ except Exception:
     raise SystemExit(1)
 if value.scheme.lower() != "rtsp" or value.username is not None or value.password is not None:
     raise SystemExit(1)
-if value.path.rstrip("/") != "/cam1" or not address.is_private or not (1 <= port <= 65535):
+if value.path.rstrip("/") != "/cam1" or address.version != 4 or not any(address in network for network in networks) or not (1 <= port <= 65535):
     raise SystemExit(1)
 print(host)
 print(port)
@@ -190,7 +191,7 @@ fi
 require_root
 [[ -n "$config" ]] || { echo "ERROR --config is required" >&2; exit 2; }
 [[ -n "$relay_url" ]] || { echo "ERROR --relay-url is required" >&2; exit 2; }
-validate_relay_url >/dev/null || { echo "ERROR relay URL must be credential-free private RTSP ending in /cam1" >&2; exit 3; }
+validate_relay_url >/dev/null || { echo "ERROR relay URL must be credential-free RFC1918 RTSP ending in /cam1" >&2; exit 3; }
 validate_config_security
 prepare_state
 
