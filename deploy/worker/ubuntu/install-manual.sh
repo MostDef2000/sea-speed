@@ -94,7 +94,7 @@ fi
   -r "$source_root/deploy/worker/ubuntu/requirements-runtime.txt"
 
 "$venv_root/bin/python" -c \
-  'import cv2, numpy, requests, torch, ultralytics; print("PASS runtime_imports")'
+  'import av, cv2, numpy, requests, torch, ultralytics; print("PASS runtime_imports")'
 
 if [[ ! -e "$install_root/shared/config/worker.env" ]] && \
    [[ ! -e "$install_root/shared/config/worker.env.example" ]]; then

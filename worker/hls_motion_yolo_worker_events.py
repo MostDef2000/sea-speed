@@ -145,6 +145,133 @@ def read_exact(pipe, size):
     return bytes(data)
 
 
+def _frame_time_seconds(frame):
+    pts = getattr(frame, "pts", None)
+    time_base = getattr(frame, "time_base", None)
+
+    if pts is not None and time_base is not None:
+        try:
+            return float(pts * time_base)
+        except Exception:
+            pass
+
+    return time.monotonic()
+
+
+class FFmpegFrameReader:
+    def __init__(self, proc, width, height):
+        self.proc = proc
+        self.width = width
+        self.height = height
+        self.frame_size = width * height * 3
+
+    def read_frame(self):
+        raw = read_exact(self.proc.stdout, self.frame_size)
+        if raw is None:
+            return None
+        return np.frombuffer(raw, np.uint8).reshape((self.height, self.width, 3))
+
+    def close(self):
+        try:
+            self.proc.kill()
+        except Exception:
+            pass
+
+
+class RtspFrameReader:
+    def __init__(self, input_url, width, height, sample_fps, av_module=None):
+        if sample_fps <= 0:
+            raise RuntimeError("SAMPLE_FPS must be greater than zero")
+
+        if av_module is None:
+            try:
+                import av as av_module
+            except ImportError:
+                raise RuntimeError(
+                    "RTSP input requires the PyAV runtime dependency"
+                ) from None
+
+        self._av = av_module
+        self._input_label = safe_media_input_label(input_url)
+        self._width = width
+        self._height = height
+        self._sample_interval = 1.0 / float(sample_fps)
+        self._next_sample_ts = None
+
+        try:
+            with self._av.logging.Capture(local=False):
+                self._container = self._av.open(input_url, mode="r")
+            self._frames = self._container.decode(video=0)
+        except Exception:
+            raise RuntimeError(
+                f"RTSP media open failed: {self._input_label}"
+            ) from None
+
+    def read_frame(self):
+        while True:
+            try:
+                with self._av.logging.Capture(local=False):
+                    frame = next(self._frames)
+            except StopIteration:
+                return None
+            except Exception:
+                raise RuntimeError(
+                    f"RTSP media read failed: {self._input_label}"
+                ) from None
+
+            frame_ts = _frame_time_seconds(frame)
+            if self._next_sample_ts is None:
+                self._next_sample_ts = frame_ts
+
+            if frame_ts + 1e-9 < self._next_sample_ts:
+                continue
+
+            while self._next_sample_ts <= frame_ts + 1e-9:
+                self._next_sample_ts += self._sample_interval
+
+            try:
+                return frame.reformat(
+                    width=self._width,
+                    height=self._height,
+                    format="bgr24",
+                ).to_ndarray()
+            except Exception:
+                raise RuntimeError(
+                    f"RTSP frame conversion failed: {self._input_label}"
+                ) from None
+
+    def close(self):
+        try:
+            self._container.close()
+        except Exception:
+            pass
+
+
+def start_media_reader(av_module=None):
+    input_url = env_str("HLS_URL")
+    if not input_url:
+        raise RuntimeError("HLS_URL is not set")
+
+    width = env_int("FRAME_WIDTH", 704)
+    height = env_int("FRAME_HEIGHT", 576)
+    sample_fps = env_float("SAMPLE_FPS", 5.0)
+
+    if _media_input_scheme(input_url) == "rtsp":
+        print("Starting in-process RTSP reader")
+        print(f"HLS: {safe_media_input_label(input_url)}")
+        print(f"Frame: {width}x{height}")
+        print(f"Sample FPS: {sample_fps}")
+        return RtspFrameReader(
+            input_url,
+            width,
+            height,
+            sample_fps,
+            av_module=av_module,
+        )
+
+    return FFmpegFrameReader(start_ffmpeg(), width, height)
+
+
 class MotionDetector:
     def __init__(self):
         self.threshold = env_int("MOTION_THRESHOLD", 10)
@@ -1223,10 +1350,6 @@ def build_event(best_det, motion_area, speed_info=None, line_speed_info=None):
 
 
 def main():
-    width = env_int("FRAME_WIDTH", 704)
-    height = env_int("FRAME_HEIGHT", 576)
-    frame_size = width * height * 3
-
     model_name = env_str("MODEL_NAME", "yolo11s.pt")
     tracker_name = env_str("YOLO_TRACKER", "bytetrack.yaml").strip() or "bytetrack.yaml"
     print(f"Loading model: {model_name}")
@@ -1237,7 +1360,7 @@ def main():
     event_cooldown = env_float("EVENT_COOLDOWN_SEC", 12.0)
 
     motion_detector = MotionDetector()
-    proc = start_ffmpeg()
+    reader = start_media_reader()
 
     last_state_post = 0.0
     last_event_post = 0.0
@@ -1251,14 +1374,13 @@ def main():
 
     try:
         while True:
-            raw = read_exact(proc.stdout, frame_size)
+            frame = reader.read_frame()
 
-            if raw is None:
-                print("FFmpeg stream ended")
+            if frame is None:
+                print("Media stream ended")
                 break
 
             frame_no += 1
-            frame = np.frombuffer(raw, np.uint8).reshape((height, width, 3))
 
             motion_now, motion_area, motion_boxes = motion_detector.process(frame)
             ai_active = motion_detector.is_ai_active()
@@ -1392,10 +1514,7 @@ def main():
         print("Stopped by user")
 
     finally:
-        try:
-            proc.kill()
-        except Exception:
-            pass
+        reader.close()
 
 
 if __name__ == "__main__":
