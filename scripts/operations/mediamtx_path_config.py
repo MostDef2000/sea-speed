@@ -2,7 +2,7 @@
 """Render narrowly-scoped MediaMTX configuration candidates safely.
 
 The Ubuntu mode reads the credential-bearing camera URL from a protected env
-file and never prints it. The VPS mode accepts only a credential-free private
+file and never prints it. The VPS mode accepts only a credential-free RFC1918
 relay URL. All output files are written mode 0600 because an Ubuntu candidate
 can contain camera credentials.
 """
@@ -21,6 +21,12 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 
+RFC1918_NETWORKS = tuple(
+    ipaddress.ip_network(value)
+    for value in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+)
+
+
 class ConfigError(ValueError):
     """Raised when a bounded MediaMTX transformation cannot be proven safe."""
 
@@ -35,6 +41,10 @@ def _ensure_newline(line: str) -> str:
 
 def _yaml_string(value: str) -> str:
     return json.dumps(value, ensure_ascii=False)
+
+
+def _is_rfc1918_ipv4(address: ipaddress._BaseAddress) -> bool:
+    return address.version == 4 and any(address in network for network in RFC1918_NETWORKS)
 
 
 def _find_top_level(lines: list[str], key: str) -> list[int]:
@@ -211,9 +221,9 @@ def validate_private_relay_url(source: str, expected_path: str) -> None:
     try:
         address = ipaddress.ip_address(host)
     except ValueError as exc:
-        raise ConfigError("private relay source must use a literal private IP address") from exc
-    if not address.is_private:
-        raise ConfigError("private relay source IP must be private")
+        raise ConfigError("private relay source must use a literal RFC1918 IPv4 address") from exc
+    if not _is_rfc1918_ipv4(address):
+        raise ConfigError("private relay source IP must be RFC1918")
 
 
 def validate_private_rtsp_address(address: str) -> None:
@@ -225,8 +235,8 @@ def validate_private_rtsp_address(address: str) -> None:
         port = int(port_text)
     except ValueError as exc:
         raise ConfigError("private RTSP listen address must be valid IPv4:port") from exc
-    if ip.version != 4 or not ip.is_private or not (1 <= port <= 65535):
-        raise ConfigError("private RTSP listen address must use a private IPv4 and valid port")
+    if not _is_rfc1918_ipv4(ip) or not (1 <= port <= 65535):
+        raise ConfigError("private RTSP listen address must use RFC1918 IPv4 and valid port")
 
 
 def read_config(path: Path) -> str:
