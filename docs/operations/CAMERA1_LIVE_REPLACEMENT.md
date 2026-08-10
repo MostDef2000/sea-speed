@@ -33,6 +33,14 @@ The VPS receives only a credential-free private relay URL such as:
 rtsp://<ubuntu-private-ip>:8554/cam1
 ```
 
+For canonical VPS `cam1`, the repository renderer additionally writes the path-level MediaMTX source setting:
+
+```text
+rtspTransport: tcp
+```
+
+This makes the private relay pull deterministic instead of leaving MediaMTX source transport on `automatic`. The TCP setting is scoped only to canonical VPS `cam1`; unrelated paths and settings are preserved. Runtime success must still be proven after deployment and must not be inferred from the static configuration alone.
+
 Ubuntu MediaMTX keeps internal authentication enabled. The repository renderer preserves all existing authentication rules and adds exactly one generated credential-free rule that grants only `read` on `cam1` to a single VPS ZeroTier peer identified by one literal RFC1918 IPv4 address. It does not grant publish, playback, API, metrics, pprof, or read access to any other path. The generated rule is idempotent and a later prepare attempt with a different reader IP is rejected instead of silently widening or replacing access.
 
 The renderer rejects VPS relay URLs containing userinfo and rejects non-private literal IP addresses. It also rejects a camera source that is not RTSP or does not contain protected userinfo. Ubuntu relay preparation rejects a non-RFC1918 reader IP, a non-internal MediaMTX auth method, or a systemd environment override of MediaMTX authentication because those states cannot be safely reconciled by the bounded config renderer.
@@ -50,9 +58,9 @@ Do not use camera credentials in CLI arguments, process titles, issue comments, 
 
 ## Repository components
 
-- `scripts/operations/mediamtx_path_config.py` performs bounded MediaMTX YAML transformations without a PyYAML dependency, including the exact `cam1` reader authorization rule.
+- `scripts/operations/mediamtx_path_config.py` performs bounded MediaMTX YAML transformations without a PyYAML dependency, including the exact `cam1` reader authorization rule and the canonical VPS `rtspTransport: tcp` contract.
 - `deploy/worker/ubuntu/camera-relay.sh` prepares and activates the Ubuntu private relay while refusing to activate the AI worker.
-- `deploy/vps/camera-source-switch.sh` prepares and activates the canonical VPS `cam1` switch and separately retires `cam1-new` after public validation.
+- `deploy/vps/camera-source-switch.sh` prepares and activates the canonical VPS `cam1` switch, verifies the exact TCP relay contract before installation, and separately retires `cam1-new` after public validation.
 
 Both runtime commands use protected candidate files with SHA-256 binding. An activation command must provide the exact candidate digest returned by its preceding prepare command.
 
@@ -138,7 +146,15 @@ Use the credential-free private relay URL:
 camera-source-switch.sh prepare --config <vps-mediamtx-config> --relay-url rtsp://<ubuntu-private-ip>:8554/cam1
 ```
 
-Preparation preserves the temporary `cam1-new` mapping and does not restart VPS MediaMTX.
+Preparation preserves the temporary `cam1-new` mapping, does not restart VPS MediaMTX, and renders canonical `cam1` with all three required source fields:
+
+```text
+source: rtsp://<ubuntu-private-ip>:8554/cam1
+sourceOnDemand: yes
+rtspTransport: tcp
+```
+
+The prepare flow immediately verifies the protected candidate against this exact source/transport contract before returning its SHA-256. Existing `rtspTransport` values on `cam1`, including `automatic`, are replaced with `tcp`; unrelated path fields remain intact.
 
 ### 5. Activate VPS canonical `cam1`
 
@@ -148,11 +164,13 @@ Use the exact candidate digest:
 camera-source-switch.sh activate --config <vps-mediamtx-config> --relay-url rtsp://<ubuntu-private-ip>:8554/cam1 --expected-sha256 <candidate-sha256>
 ```
 
+Before installation, activation verifies again that the digest-bound candidate has the expected credential-free relay URL, `sourceOnDemand: yes`, and `rtspTransport: tcp`.
+
 The script:
 
 - verifies private relay TCP reachability;
 - backs up the previous VPS MediaMTX config as root-only because it can contain the legacy credential-bearing source;
-- changes canonical `cam1` to the credential-free Ubuntu relay;
+- changes canonical `cam1` to the credential-free Ubuntu relay with RTSP source pull pinned to TCP;
 - restarts only VPS `mediamtx.service`;
 - waits for VPS-local `/cam1/index.m3u8` HLS to become available;
 - leaves `cam1-new` in place until public validation;
@@ -187,7 +205,7 @@ Then activate the exact cleanup candidate:
 camera-source-switch.sh activate-cleanup --config <vps-mediamtx-config> --relay-url rtsp://<ubuntu-private-ip>:8554/cam1 --expected-sha256 <candidate-sha256> --confirmed-public-hls
 ```
 
-Cleanup refuses to proceed unless canonical `cam1` is already bound to the expected private relay. It restarts MediaMTX and rechecks canonical VPS-local HLS.
+Cleanup refuses to proceed unless canonical `cam1` is already bound to the expected private relay with `sourceOnDemand: yes` and `rtspTransport: tcp`. It preserves that TCP contract, removes only `cam1-new`, restarts MediaMTX and rechecks canonical VPS-local HLS.
 
 ## Rollback boundary
 
@@ -212,7 +230,7 @@ Issue #87 is runtime-accepted only when:
 - it shows the new physical camera;
 - the Ubuntu relay supplies canonical private `cam1` over ZeroTier;
 - Ubuntu MediaMTX grants credential-free `cam1` read only to the exact approved VPS ZeroTier peer and preserves all unrelated auth rules;
-- the VPS canonical `cam1` contains no camera credentials;
+- the VPS canonical `cam1` contains no camera credentials and uses `rtspTransport: tcp` for the private relay source pull;
 - the live view works with the AI worker stopped;
 - `cam1-new` has been retired after validation;
 - rollback evidence remains available;

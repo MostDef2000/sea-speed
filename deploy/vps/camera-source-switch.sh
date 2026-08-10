@@ -17,10 +17,11 @@ Options:
   --confirmed-public-hls   Required before retiring temporary cam1-new mapping
 
 prepare renders a candidate that changes only canonical MediaMTX path cam1 to
-the credential-free Ubuntu private relay. activate installs the exact reviewed
-candidate, restarts MediaMTX and verifies VPS-local HLS. The legacy config is
-backed up root-only. Temporary cam1-new cleanup is a second, explicitly gated
-step after public HLS has been validated. Automatic rollback is not performed.
+the credential-free Ubuntu private relay and pins the RTSP source pull to TCP.
+activate verifies the exact reviewed candidate, restarts MediaMTX and verifies
+VPS-local HLS. The legacy config is backed up root-only. Temporary cam1-new
+cleanup is a second, explicitly gated step after public HLS has been validated.
+Automatic rollback is not performed.
 EOF
 }
 
@@ -146,6 +147,14 @@ prepare_state() {
   install -d -o root -g root -m 0700 "$state_root" "$backup_root"
 }
 
+verify_vps_candidate() {
+  local source="$1"
+  python3 "$renderer" verify-vps-switch \
+    --config "$source" \
+    --relay-url "$relay_url" \
+    --path cam1 >/dev/null
+}
+
 install_candidate() {
   local source="$1" expected="$2" actual owner group mode backup
   [[ "$expected" =~ ^[0-9a-f]{64}$ ]] || { echo "ERROR activation requires --expected-sha256" >&2; exit 2; }
@@ -153,6 +162,7 @@ install_candidate() {
   actual="$(sha256sum "$source" | awk '{print $1}')"
   [[ "$actual" == "$expected" ]] || { echo "ERROR prepared candidate digest mismatch" >&2; exit 7; }
   [[ "$(stat -c '%a' "$source")" == "600" ]] || { echo "ERROR candidate mode must be 600" >&2; exit 7; }
+  verify_vps_candidate "$source" || { echo "ERROR candidate does not match canonical TCP relay contract" >&2; exit 7; }
 
   owner="$(stat -c '%u' "$config")"
   group="$(stat -c '%g' "$config")"
@@ -202,6 +212,7 @@ if [[ "$command" == "prepare" ]]; then
     --relay-url "$relay_url" \
     --path cam1 \
     --output "$candidate"
+  verify_vps_candidate "$candidate" || { echo "ERROR prepared candidate does not match canonical TCP relay contract" >&2; exit 7; }
   digest="$(sha256sum "$candidate" | awk '{print $1}')"
   chown root:root "$candidate"
   chmod 0600 "$candidate"
@@ -209,6 +220,7 @@ if [[ "$command" == "prepare" ]]; then
   printf 'CANDIDATE_SHA256=%s\n' "$digest"
   printf 'CANONICAL_PATH=cam1\n'
   printf 'RELAY_USERINFO=NO\n'
+  printf 'RTSP_TRANSPORT=tcp\n'
   printf 'PRIVATE_RELAY_TCP=PASS\n'
   printf 'MEDIAMTX_RESTARTED=NO\n'
   printf 'MUTATIONS=PROTECTED_CANDIDATE_ONLY\n'
@@ -227,6 +239,7 @@ if [[ "$command" == "activate" ]]; then
   printf 'CANONICAL_SWITCHED=YES\n'
   printf 'CANONICAL_PATH=cam1\n'
   printf 'PRIVATE_RELAY_TCP=PASS\n'
+  printf 'RTSP_TRANSPORT=tcp\n'
   printf 'LOCAL_CANONICAL_HLS=PASS\n'
   printf 'TEMP_CAM1_NEW_RETIRED=NO\n'
   printf 'BACKUP=%s\n' "$backup"
@@ -246,12 +259,14 @@ if [[ "$command" == "prepare-cleanup" ]]; then
     --path cam1 \
     --remove-path cam1-new \
     --output "$cleanup_candidate"
+  verify_vps_candidate "$cleanup_candidate" || { echo "ERROR cleanup candidate lost canonical TCP relay contract" >&2; exit 7; }
   digest="$(sha256sum "$cleanup_candidate" | awk '{print $1}')"
   chown root:root "$cleanup_candidate"
   chmod 0600 "$cleanup_candidate"
   printf 'PREPARED_CLEANUP_CANDIDATE=YES\n'
   printf 'CANDIDATE_SHA256=%s\n' "$digest"
   printf 'REMOVE_PATH=cam1-new\n'
+  printf 'RTSP_TRANSPORT=tcp\n'
   printf 'MEDIAMTX_RESTARTED=NO\n'
   printf 'MUTATIONS=PROTECTED_CANDIDATE_ONLY\n'
   printf 'SECRETS_DISPLAYED=NO\n'
@@ -266,6 +281,7 @@ if ! check_local_hls; then
 fi
 printf 'TEMP_CAM1_NEW_RETIRED=YES\n'
 printf 'CANONICAL_PATH=cam1\n'
+printf 'RTSP_TRANSPORT=tcp\n'
 printf 'LOCAL_CANONICAL_HLS=PASS\n'
 printf 'BACKUP=%s\n' "$backup"
 printf 'SECRETS_DISPLAYED=NO\n'
