@@ -65,7 +65,8 @@ separate gate before the existing `camera-source-switch.sh prepare-cleanup` /
 
 Repository integration of these runners is source state only. It does not by
 itself authorize or prove VPS installation, service mutation or runtime
-acceptance.
+acceptance. VPS deployment remains required after merge; no Windows worker
+update or release manifest is required for this bounded remediation.
 
 No AI worker activation, Ubuntu mutation, nginx change, network change, camera
 credential handling or automatic rollback is introduced by these runners.
