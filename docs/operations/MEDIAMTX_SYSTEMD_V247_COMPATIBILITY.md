@@ -63,5 +63,9 @@ canary marker. Human visual acceptance of the new physical camera remains a
 separate gate before the existing `camera-source-switch.sh prepare-cleanup` /
 `activate-cleanup` path may retire `cam1-new`.
 
+Repository integration of these runners is source state only. It does not by
+itself authorize or prove VPS installation, service mutation or runtime
+acceptance.
+
 No AI worker activation, Ubuntu mutation, nginx change, network change, camera
 credential handling or automatic rollback is introduced by these runners.
