@@ -4,18 +4,20 @@
 - Issue: #112
 - Original Issue: #103
 - Prior extension: #109
-- Status: Approved persistent last-good snapshot extension
+- Status: Accepted persistent last-good snapshot capability; browser security identity updated by Issue #115
 - Parent capability: specs/001-camera-live-pipeline/spec.md
 
 ## Product outcome
 
-An operator can open `/sea-speed/cameras/`, see every camera candidate from the sanitized runtime catalog, preview cameras one at a time, run a bounded sequential Preview All pass, and see the last good image for each camera even after reload or from another device. Sea Speed stores exactly one replaceable JPEG per camera on the VPS. A failed, stale, or visually unusable new attempt never removes or overwrites the previous good snapshot.
+An authenticated operator can open `/sea-speed/cameras/`, see every camera candidate from the sanitized runtime catalog, preview cameras one at a time, run a bounded sequential Preview All pass, and see the last good image for each camera even after reload or from another device. Sea Speed stores exactly one replaceable JPEG per camera on the VPS. A failed, stale, or visually unusable new attempt never removes or overwrites the previous good snapshot.
+
+Issue #115 changes only the browser security boundary around this accepted gallery: `/sea-speed/**` becomes Authentik-protected and the separate Camera 1 clean-live path moves under `/sea-speed/media/cam1/`. Snapshot persistence, one-active-preview behavior, private preview relay and API payloads remain unchanged.
 
 ## User scenarios
 
 ### Scenario 1 - Open the camera gallery without starting live work
 
-Given the runtime camera catalog is installed, when an operator opens the Cameras page, then every catalog camera is rendered without starting FFmpeg preview work. If a VPS last-good snapshot exists for a camera, that image and its update time are displayed immediately.
+Given the runtime camera catalog is installed and the operator has an authenticated Sea Speed session, when the operator opens the Cameras page, then every catalog camera is rendered without starting FFmpeg preview work. If a VPS last-good snapshot exists for a camera, that image and its update time are displayed immediately.
 
 ### Scenario 2 - Preview and persist a good frame
 
@@ -35,7 +37,7 @@ Given Preview All is running, when the operator presses `Остановить в
 
 ### Scenario 6 - Open another device or reload
 
-Given one or more last-good snapshots exist on the VPS, when the operator reloads the page or opens it on another browser/device, then the same server snapshots are loaded without starting live camera previews.
+Given one or more last-good snapshots exist on the VPS, when an authenticated operator reloads the page or opens it on another browser/device, then the same server snapshots are loaded without starting live camera previews.
 
 ## Requirements
 
@@ -59,15 +61,16 @@ Given one or more last-good snapshots exist on the VPS, when the operator reload
 - FR-018: Manual Play/Switch/Stop SHOULD update the persistent snapshot when the active browser video is decodable; failed commit MUST leave the old snapshot intact.
 - FR-019: Preview All MUST continue to later cameras after start/readiness/stability/snapshot-quality failure of one camera.
 - FR-020: Browser persistent storage MUST NOT be used for camera snapshots: no `localStorage`, `sessionStorage`, IndexedDB, Cache API, or equivalent application persistence.
-- FR-021: The accepted Camera 1 public identity `/cams/hls/cam1/index.m3u8` and its direct H.264 browser path MUST remain unchanged.
+- FR-021: Issue #115 intentionally supersedes the former public Camera 1 browser identity. The protected Camera 1 interface is `/sea-speed/media/cam1/index.m3u8`; `/cams/hls/cam1/index.m3u8` is retired and MUST NOT expose camera content. Camera 1 H.264 compatibility behavior and AI independence MUST remain unchanged.
 - FR-022: Ubuntu MediaMTX preview relay configuration, camera credential inventory, AI/detection/tracking, recording, Objects Registry, and server preview concurrency MUST remain out of scope.
-- FR-023: Existing VPS exact-release deployment and rollback mechanism MUST be reused without nginx/deploy-script changes.
+- FR-023: The gallery snapshot capability MUST continue using the existing VPS exact-release code deployment and durable data boundary. Issue #115 separately changes nginx authentication and code-deploy health semantics; those changes MUST NOT delete or migrate gallery snapshots.
+- FR-024: Browser-facing gallery UI/API/preview/snapshot resources under `/sea-speed/**` MUST inherit the Authentik boundary defined by `specs/004-sea-speed-auth-v1/spec.md`.
 
 ## Acceptance criteria
 
-- AC-001: Opening `/sea-speed/cameras/` with stored snapshots shows them immediately while `/api/cameras/preview` remains idle.
+- AC-001: Opening authenticated `/sea-speed/cameras/` with stored snapshots shows them immediately while `/api/cameras/preview` remains idle.
 - AC-002: Reloading the page keeps the same last-good images visible from VPS storage.
-- AC-003: Opening the page from a second browser/device shows the same stored snapshots without running Preview All first.
+- AC-003: Opening the page from a second authenticated browser/device shows the same stored snapshots without running Preview All first.
 - AC-004: A successful manual or batch preview produces a new JPEG for that camera and changes its versioned snapshot URL/update time.
 - AC-005: Starting a different preview, pressing Stop, or finishing Preview All leaves successfully committed snapshots available after the live HLS session is deleted.
 - AC-006: A stale/wrong `session_id` returns a bounded error and does not modify the stored JPEG.
@@ -77,19 +80,23 @@ Given one or more last-good snapshots exist on the VPS, when the operator reload
 - AC-010: The persistent directory contains no historical per-camera sequence: only one final `<camera_id>.jpg` per successful camera plus transient dotfiles during an in-progress commit.
 - AC-011: Preview All remains serial with `max_active=1`, isolates per-camera failure, and stops the final live preview on normal completion.
 - AC-012: Browser source contains none of `localStorage`, `sessionStorage`, IndexedDB, or Cache API snapshot persistence.
-- AC-013: Camera 1 remains healthy before and after production rollout; Ubuntu relay and AI remain unchanged.
-- AC-014: Required PR Validation and Quality integration gate pass for the exact seven-file Issue #112 source diff.
+- AC-013: Camera 1 media remains healthy before and after the Auth v1 security migration; Ubuntu relay and AI remain unchanged.
+- AC-014: The original Issue #112 exact source/CI acceptance remains historical evidence; Issue #115 must pass its own current PR Validation and Quality integration gate for the browser-security migration.
+- AC-015: Anonymous gallery/API/preview/snapshot requests under `/sea-speed/**` are Authentik-gated after Issue #115 rollout.
 
 ## Compatibility and boundaries
 
-- Stable Camera 1 interface: `/cams/hls/cam1/index.m3u8`.
-- Existing camera preview start/stop/status API and `max_active=1` remain compatible; Issue #112 adds snapshot metadata, snapshot GET, and session-bound snapshot commit endpoints.
+- Protected Camera 1 interface after Issue #115: `/sea-speed/media/cam1/index.m3u8`.
+- Retired historical Camera 1 interface: `/cams/hls/cam1/index.m3u8`.
+- Existing camera preview start/stop/status API and `max_active=1` remain compatible; Issue #112 added snapshot metadata, snapshot GET, and session-bound snapshot commit endpoints.
 - Snapshot persistence is gallery presentation state, not AI evidence, recording, or an image archive.
 - Browser cache is not authoritative; VPS durable data is authoritative.
-- Existing `/opt/sea-speed-api/data/` survives normal exact deploy/rollback code changes and is therefore the persistence contour for the last-good JPEGs.
+- Existing `/opt/sea-speed-api/data/` survives normal exact deploy/rollback code changes and remains the persistence contour for the last-good JPEGs.
+- Authentication policy is owned by Issue #115; this feature does not implement its own user/session system.
 
 ## Runtime feedback
 
 - 2026-08-12: Original Camera Preview Gallery (#103) was accepted in production with representative start/switch/stop and visible moving video while Camera 1 remained healthy.
 - 2026-08-12: Preview All extension (#109) added sequential traversal and page-local retained frames. Technical rollout succeeded, but visual acceptance showed startup-gray/partial frames could still be retained on some cameras even after browser media progression.
-- 2026-08-12: Operator requested durable cross-device last-good images and explicit preservation of the previous good image when a new preview is unusable. Issue #112 supersedes the page-only persistence boundary while preserving one-active-preview, Camera 1, Ubuntu relay, credentials, and AI boundaries.
+- 2026-08-12: Issue #112 moved only last-good image state to durable VPS data while preserving one-active-preview, Camera 1 media behavior, Ubuntu relay, credentials, and AI boundaries.
+- Issue #115 later and explicitly changes the browser authentication/URL boundary. It does not supersede the accepted snapshot persistence behavior documented here.
