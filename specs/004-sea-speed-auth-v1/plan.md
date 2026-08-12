@@ -2,7 +2,7 @@
 
 - Specification: `specs/004-sea-speed-auth-v1/spec.md`
 - Issue: #115
-- Status: Approved for implementation
+- Status: Implementing
 
 ## Architecture
 
@@ -37,6 +37,20 @@ physical Camera 1
 -> authenticated browser
 ```
 
+Existing worker machine-to-machine API traffic is separated from interactive browser authentication:
+
+```text
+approved worker ZeroTier peer
+-> VPS literal private IP:private port
+-> exact nginx method/path allowlist
+-> existing loopback FastAPI origin
+
+POST state/events still require existing SEA_SPEED_API_TOKEN
+GET ROI/speed configuration remains private-peer-only
+```
+
+The private listener has no generic `/api/**` route and is not bound to a public interface.
+
 ## Decisions
 
 ### D-001 - Authentik owns identity
@@ -57,7 +71,7 @@ The normal authentication flow is identification -> password -> login. A TOTP va
 
 Enrollment password prompts use a shared password policy: minimum 15 characters, no composition counters, zxcvbn enabled and Have I Been Pwned checking enabled. Email delivery is configured through runtime-only Authentik SMTP environment variables. Password recovery uses Authentik's recovery capability; changing an Owner password does not remove the independently configured Owner TOTP device.
 
-### D-005 - One authenticated namespace
+### D-005 - One authenticated browser namespace
 
 Every browser-facing Sea Speed resource is under `/sea-speed/**` and passes the same nginx forward-auth boundary. This includes API GETs, mutating browser calls, camera snapshots, camera-preview HLS and Camera 1 live HLS. Client-provided `X-authentik-*` identity headers are replaced with values returned by the Authentik auth subrequest.
 
@@ -75,21 +89,36 @@ The deployment uses Authentik's embedded outpost for nginx forward auth. The Aut
 
 ### D-009 - Reproducible nginx change
 
-Nginx security policy is rendered and verified from repository tooling before activation. The activation script creates a root-only backup, runs `nginx -t`, reloads only nginx and performs no automatic rollback to the legacy public camera contour.
+Nginx security policy is rendered and verified from repository tooling before activation. The activation script creates a root-only backup, runs `nginx -t`, reloads only nginx and performs no automatic rollback to the legacy public camera contour. `prepare` writes a protected candidate and returns its SHA-256; `activate` re-renders and refuses a SHA mismatch.
 
 ### D-010 - Deployment health is not public bypass
 
-The normal VPS deploy must not depend on anonymous success from `/sea-speed/api/health`. Origin health is checked locally/private-side while public smoke checks explicitly accept the authentication boundary. No service credential is added to GitHub Actions merely to make the health check pass.
+The normal VPS code deploy does not depend on anonymous success from `/sea-speed/api/health`. FastAPI health is checked through the loopback origin at `http://127.0.0.1:8000/api/health` by default, while the public private-health URL is only a transition/security smoke check. No user credential or Authentik session is added to GitHub Actions merely to make deployment health pass.
+
+### D-011 - Separate worker M2M ingress from browser auth
+
+The worker is infrastructure, not an interactive user. Requiring an Authentik browser session for its existing state/event/config traffic would break accepted AI telemetry. The nginx renderer therefore derives the current FastAPI loopback origin from the existing `/sea-speed/api/` proxy and creates a second listener only when supplied both an exact private VPS `IP:PORT` and an exact private worker peer IP.
+
+The listener exposes only:
+
+- POST `/api/cam1/state`;
+- POST `/api/cam1/events`;
+- GET `/api/cam1/roi`;
+- GET `/api/cam1/speed-config`;
+- GET `/api/cam1/speed-lines`.
+
+All other paths/methods are absent or denied. State/event writes keep the existing FastAPI Bearer-token check. Production changes only the worker runtime endpoint environment variables; worker source/package, AI behavior and camera acquisition do not change.
 
 ## Source contours
 
 - `deploy/vps/authentik/**`: pinned Authentik runtime, non-secret configuration template and blueprint.
-- `scripts/operations/nginx_sea_speed_auth.py`: bounded nginx transform/verification.
-- `deploy/vps/sea-speed-auth-cutover.sh`: prepare/status/activate security contour.
+- `scripts/operations/nginx_sea_speed_auth.py`: bounded nginx auth/private-M2M transform and verification.
+- `deploy/vps/sea-speed-auth-cutover.sh`: SHA-bound prepare/status/activate security contour.
 - Camera 1 nginx/cutover source: migrate browser path to `/sea-speed/media/cam1/`.
 - root/operator frontend and tests: remove `/cams/` link and use protected HLS URL.
-- existing Camera 1 SDD/docs/tests: explicitly supersede the public-path compatibility requirement.
-- VPS deploy source/docs: separate local health from anonymous auth smoke.
+- existing Camera 1 SDD/docs/tests: explicitly supersede the public-path compatibility requirement while preserving media behavior.
+- VPS deploy source/docs/baseline: separate local origin health from anonymous auth smoke.
+- `docs/operations/SEA_SPEED_AUTH_V1.md`: production sequencing, worker runtime URL migration and fail-closed rollback.
 
 ## Runtime configuration outside Git
 
@@ -101,24 +130,29 @@ The following values are runtime-only and must never be committed:
 - SMTP username/password;
 - generated invitations/recovery links;
 - TOTP seeds/codes;
-- existing camera credentials and API/SSH tokens.
+- existing camera credentials and API/SSH tokens;
+- actual worker API Bearer token.
+
+The VPS private listen address/port and worker private peer IP are discovered at rollout and passed as non-secret bounded parameters.
 
 ## Validation
 
 Static/source validation must prove:
 
 - SDD completeness and exact Issue linkage;
-- Authentik image is pinned and no Docker socket is mounted;
+- Authentik image is version-pinned and no Docker socket is mounted;
 - enrollment stages cannot continue without invitations;
 - password policy and Owner-only TOTP policy are explicit;
 - nginx renderer is idempotent, fail-closed and removes all `/cams` locations;
 - every existing `/sea-speed` nginx location receives auth directives;
 - spoofed browser identity headers are overwritten;
+- private worker ingress rejects public/network-wide addressing, derives only a loopback FastAPI origin, and exposes only exact methods/paths;
+- cutover is candidate-SHA-bound and has no automatic public-route rollback;
 - frontend no longer references `/cams/` or old Camera 1 HLS;
 - existing Camera 1 private/H.264 behavior is preserved;
-- VPS deployment checks no longer require anonymous private health success.
+- VPS deployment uses origin health rather than anonymous private health success.
 
-Production acceptance additionally requires real SMTP, invitation, login, Owner TOTP, password recovery, session revocation, authenticated Camera 1 playback and direct-origin exposure checks.
+Production acceptance additionally requires real SMTP, invitation, login, Owner TOTP, password recovery, session revocation, authenticated Camera 1 playback, worker M2M continuity and direct-origin exposure checks.
 
 ## Rollout
 
@@ -130,11 +164,12 @@ Production acceptance additionally requires real SMTP, invitation, login, Owner 
 6. Apply the Sea Speed blueprint and configure the Forward Auth provider/application on the embedded outpost.
 7. Configure Owner email and TOTP; prove Owner login requires TOTP.
 8. Prove one non-Owner invitation flow and password recovery.
-9. Render and validate the combined nginx candidate.
-10. Activate the nginx security boundary and protected Camera 1 path.
-11. Run anonymous and authenticated security/media acceptance.
-12. Record exact source/runtime evidence in Issue #115.
+9. Discover exact VPS/worker private IPs and prepare the worker runtime URL update without exposing `SEA_SPEED_API_TOKEN`.
+10. Render the combined Camera 1/Auth/private-worker nginx candidate and record its SHA-256.
+11. Activate the exact candidate, then apply the prepared worker runtime URLs and restart only the applicable worker service.
+12. Run anonymous, authenticated, worker-M2M and direct-origin security/media acceptance.
+13. Record exact source/runtime evidence in Issue #115.
 
 ## Rollback
 
-Rollback is fail-closed. Backups of nginx and Authentik runtime data/configuration are retained, but the activation script must not automatically restore the old public `/cams/**` route. If post-cutover acceptance fails, stop, preserve evidence and require an explicit production rollback decision. A safe temporary outcome is unavailable private Sea Speed, not anonymous private content.
+Rollback is fail-closed. Backups of nginx and Authentik runtime data/configuration are retained, but the activation script must not automatically restore the old public `/cams/**` route. If post-cutover acceptance fails, stop, preserve evidence and require an explicit production rollback decision. If rollback is approved, matching nginx/auth and worker runtime URLs are restored together. A safe temporary outcome is unavailable private Sea Speed, not anonymous private content.
