@@ -34,6 +34,10 @@ Given an unauthenticated visitor, when the visitor requests any `/sea-speed/**` 
 
 Given any visitor, when `/cams` or `/cams/**` is requested, then no camera page, playlist or media is returned. Camera 1 browser playback is available only through a protected `/sea-speed/media/cam1/` path.
 
+### Scenario 7 - Worker continues machine-to-machine API traffic
+
+Given the AI worker is an infrastructure peer rather than an interactive browser user, when it publishes state/events or reads ROI/speed configuration, then it uses an exact private VPS listener reachable only from the approved worker private peer. Interactive `/sea-speed/**` remains Authentik-only and no worker source/package change is required.
+
 ## Functional requirements
 
 - FR-001: `https://mostdef.ru/` MUST remain publicly accessible without Sea Speed authentication.
@@ -58,6 +62,8 @@ Given any visitor, when `/cams` or `/cams/**` is requested, then no camera page,
 - FR-020: FastAPI origin, MediaMTX, Camera 1 compatibility HLS origin, Authentik internal services and private relay services MUST NOT gain direct public Internet exposure as part of this feature.
 - FR-021: Runtime credentials, Authentik secret keys, SMTP credentials and generated secrets MUST NOT be committed to the repository.
 - FR-022: Deployment health checks MUST distinguish private origin health from anonymous public security checks so that protecting `/sea-speed/api/health` does not break deployment verification.
+- FR-023: Existing worker machine-to-machine traffic MUST NOT depend on an interactive Authentik browser session. Nginx MUST expose only the exact required worker methods/endpoints on a separate listener bound to a literal private VPS address and restricted to one literal approved private worker peer.
+- FR-024: The private worker ingress MUST proxy only to the existing loopback FastAPI origin, MUST keep the existing Bearer-token requirement for state/event writes, and MUST NOT provide a generic `/api/**` bypass. Production rollout may change worker runtime API URLs to this private listener but MUST NOT require a worker source/package change.
 
 ## Roles
 
@@ -75,6 +81,7 @@ Fine-grained Sea Speed authorization differences between Admin, Operator and Vie
 - Secrets remain outside Git source.
 - Existing camera credentials and private relay topology remain protected.
 - No new public backend/media listener is introduced.
+- Private worker ingress is bound only to an approved private VPS address and exact peer, with exact methods/paths.
 - `/cams/**` retirement is intentional and supersedes the earlier public Camera 1 URL compatibility requirement.
 
 ## Acceptance criteria
@@ -92,6 +99,8 @@ Fine-grained Sea Speed authorization differences between Admin, Operator and Vie
 - AC-011: authenticated Camera 1 playback advances through `/sea-speed/media/cam1/index.m3u8` using the existing H.264 compatibility output.
 - AC-012: FastAPI, media origins and relay services are not exposed directly to the public Internet by this change.
 - AC-013: production rollout is not performed without a separate exact-SHA production safety envelope.
+- AC-014: from the exact approved worker peer, the private listener supports only POST state/events and GET ROI/speed-config/speed-lines; unrelated paths/methods are denied or absent.
+- AC-015: the worker continues publishing state/events with its existing API Bearer token and fetching configuration after its runtime URLs are moved to the private listener; no worker source/package update is required.
 
 ## Explicit exclusions
 
@@ -104,9 +113,9 @@ Fine-grained Sea Speed authorization differences between Admin, Operator and Vie
 - Fine-grained API RBAC.
 - A Sea Speed-native user/password/session database.
 - Changes to AI, detection, tracking, speed estimation or calibration semantics.
-- Changes to the physical camera source, Ubuntu relay, camera codec preparation or Windows worker.
+- Changes to the physical camera source, Ubuntu relay, camera codec preparation or Windows worker source/package.
 - Storage/database schema migration.
 
 ## Production impact
 
-VPS / security-control-plane change. Source integration does not authorize production mutation. A separate `PRODUCTION APPROVED` envelope bound to the exact final `main` SHA is required before rollout.
+VPS / security-control-plane change plus bounded worker runtime URL reconfiguration over the existing private network. Source integration does not authorize production mutation. A separate `PRODUCTION APPROVED` envelope bound to the exact final `main` SHA is required before rollout.
