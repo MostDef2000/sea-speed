@@ -2,196 +2,146 @@
 
 - Specification: specs/002-camera-preview-gallery/spec.md
 - Original Issue: #103
-- Extension Issue: #109
-- Status: Snapshot-stability remediation in progress under existing Outcome Authorization
+- Prior extension: #109
+- Current Issue: #112
+- Status: Persistent last-good snapshot implementation under Outcome Authorization
 
 ## Architecture
 
-Original runtime contour remains unchanged:
+The accepted live-preview contour stays unchanged:
 
 ```text
 protected Ubuntu camera inventory
-  -> dedicated MediaMTX preview relay on private ZeroTier address
-     -> one source-on-demand path per camera candidate
-        -> sanitized VPS catalog with credential-free relay URLs
-           -> Sea Speed API validates catalog camera_id
-              -> one temporary VPS FFmpeg process at a time
-                 -> reduced H.264 / no-audio HLS under /sea-speed/media/camera-preview/
-                    -> /sea-speed/cameras/ active card
+  -> source-on-demand private preview relay
+     -> sanitized VPS catalog
+        -> API start(camera_id)
+           -> one managed VPS FFmpeg H.264 HLS session
+              -> browser live preview
 ```
 
-Issue #109 adds browser-only orchestration above the existing one-active-preview API:
+Issue #112 adds a VPS last-good snapshot contour that consumes only the already-managed local HLS session:
 
 ```text
-Preview All button
-  -> sequential catalog iterator
-     -> existing start(camera_id)
-        -> existing one active HLS preview
-           -> wait for first decodable browser frame
-              -> require bounded actual media-time progression
-                 -> canvas.drawImage(video)
-                    -> stop/replace preview
-                       -> next camera
-
-Stop All
-  -> invalidate batch generation
-  -> existing preview stop endpoint
-  -> retained canvases stay on current page only
+browser confirms stable playback
+  -> POST /api/cameras/{camera_id}/snapshot/commit?session_id=<active>
+     -> validate catalog camera + exact active managed session
+        -> FFmpeg extracts one JPEG from local HLS tail
+           -> structural + luma-spread quality gate
+              -> temporary dotfile
+                 -> atomic os.replace(<camera_id>.jpg)
+                    -> GET snapshot through API with no-store headers
 ```
 
-The accepted Camera 1 production path is a separate contour and is not modified:
+At page load:
 
 ```text
-physical Camera 1 -> accepted Ubuntu relay -> VPS Camera 1 H.264 compatibility service
--> exact nginx /cams/hls/cam1/ route -> browser
+GET /api/cameras
+  -> safe snapshot metadata per camera
+     -> <img> loads /api/cameras/{camera_id}/snapshot?v=<mtime_ns>
+        -> no preview start
+```
+
+The accepted Camera 1 path remains a separate contour:
+
+```text
+physical Camera 1 -> accepted Ubuntu relay -> VPS Camera 1 compatibility service
+-> nginx /cams/hls/cam1/ -> browser
 ```
 
 ## Decisions
 
-### D-001 - On-demand instead of a permanent camera wall
+### D-001 - Durable VPS data, not browser persistence
 
-Keep zero preview processes at rest and one temporary VPS transcode only when selected. Issue #109 does not introduce a multi-stream wall.
+Store last-good images under `/opt/sea-speed-api/data/camera-preview-snapshots/`. Browser `localStorage`, `sessionStorage`, IndexedDB and Cache API remain unused. Reload and other devices read the same VPS copy.
 
-### D-002 - Dedicated Ubuntu preview relay contour
+### D-002 - One file per camera, no history
 
-The existing standalone source-on-demand preview relay remains unchanged. Issue #109 does not require Ubuntu mutation.
+The final path is `<camera_id>.jpg`. Successful updates atomically replace that file. No timestamped filenames, index of historical snapshots, database history, or recording timeline is introduced.
 
-### D-003 - Credentials stay on Ubuntu
+### D-003 - Commit from managed HLS, not from browser pixels
 
-Native camera credentials remain protected on Ubuntu. The browser continues to operate only on sanitized camera identities and HLS URLs.
+The browser never uploads image bytes. Snapshot commit takes only catalog `camera_id` plus public `session_id`, then the server resolves the exact current managed HLS directory from its own state. This avoids a general binary upload endpoint and prevents arbitrary filesystem/source selection.
 
-### D-004 - Browser normalization remains on the VPS
+### D-004 - Exact active-session binding
 
-Existing VPS FFmpeg continues to normalize the selected source to reduced H.264 HLS. No additional codec pipeline is introduced.
+Snapshot commit is rejected unless the supplied camera and session exactly match `active_camera_preview_locked()`. This makes stale responses or cross-camera requests non-destructive.
 
-### D-005 - One active preview plus hard TTL
+### D-005 - Preserve prior last-good on any failure
 
-The existing API lock, replacement semantics and bounded TTL remain unchanged. Sequential batch mode deliberately reuses this constraint rather than increasing concurrency.
+Extraction and quality validation occur on a temporary candidate. The final JPEG is touched only after every check passes. Timeout, decode failure, too-small JPEG, malformed JPEG, or low luma spread leaves the prior final file unchanged.
 
-### D-006 - Runtime catalog rather than committed LAN inventory
+### D-006 - Conservative non-AI quality gate
 
-Preview All iterates only the already-sanitized catalog returned by `/api/cameras`; no LAN inventory is embedded in frontend source.
+Use FFmpeg `signalstats` on the extracted JPEG and require a minimum percentile luma spread. The gate is deliberately simple and non-semantic: it rejects obvious near-uniform startup garbage without enabling AI or trying to classify scene content.
 
-### D-007 - Exact VPS artifact covers the Cameras page
+### D-007 - HLS-tail extraction
 
-The existing exact-artifact requirement for `frontend/sea-speed/cameras/index.html` remains in force.
+FFmpeg reads the active local playlist with `-live_start_index -1` and extracts one scaled JPEG. It does not connect to the private RTSP relay and therefore does not create a second camera source session.
 
-### D-008 - Sequential preview-all instead of parallel fan-out
+### D-008 - No-store HTTP delivery with versioned URL
 
-- Decision: batch identification runs one catalog entry at a time through the existing start endpoint.
-- Reason: this preserves `max_active=1`, caps VPS CPU/relay load at the already accepted envelope, and avoids opening dozens of camera sessions simultaneously.
-- Rejected: `Promise.all` or server changes that allow many concurrent FFmpeg preview processes.
+The catalog publishes a versioned snapshot URL using the final file mtime. The image endpoint sends `Cache-Control: no-store, max-age=0`. The VPS file is authoritative; a new successful commit changes the URL version and page state.
 
-### D-009 - Last frame is volatile DOM presentation state
+### D-009 - Preview All remains sequential
 
-- Decision: capture the latest successfully decoded `<video>` frame into a `<canvas>` in that same camera card before switch/stop.
-- Reason: the operator needs a visual contact sheet only while identifying cameras; persistence would add storage lifecycle, privacy and cleanup complexity without product value.
-- Persistence explicitly rejected: `localStorage`, `sessionStorage`, IndexedDB, Cache API, server snapshot files and database rows.
-- Reload/close is the cleanup mechanism for retained frames.
+The browser retains the #109 media-time stability gate. After stable playback it asks the server to commit. Whether commit succeeds or is quality-rejected, the loop continues to the next camera. Server `max_active=1` is unchanged.
 
-### D-010 - Keep card DOM stable while frames are retained
+### D-010 - Manual preview uses the same commit endpoint
 
-- Decision: render the camera-card structure once after catalog load and update state/classes/player elements without rebuilding the whole grid on every preview transition.
-- Reason: canvas pixels are DOM-resident volatile state and would be lost by repeated `innerHTML` replacement.
-
-### D-011 - Batch cancellation uses generation invalidation
-
-- Decision: each Preview All pass receives a generation token. Stop All increments the generation and calls the existing stop endpoint.
-- Reason: a camera start request can already have reached the server when the user cancels. A late response from an invalidated generation must issue stop and must not continue traversal.
-- This is browser orchestration only; no backend cancellation protocol is added.
-
-### D-012 - Failure is per camera
-
-- Decision: start/playback readiness failure is recorded on that card and iteration continues.
-- Reason: identification of the remaining catalog should not depend on one offline or misconfigured candidate.
-
-### D-013 - Stable snapshot requires observed playback progress
-
-- Runtime finding: the first production implementation waited for `loadeddata`/`playing` and then only a fixed 1.2-second dwell. Visual acceptance showed some retained frames were still gray or only partially formed even though HLS and the server preview were healthy.
-- Decision: after first-frame readiness, require the same `<video>` element to advance its `currentTime` by at least 3 seconds before `drawImage()` is allowed for batch capture.
-- Bound: the progression wait times out after 12 seconds; a timeout marks only that camera and traversal continues.
-- Cancellation: the existing generation token remains authoritative; Stop All can invalidate the batch during readiness or progression waiting.
-- Reason: media-time advancement measures actual decoded playback and is more robust than an arbitrary wall-clock sleep across cameras, network conditions and browser performance.
-- Rejected: increasing server concurrency, adding backend snapshot endpoints, or persisting images to hide startup artifacts.
-
-## Frontend state model
-
-Volatile variables only:
-
-- `cameras`: sanitized catalog for the current page;
-- `active`: current public preview state;
-- `activeVideo` / `activeHls`: current live browser player;
-- `snapshotIds`: identities whose card canvas currently contains a captured frame;
-- `cameraErrors`: per-card transient errors;
-- `batchRunning`, `batchGeneration`, `batchIndex`: batch control/progress.
-
-No retained-frame bytes are serialized into storage.
-
-## Batch algorithm
-
-1. User presses `Предпросмотр всех`.
-2. Mark batch active and allocate a new generation token.
-3. For each catalog camera in order:
-   - update progress/current-camera label;
-   - start that camera through the existing API;
-   - if the generation became stale, stop any late-started preview and return;
-   - attach HLS player;
-   - wait bounded time for the first decodable video frame;
-   - then wait for at least 3 seconds of actual `video.currentTime` progression, bounded by a 12-second stabilization timeout;
-   - if both readiness stages succeed, draw the latest frame into that card canvas;
-   - if either stage fails, show local error and continue.
-4. On normal completion call the existing stop endpoint for the final server preview.
-5. Leave all successful card canvases visible.
-
-## Manual preview behavior
-
-Manual Play/Switch/Stop uses the same `captureActiveFrame()` path. If the browser has a decodable frame, it is retained before the live player is destroyed. The new progression gate is specifically for automatic Preview All capture, where the UI decides when to leave a camera. If the operator manually stops early, the current decodable frame is intentionally retained because that action is explicit.
+Before manual switch/stop, if the active browser video is decodable, the frontend attempts the same session-bound commit. Failure is isolated and preserves the prior server snapshot.
 
 ## Affected contours
 
-- VPS frontend: changed.
-- VPS API: unchanged.
-- VPS deployment script: unchanged; it already installs/smokes the Cameras page.
+- VPS API: additive snapshot metadata, GET, commit, extraction/quality/atomic-store helpers.
+- Cameras frontend: persistent `<img>` snapshot rendering, update time, commit calls, removal of page-only canvas persistence.
+- SDD/tests: updated for Issue #112.
+- VPS deploy script: unchanged.
+- nginx: unchanged.
 - Ubuntu preview relay: unchanged.
-- Windows worker: unchanged.
-- Camera 1 accepted live path: unchanged.
-- AI/detection/tracking: unchanged.
-
-Production impact derives as `VPS` because `frontend/**` changes. A new exact merged SHA will require a fresh production safety-envelope authorization before redeployment; the prior authorization was exact-SHA-bound to `11306b23f3dd2fb21917a593c0e055911eefc6ff`.
+- camera credentials/runtime inventory: unchanged.
+- Camera 1 path: unchanged.
+- AI/detection/tracking/recording: unchanged.
+- Objects Registry: unchanged.
 
 ## Validation
 
-- Focused static tests assert global batch controls, sequential iteration markers, generation cancellation, volatile canvas capture, actual media-time progression before batch snapshot, bounded stabilization timeout, and forbidden persistent browser storage APIs.
-- Existing tests continue to assert one-active backend policy, credential safety, source-on-demand relay separation, Camera 1 stability markers and deployment integration.
-- Required PR Validation and `Quality integration gate / quality-integration` must pass for the exact remediation PR head.
-- Exact diff remains inside the approved six Issue #109 files.
+Repository/focused validation must cover:
+
+- Python syntax and existing preview/relay/deploy invariants;
+- exact seven-file source scope;
+- API snapshot routes and safe metadata;
+- active session binding and no arbitrary path/source input;
+- persistent path under `DATA_DIR`;
+- temporary candidate + quality gate + atomic `os.replace` ordering;
+- no-store JPEG response;
+- frontend `<img>` persistence loaded from catalog metadata;
+- no browser persistent storage APIs;
+- sequential Preview All and media-time stability gate retained;
+- Camera 1 and Ubuntu relay markers unchanged;
+- PR Validation and aggregate Quality integration success.
 
 ## Rollout
 
-1. Implement the browser stabilization repair under the still-valid Issue #109 Outcome Authorization and exact six-file scope.
-2. Open a bounded PR linked to Issue #109 and this specification.
-3. Remediate CI only inside the approved outcome/scope.
-4. Merge the exact green head without a separate merge token while Outcome Authorization remains valid.
-5. Obtain a fresh production safety-envelope authorization for the new exact merged main commit.
-6. Deploy only the VPS release contour using existing exact release/deploy controls; no Ubuntu mutation.
+1. Implement exact seven-file source change under Issue #112 Outcome Authorization.
+2. Open bounded PR linked to `specs/002-camera-preview-gallery/spec.md`.
+3. Remediate CI only inside the approved seven-file scope.
+4. Merge exact green head without a separate merge token while the Outcome Authorization remains valid.
+5. Obtain a fresh production safety envelope for the exact merged main SHA.
+6. VPS-only exact deployment using existing restart/smoke and separately authorized safe rollback.
 7. Runtime acceptance:
-   - Camera 1 baseline healthy before;
-   - idle Cameras page starts no preview;
-   - Preview All visibly progresses across representative cameras;
-   - successful automatic snapshots are taken only after media progression and are visually formed rather than startup-gray/partial;
-   - at least one failed/unusable camera does not abort later cameras when such a candidate is available;
-   - Stop All stops current preview and prevents further batch starts;
-   - manual switch/stop retains prior frame;
-   - reload clears retained frames;
-   - backend reports no active preview after normal batch completion/Stop All;
-   - Camera 1 healthy after.
-
-## Rollback
-
-Use the existing exact VPS release rollback mechanism if separately authorized in the production safety envelope. No Ubuntu rollback is applicable because Ubuntu source/config is unchanged.
+   - Camera 1 healthy before;
+   - existing accepted preview/catalog baseline healthy;
+   - initial page load starts no preview;
+   - commit at least two representative good cameras;
+   - verify final JPEGs exist under durable data and API metadata reflects them;
+   - verify reload preserves images and a second browser/device sees the same images;
+   - verify stale session and a rejected candidate do not replace an existing good JPEG;
+   - verify Preview All remains serial and final preview is idle;
+   - Camera 1 healthy after;
+   - Ubuntu relay and AI unchanged.
 
 ## Runtime feedback
 
-- 2026-08-12: Original gallery and HLS permission remediation were accepted in production on exact main with representative cam18/cam20 start/switch/stop and visible moving-video confirmation.
-- 2026-08-12: Issue #109 exact main `11306b23f3dd2fb21917a593c0e055911eefc6ff` deployed successfully. Technical server sequence and Camera 1 regression checks passed. Visual Preview All acceptance exposed early canvas capture: cam10 produced a formed frame while multiple following cards retained gray/partial startup images.
-- The remediation therefore changes only browser capture readiness; HLS transport, server `max_active=1`, Ubuntu relay, camera credentials, Camera 1 and AI remain unchanged.
+- #103 established the accepted on-demand preview architecture and Camera 1 separation.
+- #109 established sequential Preview All and exposed a visual limitation of page-only snapshot timing.
+- #112 deliberately moves only the last-good image state to durable VPS data while keeping live preview topology and concurrency unchanged.

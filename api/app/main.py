@@ -17,6 +17,7 @@ from urllib.parse import urlsplit
 
 from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
 
 BASE_DIR = Path("/opt/sea-speed-api")
@@ -25,6 +26,7 @@ MEDIA_DIR = BASE_DIR / "media"
 OVERLAY_DIR = MEDIA_DIR / "overlays"
 EVENTS_MEDIA_DIR = MEDIA_DIR / "events"
 CAMERA_PREVIEW_DIR = MEDIA_DIR / "camera-preview"
+CAMERA_SNAPSHOT_DIR = DATA_DIR / "camera-preview-snapshots"
 DEPLOYED_COMMIT_FILE = Path("/opt/sea-speed-deploy/state/current-release")
 
 STATE_FILE = DATA_DIR / "cam1_state.json"
@@ -65,11 +67,15 @@ try:
 except ValueError:
     CAMERA_PREVIEW_TTL_SEC = 120
 CAMERA_PREVIEW_START_TIMEOUT_SEC = 12
+CAMERA_SNAPSHOT_EXTRACT_TIMEOUT_SEC = 8
+CAMERA_SNAPSHOT_MIN_BYTES = 4096
+CAMERA_SNAPSHOT_MIN_LUMA_SPREAD = 12.0
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 OVERLAY_DIR.mkdir(parents=True, exist_ok=True)
 EVENTS_MEDIA_DIR.mkdir(parents=True, exist_ok=True)
 CAMERA_PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
+CAMERA_SNAPSHOT_DIR.mkdir(mode=0o755, parents=True, exist_ok=True)
 
 app = FastAPI(title="Sea Speed API")
 app.mount("/media", StaticFiles(directory=str(MEDIA_DIR)), name="media")
@@ -365,6 +371,138 @@ def load_camera_preview_catalog() -> List[Dict[str, str]]:
     return cameras
 
 
+def camera_snapshot_path(camera_id: str) -> Path:
+    if not CAMERA_PREVIEW_ID_RE.fullmatch(camera_id):
+        raise ValueError("invalid camera snapshot identity")
+    return CAMERA_SNAPSHOT_DIR / f"{camera_id}.jpg"
+
+
+def camera_snapshot_public_metadata(camera_id: str) -> Dict[str, Any]:
+    path = camera_snapshot_path(camera_id)
+    try:
+        stat = path.stat()
+    except OSError:
+        return {"available": False, "url": None, "updated_at": None}
+    updated_at = datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat()
+    return {
+        "available": True,
+        "url": f"/sea-speed/api/cameras/{camera_id}/snapshot?v={stat.st_mtime_ns}",
+        "updated_at": updated_at,
+    }
+
+
+def build_camera_snapshot_extract_args(playlist: Path, output_path: Path) -> List[str]:
+    return [
+        CAMERA_PREVIEW_FFMPEG_BIN,
+        "-nostdin",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-live_start_index",
+        "-1",
+        "-i",
+        str(playlist),
+        "-map",
+        "0:v:0",
+        "-frames:v",
+        "1",
+        "-vf",
+        "scale=640:-2",
+        "-q:v",
+        "3",
+        "-y",
+        str(output_path),
+    ]
+
+
+def camera_snapshot_luma_spread(path: Path) -> Optional[float]:
+    args = [
+        CAMERA_PREVIEW_FFMPEG_BIN,
+        "-nostdin",
+        "-hide_banner",
+        "-loglevel",
+        "info",
+        "-i",
+        str(path),
+        "-frames:v",
+        "1",
+        "-vf",
+        "signalstats,metadata=print",
+        "-f",
+        "null",
+        "-",
+    ]
+    try:
+        result = subprocess.run(
+            args,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=CAMERA_SNAPSHOT_EXTRACT_TIMEOUT_SEC,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    values: Dict[str, float] = {}
+    for name in ("YLOW", "YHIGH"):
+        match = re.search(rf"lavfi\.signalstats\.{name}=([0-9.]+)", result.stderr)
+        if match:
+            values[name] = float(match.group(1))
+    if "YLOW" not in values or "YHIGH" not in values:
+        return None
+    return values["YHIGH"] - values["YLOW"]
+
+
+def camera_snapshot_candidate_is_usable(path: Path) -> bool:
+    try:
+        if path.stat().st_size < CAMERA_SNAPSHOT_MIN_BYTES:
+            return False
+        payload = path.read_bytes()
+    except OSError:
+        return False
+    if not payload.startswith(b"\xff\xd8") or not payload.endswith(b"\xff\xd9"):
+        return False
+    spread = camera_snapshot_luma_spread(path)
+    return spread is not None and spread >= CAMERA_SNAPSHOT_MIN_LUMA_SPREAD
+
+
+def commit_camera_snapshot_locked(state: Dict[str, Any]) -> Dict[str, Any]:
+    camera_id = str(state.get("camera_id") or "")
+    session_id = str(state.get("session_id") or "")
+    if not CAMERA_PREVIEW_ID_RE.fullmatch(camera_id) or not CAMERA_PREVIEW_SESSION_RE.fullmatch(session_id):
+        raise HTTPException(status_code=409, detail="Camera preview session is not eligible for snapshot commit")
+    output_dir = CAMERA_PREVIEW_DIR / session_id
+    playlist = output_dir / "index.m3u8"
+    if Path(str(state.get("output_dir") or "")) != output_dir or not playlist.is_file():
+        raise HTTPException(status_code=409, detail="Camera preview session is not eligible for snapshot commit")
+
+    final_path = camera_snapshot_path(camera_id)
+    temp_path = CAMERA_SNAPSHOT_DIR / f".{camera_id}.{uuid.uuid4().hex}.jpg"
+    try:
+        result = subprocess.run(
+            build_camera_snapshot_extract_args(playlist, temp_path),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=CAMERA_SNAPSHOT_EXTRACT_TIMEOUT_SEC,
+            check=False,
+        )
+        if result.returncode != 0 or not camera_snapshot_candidate_is_usable(temp_path):
+            raise HTTPException(status_code=422, detail="Camera snapshot did not pass the last-good quality gate")
+        os.chmod(temp_path, 0o644)
+        os.replace(temp_path, final_path)
+    except subprocess.TimeoutExpired as exc:
+        raise HTTPException(status_code=422, detail="Camera snapshot extraction timed out") from exc
+    except OSError as exc:
+        raise HTTPException(status_code=503, detail="Camera snapshot storage is unavailable") from exc
+    finally:
+        temp_path.unlink(missing_ok=True)
+    return camera_snapshot_public_metadata(camera_id)
+
+
 def camera_preview_public_state(state: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     if not state:
         return None
@@ -577,6 +715,7 @@ def get_cameras() -> Dict[str, Any]:
             "camera_id": camera["camera_id"],
             "display_name": camera["display_name"],
             "available": True,
+            "snapshot": camera_snapshot_public_metadata(camera["camera_id"]),
         }
         for camera in cameras
     ]
@@ -588,6 +727,40 @@ def get_cameras() -> Dict[str, Any]:
         "active": active,
         "preview_policy": {"max_active": 1, "ttl_sec": CAMERA_PREVIEW_TTL_SEC},
     }
+
+
+@app.get("/api/cameras/{camera_id}/snapshot")
+def get_camera_snapshot(camera_id: str):
+    cameras = load_camera_preview_catalog()
+    if not any(entry["camera_id"] == camera_id for entry in cameras):
+        raise HTTPException(status_code=404, detail="Camera is not present in the preview catalog")
+    path = camera_snapshot_path(camera_id)
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Camera snapshot is not available")
+    return FileResponse(
+        path,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "no-store, max-age=0", "Pragma": "no-cache"},
+    )
+
+
+@app.post("/api/cameras/{camera_id}/snapshot/commit")
+def commit_camera_snapshot(camera_id: str, session_id: str) -> Dict[str, Any]:
+    cameras = load_camera_preview_catalog()
+    if not any(entry["camera_id"] == camera_id for entry in cameras):
+        raise HTTPException(status_code=404, detail="Camera is not present in the preview catalog")
+    if not CAMERA_PREVIEW_SESSION_RE.fullmatch(session_id):
+        raise HTTPException(status_code=409, detail="Camera preview session is stale")
+    with CAMERA_PREVIEW_LOCK:
+        state = active_camera_preview_locked()
+        if (
+            not state
+            or state.get("camera_id") != camera_id
+            or state.get("session_id") != session_id
+        ):
+            raise HTTPException(status_code=409, detail="Camera preview session is stale")
+        snapshot = commit_camera_snapshot_locked(state)
+    return {"ok": True, "camera_id": camera_id, "snapshot": snapshot}
 
 
 @app.get("/api/cameras/preview")

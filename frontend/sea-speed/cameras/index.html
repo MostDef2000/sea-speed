@@ -30,8 +30,8 @@
     .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(275px,1fr));gap:12px}
     .card{overflow:hidden;border:1px solid var(--border);border-radius:20px;background:linear-gradient(155deg,#092334e8,#041421f2);box-shadow:0 18px 46px #00060b66}
     .frame{position:relative;display:grid;place-items:center;width:100%;aspect-ratio:16/9;background:#01060a;border-bottom:1px solid var(--border);overflow:hidden}
-    .frame video,.frame canvas{display:none;width:100%;height:100%;object-fit:contain;background:#000}
-    .frame.live video{display:block}.frame.snapshot canvas{display:block}
+    .frame video,.frame img{display:none;width:100%;height:100%;object-fit:contain;background:#000}
+    .frame.live video{display:block}.frame.snapshot img{display:block}
     .placeholder{display:grid;place-items:center;gap:8px;padding:20px;text-align:center;color:#6e9aaa}
     .frame.live .placeholder,.frame.snapshot .placeholder{display:none}
     .placeholder svg{width:38px;height:38px;fill:#5eead477}
@@ -41,7 +41,7 @@
     .body{padding:12px}
     .head{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
     .name{margin:0;font-size:.95rem;font-weight:850;overflow-wrap:anywhere}
-    .id{margin-top:3px;color:var(--muted);font:.68rem ui-monospace,Consolas,monospace}
+    .id{margin-top:3px;color:var(--muted);font:.68rem ui-monospace,Consolas,monospace}.snapshot-time{margin-top:4px;color:var(--muted);font-size:.62rem}
     .state{flex:0 0 auto;font-size:.68rem;font-weight:800;color:var(--muted)}
     .state.good{color:var(--good)}.state.bad{color:var(--bad)}.state.warn{color:var(--warn)}.state.snapshot{color:var(--blue)}
     .actions{display:flex;gap:8px;margin-top:12px}
@@ -59,7 +59,7 @@
       <div>
         <p class="eyebrow">Vladivostok maritime monitoring</p>
         <h1>Камеры</h1>
-        <div class="subtitle">Временный предпросмотр найденных потоков. Последний успешный кадр хранится только до перезагрузки этой страницы.</div>
+        <div class="subtitle">Предпросмотр найденных потоков. Последний хороший кадр сохраняется на VPS и доступен на всех устройствах до следующего успешного обновления.</div>
       </div>
       <nav class="nav" aria-label="Sea Speed navigation">
         <a href="/sea-speed/">Оператор</a>
@@ -108,7 +108,8 @@
     let batchRunning=false;
     let batchGeneration=0;
     let batchIndex=0;
-    const snapshotIds=new Set();
+    const snapshotMeta=new Map();
+    let lastCommittedSessionId=null;
     const cameraErrors=new Map();
 
     const esc=value=>String(value??"").replace(/[&<>"']/g,char=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[char]));
@@ -117,37 +118,58 @@
       return grid.querySelector(`[data-camera-id="${CSS.escape(cameraId)}"]`);
     }
 
-    function captureActiveFrame(){
-      if(!activeVideo||!active?.camera_id||activeVideo.readyState<2||!activeVideo.videoWidth||!activeVideo.videoHeight)return false;
-      const card=cardFor(active.camera_id);
-      const canvas=card?.querySelector("[data-snapshot]");
-      if(!canvas)return false;
-      const width=640;
-      const height=Math.max(2,Math.round(width*activeVideo.videoHeight/activeVideo.videoWidth));
-      canvas.width=width;
-      canvas.height=height;
-      const context=canvas.getContext("2d",{alpha:false});
-      if(!context)return false;
-      try{
-        context.drawImage(activeVideo,0,0,width,height);
-      }catch(_error){
-        return false;
-      }
-      snapshotIds.add(active.camera_id);
-      return true;
+    function formatSnapshotTime(value){
+      if(!value)return "";
+      const date=new Date(value);
+      return Number.isNaN(date.getTime())?"":`Обновлён ${date.toLocaleString()}`;
     }
 
-    function destroyPlayer({capture=true}={}){
-      if(capture)captureActiveFrame();
+    function setSnapshotMeta(cameraId,snapshot){
+      if(snapshot?.available&&snapshot.url){snapshotMeta.set(cameraId,snapshot)}else{snapshotMeta.delete(cameraId)}
+      const card=cardFor(cameraId);
+      if(!card)return;
+      const image=card.querySelector("[data-snapshot]");
+      const time=card.querySelector("[data-snapshot-time]");
+      const current=snapshotMeta.get(cameraId);
+      if(current?.url){
+        if(image.dataset.snapshotUrl!==current.url){image.src=current.url;image.dataset.snapshotUrl=current.url}
+        image.alt=`Последний хороший кадр ${cameraId}`;
+        if(time)time.textContent=formatSnapshotTime(current.updated_at);
+      }else{
+        image.removeAttribute("src");
+        delete image.dataset.snapshotUrl;
+        if(time)time.textContent="";
+      }
+    }
+
+    function destroyPlayer(){
       if(activeHls){activeHls.destroy();activeHls=null}
       if(activeVideo){activeVideo.pause();activeVideo.removeAttribute("src");activeVideo.load();activeVideo.remove();activeVideo=null}
+    }
+
+    async function commitActiveSnapshot(){
+      if(!active?.camera_id||!active?.session_id)return false;
+      if(lastCommittedSessionId===active.session_id)return true;
+      const cameraId=active.camera_id;
+      try{
+        const data=await api(`/sea-speed/api/cameras/${encodeURIComponent(cameraId)}/snapshot/commit?session_id=${encodeURIComponent(active.session_id)}`,{method:"POST"});
+        setSnapshotMeta(cameraId,data.snapshot);
+        lastCommittedSessionId=active.session_id;
+        cameraErrors.delete(cameraId);
+        updateUi();
+        return true;
+      }catch(error){
+        cameraErrors.set(cameraId,error.message||"Кадр не прошёл проверку качества");
+        updateUi();
+        return false;
+      }
     }
 
     function stateLabel(camera){
       if(busyCameraId===camera.camera_id)return ["starting","warn"];
       if(active&&active.camera_id===camera.camera_id)return ["live","good"];
       if(cameraErrors.has(camera.camera_id))return ["ошибка","bad"];
-      if(snapshotIds.has(camera.camera_id))return ["последний кадр","snapshot"];
+      if(snapshotMeta.has(camera.camera_id))return ["последний кадр","snapshot"];
       return ["idle",""];
     }
 
@@ -163,14 +185,15 @@
           <div class="frame-badge live-badge">live preview</div>
           <div class="frame-badge snapshot-badge">последний кадр</div>
           <div class="placeholder"><svg viewBox="0 0 24 24"><path d="M3 5h13a2 2 0 0 1 2 2v2.2l3-1.7v9l-3-1.7V17a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2zm0 2v10h13V7H3z"/></svg><span>Preview не запущен</span></div>
-          <canvas data-snapshot aria-label="Последний кадр ${esc(camera.display_name||camera.camera_id)}"></canvas>
+          <img data-snapshot alt="Последний хороший кадр ${esc(camera.display_name||camera.camera_id)}">
         </div>
         <div class="body">
-          <div class="head"><div><h2 class="name">${esc(camera.display_name||camera.camera_id)}</h2><div class="id">${esc(camera.camera_id)}</div></div><div class="state" data-state>idle</div></div>
+          <div class="head"><div><h2 class="name">${esc(camera.display_name||camera.camera_id)}</h2><div class="id">${esc(camera.camera_id)}</div><div class="snapshot-time" data-snapshot-time></div></div><div class="state" data-state>idle</div></div>
           <div class="actions"><button class="play" data-play="${esc(camera.camera_id)}">▶ Предпросмотр</button><button class="stop" data-stop disabled>■ Стоп</button></div>
           <div class="error" data-error></div>
         </div>
       </article>`).join("");
+      for(const camera of cameras)setSnapshotMeta(camera.camera_id,camera.snapshot);
       updateUi();
     }
 
@@ -182,8 +205,8 @@
       if(batchRunning){
         const camera=cameras[batchIndex];
         batchProgress.textContent=`Обход камер: ${Math.min(batchIndex+1,cameras.length)} / ${cameras.length}${camera?` · сейчас ${camera.display_name||camera.camera_id}`:""}`;
-      }else if(snapshotIds.size){
-        batchProgress.textContent=`Последних кадров на странице: ${snapshotIds.size} / ${cameras.length}`;
+      }else if(snapshotMeta.size){
+        batchProgress.textContent=`Последних кадров на VPS: ${snapshotMeta.size} / ${cameras.length}`;
       }else{
         batchProgress.textContent="Обход не запущен";
       }
@@ -193,7 +216,7 @@
         const frame=card.querySelector("[data-frame]");
         const isActive=Boolean(active&&active.camera_id===camera.camera_id&&activeVideo);
         frame.classList.toggle("live",isActive);
-        frame.classList.toggle("snapshot",!isActive&&snapshotIds.has(camera.camera_id));
+        frame.classList.toggle("snapshot",!isActive&&snapshotMeta.has(camera.camera_id));
         const [label,klass]=stateLabel(camera);
         const state=card.querySelector("[data-state]");
         state.textContent=label;
@@ -238,7 +261,7 @@
     }
 
     function attachActivePlayer(){
-      destroyPlayer({capture:false});
+      destroyPlayer();
       const card=active?.camera_id?cardFor(active.camera_id):null;
       if(!card||!active?.hls_url)return null;
       const frame=card.querySelector("[data-frame]");
@@ -284,7 +307,10 @@
       try{
         const data=await api(CAMERAS_URL);
         cameras=Array.isArray(data.cameras)?data.cameras:[];
+        snapshotMeta.clear();
+        for(const camera of cameras){if(camera.snapshot?.available&&camera.snapshot.url)snapshotMeta.set(camera.camera_id,camera.snapshot)}
         active=data.active||null;
+        lastCommittedSessionId=null;
         renderCatalog();
         if(active?.hls_url)attachActivePlayer();
       }catch(error){
@@ -300,12 +326,14 @@
         if(active&&!next){
           destroyPlayer();
           active=null;
+          lastCommittedSessionId=null;
           updateUi();
           return;
         }
         if(next&&(!active||next.session_id!==active.session_id)){
           destroyPlayer();
           active=next;
+          lastCommittedSessionId=null;
           attachActivePlayer();
           return;
         }
@@ -315,9 +343,13 @@
     }
 
     async function startPreview(cameraId,{batchToken=null}={}){
-      if(active)destroyPlayer();
+      if(active){
+        if(activeVideo?.readyState>=2)await commitActiveSnapshot();
+        destroyPlayer();
+      }
       busyCameraId=cameraId;
       active=null;
+      lastCommittedSessionId=null;
       cameraErrors.delete(cameraId);
       updateUi();
       try{
@@ -327,6 +359,7 @@
           return false;
         }
         active=data.preview;
+        lastCommittedSessionId=null;
         const video=attachActivePlayer();
         return Boolean(video);
       }catch(error){
@@ -340,11 +373,12 @@
     }
 
     async function stopPreview({preserveFrame=true}={}){
-      if(preserveFrame)captureActiveFrame();
+      if(preserveFrame&&activeVideo?.readyState>=2)await commitActiveSnapshot();
       busyCameraId=active?.camera_id||"stop";
-      destroyPlayer({capture:false});
+      destroyPlayer();
       try{await api(PREVIEW_STOP_URL,{method:"POST"})}catch(_error){}
       active=null;
+      lastCommittedSessionId=null;
       busyCameraId=null;
       updateUi();
     }
@@ -376,7 +410,10 @@
           updateUi();
           continue;
         }
-        captureActiveFrame();
+        const committed=await commitActiveSnapshot();
+        if(!committed&&token===batchGeneration){
+          cameraErrors.set(camera.camera_id,cameraErrors.get(camera.camera_id)||"Кадр не прошёл проверку качества");
+        }
         updateUi();
       }
       if(token===batchGeneration){
@@ -409,7 +446,7 @@
       batchRunning=false;
       batchGeneration++;
       if(active||busyCameraId)fetch(PREVIEW_STOP_URL,{method:"POST",credentials:"same-origin",keepalive:true}).catch(()=>{});
-      destroyPlayer({capture:false});
+      destroyPlayer();
     });
 
     loadCatalog();

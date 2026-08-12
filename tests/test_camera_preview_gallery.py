@@ -24,14 +24,8 @@ class CameraPreviewGalleryTests(unittest.TestCase):
         self.assertTrue(DEPLOY.startswith("#!/usr/bin/env bash\nset -Eeuo pipefail"))
 
     def test_operator_preserves_objects_link_and_adds_cameras_link(self) -> None:
-        self.assertRegex(
-            OPERATOR,
-            r'<a\s+class="objects-link"\s+href="/sea-speed/objects/">Реестр объектов</a>',
-        )
-        self.assertRegex(
-            OPERATOR,
-            r'<a\s+class="objects-link cameras-link"\s+href="/sea-speed/cameras/">Камеры</a>',
-        )
+        self.assertRegex(OPERATOR, r'<a\s+class="objects-link"\s+href="/sea-speed/objects/">Реестр объектов</a>')
+        self.assertRegex(OPERATOR, r'<a\s+class="objects-link cameras-link"\s+href="/sea-speed/cameras/">Камеры</a>')
         for marker in (
             'const HLS_URL = "/cams/hls/cam1/index.m3u8";',
             'const STATE_URL = "/sea-speed/api/cam1/state";',
@@ -48,6 +42,7 @@ class CameraPreviewGalleryTests(unittest.TestCase):
             'const PREVIEW_STATUS_URL="/sea-speed/api/cameras/preview"',
             'const PREVIEW_STOP_URL="/sea-speed/api/cameras/preview/stop"',
             '/sea-speed/api/cameras/${encodeURIComponent(cameraId)}/preview/start',
+            '/sea-speed/api/cameras/${encodeURIComponent(cameraId)}/snapshot/commit?session_id=',
             'method:"POST"',
             'credentials:"same-origin"',
             'id="cameraGrid"',
@@ -94,36 +89,34 @@ class CameraPreviewGalleryTests(unittest.TestCase):
         self.assertNotIn('const BATCH_FRAME_DWELL_MS=1200;', CAMERAS)
         self.assertNotIn('await delay(BATCH_FRAME_DWELL_MS);', CAMERAS)
 
-    def test_gallery_retains_last_frame_only_in_page_memory(self) -> None:
+    def test_gallery_uses_vps_last_good_snapshot_and_no_browser_persistent_storage(self) -> None:
         for marker in (
-            '<canvas data-snapshot',
-            'const snapshotIds=new Set()',
-            'function captureActiveFrame()',
-            'context.drawImage(activeVideo,0,0,width,height)',
-            'snapshotIds.add(active.camera_id)',
-            'destroyPlayer({capture=true}={})',
-            'async function stopPreview({preserveFrame=true}={})',
+            '<img data-snapshot',
+            'const snapshotMeta=new Map()',
+            'async function commitActiveSnapshot()',
+            'setSnapshotMeta(cameraId,data.snapshot)',
+            'Последних кадров на VPS',
+            'camera.snapshot?.available',
+            'cache:"no-store"',
         ):
             self.assertIn(marker, CAMERAS)
-        for forbidden in (
-            "localStorage",
-            "sessionStorage",
-            "indexedDB",
-            "caches.open",
-            "CacheStorage",
-        ):
+        for forbidden in ("localStorage", "sessionStorage", "indexedDB", "caches.open", "CacheStorage"):
             self.assertNotIn(forbidden, CAMERAS)
-        self.assertNotIn("snapshot_url", CAMERAS)
+        self.assertNotIn('<canvas data-snapshot', CAMERAS)
+        self.assertNotIn('context.drawImage(activeVideo', CAMERAS)
 
     def test_gallery_failed_batch_camera_does_not_abort_remaining_catalog(self) -> None:
         self.assertIn('cameraErrors.set(cameraId,error.message)', CAMERAS)
         self.assertIn('if(!started||!activeVideo)continue;', CAMERAS)
         self.assertIn('cameraErrors.set(camera.camera_id,"Видео не успело показать кадр")', CAMERAS)
         self.assertIn('cameraErrors.set(camera.camera_id,"Видео не успело стабилизироваться")', CAMERAS)
+        self.assertIn('const committed=await commitActiveSnapshot();', CAMERAS)
 
-    def test_api_exposes_catalog_only_start_stop_status_contract(self) -> None:
+    def test_api_exposes_catalog_preview_and_snapshot_contract(self) -> None:
         for marker in (
             '@app.get("/api/cameras")',
+            '@app.get("/api/cameras/{camera_id}/snapshot")',
+            '@app.post("/api/cameras/{camera_id}/snapshot/commit")',
             '@app.get("/api/cameras/preview")',
             '@app.post("/api/cameras/{camera_id}/preview/start")',
             '@app.post("/api/cameras/preview/stop")',
@@ -134,13 +127,57 @@ class CameraPreviewGalleryTests(unittest.TestCase):
         self.assertNotIn('payload.get("source")', API)
         self.assertNotIn('payload.get("rtsp_url")', API)
 
+    def test_snapshot_commit_is_catalog_and_active_session_bound(self) -> None:
+        start = API.index('def commit_camera_snapshot(camera_id: str, session_id: str)')
+        end = API.index('@app.get("/api/cameras/preview")', start)
+        source = API[start:end]
+        for marker in (
+            'load_camera_preview_catalog()',
+            'CAMERA_PREVIEW_SESSION_RE.fullmatch(session_id)',
+            'state = active_camera_preview_locked()',
+            'state.get("camera_id") != camera_id',
+            'state.get("session_id") != session_id',
+            'commit_camera_snapshot_locked(state)',
+        ):
+            self.assertIn(marker, source)
+        self.assertNotIn('source:', source)
+        self.assertNotIn('rtsp_url', source)
+        self.assertNotIn('output_dir:', source)
+
+    def test_snapshot_store_is_atomic_last_good_and_quality_gated(self) -> None:
+        for marker in (
+            'CAMERA_SNAPSHOT_DIR = DATA_DIR / "camera-preview-snapshots"',
+            'CAMERA_SNAPSHOT_MIN_BYTES = 4096',
+            'CAMERA_SNAPSHOT_MIN_LUMA_SPREAD = 12.0',
+            'def camera_snapshot_candidate_is_usable(path: Path) -> bool:',
+            'signalstats,metadata=print',
+            'spread >= CAMERA_SNAPSHOT_MIN_LUMA_SPREAD',
+            'temp_path = CAMERA_SNAPSHOT_DIR / f".{camera_id}.{uuid.uuid4().hex}.jpg"',
+            'os.replace(temp_path, final_path)',
+            'temp_path.unlink(missing_ok=True)',
+        ):
+            self.assertIn(marker, API)
+        replace_pos = API.index('os.replace(temp_path, final_path)')
+        quality_pos = API.index('camera_snapshot_candidate_is_usable(temp_path)')
+        self.assertLess(quality_pos, replace_pos)
+        self.assertNotIn('CAMERA_SNAPSHOT_HISTORY', API)
+
+    def test_snapshot_get_is_no_store_and_catalog_bound(self) -> None:
+        start = API.index('def get_camera_snapshot(camera_id: str):')
+        end = API.index('@app.post("/api/cameras/{camera_id}/snapshot/commit")', start)
+        source = API[start:end]
+        self.assertIn('load_camera_preview_catalog()', source)
+        self.assertIn('Camera snapshot is not available', source)
+        self.assertIn('media_type="image/jpeg"', source)
+        self.assertIn('"Cache-Control": "no-store, max-age=0"', source)
+
     def test_api_never_returns_private_source_field(self) -> None:
         public_state_start = API.index("def camera_preview_public_state")
         public_state_end = API.index("def camera_preview_pid_matches", public_state_start)
         public_state = API[public_state_start:public_state_end]
         self.assertNotIn('"source"', public_state)
         get_start = API.index("def get_cameras")
-        get_end = API.index('@app.get("/api/cameras/preview")', get_start)
+        get_end = API.index('@app.get("/api/cameras/{camera_id}/snapshot")', get_start)
         public_catalog = API[get_start:get_end]
         self.assertNotIn('camera["source"]', public_catalog)
 
@@ -149,11 +186,9 @@ class CameraPreviewGalleryTests(unittest.TestCase):
         end = API.index("def load_camera_preview_catalog", start)
         source = API[start:end]
         for marker in (
-            'parsed.scheme.lower() != "rtsp"',
-            'CAMERA_PREVIEW_RFC1918',
+            'parsed.scheme.lower() != "rtsp"', 'CAMERA_PREVIEW_RFC1918',
             'parsed.username is not None or parsed.password is not None',
-            'parsed.query or parsed.fragment',
-            'f"/preview_{camera_id}"',
+            'parsed.query or parsed.fragment', 'f"/preview_{camera_id}"',
         ):
             self.assertIn(marker, source)
 
@@ -161,17 +196,10 @@ class CameraPreviewGalleryTests(unittest.TestCase):
         for marker in (
             'CAMERA_PREVIEW_TTL_SEC = max(',
             'min(int(os.environ.get("SEA_SPEED_CAMERA_PREVIEW_TTL_SEC", "120")), 600)',
-            'terminate_camera_preview_locked()',
-            'subprocess.Popen(',
-            'stdout=subprocess.DEVNULL',
-            'stderr=subprocess.DEVNULL',
-            '"scale=640:-2,fps=8"',
-            '"-an"',
-            '"libx264"',
-            '"baseline"',
-            '"-hls_segment_type"',
-            '"fmp4"',
-            'str(CAMERA_PREVIEW_TTL_SEC)',
+            'terminate_camera_preview_locked()', 'subprocess.Popen(',
+            'stdout=subprocess.DEVNULL', 'stderr=subprocess.DEVNULL',
+            '"scale=640:-2,fps=8"', '"-an"', '"libx264"', '"baseline"',
+            '"-hls_segment_type"', '"fmp4"', 'str(CAMERA_PREVIEW_TTL_SEC)',
         ):
             self.assertIn(marker, API)
         self.assertNotIn("shell=True", API)
@@ -189,15 +217,10 @@ class CameraPreviewGalleryTests(unittest.TestCase):
 
     def test_ubuntu_preview_relay_is_separate_source_on_demand_and_private(self) -> None:
         for marker in (
-            'service_name="sea-speed-camera-preview-relay.service"',
-            'cam1_service="sea-speed-stream.service"',
-            'sourceOnDemand: yes',
-            'sourceOnDemandCloseAfter: 2s',
-            'rtspTransports: [tcp]',
-            r'path: \"~^preview_[a-z0-9._-]+$\"',
-            'CAM1_RELAY_CHANGED=NO',
-            'AI_WORKER_CHANGED=NO',
-            'SECRETS_DISPLAYED=NO',
+            'service_name="sea-speed-camera-preview-relay.service"', 'cam1_service="sea-speed-stream.service"',
+            'sourceOnDemand: yes', 'sourceOnDemandCloseAfter: 2s', 'rtspTransports: [tcp]',
+            r'path: \"~^preview_[a-z0-9._-]+$\"', 'CAM1_RELAY_CHANGED=NO',
+            'AI_WORKER_CHANGED=NO', 'SECRETS_DISPLAYED=NO',
         ):
             self.assertIn(marker, RELAY)
         self.assertNotIn('systemctl restart "$cam1_service"', RELAY)
@@ -206,12 +229,9 @@ class CameraPreviewGalleryTests(unittest.TestCase):
 
     def test_ubuntu_inventory_is_protected_and_catalog_is_sanitized(self) -> None:
         for marker in (
-            'inventory mode must be 600',
-            'inventory must be root-owned',
-            'sea_speed_camera_preview_inventory_v1',
-            'sea_speed_camera_preview_catalog_v1',
-            'if parsed.username is None:',
-            'source": f"rtsp://{relay_host}:{relay_port}/{path_name}"',
+            'inventory mode must be 600', 'inventory must be root-owned',
+            'sea_speed_camera_preview_inventory_v1', 'sea_speed_camera_preview_catalog_v1',
+            'if parsed.username is None:', 'source": f"rtsp://{relay_host}:{relay_port}/{path_name}"',
         ):
             self.assertIn(marker, RELAY)
         self.assertNotRegex(RELAY, r"192\.168\.88\.\d+")
@@ -220,21 +240,20 @@ class CameraPreviewGalleryTests(unittest.TestCase):
         for marker in (
             'CAMERAS_FRONTEND_TARGET="${SEA_SPEED_CAMERAS_FRONTEND_TARGET:-/var/www/mostdef.ru/sea-speed/cameras/index.html}"',
             'CAMERAS_FRONTEND_URL="${SEA_SPEED_CAMERAS_FRONTEND_URL:-https://mostdef.ru/sea-speed/cameras/}"',
-            'frontend/sea-speed/cameras/index.html',
-            'frontend/sea-speed/cameras/.absent',
-            'ensure_current_release_has_cameras_frontend',
-            'verify_url "Cameras frontend" "$CAMERAS_FRONTEND_URL"',
+            'frontend/sea-speed/cameras/index.html', 'frontend/sea-speed/cameras/.absent',
+            'ensure_current_release_has_cameras_frontend', 'verify_url "Cameras frontend" "$CAMERAS_FRONTEND_URL"',
             '"cameras_frontend_release_state"',
         ):
             self.assertIn(marker, DEPLOY)
 
-    def test_sdd_links_extension_issue_and_preserves_camera1_and_storage_boundary(self) -> None:
+    def test_sdd_links_snapshot_issue_and_preserves_camera1_and_storage_boundary(self) -> None:
         for doc in (SPEC, PLAN, TASKS, QUICKSTART):
-            self.assertIn("#109", doc)
+            self.assertIn("#112", doc)
         self.assertIn("/cams/hls/cam1/index.m3u8", SPEC)
         self.assertIn("Camera 1", PLAN)
-        self.assertIn("one active", SPEC.lower())
+        self.assertIn("one-active-preview", SPEC.lower())
         self.assertIn("localStorage", SPEC)
+        self.assertIn("camera-preview-snapshots", SPEC)
         self.assertIn("sequential", PLAN.lower())
 
 
