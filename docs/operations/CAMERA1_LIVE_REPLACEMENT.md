@@ -221,7 +221,7 @@ If Ubuntu relay activation or the VPS canonical switch fails:
 1. stop the rollout;
 2. record only sanitized failure evidence and the non-secret backup path;
 3. do not run further cleanup;
-4. obtain an explicit rollback decision;
+4. obtain an explicit production rollback decision;
 5. restore the appropriate previously captured config and restart only the affected relay service;
 6. re-verify the restored canonical HLS behavior.
 
