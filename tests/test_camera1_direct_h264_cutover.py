@@ -34,6 +34,14 @@ server {
 }
 '''
 
+REDIRECT = r'''
+server {
+    listen 80;
+    server_name mostdef.ru www.mostdef.ru;
+    return 301 https://$host$request_uri;
+}
+'''
+
 
 class Camera1DirectH264CutoverTests(unittest.TestCase):
     def test_renderer_creates_exact_cam1_precedence_and_preserves_generic_route(self) -> None:
@@ -47,6 +55,15 @@ class Camera1DirectH264CutoverTests(unittest.TestCase):
         self.assertIn("auth_basic_user_file /etc/nginx/.htpasswd;", rendered)
         self.assertIn("location /cams/hls/ {", rendered)
         self.assertIn("proxy_pass http://127.0.0.1:8888/;", rendered)
+
+    def test_renderer_selects_hls_server_when_same_host_has_redirect_server(self) -> None:
+        rendered = nginxcut.render(REDIRECT + BASE)
+        nginxcut.verify(rendered)
+        self.assertEqual(rendered.count(nginxcut.BEGIN), 1)
+        before_tls, after_tls = rendered.split("listen 443 ssl;", 1)
+        self.assertNotIn(nginxcut.BEGIN, before_tls)
+        self.assertIn(nginxcut.BEGIN, after_tls)
+        self.assertIn("return 301 https://$host$request_uri;", before_tls)
 
     def test_renderer_is_idempotent(self) -> None:
         first = nginxcut.render(BASE)

@@ -61,19 +61,6 @@ def _blocks(text: str, keyword: str) -> list[tuple[int, int, int]]:
     return out
 
 
-def _server_for_host(text: str, host: str) -> tuple[int, int, int]:
-    matches = []
-    host_re = re.compile(rf"(?m)^\s*server_name\s+[^;]*\b{re.escape(host)}\b[^;]*;")
-    for block in _blocks(text, "server"):
-        _, open_index, close_index = block
-        body = text[open_index + 1 : close_index]
-        if host_re.search(body):
-            matches.append(block)
-    if len(matches) != 1:
-        raise ConfigError(f"expected exactly one server block for {host}, found {len(matches)}")
-    return matches[0]
-
-
 def _location_blocks(server_text: str) -> list[tuple[str, int, int, int]]:
     out = []
     pattern = re.compile(r"(?m)^\s*location\s+([^\{]+)\{")
@@ -94,6 +81,26 @@ def _location_uri(spec: str) -> str:
     if parts[0] in {"=", "^~", "~", "~*"}:
         return parts[1] if len(parts) > 1 else ""
     return parts[0]
+
+
+def _server_for_host(text: str, host: str) -> tuple[int, int, int]:
+    host_matches = []
+    target_matches = []
+    host_re = re.compile(rf"(?m)^\s*server_name\s+[^;]*\b{re.escape(host)}\b[^;]*;")
+    for block in _blocks(text, "server"):
+        _, open_index, close_index = block
+        body = text[open_index + 1 : close_index]
+        if not host_re.search(body):
+            continue
+        host_matches.append(block)
+        if any(_location_uri(spec) == GENERIC_PREFIX for spec, *_ in _location_blocks(body)):
+            target_matches.append(block)
+    if len(target_matches) != 1:
+        raise ConfigError(
+            f"expected exactly one server block for {host} containing {GENERIC_PREFIX}, "
+            f"found {len(target_matches)} among {len(host_matches)} host blocks"
+        )
+    return target_matches[0]
 
 
 def _generic_location(server_text: str) -> tuple[int, int, int]:
