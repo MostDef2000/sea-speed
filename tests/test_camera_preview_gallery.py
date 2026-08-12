@@ -87,7 +87,7 @@ class CameraPreviewGalleryTests(unittest.TestCase):
             'context.drawImage(activeVideo,0,0,width,height)',
             'snapshotIds.add(active.camera_id)',
             'destroyPlayer({capture=true}={})',
-            'stopPreview({preserveFrame=true})',
+            'async function stopPreview({preserveFrame=true}={})',
         ):
             self.assertIn(marker, CAMERAS)
         for forbidden in (
