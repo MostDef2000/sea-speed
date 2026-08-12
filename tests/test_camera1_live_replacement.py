@@ -254,17 +254,20 @@ class Camera1LiveReplacementTests(unittest.TestCase):
         self.assertIn("automatic rollback is not authorized", vps)
         self.assertNotIn("worker.env", vps)
 
-    def test_documentation_preserves_public_identity_and_runtime_boundary(self) -> None:
+    def test_documentation_preserves_private_relay_and_records_auth_v1_boundary(self) -> None:
         source = DOC.read_text(encoding="utf-8")
-        self.assertIn("/cams/hls/cam1/index.m3u8", source)
+        self.assertIn("Issue #115", source)
+        self.assertIn("/sea-speed/media/cam1/index.m3u8", source)
+        self.assertIn("retired `/cams/hls/cam1/index.m3u8`", source)
         self.assertIn("does not create `cam2`", source)
         self.assertIn("independent of `sea-speed-worker.service`", source)
         self.assertIn("single VPS ZeroTier peer", source)
         self.assertIn("--reader-ip", source)
         self.assertIn("rtspTransport: tcp", source)
         self.assertIn("cam1-new", source)
-        self.assertIn("runtime remains `UNKNOWN`", source)
-        self.assertIn("explicit rollback decision", source)
+        self.assertIn("sea-speed-auth-cutover.sh", source)
+        self.assertIn("explicit production rollback decision", source)
+        self.assertNotIn("runtime remains `UNKNOWN`", source)
 
 
 if __name__ == "__main__":
