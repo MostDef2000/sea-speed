@@ -3,6 +3,7 @@
 - Specification: `specs/004-sea-speed-auth-v1/spec.md`
 - Plan: `specs/004-sea-speed-auth-v1/plan.md`
 - Issue: #115
+- Pull Request: #116
 - Status: Implementing
 
 ## Source tasks
