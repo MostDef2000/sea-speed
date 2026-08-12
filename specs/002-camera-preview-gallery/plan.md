@@ -3,7 +3,7 @@
 - Specification: specs/002-camera-preview-gallery/spec.md
 - Original Issue: #103
 - Extension Issue: #109
-- Status: Approved extension implementation
+- Status: Snapshot-stability remediation in progress under existing Outcome Authorization
 
 ## Architecture
 
@@ -27,10 +27,11 @@ Preview All button
   -> sequential catalog iterator
      -> existing start(camera_id)
         -> existing one active HLS preview
-           -> wait for decodable browser frame
-              -> canvas.drawImage(video)
-                 -> stop/replace preview
-                    -> next camera
+           -> wait for first decodable browser frame
+              -> require bounded actual media-time progression
+                 -> canvas.drawImage(video)
+                    -> stop/replace preview
+                       -> next camera
 
 Stop All
   -> invalidate batch generation
@@ -104,6 +105,15 @@ The existing exact-artifact requirement for `frontend/sea-speed/cameras/index.ht
 - Decision: start/playback readiness failure is recorded on that card and iteration continues.
 - Reason: identification of the remaining catalog should not depend on one offline or misconfigured candidate.
 
+### D-013 - Stable snapshot requires observed playback progress
+
+- Runtime finding: the first production implementation waited for `loadeddata`/`playing` and then only a fixed 1.2-second dwell. Visual acceptance showed some retained frames were still gray or only partially formed even though HLS and the server preview were healthy.
+- Decision: after first-frame readiness, require the same `<video>` element to advance its `currentTime` by at least 3 seconds before `drawImage()` is allowed for batch capture.
+- Bound: the progression wait times out after 12 seconds; a timeout marks only that camera and traversal continues.
+- Cancellation: the existing generation token remains authoritative; Stop All can invalidate the batch during readiness or progression waiting.
+- Reason: media-time advancement measures actual decoded playback and is more robust than an arbitrary wall-clock sleep across cameras, network conditions and browser performance.
+- Rejected: increasing server concurrency, adding backend snapshot endpoints, or persisting images to hide startup artifacts.
+
 ## Frontend state model
 
 Volatile variables only:
@@ -126,15 +136,16 @@ No retained-frame bytes are serialized into storage.
    - start that camera through the existing API;
    - if the generation became stale, stop any late-started preview and return;
    - attach HLS player;
-   - wait bounded time for a decodable video frame;
-   - if successful, allow a short dwell then draw the current frame into that card canvas;
-   - if unsuccessful, show local error and continue.
+   - wait bounded time for the first decodable video frame;
+   - then wait for at least 3 seconds of actual `video.currentTime` progression, bounded by a 12-second stabilization timeout;
+   - if both readiness stages succeed, draw the latest frame into that card canvas;
+   - if either stage fails, show local error and continue.
 4. On normal completion call the existing stop endpoint for the final server preview.
 5. Leave all successful card canvases visible.
 
 ## Manual preview behavior
 
-Manual Play/Switch/Stop uses the same `captureActiveFrame()` path. If the browser has a decodable frame, it is retained before the live player is destroyed. If no frame exists, the prior retained canvas (if any) is not fabricated or overwritten.
+Manual Play/Switch/Stop uses the same `captureActiveFrame()` path. If the browser has a decodable frame, it is retained before the live player is destroyed. The new progression gate is specifically for automatic Preview All capture, where the UI decides when to leave a camera. If the operator manually stops early, the current decodable frame is intentionally retained because that action is explicit.
 
 ## Affected contours
 
@@ -146,27 +157,28 @@ Manual Play/Switch/Stop uses the same `captureActiveFrame()` path. If the browse
 - Camera 1 accepted live path: unchanged.
 - AI/detection/tracking: unchanged.
 
-Production impact derives as `VPS` because `frontend/**` changes. Production rollout remains separately authorized after exact-green source merge.
+Production impact derives as `VPS` because `frontend/**` changes. A new exact merged SHA will require a fresh production safety-envelope authorization before redeployment; the prior authorization was exact-SHA-bound to `11306b23f3dd2fb21917a593c0e055911eefc6ff`.
 
 ## Validation
 
-- Focused static tests assert global batch controls, sequential iteration markers, generation cancellation, volatile canvas capture and forbidden persistent browser storage APIs.
+- Focused static tests assert global batch controls, sequential iteration markers, generation cancellation, volatile canvas capture, actual media-time progression before batch snapshot, bounded stabilization timeout, and forbidden persistent browser storage APIs.
 - Existing tests continue to assert one-active backend policy, credential safety, source-on-demand relay separation, Camera 1 stability markers and deployment integration.
-- Required PR Validation and `Quality integration gate / quality-integration` must pass for the exact PR head.
-- Exact diff must remain the approved six Issue #109 files.
+- Required PR Validation and `Quality integration gate / quality-integration` must pass for the exact remediation PR head.
+- Exact diff remains inside the approved six Issue #109 files.
 
 ## Rollout
 
-1. Complete exact six-file source implementation under the recorded Outcome Authorization.
-2. Open bounded PR linked to Issue #109 and this specification.
+1. Implement the browser stabilization repair under the still-valid Issue #109 Outcome Authorization and exact six-file scope.
+2. Open a bounded PR linked to Issue #109 and this specification.
 3. Remediate CI only inside the approved outcome/scope.
 4. Merge the exact green head without a separate merge token while Outcome Authorization remains valid.
-5. Obtain a separate production safety-envelope authorization for the exact merged main commit.
-6. Deploy only the VPS frontend release contour using existing exact release/deploy controls; no Ubuntu mutation.
+5. Obtain a fresh production safety-envelope authorization for the new exact merged main commit.
+6. Deploy only the VPS release contour using existing exact release/deploy controls; no Ubuntu mutation.
 7. Runtime acceptance:
    - Camera 1 baseline healthy before;
    - idle Cameras page starts no preview;
-   - Preview All visibly progresses across representative cameras and leaves last frames;
+   - Preview All visibly progresses across representative cameras;
+   - successful automatic snapshots are taken only after media progression and are visually formed rather than startup-gray/partial;
    - at least one failed/unusable camera does not abort later cameras when such a candidate is available;
    - Stop All stops current preview and prevents further batch starts;
    - manual switch/stop retains prior frame;
@@ -181,4 +193,5 @@ Use the existing exact VPS release rollback mechanism if separately authorized i
 ## Runtime feedback
 
 - 2026-08-12: Original gallery and HLS permission remediation were accepted in production on exact main with representative cam18/cam20 start/switch/stop and visible moving-video confirmation.
-- Issue #109 is intentionally a frontend-only identification workflow layered over that accepted runtime contour.
+- 2026-08-12: Issue #109 exact main `11306b23f3dd2fb21917a593c0e055911eefc6ff` deployed successfully. Technical server sequence and Camera 1 regression checks passed. Visual Preview All acceptance exposed early canvas capture: cam10 produced a formed frame while multiple following cards retained gray/partial startup images.
+- The remediation therefore changes only browser capture readiness; HLS transport, server `max_active=1`, Ubuntu relay, camera credentials, Camera 1 and AI remain unchanged.
