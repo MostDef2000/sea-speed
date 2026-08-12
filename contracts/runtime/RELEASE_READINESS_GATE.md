@@ -1,6 +1,6 @@
 # Sea Speed Release Readiness Gate
 
-Version: 1.3.0
+Version: 1.4.0
 Status: Active
 
 ## Gate
@@ -10,8 +10,9 @@ Before release execution verify:
 ```text
 Release Readiness Gate
 - Canonical Issue linked: YES/NO
+- Outcome Contract / approved scope current: YES/NO
 - Approved source committed to main: YES/NO
-- Changed files match scope: YES/NO
+- Changed files match approved scope: YES/NO
 - Aggregate quality context successful for exact commit: YES/NO
 - Secrets/runtime artifacts absent: YES/NO
 - Exact artifact inventory and SHA-256 valid: YES/NO/NOT APPLICABLE
@@ -21,120 +22,73 @@ Release Readiness Gate
 - Worker update required: YES/NO
 - Mixed-contour compatibility declared: YES/NO/NOT APPLICABLE
 - Rollout and rollback order declared: YES/NO/NOT APPLICABLE
-- Explicit deployment approval available: YES/NO/NOT APPLICABLE
-- Acceptance evidence available: YES/NO
+- Production safety envelope available: YES/NO/NOT APPLICABLE
+- Production envelope still matches outcome/contour/boundaries: YES/NO/NOT APPLICABLE
+- Final exact 40-character source SHA bound to envelope: YES/NO/NOT APPLICABLE
+- Acceptance evidence plan available: YES/NO
 - Rollback target available: YES/NO/NOT APPLICABLE
 - Safe to continue: YES/NO
 ```
 
 ## Capability preflight
 
-Before implementation begins, verify that the complete approved file set can be written and reviewed and that required branch, PR, CI, merge, release, delivery, verification and rollback operations are available. Do not accept a partial multi-file delivery as a substitute for a blocked mandatory path.
+Before implementation begins, verify the complete approved file set and delivery lifecycle. Do not accept partial delivery as a substitute for a blocked mandatory path.
 
 ## Aggregate quality gate
 
-The merge-facing context is:
-
-```text
-Quality integration gate / quality-integration
-```
-
-It succeeds only when all four independent domains succeed:
-
-- `static-contract-security`;
-- `property-fuzz-reliability`;
-- `exact-artifact-e2e`;
-- `release-deployment-evidence`.
-
-The aggregate workflow must run without path filters and its final job must use `if: always()`. A skipped, cancelled or failed dependency is not success.
-
-Repository source may declare `aggregate_installed_not_enforced`. Do not claim branch-protection enforcement until GitHub settings are independently verified and the state in `data/quality/quality-gates-v1.json` is updated through an approved change.
+The merge-facing context remains `Quality integration gate / quality-integration`. It succeeds only when all required independent domains succeed. A skipped, cancelled or failed dependency is not success.
 
 ## Release provenance gate
 
-When runtime delivery applies, validate:
+When runtime delivery applies, validate canonical Issue, current Outcome Contract, exact base/source commits, approved changed-file set/scope hash, deployable artifact inventory, deterministic rebuild where supported, SHA-256/size, component classification, contract set and quality evidence.
 
-- exact base and source commits;
-- canonical Issue and scope hash;
-- approved changed-file set;
-- exact deployable artifact inventory;
-- deterministic rebuild where supported;
-- artifact SHA-256 and size;
-- component classification and release state;
-- versioned contract set and compatibility mode;
-- quality evidence against `schemas/quality-evidence.schema.json`.
+Package creation is not deployment evidence.
 
-Use `schemas/release-manifest.schema.json` semantics. Package creation is not deployment evidence.
+## Production authorization gate
 
-## Deployment authorization gate
+Production must not run because of a pull request, push, merge or source Outcome Authorization alone.
 
-Production deployment must not run because of a pull request, push or merge alone. It requires:
+A production safety envelope must be separately recorded. It may cover the final exact gated deployment, declared necessary restart/reload operations, bounded smoke checks and an explicitly declared safe rollback condition/target.
 
-- explicit manual dispatch or an equivalent separately approved release action;
-- a full exact source commit SHA;
-- successful aggregate quality status for that commit;
-- production-environment approval;
-- validated release and quality evidence;
-- a known rollback target.
+Before each production execution, bind that envelope to the final exact source SHA by verifying:
+
+- the source SHA is a full 40-character commit on `main` attributable to the same canonical task/outcome;
+- aggregate quality succeeded for that exact SHA;
+- exact artifacts, release manifest and quality evidence validate;
+- product outcome, runtime contour, protected boundaries, deployment method and rollback semantics still match the approved envelope;
+- the rollback target is known.
+
+Bounded source/CI remediation inside the same Outcome Contract does not automatically stale the production envelope. A material change to outcome, contour, protected boundary, deployment target, secret/security handling, destructive behavior or rollback semantics does stale it and requires fresh production authorization.
 
 ## VPS gate
 
-When VPS deployment is required, verify:
-
-- deployment automation actually ran after explicit approval;
-- deployment manifest source commit matches the approved exact commit;
-- API process and health endpoint;
-- `api_schema` and health `source_commit`;
-- frontend smoke check when applicable;
-- storage compatibility and rollback target.
+When VPS deployment is required, verify authorized automation ran, deployment identity matches the exact bound commit, health/source identity is correct, applicable frontend/storage checks pass and rollback target remains known.
 
 ## Worker gate
 
-When a worker update is required, verify:
+When worker update is required, verify exact package/install identity, preservation of local protected state, valid deployment evidence, restart, matching worker source identity, freshness/frame advancement and applicable telemetry semantics.
 
-- package checksum, exact-artifact inventory and release manifest;
-- controlled installation of the exact commit;
-- preservation of local secrets/model/environment/output;
-- valid deployment manifest;
-- successful restart;
-- state `worker_source_commit` matches the installed commit;
-- fresh `updated_at`, `worker_online=true`, and advancing `frame_no`;
-- telemetry schema validation;
-- affected overlay/event behavior.
-
-A GitHub-hosted exact-artifact check does not prove NVIDIA/CUDA, physical camera or RTSP operation. Those require target or self-hosted runtime evidence.
+GitHub-hosted CI does not prove physical camera/GPU/runtime behavior.
 
 ## Mixed-contour gate
 
-When both VPS and worker updates are required, verify compatibility for old/new component combinations and execute the declared rollout order. The default is backward-compatible VPS/API first, API acceptance second, worker update third, and worker runtime acceptance last.
+When both VPS and worker updates apply, verify declared compatibility and execute the authorized rollout/rollback order.
 
 ## Media-boundary gate
 
-The active `mvp_v1` contract temporarily permits durable VPS event media and is recorded as `RISK-MEDIA-001`. The target `edge_v2` contract requires durable images and video on the edge node and forbids durable VPS media while permitting controlled byte streaming.
-
-Do not report the target boundary as active before the separately approved storage migration and runtime verification complete.
-
-## Telemetry gate
-
-State and event evidence must satisfy `schemas/telemetry.schema.json` semantics. Identity fields are additive and must not contain secrets. Invalid records are excluded from product evidence and require a linked diagnostic or regression task when material.
+The active `mvp_v1` and target `edge_v2` storage boundary remain unchanged; activating `edge_v2` remains a separate protected migration.
 
 ## Evidence review gate
 
-After runtime verification, complete `docs/evidence/POST_RELEASE_REVIEW.md` and return one verdict:
-
-- `accepted`;
-- `regressed`;
-- `insufficient_evidence`.
-
-A `regressed` verdict requires a linked Issue and rollback decision. An `insufficient_evidence` verdict cannot be reported as accepted.
+After runtime verification, return exactly one product verdict: `accepted`, `regressed`, or `insufficient_evidence`. A regression requires a linked Issue and rollback decision unless the exact safe rollback was already included in the active production envelope.
 
 ## Documentation-only rule
 
-Changes limited to contracts, documentation, quality tooling, skills or README require aggregate PR validation and merge only. VPS and worker release states must be `NOT REQUIRED`.
+Changes limited to governance, SDD, documentation, quality tooling, skills or README require aggregate PR validation and authorized merge only. VPS and worker release states must be `NOT REQUIRED`.
 
 ## Evidence rule
 
-A green PR is not evidence of deployment. Merge is not release. Release is not deployment. Packaging is not installation. Deployment is not acceptance. Report only verified state. `COMPLETE` requires evidence for every applicable transition.
+Green PR is not deployment evidence. Merge is not release. Release is not deployment. Deployment is not acceptance. `COMPLETE` requires evidence for every applicable transition.
 
 ## Verdicts
 

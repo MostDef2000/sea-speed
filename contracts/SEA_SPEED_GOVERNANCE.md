@@ -1,60 +1,99 @@
 # Sea Speed Governance
 
-Version: 1.5.0
+Version: 1.6.0
 Status: Active
 Source of truth: GitHub `main`
 
 ## 1. Core rules
 
 - `main` is the only long-term source of truth.
-- GitHub Issues are the canonical persistent backlog, approval record and task history. Chat context may assist execution but must not replace durable issue state for implementation work.
+- GitHub Issues are the canonical persistent backlog, authorization record and task history. Chat context may assist execution but must not replace durable Issue state for implementation work.
 - Feature specifications under `specs/**` are the canonical durable product-intent artifacts for their feature. They complement Issues and do not replace governance contracts.
 - All GitHub repository operations must use the connected GitHub Connector. GitHub CLI `gh`, local GitHub authentication, `git push`, and direct local repository publication are not part of the Sea Speed delivery workflow.
-- VPS and Windows laptop are runtime environments, not editable source stores.
-- Task Intake is read-only and produces a canonical Task Brief before implementation planning.
-- Repository writes require `COMMIT APPROVED` or an approved equivalent issued after the Implementation Scope Check.
+- VPS and worker hosts are runtime environments, not editable source stores.
+- Task Intake is read-only and produces a canonical Task Brief plus an Outcome Contract before implementation.
+- Repository writes require valid source authorization issued after the Implementation Scope Check. `OUTCOME APPROVED` is the preferred authorization; legacy `COMMIT APPROVED` remains valid during transition.
 - Changes under `skills/**` additionally require `SKILL UPDATE APPROVED`.
 - Every task uses a fresh branch created from current `main`.
-- Scope expansion, destructive action, secret use, protected-file access, API schema change, or behavior redesign requires new approval.
+- Material product-scope expansion, destructive action, secret use/security-boundary change, protected behavior change, schema incompatibility, data migration, or behavior redesign requires fresh authorization.
 - Secrets, credentials, runtime logs, snapshots, overlays, videos, model binaries, `.env`, and local virtual environments must never be committed.
 
-## 2. Controlled delivery
+## 2. Outcome Contract and source authorization
 
-After approval, the Project Manager continues through all deterministic safe steps:
+Before source authorization, the Project Manager records a concise Outcome Contract in the canonical Issue or equivalent durable task record:
+
+```text
+Outcome Contract
+- Product outcome:
+- Protected things that must not change:
+- Main constraints:
+- Approved repository scope:
+- Runtime contour:
+- Production involved: YES/NO
+- Acceptance evidence:
+```
+
+`OUTCOME APPROVED` authorizes the complete bounded, reversible repository lifecycle needed to deliver that Outcome Contract:
+
+```text
+fresh branch
+→ source/SDD writes
+→ commits
+→ integrity verification
+→ pull request
+→ PR metadata correction
+→ CI validation
+→ in-scope CI remediation
+→ exact-green-head merge
+```
+
+This authorization remains valid across implementation and CI-remediation commits when all of the following remain true:
+
+- the canonical Issue and product outcome are unchanged;
+- changed files remain within the approved repository scope;
+- runtime contour and protected boundaries are unchanged;
+- no destructive, secret/security, incompatible-schema or migration boundary is crossed;
+- the final PR head passes all required merge gates.
+
+A new source authorization is required when any of those conditions becomes false.
+
+Legacy `COMMIT APPROVED` authorizes repository writes but retains the legacy separate merge-authorization rule described in section 14.
+
+## 3. Controlled delivery
+
+After valid source authorization, the Project Manager continues through all deterministic safe repository steps without asking for another technical confirmation.
 
 ```text
 implementation
 → integrity verification
 → pull request
-→ CI validation
-→ merge into main
-→ applicable release manifest
-→ applicable VPS deployment and/or Windows worker installation
-→ deployment manifest
+→ CI validation/remediation
+→ merge into main when authorized and gated
+→ applicable release readiness
+→ separately authorized production deployment and/or worker installation
+→ deployment evidence
 → runtime verification
 → post-release evidence review
 → COMPLETE
 ```
 
-Do not stop at commit, PR, CI, merge, package creation, deployment start or process start when the workflow can continue safely.
+Do not stop at commit, PR, CI, merge, package creation, deployment start or process start when the next transition is already authorized and can continue safely.
 
-## 3. Capability preflight
+## 4. Capability preflight
 
 Before the first repository write, verify that the complete approved lifecycle is feasible through the GitHub Connector:
 
 - every planned file can be read and safely written;
 - Issue, branch, file update, commit, PR, CI-status, workflow evidence and merge operations required by the task are available through the Connector;
 - the full mandatory multi-file set can be updated without partial delivery;
-- applicable VPS and Windows delivery mechanisms are known;
+- applicable VPS and worker delivery mechanisms are known;
 - release/deployment manifests, acceptance evidence and rollback paths are available or explicitly classified as manual fallback.
 
 The absence of GitHub CLI `gh`, a local GitHub login, a local git remote, or permission to run `git push` is not a blocker and must not be presented as one. Do not ask the user to install or authenticate `gh`. Do not fall back to `gh`, local GitHub commands or direct local publication.
 
-If a required Connector operation is unavailable, identify the exact missing capability and end as `BLOCKED` before repository writes or before any partial multi-file delivery. Local tools may be used to prepare content and run validation, but repository reading, writing, publication and lifecycle state changes remain Connector-only.
+If a required Connector operation is unavailable, identify the exact missing capability and end as `BLOCKED` before repository writes or before any partial multi-file delivery.
 
-Do not begin a partial multi-file implementation when a safe path for the full mandatory set is unavailable. End as `BLOCKED` before writes, or request a smaller approved scope.
-
-## 4. Branch policy
+## 5. Branch policy
 
 Before implementation verify:
 
@@ -69,9 +108,9 @@ Branch Freshness Check
 - Safe to implement: YES/NO
 ```
 
-Before merge, re-check branch freshness and changed-file scope.
+Before merge, re-check current `main`, exact changed-file scope and head identity. A materially changed base or conflict must be resolved inside the authorized outcome or escalated if it changes the Outcome Contract.
 
-## 5. Domain boundaries
+## 6. Domain boundaries
 
 - `worker/**`: Windows AI worker.
 - `api/**`: VPS FastAPI backend.
@@ -82,19 +121,25 @@ Before merge, re-check branch freshness and changed-file scope.
 
 Domain agents edit only approved files. Cross-domain changes must be declared in scope.
 
-## 6. Protected behavior
+## 7. Protected behavior and re-authorization triggers
 
-Without explicit approval, do not change:
+Fresh authorization is mandatory before:
 
-- API or VPS storage schema;
-- detection, tracking, scoring, speed or calibration formulas;
-- event semantics;
-- deployment targets or secrets handling;
-- compatibility guarantees between worker and API.
+- material product-outcome or approved-scope expansion;
+- destructive or irreversible action not already in the Outcome Contract;
+- secret disclosure/use outside an already approved protected runtime mechanism;
+- security-boundary weakening or credential-handling redesign;
+- protected Camera/runtime behavior change;
+- incompatible API/state/storage/session schema change;
+- data migration or destructive state transformation;
+- detection, tracking, scoring, speed or calibration formula redesign;
+- event-semantics redesign;
+- deployment-target redesign;
+- edits under `skills/**` without the additional skill authorization.
 
-Incompatible state or session schema changes must invalidate or migrate old data explicitly.
+Ordinary bug fixes, test corrections, PR metadata repair and CI remediation that remain within the Outcome Contract do not require re-authorization.
 
-## 7. Provenance and runtime identity
+## 8. Provenance and runtime identity
 
 Applicable delivery work must use:
 
@@ -106,20 +151,20 @@ Applicable delivery work must use:
 
 Runtime telemetry may expose only non-secret identities such as source commit, schema ID and calibration hash. It must not expose credentials, environment values, private keys, raw private media or model contents.
 
-## 8. Integrity gate
+## 9. Integrity gate
 
-After each repository file write and before PR creation:
+After repository writes and before PR creation:
 
-1. Fetch the complete written file.
-2. Verify beginning, ending, required sections, and closing syntax.
+1. Fetch the complete written files.
+2. Verify beginnings, endings, required sections and closing syntax.
 3. Validate executable syntax where applicable.
 4. Compare branch with `main`.
 5. Confirm all changed files remain inside approved scope.
 6. Confirm no secrets or runtime artifacts were introduced.
 
-A failed check returns the task to implementation.
+A failed check returns the task to implementation. In-scope repair remains covered by the active Outcome Authorization.
 
-## 9. Evidence and feedback
+## 10. Evidence and feedback
 
 Post-release evidence follows `docs/evidence/POST_RELEASE_REVIEW.md` and ends with exactly one product verdict:
 
@@ -127,9 +172,9 @@ Post-release evidence follows `docs/evidence/POST_RELEASE_REVIEW.md` and ends wi
 - `regressed`;
 - `insufficient_evidence`.
 
-A regression requires a linked Issue and an explicit rollback decision. Insufficient evidence must not be represented as acceptance.
+A regression requires a linked Issue and an explicit rollback decision unless the active production safety envelope already authorized that exact safe rollback condition. Insufficient evidence must not be represented as acceptance.
 
-## 10. Completion
+## 11. Completion
 
 Valid terminal states are only:
 
@@ -139,60 +184,66 @@ Valid terminal states are only:
 
 Merge is not deployment. Packaging is not installation. Deployment is not runtime acceptance. Evidence determines completion.
 
-## 11. Spec-Driven Development artifact layer
+## 12. Spec-Driven Development artifact layer
 
-Sea Speed uses GitHub Spec Kit concepts as a parallel artifact layer for product intent, architecture and execution while keeping this governance contract authoritative for approvals and delivery.
-
-The hierarchy is:
-
-- `contracts/**`: process authority, protected boundaries and delivery/evidence rules;
-- `.specify/memory/constitution.md`: Sea Speed SDD principles used by Spec Kit-compatible agents;
-- `.specify/templates/overrides/**`: project-local SDD artifact templates;
-- `specs/<feature>/spec.md`: canonical WHAT/WHY and acceptance criteria for a feature;
-- `specs/<feature>/plan.md`: accepted architecture, decisions and validation strategy;
-- `specs/<feature>/tasks.md`: bounded execution plan;
-- optional `research.md`, `quickstart.md` and `contracts/`: durable supporting evidence and normative feature contracts;
-- code: implementation of the linked feature specification;
-- runtime acceptance: operational truth that must feed back into the feature artifacts when it changes accepted behavior or architecture.
+Sea Speed uses GitHub Spec Kit concepts as a parallel artifact layer for product intent, architecture and execution while keeping this governance contract authoritative for authorization and delivery.
 
 Significant implementation and control-plane PRs must declare exactly one active specification in the PR body using `- Specification: specs/<feature>/spec.md`. The feature directory must contain at least `spec.md`, `plan.md` and `tasks.md`. `scripts/ci/validate_sdd.py` enforces the baseline and PR linkage.
 
-Narrow documentation/spec-only maintenance does not require recursively creating a new feature spec. Emergency runtime recovery may begin from an already approved Issue when production restoration is the immediate goal, but any accepted behavior or architecture change must be written back to the linked SDD artifacts before the task is represented as complete.
+Narrow documentation/spec-only maintenance does not require recursively creating a new feature spec. Emergency runtime recovery may begin from an already authorized Issue when production restoration is the immediate goal, but any accepted behavior or architecture change must be written back to linked SDD artifacts before completion.
 
-Historical Issues remain audit history. If runtime evidence proves that an original technical assumption is obsolete, the accepted feature spec/plan may supersede that assumption explicitly without rewriting history.
+Historical Issues remain audit history. Runtime evidence may supersede an obsolete technical assumption in the feature spec/plan without rewriting history.
 
-Spec Kit tooling is optional local/agent tooling. CI validates repository artifacts directly and must not depend on a specific local AI agent or Spec Kit installation.
-
-## 12. Executable Change Contract
+## 13. Executable Change Contract
 
 Every implementation pull request must keep a machine-readable Change Contract in its body. The canonical template is `.github/pull_request_template.md`, the versioned path policy is `data/contracts/change-control-policy-v1.json`, and enforcement is implemented by `scripts/ci/validate_change_contract.py`.
 
 The Change Contract must include:
 
 - one canonical Issue reference;
-- the linked feature specification when required by the SDD policy;
+- the linked feature specification when required by SDD policy;
 - the approved scope and acceptance criteria;
+- the source-authorization model (`OUTCOME APPROVED` or `LEGACY COMMIT APPROVED`);
 - `YES` for the Implementation Scope Check approval;
-- the exact changed-file set, matching the Git diff without missing or extra paths;
-- one derived production-impact class: `NONE`, `CONTROL_PLANE`, `VPS`, `WINDOWS_WORKER`, or `MIXED`;
+- `NO` for material scope/protected-boundary change since that authorization;
+- the exact changed-file set matching the Git diff;
+- one derived production-impact class;
 - production-impact rationale and compatibility statements;
 - deployment applicability, rollout, evidence and rollback declarations;
 - local, CI and applicable runtime-validation plans.
 
-A changed-file mismatch, placeholder field, missing required section, incorrect production-impact class, incorrect SDD linkage when required, or incorrect deterministic deployment declaration fails the pull-request quality gate. Scope expansion requires new approval and a synchronized Issue and PR body before implementation continues.
+A changed-file mismatch, placeholder, missing section, invalid authorization declaration, material-boundary-change declaration, incorrect production-impact class, incorrect SDD linkage or incorrect deterministic deployment declaration fails the pull-request quality gate.
 
-`AGENTS.md` is an agent-facing entry point only. It must point to this contract and must not become an independent source of governance truth.
+## 14. Merge authorization
 
-## 13. Merge authorization
-
-Successful CI does not authorize merge by itself. Merge requires:
+Successful CI does not authorize merge by itself. Merge always requires:
 
 - a fresh comparison against current `main`;
 - the approved exact changed-file scope;
 - successful required checks for the current head SHA;
 - no unresolved review threads;
-- separate `MERGE APPROVED` authorization or an approved equivalent issued after CI evidence is available.
+- expected-head-SHA protection when supported.
 
-If the PR head changes after merge authorization, the authorization is stale and must be obtained again. The merge operation must use an expected-head-SHA guard when supported.
+Authorization is then resolved by source-authorization model:
+
+- `OUTCOME APPROVED`: no separate merge prompt is required while the Outcome Contract remains valid. The Project Manager may merge the exact green head automatically.
+- `LEGACY COMMIT APPROVED`: separate `MERGE APPROVED` (or an equivalent issued after CI evidence) is still required.
+
+If a head change introduces material scope or protected-boundary change, Outcome Authorization is stale and must be renewed. Ordinary in-scope CI remediation does not stale it.
+
+## 15. Production safety envelope
+
+Source authorization never authorizes production mutation.
+
+A separately recorded `PRODUCTION APPROVED` safety envelope may authorize the bounded release execution for one canonical task and runtime contour, including:
+
+- deployment of the final exact green source SHA attributable to the approved Outcome Contract;
+- declared normal service restart/reload operations required by that deployment;
+- declared smoke/health checks;
+- an explicitly declared safe rollback to a known target when the stated rollback condition occurs.
+
+The production envelope remains valid across bounded source/CI remediation only when product outcome, runtime contour, protected boundaries, deployment method and rollback semantics remain unchanged. Immediately before production execution, release readiness must bind the envelope to the final exact 40-character SHA, successful aggregate quality, validated artifacts/evidence and known rollback target.
+
+Any material runtime-scope change, new destructive operation, changed secret/security boundary, changed deployment target or changed rollback semantics requires fresh production authorization.
 
 Repository rulesets, branch protection, required approvals and protected environments are GitHub settings, not facts proven by source installation. They may be reported as enforced only after independent settings verification and durable evidence.

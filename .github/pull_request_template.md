@@ -3,7 +3,9 @@
 - Issue: #
 - Specification: `specs/NNN-feature/spec.md` / NOT REQUIRED
 - Approved scope:
+- Source authorization: OUTCOME APPROVED / LEGACY COMMIT APPROVED
 - Approval recorded after Implementation Scope Check: YES/NO
+- Material scope/protected-boundary change since authorization: NO/YES
 - Acceptance criteria:
 
 ## Change
@@ -26,6 +28,7 @@
 
 - VPS deployment: REQUIRED / NOT REQUIRED
 - Windows worker update: REQUIRED / NOT REQUIRED
+- Production safety envelope: REQUIRED / NOT REQUIRED
 - Rollout order:
 - Release manifest:
 - Rollback target:

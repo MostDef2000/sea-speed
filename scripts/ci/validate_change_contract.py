@@ -24,9 +24,12 @@ PLACEHOLDERS = {
     "TODO",
     "TBC",
     "YES/NO",
+    "NO/YES",
     "REQUIRED / NOT REQUIRED",
+    "OUTCOME APPROVED / LEGACY COMMIT APPROVED",
     "NONE / CONTROL_PLANE / VPS / WINDOWS_WORKER / MIXED",
 }
+SOURCE_AUTHORIZATIONS = {"OUTCOME APPROVED", "LEGACY COMMIT APPROVED"}
 
 
 class ContractError(ValueError):
@@ -94,6 +97,18 @@ def require_value(fields: dict[str, str], name: str) -> str:
     return value
 
 
+def validate_authorization(fields: dict[str, str]) -> str:
+    authorization = require_value(fields, "Source authorization")
+    if authorization not in SOURCE_AUTHORIZATIONS:
+        raise ContractError("Source authorization must be OUTCOME APPROVED or LEGACY COMMIT APPROVED")
+    if fields.get("Approval recorded after Implementation Scope Check") != "YES":
+        raise ContractError("Implementation Scope Check approval must be YES")
+    boundary_change = fields.get("Material scope/protected-boundary change since authorization", "").strip()
+    if boundary_change != "NO":
+        raise ContractError("material scope/protected-boundary change requires fresh authorization before PR admission")
+    return authorization
+
+
 def validate_deployment_fields(impact: str, fields: dict[str, str]) -> None:
     vps = fields.get("VPS deployment", "")
     worker = fields.get("Windows worker update", "")
@@ -110,6 +125,13 @@ def validate_deployment_fields(impact: str, fields: dict[str, str]) -> None:
         raise ContractError(
             f"deployment declaration {(vps, worker)} does not match {impact}: expected {expected[impact]}"
         )
+    production_envelope = fields.get("Production safety envelope", "")
+    if production_envelope not in allowed:
+        raise ContractError("Production safety envelope must be REQUIRED or NOT REQUIRED")
+    if impact in {"VPS", "WINDOWS_WORKER", "MIXED"} and production_envelope != "REQUIRED":
+        raise ContractError("runtime production impact requires a Production safety envelope")
+    if impact in {"NONE", "CONTROL_PLANE"} and production_envelope != "NOT REQUIRED":
+        raise ContractError("non-runtime impact must declare Production safety envelope NOT REQUIRED")
 
 
 def validate_contract(body: str, changed_files: Iterable[str], policy: dict | None = None) -> str:
@@ -123,8 +145,7 @@ def validate_contract(body: str, changed_files: Iterable[str], policy: dict | No
     issue = require_value(fields, "Issue")
     if not re.fullmatch(r"#\d+", issue):
         raise ContractError("Issue must be a canonical GitHub issue reference such as #76")
-    if fields.get("Approval recorded after Implementation Scope Check") != "YES":
-        raise ContractError("Implementation Scope Check approval must be YES")
+    validate_authorization(fields)
 
     for name in (
         "Approved scope",
