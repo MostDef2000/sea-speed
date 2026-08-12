@@ -14,6 +14,7 @@ DEPLOY = (ROOT / "deploy/vps/deploy.sh").read_text(encoding="utf-8-sig")
 SPEC = (ROOT / "specs/002-camera-preview-gallery/spec.md").read_text(encoding="utf-8-sig")
 PLAN = (ROOT / "specs/002-camera-preview-gallery/plan.md").read_text(encoding="utf-8-sig")
 TASKS = (ROOT / "specs/002-camera-preview-gallery/tasks.md").read_text(encoding="utf-8-sig")
+QUICKSTART = (ROOT / "specs/002-camera-preview-gallery/quickstart.md").read_text(encoding="utf-8-sig")
 
 
 class CameraPreviewGalleryTests(unittest.TestCase):
@@ -60,6 +61,49 @@ class CameraPreviewGalleryTests(unittest.TestCase):
         self.assertNotIn("startPreview(cameras[0]", CAMERAS)
         self.assertNotIn("autoplayPreview", CAMERAS)
         self.assertIn('if(active?.hls_url)attachActivePlayer()', CAMERAS)
+
+    def test_gallery_batch_preview_is_sequential_and_operator_controllable(self) -> None:
+        for marker in (
+            'id="previewAllButton"',
+            'id="stopAllButton"',
+            'id="batchProgress"',
+            'async function runPreviewAll()',
+            'for(let index=0;index<cameras.length;index++)',
+            'await startPreview(camera.camera_id,{batchToken:token})',
+            'await waitForVideoFrame(activeVideo)',
+            'await stopPreview({preserveFrame:true})',
+            'async function stopAllPreviews()',
+            'batchGeneration++',
+        ):
+            self.assertIn(marker, CAMERAS)
+        self.assertNotIn("Promise.all(cameras", CAMERAS)
+        self.assertNotIn("max_active: 33", CAMERAS)
+
+    def test_gallery_retains_last_frame_only_in_page_memory(self) -> None:
+        for marker in (
+            '<canvas data-snapshot',
+            'const snapshotIds=new Set()',
+            'function captureActiveFrame()',
+            'context.drawImage(activeVideo,0,0,width,height)',
+            'snapshotIds.add(active.camera_id)',
+            'destroyPlayer({capture=true}={})',
+            'async function stopPreview({preserveFrame=true}={})',
+        ):
+            self.assertIn(marker, CAMERAS)
+        for forbidden in (
+            "localStorage",
+            "sessionStorage",
+            "indexedDB",
+            "caches.open",
+            "CacheStorage",
+        ):
+            self.assertNotIn(forbidden, CAMERAS)
+        self.assertNotIn("snapshot_url", CAMERAS)
+
+    def test_gallery_failed_batch_camera_does_not_abort_remaining_catalog(self) -> None:
+        self.assertIn('cameraErrors.set(cameraId,error.message)', CAMERAS)
+        self.assertIn('if(!started||!activeVideo)continue;', CAMERAS)
+        self.assertIn('cameraErrors.set(camera.camera_id,"Видео не успело показать кадр")', CAMERAS)
 
     def test_api_exposes_catalog_only_start_stop_status_contract(self) -> None:
         for marker in (
@@ -168,12 +212,14 @@ class CameraPreviewGalleryTests(unittest.TestCase):
         ):
             self.assertIn(marker, DEPLOY)
 
-    def test_sdd_is_linked_to_issue_103_and_preserves_camera1(self) -> None:
-        for doc in (SPEC, PLAN, TASKS):
-            self.assertIn("#103", doc)
+    def test_sdd_links_extension_issue_and_preserves_camera1_and_storage_boundary(self) -> None:
+        for doc in (SPEC, PLAN, TASKS, QUICKSTART):
+            self.assertIn("#109", doc)
         self.assertIn("/cams/hls/cam1/index.m3u8", SPEC)
         self.assertIn("Camera 1", PLAN)
         self.assertIn("one active", SPEC.lower())
+        self.assertIn("localStorage", SPEC)
+        self.assertIn("sequential", PLAN.lower())
 
 
 if __name__ == "__main__":

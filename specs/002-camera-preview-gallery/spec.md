@@ -1,35 +1,44 @@
 # Feature Specification: Camera Preview Gallery
 
 - Feature: 002-camera-preview-gallery
-- Issue: #103
-- Status: Approved for implementation
+- Issue: #109
+- Original Issue: #103
+- Status: Approved extension implementation
 - Parent capability: specs/001-camera-live-pipeline/spec.md
 
 ## Product outcome
 
-An operator can open a dedicated Cameras page, see every camera candidate from the protected runtime catalog, and start a temporary live preview of any one camera for visual identification. The system consumes no preview-camera media while the gallery is idle and does not disturb the accepted Camera 1 production live path.
+An operator can open a dedicated Cameras page, see every camera candidate from the protected runtime catalog, start a temporary live preview of any one camera for visual identification, or run a bounded sequential preview of the whole catalog. The gallery retains the last successfully decoded frame for each visited camera only for the lifetime of the current browser page so the operator can compare camera views without maintaining many live streams or any persistent snapshot store.
 
 ## User scenarios
 
 ### Scenario 1 - Browse camera candidates
 
-Given a protected runtime camera catalog is configured, when the operator opens `/sea-speed/cameras/`, then the page renders one card per catalog camera without exposing camera credentials or native credential-bearing RTSP URLs.
+Given a protected runtime camera catalog is configured, when the operator opens `/sea-speed/cameras/`, then the page renders one card per catalog camera without exposing camera credentials or native credential-bearing RTSP URLs and without starting media work.
 
 ### Scenario 2 - Preview one camera
 
 Given a camera card is available, when the operator presses Play, then the system starts only that camera's temporary browser-compatible preview and displays advancing video in that card.
 
-### Scenario 3 - Switch cameras
+### Scenario 3 - Switch cameras and retain context
 
-Given one preview is active, when the operator starts another camera, then the previous preview is stopped/replaced and the newly selected camera becomes the only active preview for the normal gallery workflow.
+Given one preview is active, when the operator starts another camera or presses Stop, then the current browser video frame is copied into that camera card before the server preview is released/replaced. The retained frame remains visible on the current page.
 
-### Scenario 4 - Leave an abandoned preview
+### Scenario 4 - Preview all cameras
 
-Given a preview is running, when the browser disappears or no explicit Stop reaches the server, then a hard server-side TTL terminates the FFmpeg preview process automatically.
+Given the catalog contains multiple cameras, when the operator presses `Предпросмотр всех`, then the browser visits catalog cameras sequentially, never intentionally requesting more than one server preview at a time, waits for a decodable frame where available, retains the last successful frame in that card, and proceeds to the next camera.
 
-### Scenario 5 - A candidate is not actually usable
+### Scenario 5 - Stop the batch
 
-Given a discovered device is offline or uses an unknown RTSP path, when the operator tries to preview it, then that card reports a bounded error and other camera cards plus Camera 1 remain unaffected.
+Given Preview All is running, when the operator presses `Остановить все`, then no further catalog cameras are intentionally started and the current server preview is stopped. Frames already captured on the page remain visible.
+
+### Scenario 6 - A candidate is not usable
+
+Given a discovered device is offline, slow, or uses an unknown RTSP path, when manual or batch preview cannot obtain usable video, then that card reports a bounded error and batch mode continues to the next candidate. Other camera cards plus Camera 1 remain unaffected.
+
+### Scenario 7 - Reload the page
+
+Given one or more cards contain retained frames, when the operator reloads or closes the page, then those retained frames disappear because they were not persisted.
 
 ## Requirements
 
@@ -40,14 +49,23 @@ Given a discovered device is offline or uses an unknown RTSP path, when the oper
 - FR-005: VPS preview input MUST be a credential-free private RTSP relay URL from the Ubuntu preview relay contour.
 - FR-006: The browser MUST receive H.264 HLS prepared for preview use; native RTSP/HEVC MUST NOT be exposed directly to the browser.
 - FR-007: Preview output SHOULD target approximately 640-pixel-class width, 8 fps and no audio to minimize resource use while remaining useful for visual identification.
-- FR-008: The normal gallery workflow MUST permit only one active VPS preview at a time. Starting a new camera MUST replace the prior preview.
-- FR-009: Every preview MUST have a hard bounded TTL, no longer than 10 minutes and 2 minutes by default.
-- FR-010: Stop MUST terminate the active preview and remove its temporary HLS media.
+- FR-008: The server preview workflow MUST permit only one active VPS preview at a time. Starting a new camera MUST replace the prior preview.
+- FR-009: Every server preview MUST have a hard bounded TTL, no longer than 10 minutes and 2 minutes by default.
+- FR-010: Stop MUST terminate the active server preview and remove its temporary HLS media.
 - FR-011: The Ubuntu preview relay MUST pull each configured source on demand and release it after readers disconnect.
 - FR-012: Camera credentials MUST remain in protected Ubuntu runtime configuration and MUST NOT appear in repository files, browser responses, public URLs, process argv generated by the VPS preview API, or API error details.
 - FR-013: The accepted Camera 1 public identity `/cams/hls/cam1/index.m3u8` and its direct H.264 browser path MUST remain unchanged.
 - FR-014: AI worker activation, detection, tracking, recording and event processing MUST remain independent and out of scope for gallery previews.
 - FR-015: The Cameras page MUST participate in exact VPS release, rollback and smoke validation with the existing operator, objects and root pages.
+- FR-016: The Cameras page MUST expose global `Предпросмотр всех` and `Остановить все` controls plus visible batch progress/current-camera feedback.
+- FR-017: Preview All MUST traverse the current sanitized catalog sequentially and MUST NOT use parallel per-camera preview starts.
+- FR-018: Before switching away from a successfully playing preview, the browser SHOULD copy the latest decodable frame to a canvas owned by that camera card.
+- FR-019: Manual Play/Switch/Stop MUST use the same last-frame behavior as batch mode where a decodable frame exists.
+- FR-020: Retained frames MUST exist only in volatile page memory/DOM. The feature MUST NOT write them to `localStorage`, `sessionStorage`, IndexedDB, Cache API, server-side snapshot files, databases, or another persistent cache.
+- FR-021: Reloading or closing the page MUST naturally discard all retained gallery frames.
+- FR-022: Batch failure for one camera MUST NOT abort remaining catalog traversal.
+- FR-023: Stop All MUST invalidate further batch starts and MUST request stop of the current server preview; if a bounded in-flight start completes after cancellation, the browser MUST stop it rather than resume batch traversal.
+- FR-024: When a full Preview All pass completes normally, the browser MUST stop the final server preview so the system returns to zero active preview processes while retained page frames remain visible.
 
 ## Acceptance criteria
 
@@ -55,33 +73,37 @@ Given a discovered device is offline or uses an unknown RTSP path, when the oper
 - AC-002: `/sea-speed/cameras/` renders all entries from the configured sanitized catalog and an explicit empty state when no catalog is installed.
 - AC-003: Opening the gallery does not start FFmpeg or cause Ubuntu source pulls.
 - AC-004: Play on one card produces a temporary H.264 HLS URL under `/sea-speed/media/camera-preview/` and advancing browser video.
-- AC-005: Starting another card replaces the prior active preview.
-- AC-006: Stop releases the preview; abandoned preview work expires automatically at the hard TTL.
-- AC-007: A failed candidate reports an isolated start error without affecting other camera candidates or Camera 1.
-- AC-008: API responses contain camera IDs/display labels/status only and never expose protected source URLs or credentials.
-- AC-009: Ubuntu preview paths are source-on-demand and readable only from the configured private VPS reader IP.
-- AC-010: Existing Camera 1 live viewing remains functional and its accepted browser architecture is unchanged.
-- AC-011: VPS deployment installs, rolls back and smoke-checks the Cameras page.
-- AC-012: Required repository validation and CI pass with the exact approved changed-file set.
+- AC-005: Starting another card replaces the prior active server preview and leaves the prior camera's last successful frame visible when capture was possible.
+- AC-006: Stop releases the server preview and leaves the last successful frame visible; abandoned preview work still expires automatically at the hard TTL.
+- AC-007: Preview All processes the catalog serially, reports progress, obtains representative last frames, and ends with no active server preview.
+- AC-008: Stop All ends the batch and prevents subsequent catalog starts from that batch generation.
+- AC-009: A failed candidate reports an isolated error and batch processing continues to later cameras.
+- AC-010: API responses contain camera IDs/display labels/status only and never expose protected source URLs or credentials.
+- AC-011: No retained gallery image survives page reload and no browser persistent storage API or server-side snapshot store is used for this feature.
+- AC-012: Existing Camera 1 live viewing remains functional and its accepted browser architecture is unchanged.
+- AC-013: VPS deployment installs, rolls back and smoke-checks the Cameras page.
+- AC-014: Required repository validation and CI pass with the exact approved changed-file set for Issue #109.
 
 ## Compatibility and boundaries
 
 - Stable Camera 1 interface: `/cams/hls/cam1/index.m3u8` is unchanged.
-- New operator interface: `/sea-speed/cameras/`.
-- New additive API surface: camera catalog plus preview start/stop/status endpoints under `/api/cameras`.
+- Existing preview API surface is unchanged; Issue #109 requires no API/backend endpoint or schema changes.
+- Existing server invariant `max_active=1` is preserved.
 - Runtime inventory is deployment-local data, not repository source.
 - No API/event/state/storage schema used by the AI worker is changed.
 - No Windows worker source is changed.
+- Retained last frames are ephemeral presentation state only, not runtime evidence or recording data.
 
 ## Runtime configuration contract
 
-Two runtime files are intentionally outside GitHub:
+Two runtime files remain intentionally outside GitHub:
 
 1. Ubuntu protected inventory, mode `0600`, containing camera identity/display metadata and credential-bearing native RTSP source URLs.
 2. VPS sanitized catalog containing camera identity/display metadata and credential-free private Ubuntu relay URLs only.
 
-The repository ships the helper and API logic but never a populated production inventory.
+Issue #109 does not change either runtime file contract.
 
 ## Runtime feedback
 
-- Pending. Runtime acceptance requires visual confirmation that representative camera candidates can be started, switched and stopped while Camera 1 remains healthy.
+- 2026-08-12: Original Camera Preview Gallery accepted in production after representative start/switch/stop and visible moving-video confirmation while Camera 1 remained healthy.
+- Issue #109 adds only browser-side sequential identification workflow and volatile last-frame presentation; production acceptance must confirm Preview All, Stop All, retained frames, reload clearing, failure continuation, and Camera 1 regression safety.
