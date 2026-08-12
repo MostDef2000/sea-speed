@@ -158,6 +158,13 @@ def _indent_at(text: str, index: int) -> str:
 
 
 def render(text: str, host: str = "mostdef.ru") -> str:
+    if BEGIN in text and END in text:
+        try:
+            verify(text, host)
+            return text
+        except ConfigError:
+            pass
+
     text = _strip_marked_section(text, BEGIN, END)
     if OLD_BEGIN in text or OLD_END in text:
         text = _strip_marked_section(text, OLD_BEGIN, OLD_END)
