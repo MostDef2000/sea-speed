@@ -38,7 +38,7 @@ Given any visitor, when `/cams` or `/cams/**` is requested, then no camera page,
 
 Given the AI worker is an infrastructure peer rather than an interactive browser user, when it publishes state/events or reads ROI/speed configuration, then it uses an exact private VPS listener reachable only from the approved worker private peer. Interactive `/sea-speed/**` remains Authentik-only and no worker source/package change is required.
 
-## Functional requirements
+## Requirements
 
 - FR-001: `https://mostdef.ru/` MUST remain publicly accessible without Sea Speed authentication.
 - FR-002: `/cams` and `/cams/**` MUST be retired and MUST NOT expose camera content or redirect to the authenticated Sea Speed application.
@@ -115,6 +115,14 @@ Fine-grained Sea Speed authorization differences between Admin, Operator and Vie
 - Changes to AI, detection, tracking, speed estimation or calibration semantics.
 - Changes to the physical camera source, Ubuntu relay, camera codec preparation or Windows worker source/package.
 - Storage/database schema migration.
+
+## Runtime feedback
+
+- Source implementation is tracked by Issue #115 and PR #116 under the approved Outcome Contract.
+- During source integration, the existing accepted Camera 1 and Camera Preview Gallery specifications were found to encode the former `/cams/hls/cam1/index.m3u8` browser identity. Issue #115 explicitly supersedes that identity while preserving their accepted media, snapshot, relay and AI boundaries.
+- Existing worker state/event/config traffic uses the same FastAPI routes as the browser UI. Auth v1 therefore separates interactive browser authentication from a narrowly scoped private worker M2M ingress instead of requiring an Authentik browser session from the worker.
+- Production Authentik, SMTP, invitations, Owner TOTP, nginx cutover, worker runtime URL migration and runtime acceptance have NOT been performed by source implementation and remain separately production-gated.
+- Runtime state for Auth v1 remains NOT DEPLOYED until a separately approved exact merged `main` SHA completes the production acceptance plan.
 
 ## Production impact
 
