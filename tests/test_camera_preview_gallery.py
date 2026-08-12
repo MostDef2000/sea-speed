@@ -116,6 +116,8 @@ class CameraPreviewGalleryTests(unittest.TestCase):
             self.assertIn(marker, API)
         self.assertNotIn("shell=True", API)
         self.assertIn('hls_url = f"/sea-speed/media/camera-preview/{session_id}/index.m3u8"', API)
+        self.assertIn('output_dir.mkdir(mode=0o755, parents=False, exist_ok=False)', API)
+        self.assertNotIn('output_dir.mkdir(mode=0o700, parents=False, exist_ok=False)', API)
 
     def test_api_pid_cleanup_is_bound_to_exact_managed_output(self) -> None:
         start = API.index("def camera_preview_pid_matches")
