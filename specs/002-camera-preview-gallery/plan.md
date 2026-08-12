@@ -4,11 +4,11 @@
 - Original Issue: #103
 - Prior extension: #109
 - Current Issue: #112
-- Status: Persistent last-good snapshot implementation under Outcome Authorization
+- Status: Accepted persistent last-good snapshot capability; browser security identity updated by Issue #115
 
 ## Architecture
 
-The accepted live-preview contour stays unchanged:
+The accepted live-preview contour remains:
 
 ```text
 protected Ubuntu camera inventory
@@ -16,10 +16,10 @@ protected Ubuntu camera inventory
      -> sanitized VPS catalog
         -> API start(camera_id)
            -> one managed VPS FFmpeg H.264 HLS session
-              -> browser live preview
+              -> authenticated browser live preview under /sea-speed/**
 ```
 
-Issue #112 adds a VPS last-good snapshot contour that consumes only the already-managed local HLS session:
+Issue #112 added a VPS last-good snapshot contour that consumes only the already-managed local HLS session:
 
 ```text
 browser confirms stable playback
@@ -41,12 +41,17 @@ GET /api/cameras
         -> no preview start
 ```
 
-The accepted Camera 1 path remains a separate contour:
+Camera 1 remains a separate clean-live media contour. Issue #115 changes only its browser-facing security identity:
 
 ```text
-physical Camera 1 -> accepted Ubuntu relay -> VPS Camera 1 compatibility service
--> nginx /cams/hls/cam1/ -> browser
+physical Camera 1
+-> accepted Ubuntu relay
+-> VPS Camera 1 H.264 compatibility service
+-> nginx /sea-speed/media/cam1/
+-> Authentik-protected browser
 ```
+
+The historical `/cams/hls/cam1/` browser route is retired.
 
 ## Decisions
 
@@ -90,25 +95,32 @@ The browser retains the #109 media-time stability gate. After stable playback it
 
 Before manual switch/stop, if the active browser video is decodable, the frontend attempts the same session-bound commit. Failure is isolated and preserves the prior server snapshot.
 
+### D-011 - Auth v1 is a separate browser security migration
+
+Issue #115 does not change the gallery API payloads, persistent store, source-on-demand relay or concurrency. It wraps browser-facing `/sea-speed/**` in Authentik, retires `/cams/**`, moves the separate Camera 1 clean-live path to `/sea-speed/media/cam1/`, and updates VPS code-deploy health so authenticated public health is not required to prove FastAPI is healthy.
+
 ## Affected contours
+
+For the accepted Issue #112 capability:
 
 - VPS API: additive snapshot metadata, GET, commit, extraction/quality/atomic-store helpers.
 - Cameras frontend: persistent `<img>` snapshot rendering, update time, commit calls, removal of page-only canvas persistence.
-- SDD/tests: updated for Issue #112.
-- VPS deploy script: unchanged.
-- nginx: unchanged.
-- Ubuntu preview relay: unchanged.
-- camera credentials/runtime inventory: unchanged.
-- Camera 1 path: unchanged.
-- AI/detection/tracking/recording: unchanged.
-- Objects Registry: unchanged.
+- Durable data: `/opt/sea-speed-api/data/camera-preview-snapshots/`.
+- Ubuntu preview relay, camera credentials/runtime inventory, AI/detection/tracking/recording and Objects Registry: unchanged.
+
+For the separate Issue #115 security migration:
+
+- browser authentication for `/sea-speed/**`: Authentik;
+- Camera 1 browser identity: `/sea-speed/media/cam1/index.m3u8`;
+- `/cams/**`: retired;
+- VPS deploy health: loopback origin health + public auth smoke;
+- snapshot storage/API semantics: unchanged.
 
 ## Validation
 
-Repository/focused validation must cover:
+Repository/focused validation must continue to cover:
 
 - Python syntax and existing preview/relay/deploy invariants;
-- exact seven-file source scope;
 - API snapshot routes and safe metadata;
 - active session binding and no arbitrary path/source input;
 - persistent path under `DATA_DIR`;
@@ -117,31 +129,27 @@ Repository/focused validation must cover:
 - frontend `<img>` persistence loaded from catalog metadata;
 - no browser persistent storage APIs;
 - sequential Preview All and media-time stability gate retained;
-- Camera 1 and Ubuntu relay markers unchanged;
-- PR Validation and aggregate Quality integration success.
+- Camera 1 media and Ubuntu relay behavior unchanged;
+- after Issue #115, protected Camera 1 browser path and Authentik boundary are asserted rather than the retired `/cams/**` route;
+- PR Validation and aggregate Quality integration success for the applicable task head.
 
 ## Rollout
 
-1. Implement exact seven-file source change under Issue #112 Outcome Authorization.
-2. Open bounded PR linked to `specs/002-camera-preview-gallery/spec.md`.
-3. Remediate CI only inside the approved seven-file scope.
-4. Merge exact green head without a separate merge token while the Outcome Authorization remains valid.
-5. Obtain a fresh production safety envelope for the exact merged main SHA.
-6. VPS-only exact deployment using existing restart/smoke and separately authorized safe rollback.
-7. Runtime acceptance:
-   - Camera 1 healthy before;
-   - existing accepted preview/catalog baseline healthy;
-   - initial page load starts no preview;
-   - commit at least two representative good cameras;
-   - verify final JPEGs exist under durable data and API metadata reflects them;
-   - verify reload preserves images and a second browser/device sees the same images;
-   - verify stale session and a rejected candidate do not replace an existing good JPEG;
-   - verify Preview All remains serial and final preview is idle;
-   - Camera 1 healthy after;
-   - Ubuntu relay and AI unchanged.
+Issue #112 rollout is historical and accepted. Issue #115 must use its own exact merged main SHA and separate production authorization.
+
+For Auth v1 acceptance relevant to the gallery:
+
+1. Prove Camera 1 media and existing gallery baseline before the security cutover.
+2. Prove Authentik and the combined nginx candidate under Issue #115.
+3. After cutover, anonymous `/sea-speed/cameras/**`, gallery API, preview HLS and snapshot endpoints are authentication-gated.
+4. Authenticated gallery loads existing durable snapshots without starting preview.
+5. Representative Preview/Preview All/Stop behavior remains serial and functional.
+6. Camera 1 authenticated H.264 live remains healthy.
+7. Existing snapshot files under `/opt/sea-speed-api/data/camera-preview-snapshots/` remain unchanged except by normal successful snapshot commits.
 
 ## Runtime feedback
 
 - #103 established the accepted on-demand preview architecture and Camera 1 separation.
 - #109 established sequential Preview All and exposed a visual limitation of page-only snapshot timing.
-- #112 deliberately moves only the last-good image state to durable VPS data while keeping live preview topology and concurrency unchanged.
+- #112 moved only the last-good image state to durable VPS data while keeping live preview topology and concurrency unchanged.
+- #115 later changes only browser authentication/URL and deploy-health boundaries; it does not replace the accepted gallery snapshot architecture.
