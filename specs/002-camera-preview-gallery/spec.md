@@ -1,113 +1,95 @@
 # Feature Specification: Camera Preview Gallery
 
 - Feature: 002-camera-preview-gallery
-- Issue: #109
+- Issue: #112
 - Original Issue: #103
-- Status: Approved extension implementation with snapshot-stability remediation
+- Prior extension: #109
+- Status: Approved persistent last-good snapshot extension
 - Parent capability: specs/001-camera-live-pipeline/spec.md
 
 ## Product outcome
 
-An operator can open a dedicated Cameras page, see every camera candidate from the protected runtime catalog, start a temporary live preview of any one camera for visual identification, or run a bounded sequential preview of the whole catalog. The gallery retains the last successfully decoded and sufficiently progressed frame for each visited camera only for the lifetime of the current browser page so the operator can compare camera views without maintaining many live streams or any persistent snapshot store.
+An operator can open `/sea-speed/cameras/`, see every camera candidate from the sanitized runtime catalog, preview cameras one at a time, run a bounded sequential Preview All pass, and see the last good image for each camera even after reload or from another device. Sea Speed stores exactly one replaceable JPEG per camera on the VPS. A failed, stale, or visually unusable new attempt never removes or overwrites the previous good snapshot.
 
 ## User scenarios
 
-### Scenario 1 - Browse camera candidates
+### Scenario 1 - Open the camera gallery without starting live work
 
-Given a protected runtime camera catalog is configured, when the operator opens `/sea-speed/cameras/`, then the page renders one card per catalog camera without exposing camera credentials or native credential-bearing RTSP URLs and without starting media work.
+Given the runtime camera catalog is installed, when an operator opens the Cameras page, then every catalog camera is rendered without starting FFmpeg preview work. If a VPS last-good snapshot exists for a camera, that image and its update time are displayed immediately.
 
-### Scenario 2 - Preview one camera
+### Scenario 2 - Preview and persist a good frame
 
-Given a camera card is available, when the operator presses Play, then the system starts only that camera's temporary browser-compatible preview and displays advancing video in that card.
+Given a camera preview is active and has produced stable playback, when the operator or Preview All commits the current snapshot, then the VPS extracts a JPEG from that exact managed preview session, validates it, and atomically replaces only that camera's prior JPEG.
 
-### Scenario 3 - Switch cameras and retain context
+### Scenario 3 - Preserve the prior image on a bad attempt
 
-Given one preview is active, when the operator starts another camera or presses Stop, then the current browser video frame is copied into that camera card before the server preview is released/replaced. The retained frame remains visible on the current page.
+Given a camera already has a stored snapshot, when a later preview start fails, the session is stale, extraction fails, or the extracted frame is near-uniform/startup garbage, then the previous JPEG remains unchanged and visible.
 
 ### Scenario 4 - Preview all cameras
 
-Given the catalog contains multiple cameras, when the operator presses `Предпросмотр всех`, then the browser visits catalog cameras sequentially, never intentionally requesting more than one server preview at a time, waits for a decodable frame and bounded actual playback progression where available, retains the resulting latest frame in that card, and proceeds to the next camera.
+Given multiple catalog cameras, when the operator presses `Предпросмотр всех`, then the browser visits cameras sequentially, keeps server `max_active=1`, waits for decodable and progressing video, requests a snapshot commit for the exact active session, and continues even if one camera cannot produce a usable snapshot.
 
-### Scenario 5 - Stop the batch
+### Scenario 5 - Stop all
 
-Given Preview All is running, when the operator presses `Остановить все`, then no further catalog cameras are intentionally started and the current server preview is stopped. Frames already captured on the page remain visible.
+Given Preview All is running, when the operator presses `Остановить все`, then the current live preview is stopped and no later camera from that batch generation is intentionally started. Already persisted VPS snapshots remain untouched.
 
-### Scenario 6 - A candidate is not usable
+### Scenario 6 - Open another device or reload
 
-Given a discovered device is offline, slow, or uses an unknown RTSP path, when manual or batch preview cannot obtain usable and progressing video, then that card reports a bounded error and batch mode continues to the next candidate. Other camera cards plus Camera 1 remain unaffected.
-
-### Scenario 7 - Reload the page
-
-Given one or more cards contain retained frames, when the operator reloads or closes the page, then those retained frames disappear because they were not persisted.
+Given one or more last-good snapshots exist on the VPS, when the operator reloads the page or opens it on another browser/device, then the same server snapshots are loaded without starting live camera previews.
 
 ## Requirements
 
-- FR-001: The operator page MUST expose a `Камеры` link beside `Реестр объектов` and route it to `/sea-speed/cameras/`.
-- FR-002: The gallery MUST obtain its camera list from a runtime catalog and MUST NOT embed populated LAN inventory or camera credentials in frontend source.
-- FR-003: At rest, this feature MUST initiate zero camera preview FFmpeg processes and zero camera-source pulls.
-- FR-004: Preview start MUST accept a catalog camera identity only; arbitrary RTSP URLs supplied by a browser MUST NOT be accepted.
-- FR-005: VPS preview input MUST be a credential-free private RTSP relay URL from the Ubuntu preview relay contour.
-- FR-006: The browser MUST receive H.264 HLS prepared for preview use; native RTSP/HEVC MUST NOT be exposed directly to the browser.
-- FR-007: Preview output SHOULD target approximately 640-pixel-class width, 8 fps and no audio to minimize resource use while remaining useful for visual identification.
-- FR-008: The server preview workflow MUST permit only one active VPS preview at a time. Starting a new camera MUST replace the prior preview.
-- FR-009: Every server preview MUST have a hard bounded TTL, no longer than 10 minutes and 2 minutes by default.
-- FR-010: Stop MUST terminate the active server preview and remove its temporary HLS media.
-- FR-011: The Ubuntu preview relay MUST pull each configured source on demand and release it after readers disconnect.
-- FR-012: Camera credentials MUST remain in protected Ubuntu runtime configuration and MUST NOT appear in repository files, browser responses, public URLs, process argv generated by the VPS preview API, or API error details.
-- FR-013: The accepted Camera 1 public identity `/cams/hls/cam1/index.m3u8` and its direct H.264 browser path MUST remain unchanged.
-- FR-014: AI worker activation, detection, tracking, recording and event processing MUST remain independent and out of scope for gallery previews.
-- FR-015: The Cameras page MUST participate in exact VPS release, rollback and smoke validation with the existing operator, objects and root pages.
-- FR-016: The Cameras page MUST expose global `Предпросмотр всех` and `Остановить все` controls plus visible batch progress/current-camera feedback.
-- FR-017: Preview All MUST traverse the current sanitized catalog sequentially and MUST NOT use parallel per-camera preview starts.
-- FR-018: Before switching away from a successfully playing preview, the browser SHOULD copy the latest decodable frame to a canvas owned by that camera card.
-- FR-019: Manual Play/Switch/Stop MUST use the same last-frame behavior as batch mode where a decodable frame exists.
-- FR-020: Retained frames MUST exist only in volatile page memory/DOM. The feature MUST NOT write them to `localStorage`, `sessionStorage`, IndexedDB, Cache API, server-side snapshot files, databases, or another persistent cache.
-- FR-021: Reloading or closing the page MUST naturally discard all retained gallery frames.
-- FR-022: Batch failure for one camera MUST NOT abort remaining catalog traversal.
-- FR-023: Stop All MUST invalidate further batch starts and MUST request stop of the current server preview; if a bounded in-flight start completes after cancellation, the browser MUST stop it rather than resume batch traversal.
-- FR-024: When a full Preview All pass completes normally, the browser MUST stop the final server preview so the system returns to zero active preview processes while retained page frames remain visible.
-- FR-025: Preview All MUST NOT capture immediately after the browser's first decodable frame signal. It MUST require bounded observed playback progression before snapshot capture so startup/partial frames are not preferentially retained.
-- FR-026: The playback-progression wait MUST be cancelable by the existing batch generation mechanism and MUST have a bounded timeout so a stalled camera cannot block the remaining catalog indefinitely.
+- FR-001: The gallery MUST obtain camera identities and display labels from the sanitized runtime catalog and MUST NOT embed populated LAN inventory, native RTSP URLs, or credentials in frontend source.
+- FR-002: Opening the Cameras page MUST start zero camera preview FFmpeg processes and zero source pulls.
+- FR-003: Preview start MUST accept a catalog `camera_id` only. Browser-supplied RTSP URLs MUST NOT be accepted.
+- FR-004: The existing private credential-free Ubuntu relay input, H.264 HLS preview output, one-active-preview lock, and hard preview TTL MUST remain unchanged.
+- FR-005: `Предпросмотр всех` MUST traverse the catalog sequentially and MUST NOT intentionally create parallel per-camera previews.
+- FR-006: Automatic snapshot commit MUST occur only after bounded browser playback readiness and measurable media-time progression.
+- FR-007: The VPS MUST store snapshots under durable Sea Speed data storage at `/opt/sea-speed-api/data/camera-preview-snapshots/`.
+- FR-008: The persistent snapshot store MUST retain at most one JPEG per catalog camera. Snapshot history/archive MUST NOT be created.
+- FR-009: Snapshot commit MUST be bound to both a catalog `camera_id` and the exact currently active managed preview `session_id`.
+- FR-010: Snapshot commit MUST derive its input only from the managed local HLS output directory for that active session. The browser MUST NOT provide a filesystem path, source URL, or RTSP URL.
+- FR-011: Snapshot extraction MUST be bounded in time and MUST use the current managed HLS tail rather than opening another native camera/relay stream.
+- FR-012: A candidate JPEG MUST pass structural and conservative non-AI visual-quality checks before it can replace the prior snapshot.
+- FR-013: Near-uniform/startup garbage MUST be rejected conservatively; rejection MUST preserve the prior snapshot byte-for-byte.
+- FR-014: Snapshot replacement MUST be atomic: write a temporary candidate in the snapshot directory, validate it, then `os.replace()` the final `<camera_id>.jpg` only after success.
+- FR-015: Snapshot retrieval MUST validate that the requested camera is still present in the current catalog.
+- FR-016: Snapshot responses MUST be served through the API contour as JPEG and MUST use `Cache-Control: no-store` so browsers do not become the durable source of truth.
+- FR-017: `/api/cameras` MUST expose only safe snapshot metadata (`available`, versioned API URL, `updated_at`) in addition to existing public camera fields. It MUST NOT expose relay sources or credentials.
+- FR-018: Manual Play/Switch/Stop SHOULD update the persistent snapshot when the active browser video is decodable; failed commit MUST leave the old snapshot intact.
+- FR-019: Preview All MUST continue to later cameras after start/readiness/stability/snapshot-quality failure of one camera.
+- FR-020: Browser persistent storage MUST NOT be used for camera snapshots: no `localStorage`, `sessionStorage`, IndexedDB, Cache API, or equivalent application persistence.
+- FR-021: The accepted Camera 1 public identity `/cams/hls/cam1/index.m3u8` and its direct H.264 browser path MUST remain unchanged.
+- FR-022: Ubuntu MediaMTX preview relay configuration, camera credential inventory, AI/detection/tracking, recording, Objects Registry, and server preview concurrency MUST remain out of scope.
+- FR-023: Existing VPS exact-release deployment and rollback mechanism MUST be reused without nginx/deploy-script changes.
 
 ## Acceptance criteria
 
-- AC-001: `Камеры` is visible beside `Реестр объектов` on the operator page.
-- AC-002: `/sea-speed/cameras/` renders all entries from the configured sanitized catalog and an explicit empty state when no catalog is installed.
-- AC-003: Opening the gallery does not start FFmpeg or cause Ubuntu source pulls.
-- AC-004: Play on one card produces a temporary H.264 HLS URL under `/sea-speed/media/camera-preview/` and advancing browser video.
-- AC-005: Starting another card replaces the prior active server preview and leaves the prior camera's last successful frame visible when capture was possible.
-- AC-006: Stop releases the server preview and leaves the last successful frame visible; abandoned preview work still expires automatically at the hard TTL.
-- AC-007: Preview All processes the catalog serially, reports progress, obtains representative stable last frames, and ends with no active server preview.
-- AC-008: Stop All ends the batch and prevents subsequent catalog starts from that batch generation.
-- AC-009: A failed candidate reports an isolated error and batch processing continues to later cameras.
-- AC-010: API responses contain camera IDs/display labels/status only and never expose protected source URLs or credentials.
-- AC-011: No retained gallery image survives page reload and no browser persistent storage API or server-side snapshot store is used for this feature.
-- AC-012: Existing Camera 1 live viewing remains functional and its accepted browser architecture is unchanged.
-- AC-013: VPS deployment installs, rolls back and smoke-checks the Cameras page.
-- AC-014: Required repository validation and CI pass with the exact approved changed-file set for Issue #109.
-- AC-015: For a normally progressing camera, batch capture occurs only after measurable media-time advancement beyond first-frame readiness; the prior fixed 1.2-second post-ready dwell is not used.
+- AC-001: Opening `/sea-speed/cameras/` with stored snapshots shows them immediately while `/api/cameras/preview` remains idle.
+- AC-002: Reloading the page keeps the same last-good images visible from VPS storage.
+- AC-003: Opening the page from a second browser/device shows the same stored snapshots without running Preview All first.
+- AC-004: A successful manual or batch preview produces a new JPEG for that camera and changes its versioned snapshot URL/update time.
+- AC-005: Starting a different preview, pressing Stop, or finishing Preview All leaves successfully committed snapshots available after the live HLS session is deleted.
+- AC-006: A stale/wrong `session_id` returns a bounded error and does not modify the stored JPEG.
+- AC-007: A failed extraction or rejected low-information/near-uniform candidate leaves the previous JPEG unchanged.
+- AC-008: Snapshot commit accepts no browser source URL or filesystem path and operates only on the current catalog camera + managed active session.
+- AC-009: Snapshot GET is catalog-bound, returns `image/jpeg`, and includes no-store cache headers.
+- AC-010: The persistent directory contains no historical per-camera sequence: only one final `<camera_id>.jpg` per successful camera plus transient dotfiles during an in-progress commit.
+- AC-011: Preview All remains serial with `max_active=1`, isolates per-camera failure, and stops the final live preview on normal completion.
+- AC-012: Browser source contains none of `localStorage`, `sessionStorage`, IndexedDB, or Cache API snapshot persistence.
+- AC-013: Camera 1 remains healthy before and after production rollout; Ubuntu relay and AI remain unchanged.
+- AC-014: Required PR Validation and Quality integration gate pass for the exact seven-file Issue #112 source diff.
 
 ## Compatibility and boundaries
 
-- Stable Camera 1 interface: `/cams/hls/cam1/index.m3u8` is unchanged.
-- Existing preview API surface is unchanged; Issue #109 requires no API/backend endpoint or schema changes.
-- Existing server invariant `max_active=1` is preserved.
-- Runtime inventory is deployment-local data, not repository source.
-- No API/event/state/storage schema used by the AI worker is changed.
-- No Windows worker source is changed.
-- Retained last frames are ephemeral presentation state only, not runtime evidence or recording data.
-
-## Runtime configuration contract
-
-Two runtime files remain intentionally outside GitHub:
-
-1. Ubuntu protected inventory, mode `0600`, containing camera identity/display metadata and credential-bearing native RTSP source URLs.
-2. VPS sanitized catalog containing camera identity/display metadata and credential-free private Ubuntu relay URLs only.
-
-Issue #109 does not change either runtime file contract.
+- Stable Camera 1 interface: `/cams/hls/cam1/index.m3u8`.
+- Existing camera preview start/stop/status API and `max_active=1` remain compatible; Issue #112 adds snapshot metadata, snapshot GET, and session-bound snapshot commit endpoints.
+- Snapshot persistence is gallery presentation state, not AI evidence, recording, or an image archive.
+- Browser cache is not authoritative; VPS durable data is authoritative.
+- Existing `/opt/sea-speed-api/data/` survives normal exact deploy/rollback code changes and is therefore the persistence contour for the last-good JPEGs.
 
 ## Runtime feedback
 
-- 2026-08-12: Original Camera Preview Gallery accepted in production after representative start/switch/stop and visible moving-video confirmation while Camera 1 remained healthy.
-- 2026-08-12: Initial Issue #109 rollout reached exact main `11306b23f3dd2fb21917a593c0e055911eefc6ff`; technical sequence smoke passed, but visual acceptance showed several batch snapshots captured during startup before the picture had fully formed. The observed cause is browser capture timing, not preview transport or server concurrency.
-- Issue #109 remediation remains browser-only: require actual media progression before retaining a batch frame; production acceptance must then reconfirm Preview All, Stop All, stable retained frames, reload clearing, and Camera 1 regression safety.
+- 2026-08-12: Original Camera Preview Gallery (#103) was accepted in production with representative start/switch/stop and visible moving video while Camera 1 remained healthy.
+- 2026-08-12: Preview All extension (#109) added sequential traversal and page-local retained frames. Technical rollout succeeded, but visual acceptance showed startup-gray/partial frames could still be retained on some cameras even after browser media progression.
+- 2026-08-12: Operator requested durable cross-device last-good images and explicit preservation of the previous good image when a new preview is unusable. Issue #112 supersedes the page-only persistence boundary while preserving one-active-preview, Camera 1, Ubuntu relay, credentials, and AI boundaries.
