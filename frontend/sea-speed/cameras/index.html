@@ -90,8 +90,9 @@
     const CAMERAS_URL="/sea-speed/api/cameras";
     const PREVIEW_STATUS_URL="/sea-speed/api/cameras/preview";
     const PREVIEW_STOP_URL="/sea-speed/api/cameras/preview/stop";
-    const BATCH_FRAME_DWELL_MS=1200;
+    const BATCH_STABLE_ADVANCE_SEC=3;
     const BATCH_VIDEO_READY_TIMEOUT_MS=8000;
+    const BATCH_STABLE_TIMEOUT_MS=12000;
     const grid=document.getElementById("cameraGrid");
     const cameraCount=document.getElementById("cameraCount");
     const activeCamera=document.getElementById("activeCamera");
@@ -111,7 +112,6 @@
     const cameraErrors=new Map();
 
     const esc=value=>String(value??"").replace(/[&<>"']/g,char=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[char]));
-    const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 
     function cardFor(cameraId){
       return grid.querySelector(`[data-camera-id="${CSS.escape(cameraId)}"]`);
@@ -220,6 +220,20 @@
         const timer=setTimeout(()=>finish(false),timeoutMs);
         video.addEventListener("loadeddata",ready,{once:true});
         video.addEventListener("playing",ready,{once:true});
+      });
+    }
+
+    function waitForStableVideoFrame(video,{minAdvanceSec=BATCH_STABLE_ADVANCE_SEC,timeoutMs=BATCH_STABLE_TIMEOUT_MS}={}){
+      return new Promise(resolve=>{
+        const baseline=Number.isFinite(video.currentTime)?video.currentTime:0;
+        const deadline=performance.now()+timeoutMs;
+        const check=()=>{
+          if(video!==activeVideo)return resolve(false);
+          if(video.readyState>=2&&video.videoWidth>0&&Number.isFinite(video.currentTime)&&video.currentTime-baseline>=minAdvanceSec)return resolve(true);
+          if(performance.now()>=deadline)return resolve(false);
+          requestAnimationFrame(check);
+        };
+        requestAnimationFrame(check);
       });
     }
 
@@ -355,8 +369,13 @@
           updateUi();
           continue;
         }
-        await delay(BATCH_FRAME_DWELL_MS);
+        const stable=await waitForStableVideoFrame(activeVideo);
         if(token!==batchGeneration)break;
+        if(!stable){
+          cameraErrors.set(camera.camera_id,"Видео не успело стабилизироваться");
+          updateUi();
+          continue;
+        }
         captureActiveFrame();
         updateUi();
       }
