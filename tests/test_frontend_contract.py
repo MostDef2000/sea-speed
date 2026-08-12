@@ -19,6 +19,7 @@ class FrontendContractTests(unittest.TestCase):
 
     def test_operator_endpoints_are_explicit(self) -> None:
         expected = {
+            "HLS_URL": "/sea-speed/media/cam1/index.m3u8",
             "STATE_URL": "/sea-speed/api/cam1/state",
             "EVENTS_URL": "/sea-speed/api/cam1/events?limit=3",
             "ROI_URL": "/sea-speed/api/cam1/roi",
@@ -27,6 +28,7 @@ class FrontendContractTests(unittest.TestCase):
         }
         for name, value in expected.items():
             self.assertRegex(self.source, rf"const\s+{name}\s*=\s*[\"']{re.escape(value)}[\"']")
+        self.assertNotIn("/cams/", self.source)
 
     def test_configuration_save_flows_use_json_post(self) -> None:
         for function_name in ("saveSpeedConfig", "saveSpeedLines", "saveRoi"):
@@ -262,9 +264,10 @@ class FrontendContractTests(unittest.TestCase):
         self.assertRegex(self.root_source, r'<a\s+class="primary-link"\s+href="/sea-speed/">')
         self.assertIn("Открыть морской мониторинг", self.root_source)
 
-    def test_root_page_cameras_link_is_secondary_and_in_footer(self) -> None:
-        self.assertRegex(self.root_source, r'<footer>\s*<a\s+class="secondary-link"\s+href="/cams/">Камеры</a>\s*</footer>')
-        self.assertEqual(self.root_source.count('href="/cams/"'), 1)
+    def test_root_page_has_no_public_cameras_surface(self) -> None:
+        self.assertNotIn('href="/cams/"', self.root_source)
+        self.assertNotIn("https://mostdef.ru/cams/", self.root_source)
+        self.assertNotIn(">Камеры</a>", self.root_source)
 
     def test_root_page_uses_local_absolute_paths(self) -> None:
         self.assertNotIn("https://mostdef.ru/sea-speed/", self.root_source)
