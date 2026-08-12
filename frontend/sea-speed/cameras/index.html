@@ -12,7 +12,7 @@
     body{min-height:100vh;margin:0;background:radial-gradient(circle at 12% 4%,#37d6cc1f,transparent 34rem),radial-gradient(circle at 88% 2%,#3e84c929,transparent 38rem),linear-gradient(155deg,#020b13,#041827 48%,#03121e);color:var(--text);font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
     button{font:inherit;min-height:44px;border:1px solid var(--border);border-radius:12px;background:#082234e0;color:var(--text);cursor:pointer;touch-action:manipulation}
     button:hover,button:focus-visible,a:focus-visible{border-color:var(--strong);outline:3px solid #5eead46b;outline-offset:2px}
-    button:disabled{cursor:wait;opacity:.55}
+    button:disabled{cursor:not-allowed;opacity:.5}
     .page{width:min(1540px,100%);margin:auto;padding:max(18px,env(safe-area-inset-top)) max(18px,env(safe-area-inset-right)) max(32px,env(safe-area-inset-bottom)) max(18px,env(safe-area-inset-left))}
     .top{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;margin-bottom:18px}
     .eyebrow{margin:0 0 6px;color:var(--cyan);font-size:.7rem;font-weight:800;letter-spacing:.15em;text-transform:uppercase}
@@ -20,28 +20,36 @@
     .subtitle,.muted{color:var(--muted);font-size:.78rem;line-height:1.5}
     .nav{display:flex;flex-wrap:wrap;gap:8px}
     .nav a{display:inline-flex;align-items:center;min-height:40px;padding:7px 12px;border:1px solid var(--strong);border-radius:999px;background:#0b3144c9;color:var(--text);font-size:.75rem;font-weight:800;text-decoration:none}
-    .summary{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 16px}
+    .summary{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 12px}
     .pill{padding:8px 11px;border:1px solid var(--border);border-radius:999px;background:#041826d1;color:var(--muted);font-size:.72rem;font-weight:700}
     .pill strong{color:var(--text)}
+    .batchbar{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:0 0 16px;padding:10px;border:1px solid var(--border);border-radius:16px;background:#041826b8}
+    .batchbar button{padding:8px 14px;font-size:.76rem;font-weight:850}
+    .batch-start{color:var(--good);border-color:#4ade8050}.batch-stop{color:var(--bad);border-color:#fb718550}
+    .batch-progress{margin-left:auto;color:var(--muted);font-size:.72rem;font-weight:750}
     .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(275px,1fr));gap:12px}
     .card{overflow:hidden;border:1px solid var(--border);border-radius:20px;background:linear-gradient(155deg,#092334e8,#041421f2);box-shadow:0 18px 46px #00060b66}
-    .frame{position:relative;display:grid;place-items:center;width:100%;aspect-ratio:16/9;background:#01060a;border-bottom:1px solid var(--border)}
-    .frame video{display:block;width:100%;height:100%;object-fit:contain;background:#000}
+    .frame{position:relative;display:grid;place-items:center;width:100%;aspect-ratio:16/9;background:#01060a;border-bottom:1px solid var(--border);overflow:hidden}
+    .frame video,.frame canvas{display:none;width:100%;height:100%;object-fit:contain;background:#000}
+    .frame.live video{display:block}.frame.snapshot canvas{display:block}
     .placeholder{display:grid;place-items:center;gap:8px;padding:20px;text-align:center;color:#6e9aaa}
+    .frame.live .placeholder,.frame.snapshot .placeholder{display:none}
     .placeholder svg{width:38px;height:38px;fill:#5eead477}
-    .active-badge{position:absolute;top:10px;left:10px;padding:5px 8px;border:1px solid #4ade8050;border-radius:999px;background:#052714e8;color:var(--good);font-size:.62rem;font-weight:900;text-transform:uppercase;letter-spacing:.08em}
+    .frame-badge{display:none;position:absolute;z-index:2;top:10px;left:10px;padding:5px 8px;border-radius:999px;font-size:.62rem;font-weight:900;text-transform:uppercase;letter-spacing:.08em}
+    .frame.live .live-badge{display:block;border:1px solid #4ade8050;background:#052714e8;color:var(--good)}
+    .frame.snapshot .snapshot-badge{display:block;border:1px solid #62b6ff55;background:#071f34e8;color:var(--blue)}
     .body{padding:12px}
     .head{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
     .name{margin:0;font-size:.95rem;font-weight:850;overflow-wrap:anywhere}
     .id{margin-top:3px;color:var(--muted);font:.68rem ui-monospace,Consolas,monospace}
     .state{flex:0 0 auto;font-size:.68rem;font-weight:800;color:var(--muted)}
-    .state.good{color:var(--good)}.state.bad{color:var(--bad)}.state.warn{color:var(--warn)}
+    .state.good{color:var(--good)}.state.bad{color:var(--bad)}.state.warn{color:var(--warn)}.state.snapshot{color:var(--blue)}
     .actions{display:flex;gap:8px;margin-top:12px}
     .actions button{flex:1;padding:8px 10px;font-size:.74rem;font-weight:800}
     .play{color:var(--good);border-color:#4ade8050}.stop{color:var(--bad);border-color:#fb718550}
     .error{min-height:1.2em;margin-top:8px;color:var(--bad);font-size:.68rem;line-height:1.45;overflow-wrap:anywhere}
     .empty{padding:28px;border:1px dashed var(--border);border-radius:20px;background:#041421aa;color:var(--muted);text-align:center}
-    @media(max-width:760px){.top{display:grid}.grid{grid-template-columns:1fr}.page{padding-left:max(10px,env(safe-area-inset-left));padding-right:max(10px,env(safe-area-inset-right))}}
+    @media(max-width:760px){.top{display:grid}.grid{grid-template-columns:1fr}.page{padding-left:max(10px,env(safe-area-inset-left));padding-right:max(10px,env(safe-area-inset-right))}.batch-progress{width:100%;margin-left:0}}
     @media(prefers-reduced-motion:reduce){*{transition:none!important}}
   </style>
 </head>
@@ -51,7 +59,7 @@
       <div>
         <p class="eyebrow">Vladivostok maritime monitoring</p>
         <h1>Камеры</h1>
-        <div class="subtitle">Временный предпросмотр найденных потоков. Видео запускается только по запросу.</div>
+        <div class="subtitle">Временный предпросмотр найденных потоков. Последний успешный кадр хранится только до перезагрузки этой страницы.</div>
       </div>
       <nav class="nav" aria-label="Sea Speed navigation">
         <a href="/sea-speed/">Оператор</a>
@@ -66,6 +74,12 @@
       <div class="pill">TTL: <strong id="previewTtl">—</strong></div>
     </section>
 
+    <section class="batchbar" aria-label="Batch preview controls">
+      <button id="previewAllButton" class="batch-start" type="button">▶ Предпросмотр всех</button>
+      <button id="stopAllButton" class="batch-stop" type="button" disabled>■ Остановить все</button>
+      <div id="batchProgress" class="batch-progress" aria-live="polite">Обход не запущен</div>
+    </section>
+
     <section id="cameraGrid" class="grid" aria-live="polite">
       <div class="empty">Загрузка каталога камер…</div>
     </section>
@@ -76,61 +90,150 @@
     const CAMERAS_URL="/sea-speed/api/cameras";
     const PREVIEW_STATUS_URL="/sea-speed/api/cameras/preview";
     const PREVIEW_STOP_URL="/sea-speed/api/cameras/preview/stop";
+    const BATCH_FRAME_DWELL_MS=1200;
+    const BATCH_VIDEO_READY_TIMEOUT_MS=8000;
     const grid=document.getElementById("cameraGrid");
     const cameraCount=document.getElementById("cameraCount");
     const activeCamera=document.getElementById("activeCamera");
     const previewTtl=document.getElementById("previewTtl");
+    const previewAllButton=document.getElementById("previewAllButton");
+    const stopAllButton=document.getElementById("stopAllButton");
+    const batchProgress=document.getElementById("batchProgress");
     let cameras=[];
     let active=null;
     let activeHls=null;
     let activeVideo=null;
     let busyCameraId=null;
+    let batchRunning=false;
+    let batchGeneration=0;
+    let batchIndex=0;
+    const snapshotIds=new Set();
+    const cameraErrors=new Map();
 
     const esc=value=>String(value??"").replace(/[&<>"']/g,char=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[char]));
+    const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 
-    function destroyPlayer(){
+    function cardFor(cameraId){
+      return grid.querySelector(`[data-camera-id="${CSS.escape(cameraId)}"]`);
+    }
+
+    function captureActiveFrame(){
+      if(!activeVideo||!active?.camera_id||activeVideo.readyState<2||!activeVideo.videoWidth||!activeVideo.videoHeight)return false;
+      const card=cardFor(active.camera_id);
+      const canvas=card?.querySelector("[data-snapshot]");
+      if(!canvas)return false;
+      const width=640;
+      const height=Math.max(2,Math.round(width*activeVideo.videoHeight/activeVideo.videoWidth));
+      canvas.width=width;
+      canvas.height=height;
+      const context=canvas.getContext("2d",{alpha:false});
+      if(!context)return false;
+      try{
+        context.drawImage(activeVideo,0,0,width,height);
+      }catch(_error){
+        return false;
+      }
+      snapshotIds.add(active.camera_id);
+      return true;
+    }
+
+    function destroyPlayer({capture=true}={}){
+      if(capture)captureActiveFrame();
       if(activeHls){activeHls.destroy();activeHls=null}
-      if(activeVideo){activeVideo.pause();activeVideo.removeAttribute("src");activeVideo.load();activeVideo=null}
+      if(activeVideo){activeVideo.pause();activeVideo.removeAttribute("src");activeVideo.load();activeVideo.remove();activeVideo=null}
     }
 
     function stateLabel(camera){
       if(busyCameraId===camera.camera_id)return ["starting","warn"];
       if(active&&active.camera_id===camera.camera_id)return ["live","good"];
+      if(cameraErrors.has(camera.camera_id))return ["ошибка","bad"];
+      if(snapshotIds.has(camera.camera_id))return ["последний кадр","snapshot"];
       return ["idle",""];
     }
 
-    function render(){
+    function renderCatalog(){
       cameraCount.textContent=String(cameras.length);
-      activeCamera.textContent=active?.display_name||active?.camera_id||"нет";
-      previewTtl.textContent=active?.expires_at?new Date(active.expires_at).toLocaleTimeString():"—";
       if(!cameras.length){
         grid.innerHTML='<div class="empty">Каталог камер не настроен. Установите sanitized runtime catalog на VPS.</div>';
+        updateUi();
         return;
       }
-      grid.innerHTML=cameras.map(camera=>{
+      grid.innerHTML=cameras.map(camera=>`<article class="card" data-camera-id="${esc(camera.camera_id)}">
+        <div class="frame" data-frame>
+          <div class="frame-badge live-badge">live preview</div>
+          <div class="frame-badge snapshot-badge">последний кадр</div>
+          <div class="placeholder"><svg viewBox="0 0 24 24"><path d="M3 5h13a2 2 0 0 1 2 2v2.2l3-1.7v9l-3-1.7V17a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2zm0 2v10h13V7H3z"/></svg><span>Preview не запущен</span></div>
+          <canvas data-snapshot aria-label="Последний кадр ${esc(camera.display_name||camera.camera_id)}"></canvas>
+        </div>
+        <div class="body">
+          <div class="head"><div><h2 class="name">${esc(camera.display_name||camera.camera_id)}</h2><div class="id">${esc(camera.camera_id)}</div></div><div class="state" data-state>idle</div></div>
+          <div class="actions"><button class="play" data-play="${esc(camera.camera_id)}">▶ Предпросмотр</button><button class="stop" data-stop disabled>■ Стоп</button></div>
+          <div class="error" data-error></div>
+        </div>
+      </article>`).join("");
+      updateUi();
+    }
+
+    function updateUi(){
+      activeCamera.textContent=active?.display_name||active?.camera_id||"нет";
+      previewTtl.textContent=active?.expires_at?new Date(active.expires_at).toLocaleTimeString():"—";
+      previewAllButton.disabled=batchRunning||Boolean(busyCameraId)||!cameras.length;
+      stopAllButton.disabled=!batchRunning&&!active&&!busyCameraId;
+      if(batchRunning){
+        const camera=cameras[batchIndex];
+        batchProgress.textContent=`Обход камер: ${Math.min(batchIndex+1,cameras.length)} / ${cameras.length}${camera?` · сейчас ${camera.display_name||camera.camera_id}`:""}`;
+      }else if(snapshotIds.size){
+        batchProgress.textContent=`Последних кадров на странице: ${snapshotIds.size} / ${cameras.length}`;
+      }else{
+        batchProgress.textContent="Обход не запущен";
+      }
+      for(const camera of cameras){
+        const card=cardFor(camera.camera_id);
+        if(!card)continue;
+        const frame=card.querySelector("[data-frame]");
+        const isActive=Boolean(active&&active.camera_id===camera.camera_id&&activeVideo);
+        frame.classList.toggle("live",isActive);
+        frame.classList.toggle("snapshot",!isActive&&snapshotIds.has(camera.camera_id));
         const [label,klass]=stateLabel(camera);
-        const isActive=active&&active.camera_id===camera.camera_id;
-        return `<article class="card" data-camera-id="${esc(camera.camera_id)}">
-          <div class="frame" data-frame>
-            ${isActive?'<div class="active-badge">live preview</div>':'<div class="placeholder"><svg viewBox="0 0 24 24"><path d="M3 5h13a2 2 0 0 1 2 2v2.2l3-1.7v9l-3-1.7V17a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2zm0 2v10h13V7H3z"/></svg><span>Preview не запущен</span></div>'}
-          </div>
-          <div class="body">
-            <div class="head"><div><h2 class="name">${esc(camera.display_name||camera.camera_id)}</h2><div class="id">${esc(camera.camera_id)}</div></div><div class="state ${klass}">${label}</div></div>
-            <div class="actions"><button class="play" data-play="${esc(camera.camera_id)}" ${busyCameraId?"disabled":""}>▶ Предпросмотр</button><button class="stop" data-stop ${isActive?"":"disabled"}>■ Стоп</button></div>
-            <div class="error" data-error></div>
-          </div>
-        </article>`;
-      }).join("");
-      if(active?.hls_url)attachActivePlayer();
+        const state=card.querySelector("[data-state]");
+        state.textContent=label;
+        state.className=`state ${klass}`;
+        card.querySelector("[data-error]").textContent=cameraErrors.get(camera.camera_id)||"";
+        card.querySelector("[data-play]").disabled=batchRunning||Boolean(busyCameraId);
+        card.querySelector("[data-stop]").disabled=batchRunning||!active||active.camera_id!==camera.camera_id||Boolean(busyCameraId);
+      }
+    }
+
+    function waitForVideoFrame(video,timeoutMs=BATCH_VIDEO_READY_TIMEOUT_MS){
+      if(video.readyState>=2&&video.videoWidth>0)return Promise.resolve(true);
+      return new Promise(resolve=>{
+        let settled=false;
+        const finish=value=>{
+          if(settled)return;
+          settled=true;
+          clearTimeout(timer);
+          video.removeEventListener("loadeddata",ready);
+          video.removeEventListener("playing",ready);
+          resolve(value);
+        };
+        const ready=()=>finish(video.readyState>=2&&video.videoWidth>0);
+        const timer=setTimeout(()=>finish(false),timeoutMs);
+        video.addEventListener("loadeddata",ready,{once:true});
+        video.addEventListener("playing",ready,{once:true});
+      });
     }
 
     function attachActivePlayer(){
-      destroyPlayer();
-      const card=grid.querySelector(`[data-camera-id="${CSS.escape(active.camera_id)}"]`);
-      if(!card)return;
+      destroyPlayer({capture:false});
+      const card=active?.camera_id?cardFor(active.camera_id):null;
+      if(!card||!active?.hls_url)return null;
       const frame=card.querySelector("[data-frame]");
-      frame.innerHTML='<div class="active-badge">live preview</div><video controls playsinline muted autoplay></video>';
-      const video=frame.querySelector("video");
+      const video=document.createElement("video");
+      video.controls=true;
+      video.playsInline=true;
+      video.muted=true;
+      video.autoplay=true;
+      frame.appendChild(video);
       activeVideo=video;
       const url=active.hls_url+(active.hls_url.includes("?")?"&":"?")+"t="+Date.now();
       if(window.Hls&&Hls.isSupported()){
@@ -140,17 +243,19 @@
         instance.attachMedia(video);
         instance.on(Hls.Events.MANIFEST_PARSED,()=>video.play().catch(()=>{}));
         instance.on(Hls.Events.ERROR,(_event,data)=>{
-          if(data.fatal){
-            const error=card.querySelector("[data-error]");
-            error.textContent="Ошибка воспроизведения HLS";
+          if(data.fatal&&active?.camera_id){
+            cameraErrors.set(active.camera_id,"Ошибка воспроизведения HLS");
+            updateUi();
           }
         });
       }else if(video.canPlayType("application/vnd.apple.mpegurl")){
         video.src=url;
         video.play().catch(()=>{});
       }else{
-        card.querySelector("[data-error]").textContent="HLS не поддерживается этим браузером";
+        cameraErrors.set(active.camera_id,"HLS не поддерживается этим браузером");
       }
+      updateUi();
+      return video;
     }
 
     async function api(url,options={}){
@@ -166,62 +271,126 @@
         const data=await api(CAMERAS_URL);
         cameras=Array.isArray(data.cameras)?data.cameras:[];
         active=data.active||null;
-        render();
+        renderCatalog();
+        if(active?.hls_url)attachActivePlayer();
       }catch(error){
         grid.innerHTML=`<div class="empty">Не удалось загрузить каталог: ${esc(error.message)}</div>`;
       }
     }
 
     async function refreshPreviewStatus(){
+      if(busyCameraId)return;
       try{
         const data=await api(PREVIEW_STATUS_URL);
         const next=data.active||null;
-        const changed=JSON.stringify(next)!==JSON.stringify(active);
-        active=next;
-        if(changed)render();
-        else{
-          activeCamera.textContent=active?.display_name||active?.camera_id||"нет";
-          previewTtl.textContent=active?.expires_at?new Date(active.expires_at).toLocaleTimeString():"—";
+        if(active&&!next){
+          destroyPlayer();
+          active=null;
+          updateUi();
+          return;
         }
+        if(next&&(!active||next.session_id!==active.session_id)){
+          destroyPlayer();
+          active=next;
+          attachActivePlayer();
+          return;
+        }
+        active=next;
+        updateUi();
       }catch(_error){}
     }
 
-    async function startPreview(cameraId){
+    async function startPreview(cameraId,{batchToken=null}={}){
+      if(active)destroyPlayer();
       busyCameraId=cameraId;
       active=null;
-      destroyPlayer();
-      render();
-      const card=grid.querySelector(`[data-camera-id="${CSS.escape(cameraId)}"]`);
+      cameraErrors.delete(cameraId);
+      updateUi();
       try{
         const data=await api(`/sea-speed/api/cameras/${encodeURIComponent(cameraId)}/preview/start`,{method:"POST"});
+        if(batchToken!==null&&batchToken!==batchGeneration){
+          await api(PREVIEW_STOP_URL,{method:"POST"}).catch(()=>{});
+          return false;
+        }
         active=data.preview;
+        const video=attachActivePlayer();
+        return Boolean(video);
       }catch(error){
         active=null;
-        if(card)card.querySelector("[data-error]").textContent=error.message;
+        cameraErrors.set(cameraId,error.message);
+        return false;
       }finally{
         busyCameraId=null;
-        render();
+        updateUi();
       }
     }
 
-    async function stopPreview(){
+    async function stopPreview({preserveFrame=true}={}){
+      if(preserveFrame)captureActiveFrame();
       busyCameraId=active?.camera_id||"stop";
-      destroyPlayer();
+      destroyPlayer({capture:false});
       try{await api(PREVIEW_STOP_URL,{method:"POST"})}catch(_error){}
       active=null;
       busyCameraId=null;
-      render();
+      updateUi();
+    }
+
+    async function runPreviewAll(){
+      if(batchRunning||busyCameraId||!cameras.length)return;
+      batchRunning=true;
+      const token=++batchGeneration;
+      updateUi();
+      for(let index=0;index<cameras.length;index++){
+        if(token!==batchGeneration)break;
+        batchIndex=index;
+        updateUi();
+        const camera=cameras[index];
+        const started=await startPreview(camera.camera_id,{batchToken:token});
+        if(token!==batchGeneration)break;
+        if(!started||!activeVideo)continue;
+        const ready=await waitForVideoFrame(activeVideo);
+        if(token!==batchGeneration)break;
+        if(!ready){
+          cameraErrors.set(camera.camera_id,"Видео не успело показать кадр");
+          updateUi();
+          continue;
+        }
+        await delay(BATCH_FRAME_DWELL_MS);
+        if(token!==batchGeneration)break;
+        captureActiveFrame();
+        updateUi();
+      }
+      if(token===batchGeneration){
+        await stopPreview({preserveFrame:true});
+      }
+      if(token===batchGeneration){
+        batchRunning=false;
+        batchIndex=0;
+        updateUi();
+      }
+    }
+
+    async function stopAllPreviews(){
+      batchRunning=false;
+      batchGeneration++;
+      batchIndex=0;
+      updateUi();
+      await stopPreview({preserveFrame:true});
     }
 
     grid.addEventListener("click",event=>{
       const play=event.target.closest("[data-play]");
-      if(play)return void startPreview(play.dataset.play);
-      if(event.target.closest("[data-stop]"))return void stopPreview();
+      if(play&&!batchRunning)return void startPreview(play.dataset.play);
+      if(event.target.closest("[data-stop]")&&!batchRunning)return void stopPreview({preserveFrame:true});
     });
+    previewAllButton.addEventListener("click",()=>void runPreviewAll());
+    stopAllButton.addEventListener("click",()=>void stopAllPreviews());
 
     addEventListener("pagehide",()=>{
-      if(active)fetch(PREVIEW_STOP_URL,{method:"POST",credentials:"same-origin",keepalive:true}).catch(()=>{});
-      destroyPlayer();
+      batchRunning=false;
+      batchGeneration++;
+      if(active||busyCameraId)fetch(PREVIEW_STOP_URL,{method:"POST",credentials:"same-origin",keepalive:true}).catch(()=>{});
+      destroyPlayer({capture:false});
     });
 
     loadCatalog();
