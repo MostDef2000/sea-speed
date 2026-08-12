@@ -1,11 +1,11 @@
 # Sea Speed Delivery Policy
 
-Version: 1.4.1
+Version: 1.5.0
 Status: Active
 
 ## 1. Purpose
 
-Define quality admission, release applicability, provenance, rollout ordering and completion evidence for the independent VPS and worker runtime contours.
+Define quality admission, release applicability, provenance, rollout ordering and completion evidence for the independent VPS and worker runtime contours, including the production safety-envelope model.
 
 ## 2. Applicability
 
@@ -19,7 +19,7 @@ Define quality admission, release applicability, provenance, rollout ordering an
 | worker updater/package workflow | NO | YES | package validation, controlled install, runtime gate |
 | other `deploy/**` | according to affected target | according to affected target | declare explicitly |
 | `.github/workflows/**` | according to workflow scope | according to workflow scope | declare explicitly |
-| `contracts/**`, `data/**`, `docs/**`, `skills/**`, README-only | NO | NO | aggregate PR validation and merge only |
+| `contracts/**`, `data/**`, `docs/**`, `specs/**`, `skills/**`, README-only | NO | NO | aggregate PR validation and merge only |
 
 Mixed runtime changes require both release paths unless the approved scope proves one contour is unaffected.
 
@@ -33,40 +33,26 @@ The single merge-facing context is:
 Quality integration gate / quality-integration
 ```
 
-It aggregates these independently executed domains:
+It aggregates independently executed static/security, reliability, exact-artifact and release-evidence domains. Only success for every domain permits aggregate success.
 
-- static, contracts and security boundaries;
-- property, deterministic fuzz and reliability;
-- exact-artifact E2E;
-- release and deployment evidence tooling.
-
-The aggregate workflow has no path filters and its final job runs with `if: always()`. Only `success` for every domain permits an aggregate success.
-
-A PR may create exact test artifacts and evidence, but their states remain `built` or `ready_for_deployment`, never `installed` or `runtime_verified`.
-
-The static contract domain also validates the pull-request Change Contract against the exact base-to-head Git diff. This check is executed in both PR Validation and the merge-facing Quality integration gate.
+The static contract domain validates the pull-request Change Contract against the exact base-to-head Git diff, including the declared source-authorization model. CI validation proves gate state; it does not itself create user authorization.
 
 ## 4. Release and deployment identity
 
 Every applicable release must identify:
 
 - canonical Issue;
-- exact base and source commits;
+- final exact source commit;
+- approved Outcome Contract / scope identity;
 - approved changed-file set and scope hash;
 - component and exact artifact inventory;
 - artifact SHA-256 and size;
 - applicable contract versions;
 - quality evidence.
 
-Every applicable deployment must identify:
+Every applicable deployment must identify installed source commit, previous version/rollback target, artifact digest when available, health/process checks and runtime-verification state.
 
-- installed source commit;
-- previous version and rollback target;
-- artifact digest when available;
-- health/process checks;
-- runtime-verification state.
-
-Schemas and policies:
+Schemas and policies remain:
 
 - `schemas/release-manifest.schema.json`;
 - `schemas/deployment-manifest.schema.json`;
@@ -76,155 +62,79 @@ Schemas and policies:
 - `data/quality/reliability-budget-v1.json`;
 - `data/quality/accepted-risks-v1.json`.
 
-## 5. Deployment authorization
+## 5. Production authorization and safety envelope
 
-Production deployment is a separate operation from merge and release. It must not run automatically after a push or merge to `main`.
+Production deployment is separate from source authorization, merge and release packaging. It must not run automatically because of a push or merge.
 
-Deployment requires:
+A production mutation requires a separately recorded production safety envelope, normally `PRODUCTION APPROVED`, that identifies the canonical task/outcome and authorized runtime contour. The envelope may cover, when explicitly declared:
 
-- an explicit manual dispatch or equivalent approved release action;
-- a full 40-character source commit SHA;
-- a successful aggregate quality check for that exact commit;
-- production-environment approval;
+- the final exact gated deployment for that task;
+- normal restart/reload operations necessary for the deployment;
+- bounded smoke and health checks;
+- a specific safe rollback to a known target under a declared failure condition.
+
+The envelope does not authorize arbitrary later SHAs. Immediately before execution, release readiness must verify and bind:
+
+- the final full 40-character source SHA;
+- successful aggregate quality for that exact SHA;
 - validated exact artifacts, release manifest and quality evidence;
-- a known rollback target.
+- unchanged product outcome, runtime contour and protected boundaries;
+- the known rollback target and approved rollback semantics.
+
+Bounded implementation or CI-remediation commits do not by themselves invalidate an earlier production envelope when they remain inside the same approved Outcome Contract, runtime contour, deployment method and protected boundaries. A material change to any of those requires fresh production authorization.
 
 ## 6. Mixed-contour rollout
 
-Before merging a mixed API/worker change, document:
-
-- whether old worker/new API is supported;
-- whether new worker/old API is supported;
-- schema or behavior migration requirements;
-- deployment order;
-- acceptance checks after each step;
-- rollback order and compatibility window.
-
-The default safe order is:
-
-```text
-backward-compatible VPS/API deployment
-→ API health and source identity verification
-→ worker update
-→ worker source, freshness, frame and event verification
-→ post-release evidence review
-```
-
-A different order requires explicit rationale and approval.
+Before merging a mixed API/worker change, document old/new compatibility, schema/migration requirements, deployment order, acceptance checks and rollback order. The default safe order remains backward-compatible VPS/API first, API acceptance second, worker update third, worker runtime acceptance last.
 
 ## 7. VPS release evidence
 
 A VPS release is complete only when applicable evidence confirms:
 
-- deployed source corresponds to the explicitly approved exact commit;
-- aggregate quality status for that commit was successful;
+- deployed source corresponds to the final exact commit bound by release readiness;
+- aggregate quality status for that commit succeeded;
 - exact artifact, release, quality and deployment evidence validate;
-- API process is running when API changed;
-- health endpoint succeeds and reports the expected `api_schema` and `source_commit`;
-- frontend smoke check succeeds when frontend changed;
+- API process and health are correct when API changed;
+- health reports expected `api_schema` and `source_commit`;
+- frontend smoke succeeds when frontend changed;
 - storage/config compatibility is preserved;
 - rollback target is known;
 - no secret is printed or committed.
 
-A successful quality workflow or merge is not deployment evidence.
-
 ## 8. Worker release evidence
 
-A worker release is complete only when applicable evidence confirms:
-
-- packaged and installed worker correspond to the approved exact commit;
-- package checksum, exact inventory and release manifest validate;
-- local `.env`, model, environment, output and runtime data remain untouched;
-- deployment manifest identifies the installed and previous versions;
-- worker restarts successfully;
-- VPS receives state with matching `worker_source_commit`;
-- `updated_at` advances and `worker_online` is true;
-- `frame_no` advances between observations;
-- state and sampled events pass `schemas/telemetry.schema.json` semantics;
-- overlay/events work when affected;
-- rollback package or prior commit is available.
+A worker release is complete only when applicable evidence confirms exact package/install identity, preservation of local secrets/model/environment/output, valid deployment evidence, successful restart, matching `worker_source_commit`, advancing freshness/frame state and valid telemetry for affected behavior.
 
 Hosted CI does not prove NVIDIA, CUDA, physical-camera or RTSP runtime. Such claims require target or self-hosted evidence.
 
 ### Worker remote-operations transport
 
-The normal interactive administration path for the commissioned Ubuntu worker is OpenCode running on the operator-managed Windows control laptop and connecting to the worker over SSH. OpenCode is not installed on the production worker solely to administer it.
+The normal interactive administration path for the commissioned Ubuntu worker is the operator-managed Windows control laptop connecting over SSH. The primary connection target remains `seaspeedadmin@10.123.239.102:22` over ZeroTier, with the documented operator-owned VPS tunnel as fallback.
 
-The primary connection target is `seaspeedadmin@10.123.239.102:22` over ZeroTier, with `sea-speed-worker` as the recommended logical SSH alias. Reachability must be verified at execution time; storing the address in this contract defines the intended access route, not proof that the runtime route is currently healthy.
-
-If direct ZeroTier SSH is unavailable, an operator-owned VPS SSH tunnel may expose the worker locally as `127.0.0.1:2222`. The tunnel-owning terminal must remain open while that fallback is in use. The fallback transport does not change release identity, evidence requirements, rollback obligations or deployment authorization.
-
-OpenCode may perform approved unprivileged diagnostics and preparation remotely. Root-required actions must stop at a human privilege boundary: OpenCode prepares a bounded helper or exact command, and the operator invokes it with `sudo` and enters the password locally. Sudo passwords, private keys, GitHub tokens, API tokens, camera credentials and protected environment contents must not be transferred through prompts, command arguments, logs, reports or repository files.
-
-SSH access is an execution transport only. It must not replace GitHub Connector operations for repository source changes, and it must not be treated as authorization to start, stop, restart, enable, activate, deploy or roll back production runtime.
-
-The concrete connection procedure is versioned in `docs/operations/OPENCODE_WORKER_REMOTE_ACCESS.md`.
+SSH access is execution transport only. It never replaces GitHub Connector source operations or grants production authorization. Root-required steps retain the local human sudo boundary; passwords, private keys, camera credentials and tokens must not be transferred through chat, repository or logs.
 
 ## 9. Media-storage transition
 
-Versioned media modes are defined in `data/contracts/contract-policy-v1.json`.
-
-Current mode:
-
-```text
-mvp_v1: durable VPS event media temporarily permitted
-```
-
-Target mode:
-
-```text
-edge_v2: durable edge media required; durable VPS media forbidden; controlled stream proxy allowed
-```
-
-The current mismatch is accepted only under `RISK-MEDIA-001`. Activating `edge_v2` requires a separate approved migration, merge-blocking boundary tests and runtime evidence.
+The current `mvp_v1` / target `edge_v2` boundary and `RISK-MEDIA-001` remain unchanged. Activating `edge_v2` remains a separate protected migration.
 
 ## 10. Telemetry, reliability and evidence
 
-Runtime identity fields are additive and must not change speed, tracking, calibration or event formulas. Reliability limits are versioned in `data/quality/reliability-budget-v1.json`. Evidence review follows `docs/evidence/POST_RELEASE_REVIEW.md`.
-
-A product verdict must be one of:
-
-- `accepted`;
-- `regressed`;
-- `insufficient_evidence`.
-
-Do not compare quality windows that use incompatible camera, ROI, calibration or review procedures.
+Runtime identity fields are additive and must not change speed, tracking, calibration or event formulas. Evidence review follows `docs/evidence/POST_RELEASE_REVIEW.md` and returns `accepted`, `regressed` or `insufficient_evidence`.
 
 ## 11. Enforcement state
 
-The target required branch context is `Quality integration gate / quality-integration`. Source installation does not prove branch protection. Enforcement may be reported only after independent GitHub settings verification and an approved update of `data/quality/quality-gates-v1.json` from `aggregate_installed_not_enforced` to `aggregate_enforced`.
-
-The same evidence rule applies to required pull-request approvals, stale-approval dismissal, unresolved-thread blocking, force-push restrictions, protected environments and other repository ruleset controls. Source contracts describe the target state; GitHub settings evidence proves enforcement.
+The target required branch context remains `Quality integration gate / quality-integration`. Source contracts do not prove GitHub settings enforcement; branch protection, required approvals, protected environments and other rulesets require independent settings evidence.
 
 ## 12. Manual fallback
 
-Manual deployment or worker update is fallback-only when automation is unavailable. Provide the exact target, commit, commands or UI path, health checks, manifest locations, rollback steps and expected result.
-
-The operator-owned SSH tunnel described above is a network transport fallback and does not by itself make an otherwise automated deployment a manual fallback.
+Manual deployment or worker update is fallback-only when automation is unavailable. It must identify exact target and commit, health checks, manifest locations, rollback steps and expected result, and remain within the approved production safety envelope.
 
 ## 13. Documentation-only changes
 
-Governance, quality architecture and documentation-only tasks complete after aggregate PR validation and merge. They must not claim a VPS or worker release and must report both as `NOT REQUIRED`.
+Governance, quality architecture, SDD and documentation-only tasks complete after aggregate PR validation and authorized merge. VPS and worker release states are `NOT REQUIRED`.
 
 ## 14. Production-impact classification
 
-`data/contracts/change-control-policy-v1.json` derives one production-impact class from the exact changed-file set:
+`data/contracts/change-control-policy-v1.json` derives `NONE`, `CONTROL_PLANE`, `VPS`, `WINDOWS_WORKER`, or `MIXED` from exact changed paths. Deterministic deployment declarations remain enforced for runtime contours. `CONTROL_PLANE` requires explicit rationale.
 
-- `NONE`: no versioned production or control-plane path is affected;
-- `CONTROL_PLANE`: CI, release tooling, schemas, governance or operational control paths are affected without a deterministic runtime contour;
-- `VPS`: VPS API, frontend or VPS deployment source is affected;
-- `WINDOWS_WORKER`: Windows worker source is affected;
-- `MIXED`: both VPS and Windows worker source are affected.
-
-For deterministic runtime contours, deployment declarations are enforced:
-
-| Impact | VPS deployment | Windows worker update |
-|---|---:|---:|
-| `NONE` | NOT REQUIRED | NOT REQUIRED |
-| `VPS` | REQUIRED | NOT REQUIRED |
-| `WINDOWS_WORKER` | NOT REQUIRED | REQUIRED |
-| `MIXED` | REQUIRED | REQUIRED |
-
-`CONTROL_PLANE` requires explicit rationale because the path alone cannot prove whether installation or deployment is needed. The PR must still declare both delivery fields and explain the selected applicability.
-
-Production-impact classification does not authorize deployment. It determines which release and runtime evidence obligations become applicable after merge authorization.
+Production-impact classification never authorizes production mutation; it only determines applicable evidence obligations.

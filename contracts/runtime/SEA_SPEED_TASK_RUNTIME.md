@@ -1,6 +1,6 @@
 # Sea Speed Task Runtime
 
-Version: 1.2.1
+Version: 1.3.0
 Status: Active
 
 ## States
@@ -24,38 +24,36 @@ FAILED
 
 ## Semantics
 
-- `DISCUSSION` includes read-only Task Intake, repository discovery and Task Brief preparation.
-- `READY_FOR_IMPLEMENTATION` requires a canonical Task Brief, an Implementation Scope Check and valid repository-write approval.
-- `SOURCE_INTEGRATED` means source is verified on `main`; it does not mean VPS deployment or Windows worker update.
+- `DISCUSSION` includes read-only Task Intake, repository discovery, Task Brief and Outcome Contract preparation.
+- `READY_FOR_IMPLEMENTATION` requires a canonical Task Brief, Outcome Contract / Implementation Scope Check and valid source authorization.
+- `SOURCE_INTEGRATED` means source is verified on `main`; it does not mean production deployment or worker update.
 - `ACTIONS_REQUIRED` is manual fallback only.
 - `ACTIONS_COMPLETED` may mean a package or deployment action completed; it is not runtime acceptance by itself.
-- `RUNTIME_ACCEPTANCE` verifies provenance, health, freshness, telemetry and product evidence for the applicable VPS and/or worker contour.
+- `RUNTIME_ACCEPTANCE` verifies provenance, health, freshness, telemetry and product evidence for applicable runtime contours.
 - Terminal states are only `COMPLETE`, `BLOCKED`, and `FAILED`.
 
-## Canonical Task Brief
+## Canonical Task Brief and Outcome Contract
 
-Implementation tasks should be represented in the linked GitHub Issue with:
+Implementation tasks should be represented in the linked GitHub Issue with the existing Task Brief plus:
 
 ```text
-Task Brief
-- Original request:
-- Problem:
-- Expected behavior:
-- Scope:
-- Out of scope:
-- Responsible area:
-- Likely files:
-- Acceptance criteria:
-- Security impact:
-- API compatibility impact:
+Outcome Contract
+- Product outcome:
+- Protected things that must not change:
+- Main constraints:
+- Approved repository scope:
 - Runtime contour:
-- VPS deployment required:
-- Windows worker update required:
-- Rollout order:
-- Risks:
+- Production involved: YES/NO
+- Acceptance evidence:
 ```
 
-Task Intake prepares this brief without repository writes. The Project Manager validates it against current repository state before requesting approval.
+The Project Manager validates both against current repository state before requesting source authorization.
+
+## Source authorization
+
+Preferred authorization is `OUTCOME APPROVED` after the Outcome Contract / Implementation Scope Check. It covers the bounded reversible repository lifecycle through exact-green-head merge when the outcome, exact approved scope, runtime contour and protected boundaries remain unchanged.
+
+Legacy `COMMIT APPROVED` remains accepted during transition but does not remove the legacy separate merge-approval requirement.
 
 ## Required status block
 
@@ -65,11 +63,13 @@ Sea Speed Task Runtime
 - Issue:
 - Responsible agent:
 - Current phase:
+- Source authorization: OUTCOME APPROVED/LEGACY COMMIT APPROVED/OTHER
 - Branch:
-- Approved commit/range:
+- Approved outcome/scope:
 - Changed files:
 - main updated: YES/NO
 - Release manifest: NOT REQUIRED/PENDING/VALID/INVALID
+- Production safety envelope: NOT REQUIRED/PENDING/APPROVED/STALE
 - VPS deployment: NOT REQUIRED/PENDING/RUNNING/SUCCESS/FAILED
 - VPS deployment manifest: NOT REQUIRED/PENDING/VALID/INVALID
 - Windows worker package: NOT REQUIRED/PENDING/PACKAGED/FAILED
@@ -83,81 +83,56 @@ Sea Speed Task Runtime
 
 ## Continuation rule
 
-After approval, continue automatically through every deterministic safe transition. Do not wait for another user message between implementation, integrity checks, PR, CI, merge, release execution and verification.
+After `OUTCOME APPROVED`, continue automatically through every deterministic safe repository transition: implementation, integrity checks, PR, metadata repair, CI, in-scope CI remediation and exact-green-head merge. Do not wait for another user message between these transitions.
 
-New approval is required only for scope expansion, destructive action, secrets, protected files, schema incompatibility, data migration or behavior redesign.
+New source authorization is required only when the product outcome materially changes or a protected boundary is crossed: scope expansion, destructive action, secrets/security-boundary change, protected behavior change, schema incompatibility, data migration, behavior redesign, or equivalent material change.
+
+Ordinary in-scope bug fixes, test changes and CI remediation do not require fresh authorization.
+
+Production mutation is never implied by source authorization. When production applies, continue only after the separate production safety envelope is available and release readiness binds it to the final exact green SHA.
 
 ## Capability rule
 
-Before the first write, verify that the full approved file set and required delivery lifecycle are executable. Do not create a partial implementation when mandatory files, PR operations, CI evidence, merge, release, deployment, verification or rollback paths are unavailable.
+Before first write, verify that the full approved file set and required lifecycle are executable. Do not create a partial implementation when mandatory files, PR operations, CI evidence, merge, release, deployment, verification or rollback paths are unavailable.
 
 ## Remote worker execution boundary
 
-The normal interactive operations station for the Ubuntu worker is the operator-managed Windows laptop running OpenCode. OpenCode is not installed on the production worker solely to administer that worker.
-
-The canonical primary SSH target for the commissioned worker is:
-
-```text
-alias: sea-speed-worker
-user: seaspeedadmin
-host: 10.123.239.102
-port: 22
-transport: ZeroTier
-```
-
-Before a protected operation, runtime reachability must still be checked because network addresses and routes are runtime facts rather than repository proof.
-
-If direct ZeroTier SSH is unavailable, the approved fallback is an operator-owned SSH tunnel that exposes the worker locally as `127.0.0.1:2222`. The terminal holding that tunnel must remain open for the lifetime of the fallback connection. The fallback route is transport only; it does not grant additional deployment or privilege authorization.
-
-OpenCode should execute ordinary unprivileged worker diagnostics and approved configuration preparation remotely through SSH. When root is required, OpenCode prepares a bounded helper or exact command, validates it where possible, and stops at the privilege boundary. The human operator runs the bounded command with `sudo` and enters the sudo password locally. Sudo passwords, private keys, camera credentials, API tokens, GitHub tokens and protected environment contents must not be passed to OpenCode prompts, command arguments, logs or repository files.
-
-Production start, stop, restart, enable, activation, rollback and other protected runtime transitions remain subject to the task's explicit approval and evidence gates. SSH reachability or OpenCode access does not authorize those actions.
-
-Repository source publication remains GitHub-Connector-only. Runtime SSH access must not be used as a substitute for repository branch, commit, PR, merge or source-of-truth operations.
-
-Operational details and the primary/fallback connection procedure are defined in `docs/operations/OPENCODE_WORKER_REMOTE_ACCESS.md`.
+The canonical worker SSH transport and local sudo boundary remain unchanged. SSH reachability is transport only and does not authorize source publication or production mutation.
 
 ## Integrity rule
 
-After each write, fetch the complete file, verify its start and ending, validate syntax where applicable, compare the branch with `main`, and confirm the changed-file list remains in scope.
+After writes, fetch complete files, validate syntax/structure, compare the branch with `main`, verify exact changed-file scope and check for secrets/runtime artifacts. In-scope repairs remain covered by active Outcome Authorization.
+
+## Merge rule
+
+Before merge verify fresh base/head, exact scope, successful required CI and zero unresolved review threads. If source authorization is `OUTCOME APPROVED` and remains valid, merge may proceed automatically with expected-head protection when supported. Legacy `COMMIT APPROVED` tasks still require post-CI `MERGE APPROVED`.
 
 ## Evidence hierarchy
 
-Completion evidence is evaluated in this order:
+Completion evidence remains:
 
 ```text
-approved scope
+approved outcome/scope
 → exact changed files
 → PR validation
-→ merge commit on main
+→ authorized merge commit on main
 → release manifest and artifact identity
 → deployment manifest for each applicable contour
 → runtime source identity and health
-→ advancing worker freshness and frame evidence
-→ telemetry validation
+→ freshness/telemetry where applicable
 → post-release evidence verdict
 ```
 
-A process running, an open PR, green CI, a merge, an uploaded package or a deployment start is not sufficient by itself.
+A running process, open PR, green CI, merge, uploaded package or deployment start is not sufficient by itself.
 
 ## Runtime acceptance
 
-For a worker-affecting task, observe at least two state samples and verify:
-
-- matching `worker_source_commit`;
-- `worker_online=true`;
-- later `updated_at`;
-- later `frame_no`;
-- valid state schema;
-- valid event schema when events are affected;
-- overlay/event behavior when affected.
-
-For an API-affecting task, verify health, `api_schema`, `source_commit` and the VPS deployment manifest.
+Worker/API runtime acceptance requirements remain unchanged for their applicable contours. Governance-only work may classify runtime acceptance as `NOT REQUIRED` after successful aggregate CI and authorized merge.
 
 ## Feedback decision
 
-Use `docs/evidence/POST_RELEASE_REVIEW.md`. A regression creates a linked Issue and requires an explicit rollback decision. `insufficient_evidence` must not be represented as acceptance.
+Use `docs/evidence/POST_RELEASE_REVIEW.md`. A regression creates a linked Issue and requires a rollback decision unless an active production safety envelope already covers the exact declared safe rollback condition.
 
 ## Terminal response gate
 
-After repository-write approval, a final response is permitted only in `COMPLETE`, `BLOCKED`, or `FAILED`. Waiting for CI, mergeability, deployment or publication is not itself a blocker. A required physical Windows action may enter `ACTIONS_REQUIRED` and must include exact commands and evidence to return.
+After source authorization, a final response is permitted only in `COMPLETE`, `BLOCKED`, or `FAILED`. Waiting for CI is not itself a blocker. Waiting for a legacy merge approval or a required production/user privilege boundary is a valid `BLOCKED` state when no further authorized transition is possible.
