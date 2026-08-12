@@ -2,7 +2,7 @@
 
 - Specification: specs/002-camera-preview-gallery/spec.md
 - Issue: #103
-- Status: Approved for implementation
+- Status: Release recovery before production rollout
 
 ## Architecture
 
@@ -58,6 +58,12 @@ physical Camera 1 -> accepted Ubuntu relay -> VPS Camera 1 H.264 compatibility s
 - Decision: `/api/cameras` loads a sanitized deployment-local JSON catalog.
 - Reason: the discovered device set and protected relay identity are runtime facts. Production source and credentials do not belong in GitHub.
 
+### D-007 - Exact VPS artifact must cover every repository-owned deployed page
+
+- Decision: `frontend/sea-speed/cameras/index.html` is a required member of the deterministic VPS exact artifact and of exact-artifact validation, alongside the operator, objects and root pages.
+- Reason: the production deploy script installs the Cameras page, so release provenance is incomplete if the exact VPS artifact omits that file even when the deploy script can download it from the exact commit.
+- Regression rule: quality tests must assert that the built VPS artifact inventory contains the Cameras page; exact-artifact validation must also parse it as HTML.
+
 ## API design
 
 Additive endpoints:
@@ -98,37 +104,43 @@ The helper never starts/stops/restarts the AI worker or the accepted Camera 1 re
 - VPS API: additive preview orchestration.
 - VPS frontend: new gallery and operator navigation.
 - VPS deployment: install/rollback/smoke for the gallery page.
+- Release tooling: deterministic VPS artifact inventory and validation include the Cameras page.
 - Ubuntu operations: new dedicated private preview relay helper/service.
 - Windows worker: unchanged.
 - Camera 1 accepted live path: unchanged.
 
-Production impact derives as `VPS` because `api/**` and `frontend/**` are present; `deploy/worker/ubuntu/**` is additionally a control-plane path but does not introduce `worker/**` changes.
+Production impact derives as `VPS` because `api/**` and `frontend/**` are present; `deploy/worker/ubuntu/**` is additionally a control-plane path but does not introduce `worker/**` changes. The release-recovery change itself is control-plane/quality tooling only and does not mutate production runtime.
 
 ## Validation
 
 - Python syntax for `api/app/main.py` and focused tests.
 - Bash syntax for preview relay and VPS deploy scripts.
 - Static focused tests verify no arbitrary source URL API, one-active/TTL FFmpeg contract, credential-safe catalog response, source-on-demand relay configuration, Cameras page UI and release integration.
+- Exact-artifact validation requires `frontend/sea-speed/cameras/index.html`, verifies source/archive digests and parses all repository-owned VPS HTML pages.
+- Quality architecture tests assert that a freshly built VPS exact-artifact manifest contains the Cameras page.
 - Existing repository/CI suites remain required.
 
 ## Rollout
 
 1. Merge exact source after CI and separate merge approval.
 2. Separately authorize production rollout.
-3. On Ubuntu, create protected inventory with real sources and run `prepare` only.
-4. Review candidate digest and sanitized catalog; activate the dedicated preview relay only after the runtime authorization boundary is satisfied.
-5. Copy the sanitized generated catalog to the configured VPS catalog path without camera credentials.
-6. Deploy the exact merged VPS source.
-7. Verify operator and Cameras pages plus `/api/cameras`.
-8. Start one representative camera preview, visually confirm, switch to another, then Stop.
-9. Verify no preview remains active after Stop/TTL and Camera 1 still advances.
+3. Before production mutation, require a new exact-artifact/quality-evidence run for the exact merged commit and verify that its VPS inventory contains `frontend/sea-speed/cameras/index.html`.
+4. On Ubuntu, create protected inventory with real sources and run `prepare` only.
+5. Review candidate digest and sanitized catalog; activate the dedicated preview relay only after the runtime authorization boundary is satisfied.
+6. Copy the sanitized generated catalog to the configured VPS catalog path without camera credentials.
+7. Deploy the exact merged VPS source.
+8. Verify operator and Cameras pages plus `/api/cameras`.
+9. Start one representative camera preview, visually confirm, switch to another, then Stop.
+10. Verify no preview remains active after Stop/TTL and Camera 1 still advances.
 
 ## Rollback
 
-- VPS rollback uses the existing exact-release rollback mechanism, extended to preserve the Cameras page state.
-- Ubuntu preview relay keeps protected predecessor config/unit backups; rollback is explicit, never automatic.
+- VPS rollback uses the existing exact-release rollback mechanism, extended to preserve the Cameras page state. Automatic VPS safety rollback for the currently authorized rollout was separately approved after the source merge.
+- Ubuntu preview relay keeps protected predecessor config/unit backups; Ubuntu rollback remains explicit, never automatic.
 - Camera 1 does not require rollback because its source/config is not changed by this feature.
 
 ## Runtime feedback
 
-- Pending production acceptance.
+- 2026-08-12 pre-release gate: post-merge quality evidence for `1767bdfea7cb91febd139e12c5fd3a6068510899` exposed an exact-artifact completeness defect: the deploy script installed the Cameras page but the VPS exact artifact builder/validator did not include it. Production mutation was stopped before SSH/deployment.
+- Recovery scope: make the Cameras page a required exact VPS artifact member, add regression coverage, remove the accidental empty `__NOOP__` repository file, then obtain a new green exact merge commit before resuming rollout.
+- Production acceptance remains pending.

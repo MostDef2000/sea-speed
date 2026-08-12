@@ -20,6 +20,7 @@ REQUIRED_BY_COMPONENT = {
         "api/app/main.py",
         "frontend/sea-speed/index.html",
         "frontend/sea-speed/objects/index.html",
+        "frontend/sea-speed/cameras/index.html",
         "frontend/root/index.html",
         "deploy/vps/deploy.sh",
     },
@@ -89,6 +90,7 @@ def main() -> int:
                 for html in (
                     target / "frontend/sea-speed/index.html",
                     target / "frontend/sea-speed/objects/index.html",
+                    target / "frontend/sea-speed/cameras/index.html",
                     target / "frontend/root/index.html",
                 ):
                     text = html.read_text(encoding="utf-8-sig")
