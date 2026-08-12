@@ -57,10 +57,48 @@ After authenticated login:
 
 must show advancing Camera 1 H.264 video. The private camera source, Ubuntu relay, VPS H.264 compatibility process and AI-independent live behavior must remain unchanged.
 
+## Worker M2M acceptance
+
+Discover the exact VPS and worker private/ZeroTier IPv4 addresses at rollout. The nginx candidate must bind the worker listener only to the VPS private address and `allow` only the exact worker peer.
+
+Change only worker runtime API URLs to the private listener:
+
+```text
+SEA_SPEED_API_URL=http://<vps-private-ip>:<port>/api/cam1/state
+SEA_SPEED_EVENT_API_URL=http://<vps-private-ip>:<port>/api/cam1/events
+SEA_SPEED_ROI_URL=http://<vps-private-ip>:<port>/api/cam1/roi
+SEA_SPEED_SPEED_CONFIG_URL=http://<vps-private-ip>:<port>/api/cam1/speed-config
+SEA_SPEED_SPEED_LINES_URL=http://<vps-private-ip>:<port>/api/cam1/speed-lines
+```
+
+Keep the existing `SEA_SPEED_API_TOKEN` private and unchanged unless a separate credential-rotation decision is made.
+
+From the approved worker peer prove:
+
+```text
+POST /api/cam1/state         -> succeeds with existing Bearer token
+POST /api/cam1/events        -> succeeds with existing Bearer token
+GET  /api/cam1/roi           -> succeeds
+GET  /api/cam1/speed-config  -> succeeds
+GET  /api/cam1/speed-lines   -> succeeds
+```
+
+Also prove an unrelated path, wrong method and non-approved peer do not gain access. There must be no generic private `/api/**` proxy.
+
+## Deployment health acceptance
+
+After `sea-speed-api` restart, actual API health is proven locally:
+
+```text
+http://127.0.0.1:8000/api/health -> healthy
+```
+
+The public `https://mostdef.ru/sea-speed/api/health` URL is an authentication-boundary smoke check after Auth v1, not the service health proof.
+
 ## Network acceptance
 
-From an untrusted Internet host verify that FastAPI origin ports, MediaMTX, the Camera 1 loopback HLS origin, Authentik PostgreSQL and private relay services are not directly reachable. Public ingress remains nginx HTTPS for `mostdef.ru` and `auth.mostdef.ru`.
+From an untrusted Internet host verify that FastAPI origin ports, MediaMTX, the Camera 1 loopback HLS origin, Authentik PostgreSQL, Authentik loopback HTTP and private worker listener are not directly publicly reachable. Public ingress remains nginx HTTPS for `mostdef.ru` and `auth.mostdef.ru`.
 
 ## Failure posture
 
-If Authentik/outpost is unavailable, private Sea Speed may become unavailable but must not become anonymous. Do not automatically restore the retired `/cams/**` camera route.
+If Authentik/outpost is unavailable, private Sea Speed may become unavailable but must not become anonymous. Do not automatically restore the retired `/cams/**` camera route. If rollback is explicitly approved, restore nginx/auth and matching worker runtime URLs together.
