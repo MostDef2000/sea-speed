@@ -71,6 +71,7 @@ class CameraPreviewGalleryTests(unittest.TestCase):
             'for(let index=0;index<cameras.length;index++)',
             'await startPreview(camera.camera_id,{batchToken:token})',
             'await waitForVideoFrame(activeVideo)',
+            'await waitForStableVideoFrame(activeVideo)',
             'await stopPreview({preserveFrame:true})',
             'async function stopAllPreviews()',
             'batchGeneration++',
@@ -78,6 +79,20 @@ class CameraPreviewGalleryTests(unittest.TestCase):
             self.assertIn(marker, CAMERAS)
         self.assertNotIn("Promise.all(cameras", CAMERAS)
         self.assertNotIn("max_active: 33", CAMERAS)
+
+    def test_gallery_batch_snapshot_waits_for_actual_playback_progress(self) -> None:
+        for marker in (
+            'const BATCH_STABLE_ADVANCE_SEC=3;',
+            'const BATCH_STABLE_TIMEOUT_MS=12000;',
+            'function waitForStableVideoFrame(video,{minAdvanceSec=BATCH_STABLE_ADVANCE_SEC,timeoutMs=BATCH_STABLE_TIMEOUT_MS}={})',
+            'video.currentTime-baseline>=minAdvanceSec',
+            'requestAnimationFrame(check)',
+            'const stable=await waitForStableVideoFrame(activeVideo);',
+            'cameraErrors.set(camera.camera_id,"Видео не успело стабилизироваться")',
+        ):
+            self.assertIn(marker, CAMERAS)
+        self.assertNotIn('const BATCH_FRAME_DWELL_MS=1200;', CAMERAS)
+        self.assertNotIn('await delay(BATCH_FRAME_DWELL_MS);', CAMERAS)
 
     def test_gallery_retains_last_frame_only_in_page_memory(self) -> None:
         for marker in (
@@ -104,6 +119,7 @@ class CameraPreviewGalleryTests(unittest.TestCase):
         self.assertIn('cameraErrors.set(cameraId,error.message)', CAMERAS)
         self.assertIn('if(!started||!activeVideo)continue;', CAMERAS)
         self.assertIn('cameraErrors.set(camera.camera_id,"Видео не успело показать кадр")', CAMERAS)
+        self.assertIn('cameraErrors.set(camera.camera_id,"Видео не успело стабилизироваться")', CAMERAS)
 
     def test_api_exposes_catalog_only_start_stop_status_contract(self) -> None:
         for marker in (
