@@ -197,7 +197,7 @@ Direct-origin checks from an untrusted Internet host must show no direct access 
 
 ## Failure and rollback posture
 
-The safe failure mode is a closed/unavailable private service, not anonymous access.
+The fail-closed safety posture is a closed/unavailable private service, not anonymous access.
 
 If activation or acceptance fails:
 
