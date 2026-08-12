@@ -1,7 +1,7 @@
 # Feature Specification: Sea Speed Auth v1
 
 - Feature: 004-sea-speed-auth-v1
-- Issue: TBD
+- Issue: #115
 - Status: Approved for implementation
 
 ## Product outcome
