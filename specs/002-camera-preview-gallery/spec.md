@@ -3,12 +3,12 @@
 - Feature: 002-camera-preview-gallery
 - Issue: #109
 - Original Issue: #103
-- Status: Approved extension implementation
+- Status: Approved extension implementation with snapshot-stability remediation
 - Parent capability: specs/001-camera-live-pipeline/spec.md
 
 ## Product outcome
 
-An operator can open a dedicated Cameras page, see every camera candidate from the protected runtime catalog, start a temporary live preview of any one camera for visual identification, or run a bounded sequential preview of the whole catalog. The gallery retains the last successfully decoded frame for each visited camera only for the lifetime of the current browser page so the operator can compare camera views without maintaining many live streams or any persistent snapshot store.
+An operator can open a dedicated Cameras page, see every camera candidate from the protected runtime catalog, start a temporary live preview of any one camera for visual identification, or run a bounded sequential preview of the whole catalog. The gallery retains the last successfully decoded and sufficiently progressed frame for each visited camera only for the lifetime of the current browser page so the operator can compare camera views without maintaining many live streams or any persistent snapshot store.
 
 ## User scenarios
 
@@ -26,7 +26,7 @@ Given one preview is active, when the operator starts another camera or presses 
 
 ### Scenario 4 - Preview all cameras
 
-Given the catalog contains multiple cameras, when the operator presses `Предпросмотр всех`, then the browser visits catalog cameras sequentially, never intentionally requesting more than one server preview at a time, waits for a decodable frame where available, retains the last successful frame in that card, and proceeds to the next camera.
+Given the catalog contains multiple cameras, when the operator presses `Предпросмотр всех`, then the browser visits catalog cameras sequentially, never intentionally requesting more than one server preview at a time, waits for a decodable frame and bounded actual playback progression where available, retains the resulting latest frame in that card, and proceeds to the next camera.
 
 ### Scenario 5 - Stop the batch
 
@@ -34,7 +34,7 @@ Given Preview All is running, when the operator presses `Остановить в
 
 ### Scenario 6 - A candidate is not usable
 
-Given a discovered device is offline, slow, or uses an unknown RTSP path, when manual or batch preview cannot obtain usable video, then that card reports a bounded error and batch mode continues to the next candidate. Other camera cards plus Camera 1 remain unaffected.
+Given a discovered device is offline, slow, or uses an unknown RTSP path, when manual or batch preview cannot obtain usable and progressing video, then that card reports a bounded error and batch mode continues to the next candidate. Other camera cards plus Camera 1 remain unaffected.
 
 ### Scenario 7 - Reload the page
 
@@ -66,6 +66,8 @@ Given one or more cards contain retained frames, when the operator reloads or cl
 - FR-022: Batch failure for one camera MUST NOT abort remaining catalog traversal.
 - FR-023: Stop All MUST invalidate further batch starts and MUST request stop of the current server preview; if a bounded in-flight start completes after cancellation, the browser MUST stop it rather than resume batch traversal.
 - FR-024: When a full Preview All pass completes normally, the browser MUST stop the final server preview so the system returns to zero active preview processes while retained page frames remain visible.
+- FR-025: Preview All MUST NOT capture immediately after the browser's first decodable frame signal. It MUST require bounded observed playback progression before snapshot capture so startup/partial frames are not preferentially retained.
+- FR-026: The playback-progression wait MUST be cancelable by the existing batch generation mechanism and MUST have a bounded timeout so a stalled camera cannot block the remaining catalog indefinitely.
 
 ## Acceptance criteria
 
@@ -75,7 +77,7 @@ Given one or more cards contain retained frames, when the operator reloads or cl
 - AC-004: Play on one card produces a temporary H.264 HLS URL under `/sea-speed/media/camera-preview/` and advancing browser video.
 - AC-005: Starting another card replaces the prior active server preview and leaves the prior camera's last successful frame visible when capture was possible.
 - AC-006: Stop releases the server preview and leaves the last successful frame visible; abandoned preview work still expires automatically at the hard TTL.
-- AC-007: Preview All processes the catalog serially, reports progress, obtains representative last frames, and ends with no active server preview.
+- AC-007: Preview All processes the catalog serially, reports progress, obtains representative stable last frames, and ends with no active server preview.
 - AC-008: Stop All ends the batch and prevents subsequent catalog starts from that batch generation.
 - AC-009: A failed candidate reports an isolated error and batch processing continues to later cameras.
 - AC-010: API responses contain camera IDs/display labels/status only and never expose protected source URLs or credentials.
@@ -83,6 +85,7 @@ Given one or more cards contain retained frames, when the operator reloads or cl
 - AC-012: Existing Camera 1 live viewing remains functional and its accepted browser architecture is unchanged.
 - AC-013: VPS deployment installs, rolls back and smoke-checks the Cameras page.
 - AC-014: Required repository validation and CI pass with the exact approved changed-file set for Issue #109.
+- AC-015: For a normally progressing camera, batch capture occurs only after measurable media-time advancement beyond first-frame readiness; the prior fixed 1.2-second post-ready dwell is not used.
 
 ## Compatibility and boundaries
 
@@ -106,4 +109,5 @@ Issue #109 does not change either runtime file contract.
 ## Runtime feedback
 
 - 2026-08-12: Original Camera Preview Gallery accepted in production after representative start/switch/stop and visible moving-video confirmation while Camera 1 remained healthy.
-- Issue #109 adds only browser-side sequential identification workflow and volatile last-frame presentation; production acceptance must confirm Preview All, Stop All, retained frames, reload clearing, failure continuation, and Camera 1 regression safety.
+- 2026-08-12: Initial Issue #109 rollout reached exact main `11306b23f3dd2fb21917a593c0e055911eefc6ff`; technical sequence smoke passed, but visual acceptance showed several batch snapshots captured during startup before the picture had fully formed. The observed cause is browser capture timing, not preview transport or server concurrency.
+- Issue #109 remediation remains browser-only: require actual media progression before retaining a batch frame; production acceptance must then reconfirm Preview All, Stop All, stable retained frames, reload clearing, and Camera 1 regression safety.
