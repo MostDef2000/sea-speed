@@ -6,7 +6,9 @@
 - Extension Issue: #109
 - Status: Approved extension implementation
 
-## Original gallery delivery
+## Delivery tasks
+
+### Original gallery delivery
 
 - [x] T001 Preserve the current operator frontend behavior while adding `Камеры` navigation.
 - [x] T002 Add the responsive `/sea-speed/cameras/` runtime-catalog gallery with one active HLS player.
@@ -23,9 +25,9 @@
 - [x] T013 Complete technical runtime acceptance: catalog, representative start/switch/stop, public HLS and Camera 1 regression check.
 - [x] T014 Complete visual acceptance of moving preview video and switching; close Issue #103.
 
-## Issue #109 - Sequential Preview All + retained last frames
+### Issue #109 - Sequential Preview All + retained last frames
 
-### Source implementation
+#### Source implementation
 
 - [x] T109-01 Record exact six-file Outcome Contract and `OUTCOME APPROVED` authorization in canonical Issue #109.
 - [x] T109-02 Keep existing backend/API/Ubuntu relay/Camera 1/AI contours outside source scope.
@@ -39,7 +41,7 @@
 - [x] T109-10 Add focused regression tests for sequential batch control, last-frame capture, cancellation, failure continuation and storage boundaries.
 - [x] T109-11 Update spec/plan/tasks/quickstart for the accepted extension behavior and runtime acceptance plan.
 
-### Delivery gates
+#### Delivery gates
 
 - [ ] T109-12 Verify exact six-file branch diff against source main.
 - [ ] T109-13 Required PR Validation succeeds for exact head.
@@ -47,7 +49,7 @@
 - [ ] T109-15 Confirm no unresolved review threads and fresh head/base relationship.
 - [ ] T109-16 Merge exact green head under still-valid Outcome Authorization; no separate MERGE APPROVED token.
 
-### Production and runtime acceptance
+#### Production and runtime acceptance
 
 - [ ] T109-17 Obtain separate production safety-envelope authorization for exact merged main before VPS mutation.
 - [ ] T109-18 Deploy exact merged VPS release; Ubuntu preview relay remains untouched.
