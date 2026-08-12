@@ -27,11 +27,17 @@ Retained last frames are intentionally page-local only:
 
 - live HLS is decoded by the existing browser player;
 - before switch/stop, the latest decodable video frame is drawn into that camera card's `<canvas>`;
+- automatic Preview All does not capture immediately after first-frame readiness: it waits for at least 3 seconds of actual `video.currentTime` advancement, bounded by a 12-second stabilization timeout;
+- if a stream does not progress enough before the timeout, that card gets an isolated error and batch traversal continues;
 - the canvas remains visible while the current page stays loaded;
 - no `localStorage`, `sessionStorage`, IndexedDB, Cache API, server snapshot file or database row is written;
 - reload or close clears the retained frames naturally.
 
 This is a temporary visual contact sheet for identifying cameras, not recording or evidence storage.
+
+## Why the progression gate exists
+
+The initial production implementation used `loadeddata`/`playing` plus a fixed 1.2-second dwell before canvas capture. Technical HLS checks passed, but visual acceptance showed several cameras still produced gray or partially formed startup images. The remediation waits on actual media-time advancement instead of a short wall-clock delay. This remains browser-only and does not change server concurrency, relay topology or credentials.
 
 ## Manual product acceptance
 
@@ -47,26 +53,28 @@ This is a temporary visual contact sheet for identifying cameras, not recording 
 
 1. Press `Предпросмотр всех`.
 2. Confirm the progress indicator advances through the catalog sequentially and identifies the current camera.
-3. Confirm only one card is live at a time and successful cards accumulate a `последний кадр` canvas as the batch moves forward.
-4. If an offline/invalid candidate is encountered, confirm its card shows an error and later cameras are still attempted.
-5. During a second pass, press `Остановить все` while traversal is running.
-6. Confirm no later cameras from that pass begin after cancellation settles, the current server preview is stopped, and already captured canvases remain visible.
-7. Run Preview All to normal completion and confirm the backend returns to no active preview after the final camera.
-8. Reload the page and confirm every retained frame disappears.
-9. Re-check Camera 1 live.
+3. For a known-good camera, confirm the card stays live long enough for the picture to settle and advance before it changes to `последний кадр`; retained images should be visually formed, not startup-gray/partial frames.
+4. Confirm only one card is live at a time and successful cards accumulate a `последний кадр` canvas as the batch moves forward.
+5. If an offline/stalled/invalid candidate is encountered, confirm its card shows an error and later cameras are still attempted.
+6. During a second pass, press `Остановить все` while traversal is running.
+7. Confirm no later cameras from that pass begin after cancellation settles, the current server preview is stopped, and already captured canvases remain visible.
+8. Run Preview All to normal completion and confirm the backend returns to no active preview after the final camera.
+9. Reload the page and confirm every retained frame disappears.
+10. Re-check Camera 1 live.
 
 ## Production rollout boundary
 
-Issue #109 changes only the Cameras frontend plus SDD/tests in repository source. After exact-green merge, production requires a separate safety-envelope authorization bound to the final merged main SHA. VPS deployment uses the existing exact release mechanism. Ubuntu preview relay activation/configuration is not part of this rollout.
+Issue #109 remediation still changes only the Cameras frontend plus SDD/tests in repository source. The production authorization used for exact main `11306b23f3dd2fb21917a593c0e055911eefc6ff` does not automatically authorize a later exact SHA. After the remediation merges exact-green, obtain a fresh production safety-envelope authorization for that new SHA. VPS deployment uses the existing exact release mechanism. Ubuntu preview relay activation/configuration is not part of this rollout.
 
 ## Acceptance evidence
 
 Record in Issue #109:
 
-- exact merged/deployed main SHA;
+- exact remediation merged/deployed main SHA;
 - PR Validation and Quality integration success for exact source;
 - Preview All sequential progress result;
-- representative successful last-frame camera IDs;
+- representative successful stable last-frame camera IDs;
+- confirmation that automatic snapshots waited for actual media progression and did not retain gray/partial startup frames on representative good cameras;
 - Stop All result and final active-preview state;
 - reload-clears-frames result;
 - Camera 1 before/after result;
