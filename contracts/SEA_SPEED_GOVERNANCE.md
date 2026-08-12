@@ -1,13 +1,14 @@
 # Sea Speed Governance
 
-Version: 1.4.0
+Version: 1.5.0
 Status: Active
 Source of truth: GitHub `main`
 
 ## 1. Core rules
 
 - `main` is the only long-term source of truth.
-- GitHub Issues are the canonical persistent backlog and task history. Chat context may assist execution but must not replace durable issue state for implementation work.
+- GitHub Issues are the canonical persistent backlog, approval record and task history. Chat context may assist execution but must not replace durable issue state for implementation work.
+- Feature specifications under `specs/**` are the canonical durable product-intent artifacts for their feature. They complement Issues and do not replace governance contracts.
 - All GitHub repository operations must use the connected GitHub Connector. GitHub CLI `gh`, local GitHub authentication, `git push`, and direct local repository publication are not part of the Sea Speed delivery workflow.
 - VPS and Windows laptop are runtime environments, not editable source stores.
 - Task Intake is read-only and produces a canonical Task Brief before implementation planning.
@@ -77,7 +78,7 @@ Before merge, re-check branch freshness and changed-file scope.
 - `frontend/**`: operator UI.
 - `deploy/**`: deployment, service, updater, health and rollback infrastructure.
 - `schemas/**`: release, deployment and telemetry contracts.
-- `contracts/**`, `docs/**`, `skills/**`: governance and documentation.
+- `contracts/**`, `docs/**`, `specs/**`, `.specify/**`, `skills/**`: governance, SDD and documentation.
 
 Domain agents edit only approved files. Cross-domain changes must be declared in scope.
 
@@ -138,13 +139,38 @@ Valid terminal states are only:
 
 Merge is not deployment. Packaging is not installation. Deployment is not runtime acceptance. Evidence determines completion.
 
-## 11. Executable Change Contract
+## 11. Spec-Driven Development artifact layer
+
+Sea Speed uses GitHub Spec Kit concepts as a parallel artifact layer for product intent, architecture and execution while keeping this governance contract authoritative for approvals and delivery.
+
+The hierarchy is:
+
+- `contracts/**`: process authority, protected boundaries and delivery/evidence rules;
+- `.specify/memory/constitution.md`: Sea Speed SDD principles used by Spec Kit-compatible agents;
+- `.specify/templates/overrides/**`: project-local SDD artifact templates;
+- `specs/<feature>/spec.md`: canonical WHAT/WHY and acceptance criteria for a feature;
+- `specs/<feature>/plan.md`: accepted architecture, decisions and validation strategy;
+- `specs/<feature>/tasks.md`: bounded execution plan;
+- optional `research.md`, `quickstart.md` and `contracts/`: durable supporting evidence and normative feature contracts;
+- code: implementation of the linked feature specification;
+- runtime acceptance: operational truth that must feed back into the feature artifacts when it changes accepted behavior or architecture.
+
+Significant implementation and control-plane PRs must declare exactly one active specification in the PR body using `- Specification: specs/<feature>/spec.md`. The feature directory must contain at least `spec.md`, `plan.md` and `tasks.md`. `scripts/ci/validate_sdd.py` enforces the baseline and PR linkage.
+
+Narrow documentation/spec-only maintenance does not require recursively creating a new feature spec. Emergency runtime recovery may begin from an already approved Issue when production restoration is the immediate goal, but any accepted behavior or architecture change must be written back to the linked SDD artifacts before the task is represented as complete.
+
+Historical Issues remain audit history. If runtime evidence proves that an original technical assumption is obsolete, the accepted feature spec/plan may supersede that assumption explicitly without rewriting history.
+
+Spec Kit tooling is optional local/agent tooling. CI validates repository artifacts directly and must not depend on a specific local AI agent or Spec Kit installation.
+
+## 12. Executable Change Contract
 
 Every implementation pull request must keep a machine-readable Change Contract in its body. The canonical template is `.github/pull_request_template.md`, the versioned path policy is `data/contracts/change-control-policy-v1.json`, and enforcement is implemented by `scripts/ci/validate_change_contract.py`.
 
 The Change Contract must include:
 
 - one canonical Issue reference;
+- the linked feature specification when required by the SDD policy;
 - the approved scope and acceptance criteria;
 - `YES` for the Implementation Scope Check approval;
 - the exact changed-file set, matching the Git diff without missing or extra paths;
@@ -153,11 +179,11 @@ The Change Contract must include:
 - deployment applicability, rollout, evidence and rollback declarations;
 - local, CI and applicable runtime-validation plans.
 
-A changed-file mismatch, placeholder field, missing required section, incorrect production-impact class, or incorrect deterministic deployment declaration fails the pull-request quality gate. Scope expansion requires new approval and a synchronized Issue and PR body before implementation continues.
+A changed-file mismatch, placeholder field, missing required section, incorrect production-impact class, incorrect SDD linkage when required, or incorrect deterministic deployment declaration fails the pull-request quality gate. Scope expansion requires new approval and a synchronized Issue and PR body before implementation continues.
 
 `AGENTS.md` is an agent-facing entry point only. It must point to this contract and must not become an independent source of governance truth.
 
-## 12. Merge authorization
+## 13. Merge authorization
 
 Successful CI does not authorize merge by itself. Merge requires:
 

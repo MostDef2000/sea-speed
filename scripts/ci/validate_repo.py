@@ -13,8 +13,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 ALLOWED_TOP_LEVEL = {
-    ".github", ".gitignore", "AGENTS.md", "README.md", "api", "contracts", "data", "deploy", "docs",
-    "frontend", "schemas", "scripts", "skills", "tests", "worker",
+    ".github", ".gitignore", ".specify", "AGENTS.md", "README.md", "api", "contracts", "data", "deploy", "docs",
+    "frontend", "schemas", "scripts", "skills", "specs", "tests", "worker",
 }
 
 REQUIRED_FILES = {
@@ -31,6 +31,13 @@ REQUIRED_FILES = {
     "contracts/SEA_SPEED_DELIVERY_POLICY.md",
     "contracts/runtime/SEA_SPEED_TASK_RUNTIME.md",
     "contracts/runtime/RELEASE_READINESS_GATE.md",
+    ".specify/memory/constitution.md",
+    ".specify/templates/overrides/spec-template.md",
+    ".specify/templates/overrides/plan-template.md",
+    ".specify/templates/overrides/tasks-template.md",
+    "specs/README.md",
+    "specs/001-camera-live-pipeline/spec.md",
+    "specs/002-sdd-adoption/spec.md",
     "data/contracts/sea-speed-contracts-v1.schema.json",
     "data/contracts/fixtures-v1.json",
     "data/contracts/contract-policy-v1.json",
@@ -40,6 +47,7 @@ REQUIRED_FILES = {
     "data/quality/accepted-risks-v1.json",
     "scripts/ci/validate_change_contract.py",
     "scripts/ci/validate_contracts.py",
+    "scripts/ci/validate_sdd.py",
     "scripts/ci/validate_telemetry.py",
     "scripts/release/build_release_manifest.py",
     "scripts/release/validate_release_manifest.py",
@@ -60,6 +68,7 @@ REQUIRED_FILES = {
     "schemas/quality-evidence.schema.json",
     "tests/test_api_contract.py",
     "tests/test_change_contract.py",
+    "tests/test_validate_sdd.py",
     "tests/test_worker_contract.py",
     "tests/test_frontend_contract.py",
     "tests/test_release_manifest.py",

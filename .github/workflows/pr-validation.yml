@@ -41,6 +41,14 @@ jobs:
         if: github.event_name == 'pull_request'
         run: python scripts/ci/validate_change_contract.py --event "$GITHUB_EVENT_PATH"
 
+      - name: Validate SDD artifacts
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            python scripts/ci/validate_sdd.py --event "$GITHUB_EVENT_PATH"
+          else
+            python scripts/ci/validate_sdd.py
+          fi
+
       - name: Validate repository
         run: python scripts/ci/validate_repo.py
 
