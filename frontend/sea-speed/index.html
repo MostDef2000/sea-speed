@@ -56,7 +56,7 @@
     <section class="panel live-preview-card" data-layout="clean-live">
       <div class="live-preview-heading"><div><p class="panel-kicker">Live camera</p><h2>Чистый поток</h2><div class="section-note">HLS без AI overlay</div></div><div class="camera-actions"><button id="connectBtn" class="icon-btn connect" aria-label="Подключиться"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></button><button id="disconnectBtn" class="icon-btn disconnect" aria-label="Отключить"><svg viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg></button></div></div>
       <div class="live-preview-frame"><video id="video" controls playsinline muted></video></div>
-      <div class="section-note">Camera 1 · /cams/hls/cam1/index.m3u8</div>
+      <div class="section-note">Camera 1 · /sea-speed/media/cam1/index.m3u8</div>
     </section>
     <section class="panel history-card" data-layout="compact-detection-history"><div class="history-heading"><div><p class="panel-kicker">Detection history</p><h2>Последние события</h2></div><div class="section-note">до 3</div></div><div id="eventsList" class="events-list"><div class="empty">Пока событий нет</div></div></section>
   </aside>
@@ -71,7 +71,7 @@
 <footer class="operator-footer">Sea Speed · Maritime computer vision prototype</footer>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 <script>
-const HLS_URL = "/cams/hls/cam1/index.m3u8";
+const HLS_URL = "/sea-speed/media/cam1/index.m3u8";
 const STATE_URL = "/sea-speed/api/cam1/state";
 const EVENTS_URL = "/sea-speed/api/cam1/events?limit=3";
 const ROI_URL = "/sea-speed/api/cam1/roi";
