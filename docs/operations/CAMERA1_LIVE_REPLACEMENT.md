@@ -1,25 +1,33 @@
 # Camera 1 Live Source Replacement
 
-Status: Source implementation only until a separately approved production rollout.
+Status: Camera source replacement accepted in production on 2026-08-12. Browser security identity is subsequently superseded by Issue #115 / Sea Speed Auth v1.
 
 ## Product goal
 
-Keep one public camera identity, `cam1`, while replacing the legacy live source with the new physical RTSP camera.
+Keep the canonical camera identity `cam1` while replacing the legacy live source with the new physical RTSP camera. The camera source/relay change remains independent of the browser authentication boundary.
 
-The target media path is:
+The private source path established by this work is:
 
 ```text
 new physical camera
   -> Ubuntu sea-speed-stream / MediaMTX private RTSP relay `cam1`
   -> ZeroTier private network
-  -> VPS MediaMTX canonical path `cam1`
-  -> existing nginx Basic Auth boundary
-  -> /cams/hls/cam1/index.m3u8
+  -> VPS canonical camera source / compatibility processing
 ```
+
+The accepted browser path after the later H.264 compatibility cutover and Issue #115 is:
+
+```text
+VPS H.264 compatibility output at 127.0.0.1:18889/cam1/
+  -> nginx
+  -> Authentik-protected /sea-speed/media/cam1/index.m3u8
+```
+
+The retired `/cams/hls/cam1/index.m3u8` path is historical only and must not be recreated after Issue #115.
 
 The live relay is intentionally independent of `sea-speed-worker.service`. Stopping the AI worker must not stop the clean live camera view.
 
-This task does not create `cam2` and does not change the frontend HLS URL.
+This task does not create `cam2` and does not change the physical Camera 1 identity.
 
 ## Security model
 
@@ -50,7 +58,7 @@ Do not print or copy:
 - the camera URL with credentials;
 - `worker.env` contents;
 - generated Ubuntu MediaMTX config contents;
-- Basic Auth values;
+- Authentik credentials/session values or legacy Basic Auth values;
 - API/GitHub tokens;
 - Authorization headers.
 
@@ -60,26 +68,25 @@ Do not use camera credentials in CLI arguments, process titles, issue comments, 
 
 - `scripts/operations/mediamtx_path_config.py` performs bounded MediaMTX YAML transformations without a PyYAML dependency, including the exact `cam1` reader authorization rule and the canonical VPS `rtspTransport: tcp` contract.
 - `deploy/worker/ubuntu/camera-relay.sh` prepares and activates the Ubuntu private relay while refusing to activate the AI worker.
-- `deploy/vps/camera-source-switch.sh` prepares and activates the canonical VPS `cam1` switch, verifies the exact TCP relay contract before installation, and separately retires `cam1-new` after public validation.
+- `deploy/vps/camera-source-switch.sh` prepares and activates the canonical VPS `cam1` switch, verifies the exact TCP relay contract before installation, and separately retires `cam1-new` after browser validation.
+- `scripts/operations/nginx_cam1_direct_h264.py` now prepares only the protected H.264 browser route under `/sea-speed/media/cam1/`.
+- `deploy/vps/sea-speed-auth-cutover.sh` is the Issue #115 activation boundary that combines the Camera 1 browser route with Authentik protection and `/cams/**` retirement.
 
-Both runtime commands use protected candidate files with SHA-256 binding. An activation command must provide the exact candidate digest returned by its preceding prepare command.
+The source-switch runtime commands use protected candidate files with SHA-256 binding. An activation command must provide the exact candidate digest returned by its preceding prepare command.
 
 ## Repository / runtime boundary
 
 Merge is not deployment. None of these files change production merely by existing on `main`.
 
-Before production use, require:
+For the original #87 source replacement, production required exact merged source, aggregate quality, explicit production approval, fresh runtime discovery and rollback state. That source/media rollout is now accepted historical evidence.
 
-1. exact merged source commit;
-2. successful `Quality integration gate / quality-integration` for that exact source;
-3. explicit production rollout approval for Issue #87;
-4. fresh discovery of the actual Ubuntu and VPS MediaMTX config paths and service names;
-5. fresh discovery of the exact VPS ZeroTier peer IPv4 that will be allowed to read `cam1`;
-6. confirmed current rollback state.
+For the new Issue #115 browser security migration, require its separate exact-SHA `PRODUCTION APPROVED` envelope and follow `docs/operations/SEA_SPEED_AUTH_V1.md`. Do not infer authorization for Auth v1 from the prior #87 production approval.
 
 OpenCode may perform non-secret diagnostics remotely. A root-required operation follows `docs/operations/OPENCODE_WORKER_REMOTE_ACCESS.md`: OpenCode prepares the bounded exact command/helper, then the operator runs the exact `sudo ...` command and enters the password locally. Never pass a sudo password to OpenCode.
 
-## Controlled rollout order
+## Controlled source-replacement rollout order
+
+The following steps document the original bounded camera-source replacement. Browser authentication references in earlier versions of this runbook are superseded by Issue #115.
 
 ### 1. Prepare Ubuntu relay candidate
 
@@ -128,13 +135,11 @@ The activation:
 - never starts/stops/restarts/enables the AI worker;
 - performs no automatic rollback.
 
-At this point the VPS canonical public source is still unchanged.
-
 ### 3. Validate private relay from the VPS
 
 Before changing canonical `cam1`, validate the credential-free private relay from the exact VPS ZeroTier peer that was authorized in the Ubuntu candidate.
 
-A controlled media probe may be used only after production rollout approval. Its command line must contain only the credential-free private relay URL. Confirm that the relay can produce actual media from the new camera while `sea-speed-worker.service` remains stopped.
+A controlled media probe may be used only inside an applicable production approval. Its command line must contain only the credential-free private relay URL. Confirm that the relay can produce actual media from the new camera while `sea-speed-worker.service` remains stopped.
 
 Do not proceed to the VPS switch on TCP reachability alone; private media must be proven. A reader from an unapproved peer must not be treated as an acceptance path.
 
@@ -173,18 +178,18 @@ The script:
 - changes canonical `cam1` to the credential-free Ubuntu relay with RTSP source pull pinned to TCP;
 - restarts only VPS `mediamtx.service`;
 - waits for VPS-local `/cam1/index.m3u8` HLS to become available;
-- leaves `cam1-new` in place until public validation;
+- leaves `cam1-new` in place until browser validation;
 - performs no automatic rollback.
 
-Nginx and `/cams/hls/cam1/index.m3u8` are intentionally unchanged.
+The source switch does not itself define the final browser security boundary. After Issue #115, the browser route is `/sea-speed/media/cam1/index.m3u8` through Authentik, and its nginx activation is controlled by `sea-speed-auth-cutover.sh`.
 
-### 6. Public acceptance before cleanup
+### 6. Browser acceptance before cleanup
 
-Using the existing protected website authentication path, verify:
+After the applicable browser-security cutover, verify:
 
-- `/cams/hls/cam1/index.m3u8` is reachable through the existing nginx Basic Auth boundary;
-- video is from the new physical camera;
-- video advances for multiple samples;
+- the retired `/cams/hls/cam1/index.m3u8` path exposes no camera content;
+- anonymous `/sea-speed/media/cam1/index.m3u8` is Authentik-gated;
+- authenticated `/sea-speed/media/cam1/index.m3u8` shows the new physical camera and advances for multiple samples;
 - live video continues while `sea-speed-worker.service` is inactive;
 - Ubuntu relay read access is limited to the approved single VPS ZeroTier peer and canonical path `cam1`;
 - no camera credentials appear in browser-visible URLs, process argv, sanitized service logs or reports.
@@ -193,7 +198,7 @@ Only after this evidence is accepted may the temporary `cam1-new` mapping be ret
 
 ### 7. Retire `cam1-new`
 
-Prepare cleanup only after public HLS has been confirmed:
+The existing command-line flag name `--confirmed-public-hls` is retained for backward compatibility in the source-switch helper; after Issue #115 it means that the protected browser HLS path has been confirmed.
 
 ```text
 camera-source-switch.sh prepare-cleanup --config <vps-mediamtx-config> --relay-url rtsp://<ubuntu-private-ip>:8554/cam1 --confirmed-public-hls
@@ -220,20 +225,19 @@ If Ubuntu relay activation or the VPS canonical switch fails:
 5. restore the appropriate previously captured config and restart only the affected relay service;
 6. re-verify the restored canonical HLS behavior.
 
-The legacy source must not be deleted before the new canonical public path has passed acceptance.
+For Issue #115 browser-security rollback, follow the stricter fail-closed policy in `SEA_SPEED_AUTH_V1.md`: never automatically restore a public `/cams/**` contour.
 
 ## Acceptance result
 
-Issue #87 is runtime-accepted only when:
+The Camera 1 source/media milestone is accepted when:
 
-- the public path remains `/cams/hls/cam1/index.m3u8`;
-- it shows the new physical camera;
 - the Ubuntu relay supplies canonical private `cam1` over ZeroTier;
 - Ubuntu MediaMTX grants credential-free `cam1` read only to the exact approved VPS ZeroTier peer and preserves all unrelated auth rules;
 - the VPS canonical `cam1` contains no camera credentials and uses `rtspTransport: tcp` for the private relay source pull;
-- the live view works with the AI worker stopped;
-- `cam1-new` has been retired after validation;
+- the H.264 compatibility output provides advancing Camera 1 video;
+- live viewing works with the AI worker stopped;
+- `cam1-new` was retired after validation;
 - rollback evidence remains available;
 - no secret was disclosed.
 
-Until that controlled rollout is performed, runtime remains `UNKNOWN` for this source change.
+After Issue #115 deployment, the additional accepted browser condition is that Camera 1 is available only through authenticated `/sea-speed/media/cam1/index.m3u8`, while `/cams/**` exposes no camera content.
