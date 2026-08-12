@@ -4,7 +4,7 @@
 - Plan: specs/002-camera-preview-gallery/plan.md
 - Original Issue: #103
 - Extension Issue: #109
-- Status: Approved extension implementation
+- Status: Snapshot-stability remediation in progress under existing Outcome Authorization
 
 ## Delivery tasks
 
@@ -27,7 +27,7 @@
 
 ### Issue #109 - Sequential Preview All + retained last frames
 
-#### Source implementation
+#### Initial source implementation
 
 - [x] T109-01 Record exact six-file Outcome Contract and `OUTCOME APPROVED` authorization in canonical Issue #109.
 - [x] T109-02 Keep existing backend/API/Ubuntu relay/Camera 1/AI contours outside source scope.
@@ -41,32 +41,49 @@
 - [x] T109-10 Add focused regression tests for sequential batch control, last-frame capture, cancellation, failure continuation and storage boundaries.
 - [x] T109-11 Update spec/plan/tasks/quickstart for the accepted extension behavior and runtime acceptance plan.
 
-#### Delivery gates
+#### Initial delivery and production gates
 
-- [ ] T109-12 Verify exact six-file branch diff against source main.
-- [ ] T109-13 Required PR Validation succeeds for exact head.
-- [ ] T109-14 Required Quality integration gate succeeds for exact head.
-- [ ] T109-15 Confirm no unresolved review threads and fresh head/base relationship.
-- [ ] T109-16 Merge exact green head under still-valid Outcome Authorization; no separate MERGE APPROVED token.
+- [x] T109-12 Verify exact six-file branch diff against source main.
+- [x] T109-13 Required PR Validation succeeds for exact head.
+- [x] T109-14 Required Quality integration gate succeeds for exact head.
+- [x] T109-15 Confirm no unresolved review threads and fresh head/base relationship.
+- [x] T109-16 Merge exact green head under still-valid Outcome Authorization; no separate MERGE APPROVED token.
+- [x] T109-17 Obtain production safety-envelope authorization for exact merged main `11306b23f3dd2fb21917a593c0e055911eefc6ff` before VPS mutation.
+- [x] T109-18 Deploy exact merged VPS release `11306b23f3dd2fb21917a593c0e055911eefc6ff`; Ubuntu preview relay remained untouched.
+- [x] T109-19 Verify Camera 1 baseline before and after rollout.
+- [x] T109-20 Verify idle gallery/API baseline and one-active server policy.
 
-#### Production and runtime acceptance
+#### Visual acceptance finding and remediation
 
-- [ ] T109-17 Obtain separate production safety-envelope authorization for exact merged main before VPS mutation.
-- [ ] T109-18 Deploy exact merged VPS release; Ubuntu preview relay remains untouched.
-- [ ] T109-19 Verify Camera 1 baseline before and after rollout.
-- [ ] T109-20 Verify idle gallery starts no preview.
-- [ ] T109-21 Verify Preview All progresses serially and successful cards retain last frames while at most one server preview is active.
-- [ ] T109-22 Verify Stop All prevents further batch starts and leaves no active server preview while already retained frames remain visible.
-- [ ] T109-23 Verify manual switch/stop retains prior successful frame.
-- [ ] T109-24 Verify page reload clears all retained frames and no persistence is created.
-- [ ] T109-25 Record runtime/visual acceptance evidence in Issue #109 and mark COMPLETE.
+- [x] T109-21 Run Preview All visual acceptance and capture runtime finding: some canvases were retained before camera images fully formed.
+- [x] T109-22 Identify root cause in browser orchestration: first-frame readiness followed by fixed 1.2-second dwell is too early for some streams.
+- [x] T109-23 Replace fixed post-ready dwell with bounded `video.currentTime` progression gate: at least 3 seconds of media advancement before automatic batch `drawImage()`.
+- [x] T109-24 Keep a 12-second stabilization timeout and continue to the next camera if playback does not advance enough.
+- [x] T109-25 Add focused regression assertions for progression gating and removal of the 1.2-second dwell.
+- [x] T109-26 Update spec/plan/tasks/quickstart with the runtime finding and remediation behavior.
+- [ ] T109-27 Verify remediation branch diff remains inside the exact six-file Outcome Authorization scope.
+- [ ] T109-28 Required PR Validation succeeds for the remediation exact head.
+- [ ] T109-29 Required Quality integration gate succeeds for the remediation exact head.
+- [ ] T109-30 Confirm no unresolved review threads and fresh head/base relationship.
+- [ ] T109-31 Merge exact green remediation head under the still-valid Outcome Authorization; no separate MERGE APPROVED token.
+
+#### Remediation production and final acceptance
+
+- [ ] T109-32 Obtain a fresh production safety-envelope authorization for the new exact merged main SHA; prior production authorization was bound to `11306b23f3dd2fb21917a593c0e055911eefc6ff`.
+- [ ] T109-33 Deploy the new exact VPS release; Ubuntu preview relay remains untouched.
+- [ ] T109-34 Verify Camera 1 baseline before and after remediation rollout.
+- [ ] T109-35 Verify Preview All waits for real playback progression and representative retained frames are visually formed rather than gray/partial startup frames.
+- [ ] T109-36 Verify Stop All prevents further batch starts and leaves no active server preview while already retained frames remain visible.
+- [ ] T109-37 Verify manual switch/stop retains prior successful frame.
+- [ ] T109-38 Verify page reload clears all retained frames and no persistence is created.
+- [ ] T109-39 Record final runtime/visual acceptance evidence in Issue #109 and mark COMPLETE.
 
 ## Completion gate for Issue #109
 
-- [ ] Exact six-file source diff only.
-- [ ] Required CI green on exact merged source.
-- [ ] Production rollout separately authorized and exact-SHA bound.
-- [ ] Sequential Preview All visually identifies representative cameras with retained last frames.
+- [ ] Exact six-file source scope only across the feature and remediation work.
+- [ ] Required CI green on exact remediation merged source.
+- [ ] Remediation production rollout separately authorized and exact-SHA bound.
+- [ ] Sequential Preview All visually identifies representative cameras with stable retained last frames after real playback progression.
 - [ ] Stop All returns backend preview state to idle and prevents further traversal.
 - [ ] Manual preview preserves the last successful frame after switch/stop.
 - [ ] Retained frames disappear on reload and are not persisted.
