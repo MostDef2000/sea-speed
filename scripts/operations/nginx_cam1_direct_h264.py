@@ -87,17 +87,26 @@ def _location_uri(spec: str) -> str:
 
 
 def _server_for_host(text: str, host: str) -> tuple[int, int, int]:
-    matches = []
+    host_matches = []
+    target_matches = []
     host_re = re.compile(rf"(?m)^\s*server_name\s+[^;]*\b{re.escape(host)}\b[^;]*;")
-    tls_re = re.compile(r"(?m)^\s*listen\s+[^;]*\b443\b[^;]*;")
     for block in _blocks(text, "server"):
         _, open_index, close_index = block
         body = text[open_index + 1 : close_index]
-        if host_re.search(body) and tls_re.search(body):
-            matches.append(block)
-    if len(matches) != 1:
-        raise ConfigError(f"expected exactly one TLS server block for {host}, found {len(matches)}")
-    return matches[0]
+        if not host_re.search(body):
+            continue
+        host_matches.append(block)
+        if any(
+            _location_uri(spec) == SEA_SPEED_PREFIX
+            for spec, _start, _open, _close in _location_blocks(body)
+        ):
+            target_matches.append(block)
+    if len(target_matches) != 1:
+        raise ConfigError(
+            f"expected exactly one server block for {host} containing {SEA_SPEED_PREFIX}, "
+            f"found {len(target_matches)} among {len(host_matches)} host blocks"
+        )
+    return target_matches[0]
 
 
 def _strip_marked_section(text: str, begin: str, end: str) -> str:
