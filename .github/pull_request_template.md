@@ -1,6 +1,7 @@
 ## Canonical task
 
 - Issue: #
+- Specification: `specs/NNN-feature/spec.md` / NOT REQUIRED
 - Approved scope:
 - Approval recorded after Implementation Scope Check: YES/NO
 - Acceptance criteria:
@@ -39,6 +40,7 @@
 ## Completion
 
 - [ ] Exact changed-file scope verified
+- [ ] Linked SDD artifacts are current when required
 - [ ] Secrets and runtime artifacts absent
 - [ ] Required tests passed
 - [ ] Applicable release and deployment evidence identified
