@@ -13,7 +13,7 @@
 - [x] T005 Self-document SDD adoption under `specs/002-sdd-adoption/`.
 - [x] T006 Add `scripts/ci/validate_sdd.py` and focused unit tests.
 - [x] T007 Update agent/governance/PR/CI entry points to require linked SDD artifacts for significant work.
-- [ ] T008 Obtain green required CI for the exact PR head.
+- [x] T008 Obtain green required CI for the implementation head; final-head CI remains required after this bookkeeping update.
 - [ ] T009 Obtain separate merge approval for the exact PR head.
 - [ ] T010 Merge to main and record repository completion evidence; no deployment follows.
 
@@ -23,7 +23,7 @@
 - [x] Camera Live production learning is captured.
 - [x] Significant PR linkage is machine-validated.
 - [x] Spec-only work remains lightweight.
-- [ ] PR Validation and Quality integration gate succeed on exact head.
+- [x] PR Validation and Quality integration gate succeeded on the implementation head; final-head rerun is required before merge approval.
 - [ ] Separate merge approval is present.
 - [ ] Main contains the merged SDD baseline.
 - [x] VPS deployment and Windows worker update are NOT REQUIRED.

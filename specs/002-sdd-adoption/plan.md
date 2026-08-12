@@ -2,7 +2,7 @@
 
 - Specification: specs/002-sdd-adoption/spec.md
 - Issue: #99
-- Status: In implementation
+- Status: Ready for final CI and merge approval
 
 ## Architecture
 

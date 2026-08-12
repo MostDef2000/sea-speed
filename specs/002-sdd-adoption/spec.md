@@ -2,7 +2,7 @@
 
 - Feature: 002-sdd-adoption
 - Issue: #99
-- Status: In implementation
+- Status: Ready for final CI and merge approval
 
 ## Product outcome
 
