@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#031624">
+  <title>Sea Speed Cameras</title>
+  <style>
+    :root{color-scheme:dark;--bg:#020b13;--panel:#071d2de8;--border:#81d5e02e;--strong:#6fe7dc5c;--text:#edfaff;--muted:#93b8c5;--cyan:#5eead4;--blue:#62b6ff;--good:#4ade80;--bad:#fb7185;--warn:#fbbf24}
+    *{box-sizing:border-box}
+    html{background:var(--bg)}
+    body{min-height:100vh;margin:0;background:radial-gradient(circle at 12% 4%,#37d6cc1f,transparent 34rem),radial-gradient(circle at 88% 2%,#3e84c929,transparent 38rem),linear-gradient(155deg,#020b13,#041827 48%,#03121e);color:var(--text);font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
+    button{font:inherit;min-height:44px;border:1px solid var(--border);border-radius:12px;background:#082234e0;color:var(--text);cursor:pointer;touch-action:manipulation}
+    button:hover,button:focus-visible,a:focus-visible{border-color:var(--strong);outline:3px solid #5eead46b;outline-offset:2px}
+    button:disabled{cursor:wait;opacity:.55}
+    .page{width:min(1540px,100%);margin:auto;padding:max(18px,env(safe-area-inset-top)) max(18px,env(safe-area-inset-right)) max(32px,env(safe-area-inset-bottom)) max(18px,env(safe-area-inset-left))}
+    .top{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;margin-bottom:18px}
+    .eyebrow{margin:0 0 6px;color:var(--cyan);font-size:.7rem;font-weight:800;letter-spacing:.15em;text-transform:uppercase}
+    h1{margin:0 0 5px;font-size:clamp(1.8rem,3vw,2.55rem);line-height:1;letter-spacing:-.045em}
+    .subtitle,.muted{color:var(--muted);font-size:.78rem;line-height:1.5}
+    .nav{display:flex;flex-wrap:wrap;gap:8px}
+    .nav a{display:inline-flex;align-items:center;min-height:40px;padding:7px 12px;border:1px solid var(--strong);border-radius:999px;background:#0b3144c9;color:var(--text);font-size:.75rem;font-weight:800;text-decoration:none}
+    .summary{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 16px}
+    .pill{padding:8px 11px;border:1px solid var(--border);border-radius:999px;background:#041826d1;color:var(--muted);font-size:.72rem;font-weight:700}
+    .pill strong{color:var(--text)}
+    .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(275px,1fr));gap:12px}
+    .card{overflow:hidden;border:1px solid var(--border);border-radius:20px;background:linear-gradient(155deg,#092334e8,#041421f2);box-shadow:0 18px 46px #00060b66}
+    .frame{position:relative;display:grid;place-items:center;width:100%;aspect-ratio:16/9;background:#01060a;border-bottom:1px solid var(--border)}
+    .frame video{display:block;width:100%;height:100%;object-fit:contain;background:#000}
+    .placeholder{display:grid;place-items:center;gap:8px;padding:20px;text-align:center;color:#6e9aaa}
+    .placeholder svg{width:38px;height:38px;fill:#5eead477}
+    .active-badge{position:absolute;top:10px;left:10px;padding:5px 8px;border:1px solid #4ade8050;border-radius:999px;background:#052714e8;color:var(--good);font-size:.62rem;font-weight:900;text-transform:uppercase;letter-spacing:.08em}
+    .body{padding:12px}
+    .head{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+    .name{margin:0;font-size:.95rem;font-weight:850;overflow-wrap:anywhere}
+    .id{margin-top:3px;color:var(--muted);font:.68rem ui-monospace,Consolas,monospace}
+    .state{flex:0 0 auto;font-size:.68rem;font-weight:800;color:var(--muted)}
+    .state.good{color:var(--good)}.state.bad{color:var(--bad)}.state.warn{color:var(--warn)}
+    .actions{display:flex;gap:8px;margin-top:12px}
+    .actions button{flex:1;padding:8px 10px;font-size:.74rem;font-weight:800}
+    .play{color:var(--good);border-color:#4ade8050}.stop{color:var(--bad);border-color:#fb718550}
+    .error{min-height:1.2em;margin-top:8px;color:var(--bad);font-size:.68rem;line-height:1.45;overflow-wrap:anywhere}
+    .empty{padding:28px;border:1px dashed var(--border);border-radius:20px;background:#041421aa;color:var(--muted);text-align:center}
+    @media(max-width:760px){.top{display:grid}.grid{grid-template-columns:1fr}.page{padding-left:max(10px,env(safe-area-inset-left));padding-right:max(10px,env(safe-area-inset-right))}}
+    @media(prefers-reduced-motion:reduce){*{transition:none!important}}
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="top">
+      <div>
+        <p class="eyebrow">Vladivostok maritime monitoring</p>
+        <h1>Камеры</h1>
+        <div class="subtitle">Временный предпросмотр найденных потоков. Видео запускается только по запросу.</div>
+      </div>
+      <nav class="nav" aria-label="Sea Speed navigation">
+        <a href="/sea-speed/">Оператор</a>
+        <a href="/sea-speed/objects/">Реестр объектов</a>
+      </nav>
+    </header>
+
+    <section class="summary" aria-label="Preview status">
+      <div class="pill">Камер: <strong id="cameraCount">0</strong></div>
+      <div class="pill">Активный preview: <strong id="activeCamera">нет</strong></div>
+      <div class="pill">Режим: <strong>1 поток по запросу</strong></div>
+      <div class="pill">TTL: <strong id="previewTtl">—</strong></div>
+    </section>
+
+    <section id="cameraGrid" class="grid" aria-live="polite">
+      <div class="empty">Загрузка каталога камер…</div>
+    </section>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+  <script>
+    const CAMERAS_URL="/sea-speed/api/cameras";
+    const PREVIEW_STATUS_URL="/sea-speed/api/cameras/preview";
+    const PREVIEW_STOP_URL="/sea-speed/api/cameras/preview/stop";
+    const grid=document.getElementById("cameraGrid");
+    const cameraCount=document.getElementById("cameraCount");
+    const activeCamera=document.getElementById("activeCamera");
+    const previewTtl=document.getElementById("previewTtl");
+    let cameras=[];
+    let active=null;
+    let activeHls=null;
+    let activeVideo=null;
+    let busyCameraId=null;
+
+    const esc=value=>String(value??"").replace(/[&<>"']/g,char=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[char]));
+
+    function destroyPlayer(){
+      if(activeHls){activeHls.destroy();activeHls=null}
+      if(activeVideo){activeVideo.pause();activeVideo.removeAttribute("src");activeVideo.load();activeVideo=null}
+    }
+
+    function stateLabel(camera){
+      if(busyCameraId===camera.camera_id)return ["starting","warn"];
+      if(active&&active.camera_id===camera.camera_id)return ["live","good"];
+      return ["idle",""];
+    }
+
+    function render(){
+      cameraCount.textContent=String(cameras.length);
+      activeCamera.textContent=active?.display_name||active?.camera_id||"нет";
+      previewTtl.textContent=active?.expires_at?new Date(active.expires_at).toLocaleTimeString():"—";
+      if(!cameras.length){
+        grid.innerHTML='<div class="empty">Каталог камер не настроен. Установите sanitized runtime catalog на VPS.</div>';
+        return;
+      }
+      grid.innerHTML=cameras.map(camera=>{
+        const [label,klass]=stateLabel(camera);
+        const isActive=active&&active.camera_id===camera.camera_id;
+        return `<article class="card" data-camera-id="${esc(camera.camera_id)}">
+          <div class="frame" data-frame>
+            ${isActive?'<div class="active-badge">live preview</div>':'<div class="placeholder"><svg viewBox="0 0 24 24"><path d="M3 5h13a2 2 0 0 1 2 2v2.2l3-1.7v9l-3-1.7V17a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2zm0 2v10h13V7H3z"/></svg><span>Preview не запущен</span></div>'}
+          </div>
+          <div class="body">
+            <div class="head"><div><h2 class="name">${esc(camera.display_name||camera.camera_id)}</h2><div class="id">${esc(camera.camera_id)}</div></div><div class="state ${klass}">${label}</div></div>
+            <div class="actions"><button class="play" data-play="${esc(camera.camera_id)}" ${busyCameraId?"disabled":""}>▶ Предпросмотр</button><button class="stop" data-stop ${isActive?"":"disabled"}>■ Стоп</button></div>
+            <div class="error" data-error></div>
+          </div>
+        </article>`;
+      }).join("");
+      if(active?.hls_url)attachActivePlayer();
+    }
+
+    function attachActivePlayer(){
+      destroyPlayer();
+      const card=grid.querySelector(`[data-camera-id="${CSS.escape(active.camera_id)}"]`);
+      if(!card)return;
+      const frame=card.querySelector("[data-frame]");
+      frame.innerHTML='<div class="active-badge">live preview</div><video controls playsinline muted autoplay></video>';
+      const video=frame.querySelector("video");
+      activeVideo=video;
+      const url=active.hls_url+(active.hls_url.includes("?")?"&":"?")+"t="+Date.now();
+      if(window.Hls&&Hls.isSupported()){
+        const instance=new Hls({lowLatencyMode:true,backBufferLength:5,maxBufferLength:10});
+        activeHls=instance;
+        instance.loadSource(url);
+        instance.attachMedia(video);
+        instance.on(Hls.Events.MANIFEST_PARSED,()=>video.play().catch(()=>{}));
+        instance.on(Hls.Events.ERROR,(_event,data)=>{
+          if(data.fatal){
+            const error=card.querySelector("[data-error]");
+            error.textContent="Ошибка воспроизведения HLS";
+          }
+        });
+      }else if(video.canPlayType("application/vnd.apple.mpegurl")){
+        video.src=url;
+        video.play().catch(()=>{});
+      }else{
+        card.querySelector("[data-error]").textContent="HLS не поддерживается этим браузером";
+      }
+    }
+
+    async function api(url,options={}){
+      const response=await fetch(url,{credentials:"same-origin",cache:"no-store",...options});
+      let body={};
+      try{body=await response.json()}catch(_error){}
+      if(!response.ok)throw new Error(body.detail||`HTTP ${response.status}`);
+      return body;
+    }
+
+    async function loadCatalog(){
+      try{
+        const data=await api(CAMERAS_URL);
+        cameras=Array.isArray(data.cameras)?data.cameras:[];
+        active=data.active||null;
+        render();
+      }catch(error){
+        grid.innerHTML=`<div class="empty">Не удалось загрузить каталог: ${esc(error.message)}</div>`;
+      }
+    }
+
+    async function refreshPreviewStatus(){
+      try{
+        const data=await api(PREVIEW_STATUS_URL);
+        const next=data.active||null;
+        const changed=JSON.stringify(next)!==JSON.stringify(active);
+        active=next;
+        if(changed)render();
+        else{
+          activeCamera.textContent=active?.display_name||active?.camera_id||"нет";
+          previewTtl.textContent=active?.expires_at?new Date(active.expires_at).toLocaleTimeString():"—";
+        }
+      }catch(_error){}
+    }
+
+    async function startPreview(cameraId){
+      busyCameraId=cameraId;
+      active=null;
+      destroyPlayer();
+      render();
+      const card=grid.querySelector(`[data-camera-id="${CSS.escape(cameraId)}"]`);
+      try{
+        const data=await api(`/sea-speed/api/cameras/${encodeURIComponent(cameraId)}/preview/start`,{method:"POST"});
+        active=data.preview;
+      }catch(error){
+        active=null;
+        if(card)card.querySelector("[data-error]").textContent=error.message;
+      }finally{
+        busyCameraId=null;
+        render();
+      }
+    }
+
+    async function stopPreview(){
+      busyCameraId=active?.camera_id||"stop";
+      destroyPlayer();
+      try{await api(PREVIEW_STOP_URL,{method:"POST"})}catch(_error){}
+      active=null;
+      busyCameraId=null;
+      render();
+    }
+
+    grid.addEventListener("click",event=>{
+      const play=event.target.closest("[data-play]");
+      if(play)return void startPreview(play.dataset.play);
+      if(event.target.closest("[data-stop]"))return void stopPreview();
+    });
+
+    addEventListener("pagehide",()=>{
+      if(active)fetch(PREVIEW_STOP_URL,{method:"POST",credentials:"same-origin",keepalive:true}).catch(()=>{});
+      destroyPlayer();
+    });
+
+    loadCatalog();
+    setInterval(refreshPreviewStatus,3000);
+  </script>
+</body>
+</html>

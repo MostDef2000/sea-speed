@@ -1,14 +1,19 @@
 import hashlib
+import ipaddress
 import json
 import os
 import re
+import signal
 import sqlite3
+import subprocess
+import threading
 import time
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.staticfiles import StaticFiles
@@ -19,6 +24,7 @@ DATA_DIR = BASE_DIR / "data"
 MEDIA_DIR = BASE_DIR / "media"
 OVERLAY_DIR = MEDIA_DIR / "overlays"
 EVENTS_MEDIA_DIR = MEDIA_DIR / "events"
+CAMERA_PREVIEW_DIR = MEDIA_DIR / "camera-preview"
 DEPLOYED_COMMIT_FILE = Path("/opt/sea-speed-deploy/state/current-release")
 
 STATE_FILE = DATA_DIR / "cam1_state.json"
@@ -27,18 +33,43 @@ OBJECTS_DB_FILE = DATA_DIR / "objects.sqlite3"
 ROI_FILE = DATA_DIR / "cam1_roi.json"
 SPEED_CONFIG_FILE = DATA_DIR / "cam1_speed_config.json"
 SPEED_LINES_FILE = DATA_DIR / "cam1_speed_lines.json"
+CAMERA_PREVIEW_CATALOG_FILE = Path(
+    os.environ.get(
+        "SEA_SPEED_CAMERA_PREVIEW_CATALOG",
+        str(DATA_DIR / "camera-preview-catalog.json"),
+    )
+)
+CAMERA_PREVIEW_STATE_FILE = DATA_DIR / "camera-preview-state.json"
+CAMERA_PREVIEW_FFMPEG_BIN = os.environ.get("SEA_SPEED_CAMERA_PREVIEW_FFMPEG", "/usr/bin/ffmpeg")
 
 API_TOKEN = os.environ.get("SEA_SPEED_API_TOKEN", "")
 API_SCHEMA = "sea_speed_api_v1"
 WORKER_STATE_SCHEMA = "sea_speed_worker_state_v1"
 VEHICLE_EVENT_SCHEMA = "sea_speed_vehicle_event_v1"
 TELEMETRY_SCHEMA = "sea_speed_telemetry_v1"
+CAMERA_PREVIEW_CATALOG_SCHEMA = "sea_speed_camera_preview_catalog_v1"
 OBJECT_STATUSES = {"new", "reviewed", "ignored"}
 SHA_RE = re.compile(r"^[0-9a-fA-F]{40}$")
+CAMERA_PREVIEW_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
+CAMERA_PREVIEW_SESSION_RE = re.compile(r"^[0-9a-f]{12}$")
+CAMERA_PREVIEW_RFC1918 = tuple(
+    ipaddress.ip_network(value)
+    for value in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+)
+CAMERA_PREVIEW_LOCK = threading.Lock()
+try:
+    CAMERA_PREVIEW_TTL_SEC = max(
+        30,
+        min(int(os.environ.get("SEA_SPEED_CAMERA_PREVIEW_TTL_SEC", "120")), 600),
+    )
+except ValueError:
+    CAMERA_PREVIEW_TTL_SEC = 120
+CAMERA_PREVIEW_START_TIMEOUT_SEC = 12
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 OVERLAY_DIR.mkdir(parents=True, exist_ok=True)
 EVENTS_MEDIA_DIR.mkdir(parents=True, exist_ok=True)
+CAMERA_PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title="Sea Speed API")
 app.mount("/media", StaticFiles(directory=str(MEDIA_DIR)), name="media")
@@ -278,8 +309,310 @@ def default_state() -> Dict[str, Any]:
     }
 
 
+def validate_camera_preview_source(camera_id: str, source: str) -> str:
+    if not CAMERA_PREVIEW_ID_RE.fullmatch(camera_id):
+        raise ValueError("invalid camera preview identity")
+    try:
+        parsed = urlsplit(source)
+        address = ipaddress.ip_address(parsed.hostname or "")
+        _ = parsed.port
+    except (TypeError, ValueError) as exc:
+        raise ValueError("invalid camera preview relay source") from exc
+    if (
+        parsed.scheme.lower() != "rtsp"
+        or address.version != 4
+        or not any(address in network for network in CAMERA_PREVIEW_RFC1918)
+        or parsed.port is None
+    ):
+        raise ValueError("invalid camera preview relay source")
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("camera preview relay source must not contain credentials")
+    if parsed.query or parsed.fragment:
+        raise ValueError("camera preview relay source must not contain query or fragment")
+    if parsed.path.rstrip("/") != f"/preview_{camera_id}":
+        raise ValueError("camera preview relay path does not match camera identity")
+    return source
+
+
+def load_camera_preview_catalog() -> List[Dict[str, str]]:
+    if not CAMERA_PREVIEW_CATALOG_FILE.exists():
+        return []
+    try:
+        payload = json.loads(CAMERA_PREVIEW_CATALOG_FILE.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="Camera preview catalog is invalid") from exc
+    if payload.get("schema") != CAMERA_PREVIEW_CATALOG_SCHEMA or not isinstance(payload.get("cameras"), list):
+        raise HTTPException(status_code=500, detail="Camera preview catalog is invalid")
+
+    cameras: List[Dict[str, str]] = []
+    seen = set()
+    try:
+        for item in payload["cameras"]:
+            if not isinstance(item, dict):
+                raise ValueError("invalid camera entry")
+            camera_id = str(item.get("camera_id") or "").strip()
+            display_name = str(item.get("display_name") or camera_id).strip()
+            source = str(item.get("source") or "").strip()
+            if not CAMERA_PREVIEW_ID_RE.fullmatch(camera_id) or camera_id in seen:
+                raise ValueError("invalid camera id")
+            if not display_name or len(display_name) > 120:
+                raise ValueError("invalid camera display name")
+            validate_camera_preview_source(camera_id, source)
+            seen.add(camera_id)
+            cameras.append({"camera_id": camera_id, "display_name": display_name, "source": source})
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail="Camera preview catalog is invalid") from exc
+    return cameras
+
+
+def camera_preview_public_state(state: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    if not state:
+        return None
+    return {
+        "camera_id": state.get("camera_id"),
+        "display_name": state.get("display_name"),
+        "session_id": state.get("session_id"),
+        "hls_url": state.get("hls_url"),
+        "started_at": state.get("started_at"),
+        "expires_at": state.get("expires_at"),
+        "ttl_sec": state.get("ttl_sec", CAMERA_PREVIEW_TTL_SEC),
+    }
+
+
+def camera_preview_pid_matches(state: Dict[str, Any]) -> bool:
+    try:
+        pid = int(state.get("pid") or 0)
+    except (TypeError, ValueError):
+        return False
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+        cmdline = (Path("/proc") / str(pid) / "cmdline").read_bytes().replace(b"\x00", b" ").decode(
+            "utf-8", errors="replace"
+        )
+    except (OSError, PermissionError):
+        return False
+    output_dir = str(state.get("output_dir") or "")
+    expected_playlist = str(Path(output_dir) / "index.m3u8")
+    return Path(CAMERA_PREVIEW_FFMPEG_BIN).name in cmdline and expected_playlist in cmdline
+
+
+def cleanup_camera_preview_media(state: Dict[str, Any]) -> None:
+    session_id = str(state.get("session_id") or "")
+    if not CAMERA_PREVIEW_SESSION_RE.fullmatch(session_id):
+        return
+    output_dir = CAMERA_PREVIEW_DIR / session_id
+    try:
+        for child in output_dir.iterdir():
+            if child.is_file() or child.is_symlink():
+                child.unlink(missing_ok=True)
+        output_dir.rmdir()
+    except OSError:
+        pass
+
+
+def terminate_camera_preview_locked() -> Optional[str]:
+    state = read_json_file(CAMERA_PREVIEW_STATE_FILE, {})
+    if not isinstance(state, dict) or not state:
+        return None
+    camera_id = str(state.get("camera_id") or "") or None
+    try:
+        pid = int(state.get("pid") or 0)
+    except (TypeError, ValueError):
+        pid = 0
+    if pid > 0 and camera_preview_pid_matches(state):
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except OSError:
+            pass
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline and camera_preview_pid_matches(state):
+            time.sleep(0.05)
+        if camera_preview_pid_matches(state):
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except OSError:
+                pass
+    cleanup_camera_preview_media(state)
+    write_json_file(CAMERA_PREVIEW_STATE_FILE, {})
+    return camera_id
+
+
+def active_camera_preview_locked() -> Optional[Dict[str, Any]]:
+    state = read_json_file(CAMERA_PREVIEW_STATE_FILE, {})
+    if not isinstance(state, dict) or not state:
+        return None
+    try:
+        expires_epoch = float(state.get("expires_epoch") or 0)
+    except (TypeError, ValueError):
+        expires_epoch = 0
+    if expires_epoch <= time.time() or not camera_preview_pid_matches(state):
+        terminate_camera_preview_locked()
+        return None
+    return state
+
+
+def build_camera_preview_ffmpeg_args(source: str, output_dir: Path) -> List[str]:
+    return [
+        CAMERA_PREVIEW_FFMPEG_BIN,
+        "-nostdin",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-rtsp_transport",
+        "tcp",
+        "-i",
+        source,
+        "-map",
+        "0:v:0",
+        "-an",
+        "-vf",
+        "scale=640:-2,fps=8",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-tune",
+        "zerolatency",
+        "-profile:v",
+        "baseline",
+        "-pix_fmt",
+        "yuv420p",
+        "-g",
+        "16",
+        "-keyint_min",
+        "16",
+        "-sc_threshold",
+        "0",
+        "-t",
+        str(CAMERA_PREVIEW_TTL_SEC),
+        "-f",
+        "hls",
+        "-hls_time",
+        "1",
+        "-hls_list_size",
+        "4",
+        "-hls_flags",
+        "delete_segments+independent_segments+omit_endlist",
+        "-hls_segment_type",
+        "fmp4",
+        "-hls_fmp4_init_filename",
+        "init.mp4",
+        "-hls_segment_filename",
+        str(output_dir / "segment_%05d.m4s"),
+        str(output_dir / "index.m3u8"),
+    ]
+
+
+def start_camera_preview_locked(camera: Dict[str, str]) -> Dict[str, Any]:
+    terminate_camera_preview_locked()
+    ffmpeg_path = Path(CAMERA_PREVIEW_FFMPEG_BIN)
+    if not ffmpeg_path.is_file() or not os.access(ffmpeg_path, os.X_OK):
+        raise HTTPException(status_code=503, detail="Camera preview transcoder is unavailable")
+
+    session_id = uuid.uuid4().hex[:12]
+    output_dir = CAMERA_PREVIEW_DIR / session_id
+    output_dir.mkdir(mode=0o700, parents=False, exist_ok=False)
+    playlist = output_dir / "index.m3u8"
+    started_epoch = time.time()
+    expires_epoch = started_epoch + CAMERA_PREVIEW_TTL_SEC
+    started_at = datetime.fromtimestamp(started_epoch, timezone.utc).isoformat()
+    expires_at = datetime.fromtimestamp(expires_epoch, timezone.utc).isoformat()
+    hls_url = f"/sea-speed/media/camera-preview/{session_id}/index.m3u8"
+    args = build_camera_preview_ffmpeg_args(camera["source"], output_dir)
+
+    try:
+        process = subprocess.Popen(
+            args,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            close_fds=True,
+        )
+    except OSError as exc:
+        cleanup_camera_preview_media({"session_id": session_id})
+        raise HTTPException(status_code=503, detail="Camera preview transcoder failed to start") from exc
+
+    state: Dict[str, Any] = {
+        "camera_id": camera["camera_id"],
+        "display_name": camera["display_name"],
+        "session_id": session_id,
+        "pid": process.pid,
+        "output_dir": str(output_dir),
+        "hls_url": hls_url,
+        "started_at": started_at,
+        "expires_at": expires_at,
+        "expires_epoch": expires_epoch,
+        "ttl_sec": CAMERA_PREVIEW_TTL_SEC,
+    }
+    write_json_file(CAMERA_PREVIEW_STATE_FILE, state)
+
+    deadline = time.monotonic() + CAMERA_PREVIEW_START_TIMEOUT_SEC
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            break
+        try:
+            if playlist.is_file() and "#EXTM3U" in playlist.read_text(encoding="utf-8", errors="ignore"):
+                return state
+        except OSError:
+            pass
+        time.sleep(0.2)
+
+    terminate_camera_preview_locked()
+    raise HTTPException(status_code=502, detail="Camera preview did not become ready")
+
+
 initialize_objects_db()
 import_existing_events()
+
+
+@app.get("/api/cameras")
+def get_cameras() -> Dict[str, Any]:
+    cameras = load_camera_preview_catalog()
+    with CAMERA_PREVIEW_LOCK:
+        active = camera_preview_public_state(active_camera_preview_locked())
+    public_cameras = [
+        {
+            "camera_id": camera["camera_id"],
+            "display_name": camera["display_name"],
+            "available": True,
+        }
+        for camera in cameras
+    ]
+    return {
+        "ok": True,
+        "schema": CAMERA_PREVIEW_CATALOG_SCHEMA,
+        "count": len(public_cameras),
+        "cameras": public_cameras,
+        "active": active,
+        "preview_policy": {"max_active": 1, "ttl_sec": CAMERA_PREVIEW_TTL_SEC},
+    }
+
+
+@app.get("/api/cameras/preview")
+def get_camera_preview() -> Dict[str, Any]:
+    with CAMERA_PREVIEW_LOCK:
+        active = camera_preview_public_state(active_camera_preview_locked())
+    return {"ok": True, "active": active}
+
+
+@app.post("/api/cameras/{camera_id}/preview/start")
+def start_camera_preview(camera_id: str) -> Dict[str, Any]:
+    cameras = load_camera_preview_catalog()
+    camera = next((entry for entry in cameras if entry["camera_id"] == camera_id), None)
+    if camera is None:
+        raise HTTPException(status_code=404, detail="Camera is not present in the preview catalog")
+    with CAMERA_PREVIEW_LOCK:
+        state = start_camera_preview_locked(camera)
+    return {"ok": True, "preview": camera_preview_public_state(state)}
+
+
+@app.post("/api/cameras/preview/stop")
+def stop_camera_preview() -> Dict[str, Any]:
+    with CAMERA_PREVIEW_LOCK:
+        stopped_camera_id = terminate_camera_preview_locked()
+    return {"ok": True, "stopped_camera_id": stopped_camera_id, "active": None}
 
 
 @app.get("/api/cam1/state")

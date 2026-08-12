@@ -12,12 +12,14 @@ DEPLOY_ROOT="${SEA_SPEED_DEPLOY_ROOT:-/opt/sea-speed-deploy}"
 API_TARGET="${SEA_SPEED_API_TARGET:-/opt/sea-speed-api/app/main.py}"
 FRONTEND_TARGET="${SEA_SPEED_FRONTEND_TARGET:-/var/www/mostdef.ru/sea-speed/index.html}"
 OBJECTS_FRONTEND_TARGET="${SEA_SPEED_OBJECTS_FRONTEND_TARGET:-/var/www/mostdef.ru/sea-speed/objects/index.html}"
+CAMERAS_FRONTEND_TARGET="${SEA_SPEED_CAMERAS_FRONTEND_TARGET:-/var/www/mostdef.ru/sea-speed/cameras/index.html}"
 ROOT_FRONTEND_TARGET="${SEA_SPEED_ROOT_FRONTEND_TARGET:-/var/www/mostdef.ru/index.html}"
 SERVICE_NAME="sea-speed-api"
 SYSTEMCTL_BIN="${SEA_SPEED_SYSTEMCTL_BIN:-/usr/bin/systemctl}"
 HEALTH_URL="${SEA_SPEED_HEALTH_URL:-https://mostdef.ru/sea-speed/api/health}"
 FRONTEND_URL="${SEA_SPEED_FRONTEND_URL:-https://mostdef.ru/sea-speed/}"
 OBJECTS_FRONTEND_URL="${SEA_SPEED_OBJECTS_FRONTEND_URL:-https://mostdef.ru/sea-speed/objects/}"
+CAMERAS_FRONTEND_URL="${SEA_SPEED_CAMERAS_FRONTEND_URL:-https://mostdef.ru/sea-speed/cameras/}"
 ROOT_FRONTEND_URL="${SEA_SPEED_ROOT_FRONTEND_URL:-https://mostdef.ru/}"
 RELEASES_DIR="${DEPLOY_ROOT}/releases"
 STATE_DIR="${DEPLOY_ROOT}/state"
@@ -48,13 +50,14 @@ validate_runtime_access() {
 }
 
 ensure_layout() {
-  mkdir -p "$RELEASES_DIR" "$STATE_DIR" "$(dirname "$OBJECTS_FRONTEND_TARGET")"
+  mkdir -p "$RELEASES_DIR" "$STATE_DIR" "$(dirname "$OBJECTS_FRONTEND_TARGET")" "$(dirname "$CAMERAS_FRONTEND_TARGET")"
 }
 
 download_release() {
   if [[ -f "$TARGET_RELEASE/api/app/main.py" && \
         -f "$TARGET_RELEASE/frontend/sea-speed/index.html" && \
         -f "$TARGET_RELEASE/frontend/sea-speed/objects/index.html" && \
+        -f "$TARGET_RELEASE/frontend/sea-speed/cameras/index.html" && \
         -f "$TARGET_RELEASE/frontend/root/index.html" ]]; then
     log "Release ${COMMIT_SHA} already exists"
     return
@@ -75,13 +78,15 @@ download_release() {
   [[ -f "$extracted/api/app/main.py" ]] || { echo "Release does not contain api/app/main.py" >&2; exit 1; }
   [[ -f "$extracted/frontend/sea-speed/index.html" ]] || { echo "Release does not contain frontend/sea-speed/index.html" >&2; exit 1; }
   [[ -f "$extracted/frontend/sea-speed/objects/index.html" ]] || { echo "Release does not contain frontend/sea-speed/objects/index.html" >&2; exit 1; }
+  [[ -f "$extracted/frontend/sea-speed/cameras/index.html" ]] || { echo "Release does not contain frontend/sea-speed/cameras/index.html" >&2; exit 1; }
   [[ -f "$extracted/frontend/root/index.html" ]] || { echo "Release does not contain frontend/root/index.html" >&2; exit 1; }
 
   rm -rf "$TARGET_RELEASE"
-  mkdir -p "$TARGET_RELEASE/api/app" "$TARGET_RELEASE/frontend/sea-speed/objects" "$TARGET_RELEASE/frontend/root"
+  mkdir -p "$TARGET_RELEASE/api/app" "$TARGET_RELEASE/frontend/sea-speed/objects" "$TARGET_RELEASE/frontend/sea-speed/cameras" "$TARGET_RELEASE/frontend/root"
   install -m 0644 "$extracted/api/app/main.py" "$TARGET_RELEASE/api/app/main.py"
   install -m 0644 "$extracted/frontend/sea-speed/index.html" "$TARGET_RELEASE/frontend/sea-speed/index.html"
   install -m 0644 "$extracted/frontend/sea-speed/objects/index.html" "$TARGET_RELEASE/frontend/sea-speed/objects/index.html"
+  install -m 0644 "$extracted/frontend/sea-speed/cameras/index.html" "$TARGET_RELEASE/frontend/sea-speed/cameras/index.html"
   install -m 0644 "$extracted/frontend/root/index.html" "$TARGET_RELEASE/frontend/root/index.html"
   printf '%s\n' "$COMMIT_SHA" > "$TARGET_RELEASE/commit-sha"
   printf '%s\n' "$archive_sha" > "$TARGET_RELEASE/archive-sha256"
@@ -97,13 +102,18 @@ bootstrap_current_release() {
   local bootstrap_name="bootstrap-$(date -u +%Y%m%dT%H%M%SZ)"
   local bootstrap_release="$RELEASES_DIR/$bootstrap_name"
   log "Capturing the existing live code once as bootstrap rollback"
-  mkdir -p "$bootstrap_release/api/app" "$bootstrap_release/frontend/sea-speed/objects" "$bootstrap_release/frontend/root"
+  mkdir -p "$bootstrap_release/api/app" "$bootstrap_release/frontend/sea-speed/objects" "$bootstrap_release/frontend/sea-speed/cameras" "$bootstrap_release/frontend/root"
   install -m 0644 "$API_TARGET" "$bootstrap_release/api/app/main.py"
   install -m 0644 "$FRONTEND_TARGET" "$bootstrap_release/frontend/sea-speed/index.html"
   if [[ -f "$OBJECTS_FRONTEND_TARGET" ]]; then
     install -m 0644 "$OBJECTS_FRONTEND_TARGET" "$bootstrap_release/frontend/sea-speed/objects/index.html"
   else
     touch "$bootstrap_release/frontend/sea-speed/objects/.absent"
+  fi
+  if [[ -f "$CAMERAS_FRONTEND_TARGET" ]]; then
+    install -m 0644 "$CAMERAS_FRONTEND_TARGET" "$bootstrap_release/frontend/sea-speed/cameras/index.html"
+  else
+    touch "$bootstrap_release/frontend/sea-speed/cameras/.absent"
   fi
   install -m 0644 "$ROOT_FRONTEND_TARGET" "$bootstrap_release/frontend/root/index.html"
   printf '%s\n' "$bootstrap_name" > "$bootstrap_release/commit-sha"
@@ -114,15 +124,8 @@ ensure_current_release_has_root_frontend() {
   local current_name current_release
   current_name="$(cat "$CURRENT_FILE")"
   current_release="$RELEASES_DIR/$current_name"
-
-  if [[ -f "$current_release/frontend/root/index.html" ]]; then
-    return
-  fi
-  if [[ ! -f "$ROOT_FRONTEND_TARGET" ]]; then
-    echo "Cannot preserve current root frontend for rollback: ${ROOT_FRONTEND_TARGET} is missing" >&2
-    exit 1
-  fi
-
+  if [[ -f "$current_release/frontend/root/index.html" ]]; then return; fi
+  [[ -f "$ROOT_FRONTEND_TARGET" ]] || { echo "Cannot preserve current root frontend for rollback: ${ROOT_FRONTEND_TARGET} is missing" >&2; exit 1; }
   log "Adding the existing live root frontend to current rollback release ${current_name}"
   mkdir -p "$current_release/frontend/root"
   install -m 0644 "$ROOT_FRONTEND_TARGET" "$current_release/frontend/root/index.html"
@@ -133,11 +136,7 @@ ensure_current_release_has_objects_frontend() {
   current_name="$(cat "$CURRENT_FILE")"
   current_release="$RELEASES_DIR/$current_name"
   objects_release_dir="$current_release/frontend/sea-speed/objects"
-
-  if [[ -f "$objects_release_dir/index.html" || -f "$objects_release_dir/.absent" ]]; then
-    return
-  fi
-
+  if [[ -f "$objects_release_dir/index.html" || -f "$objects_release_dir/.absent" ]]; then return; fi
   log "Capturing current objects frontend state for rollback release ${current_name}"
   mkdir -p "$objects_release_dir"
   if [[ -f "$OBJECTS_FRONTEND_TARGET" ]]; then
@@ -147,22 +146,40 @@ ensure_current_release_has_objects_frontend() {
   fi
 }
 
+ensure_current_release_has_cameras_frontend() {
+  local current_name current_release cameras_release_dir
+  current_name="$(cat "$CURRENT_FILE")"
+  current_release="$RELEASES_DIR/$current_name"
+  cameras_release_dir="$current_release/frontend/sea-speed/cameras"
+  if [[ -f "$cameras_release_dir/index.html" || -f "$cameras_release_dir/.absent" ]]; then return; fi
+  log "Capturing current cameras frontend state for rollback release ${current_name}"
+  mkdir -p "$cameras_release_dir"
+  if [[ -f "$CAMERAS_FRONTEND_TARGET" ]]; then
+    install -m 0644 "$CAMERAS_FRONTEND_TARGET" "$cameras_release_dir/index.html"
+  else
+    touch "$cameras_release_dir/.absent"
+  fi
+}
+
 install_release() {
   local release_name="$1"
   local release_dir="$RELEASES_DIR/$release_name"
   [[ -f "$release_dir/api/app/main.py" ]] || { echo "Release ${release_name} has no API file" >&2; return 1; }
   [[ -f "$release_dir/frontend/sea-speed/index.html" ]] || { echo "Release ${release_name} has no operator frontend file" >&2; return 1; }
-  [[ -f "$release_dir/frontend/sea-speed/objects/index.html" || -f "$release_dir/frontend/sea-speed/objects/.absent" ]] || {
-    echo "Release ${release_name} has no objects frontend state" >&2
-    return 1
-  }
+  [[ -f "$release_dir/frontend/sea-speed/objects/index.html" || -f "$release_dir/frontend/sea-speed/objects/.absent" ]] || { echo "Release ${release_name} has no objects frontend state" >&2; return 1; }
+  [[ -f "$release_dir/frontend/sea-speed/cameras/index.html" || -f "$release_dir/frontend/sea-speed/cameras/.absent" ]] || { echo "Release ${release_name} has no cameras frontend state" >&2; return 1; }
   [[ -f "$release_dir/frontend/root/index.html" ]] || { echo "Release ${release_name} has no root frontend file" >&2; return 1; }
+
   install -m 0644 "$release_dir/api/app/main.py" "${API_TARGET}.next"
   install -m 0644 "$release_dir/frontend/sea-speed/index.html" "${FRONTEND_TARGET}.next"
   install -m 0644 "$release_dir/frontend/root/index.html" "${ROOT_FRONTEND_TARGET}.next"
   if [[ -f "$release_dir/frontend/sea-speed/objects/index.html" ]]; then
     install -m 0644 "$release_dir/frontend/sea-speed/objects/index.html" "${OBJECTS_FRONTEND_TARGET}.next"
   fi
+  if [[ -f "$release_dir/frontend/sea-speed/cameras/index.html" ]]; then
+    install -m 0644 "$release_dir/frontend/sea-speed/cameras/index.html" "${CAMERAS_FRONTEND_TARGET}.next"
+  fi
+
   mv -f "${API_TARGET}.next" "$API_TARGET"
   mv -f "${FRONTEND_TARGET}.next" "$FRONTEND_TARGET"
   mv -f "${ROOT_FRONTEND_TARGET}.next" "$ROOT_FRONTEND_TARGET"
@@ -171,12 +188,15 @@ install_release() {
   else
     rm -f "$OBJECTS_FRONTEND_TARGET" "${OBJECTS_FRONTEND_TARGET}.next"
   fi
+  if [[ -f "$release_dir/frontend/sea-speed/cameras/index.html" ]]; then
+    mv -f "${CAMERAS_FRONTEND_TARGET}.next" "$CAMERAS_FRONTEND_TARGET"
+  else
+    rm -f "$CAMERAS_FRONTEND_TARGET" "${CAMERAS_FRONTEND_TARGET}.next"
+  fi
 }
 
 verify_url() {
-  local label="$1"
-  local target="$2"
-  local status
+  local label="$1" target="$2" status
   status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --max-time 15 "$target")" || {
     echo "${label} request failed: ${target}" >&2
     return 1
@@ -197,6 +217,12 @@ verify_frontends() {
   else
     log "Objects frontend is absent in this rollback release"
   fi
+  if [[ -f "$CAMERAS_FRONTEND_TARGET" ]]; then
+    [[ -s "$CAMERAS_FRONTEND_TARGET" ]] || { echo "Cameras frontend file is empty: ${CAMERAS_FRONTEND_TARGET}" >&2; return 1; }
+    verify_url "Cameras frontend" "$CAMERAS_FRONTEND_URL"
+  else
+    log "Cameras frontend is absent in this rollback release"
+  fi
   verify_url "Root frontend" "$ROOT_FRONTEND_URL"
 }
 
@@ -212,15 +238,8 @@ restart_and_verify() {
 }
 
 write_deployment_manifest() {
-  local active_version="$1"
-  local previous_version="$2"
-  local state="$3"
-  local runtime_verified="$4"
-  local attempted_version="${5:-}"
-  local artifact_sha=""
-  if [[ -f "$RELEASES_DIR/$active_version/archive-sha256" ]]; then
-    artifact_sha="$(cat "$RELEASES_DIR/$active_version/archive-sha256")"
-  fi
+  local active_version="$1" previous_version="$2" state="$3" runtime_verified="$4" attempted_version="${5:-}" artifact_sha=""
+  if [[ -f "$RELEASES_DIR/$active_version/archive-sha256" ]]; then artifact_sha="$(cat "$RELEASES_DIR/$active_version/archive-sha256")"; fi
 
   python3 - "$DEPLOYMENT_MANIFEST_FILE" "$active_version" "$previous_version" "$artifact_sha" "$state" "$runtime_verified" "$attempted_version" <<'PY'
 import json
@@ -245,6 +264,7 @@ payload = {
         {"name": "api_health", "status": "passed"},
         {"name": "operator_frontend_smoke", "status": "passed"},
         {"name": "objects_frontend_release_state", "status": "passed"},
+        {"name": "cameras_frontend_release_state", "status": "passed"},
         {"name": "root_frontend_smoke", "status": "passed"},
     ],
     "rollbackTarget": previous or None,
@@ -276,6 +296,7 @@ main() {
   bootstrap_current_release
   ensure_current_release_has_root_frontend
   ensure_current_release_has_objects_frontend
+  ensure_current_release_has_cameras_frontend
 
   local old_current previous
   old_current="$(cat "$CURRENT_FILE")"
