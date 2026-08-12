@@ -513,7 +513,7 @@ def start_camera_preview_locked(camera: Dict[str, str]) -> Dict[str, Any]:
 
     session_id = uuid.uuid4().hex[:12]
     output_dir = CAMERA_PREVIEW_DIR / session_id
-    output_dir.mkdir(mode=0o700, parents=False, exist_ok=False)
+    output_dir.mkdir(mode=0o755, parents=False, exist_ok=False)
     playlist = output_dir / "index.m3u8"
     started_epoch = time.time()
     expires_epoch = started_epoch + CAMERA_PREVIEW_TTL_SEC
