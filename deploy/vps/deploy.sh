@@ -16,7 +16,8 @@ CAMERAS_FRONTEND_TARGET="${SEA_SPEED_CAMERAS_FRONTEND_TARGET:-/var/www/mostdef.r
 ROOT_FRONTEND_TARGET="${SEA_SPEED_ROOT_FRONTEND_TARGET:-/var/www/mostdef.ru/index.html}"
 SERVICE_NAME="sea-speed-api"
 SYSTEMCTL_BIN="${SEA_SPEED_SYSTEMCTL_BIN:-/usr/bin/systemctl}"
-HEALTH_URL="${SEA_SPEED_HEALTH_URL:-https://mostdef.ru/sea-speed/api/health}"
+ORIGIN_HEALTH_URL="${SEA_SPEED_ORIGIN_HEALTH_URL:-http://127.0.0.1:8000/api/health}"
+PUBLIC_HEALTH_URL="${SEA_SPEED_HEALTH_URL:-https://mostdef.ru/sea-speed/api/health}"
 FRONTEND_URL="${SEA_SPEED_FRONTEND_URL:-https://mostdef.ru/sea-speed/}"
 OBJECTS_FRONTEND_URL="${SEA_SPEED_OBJECTS_FRONTEND_URL:-https://mostdef.ru/sea-speed/objects/}"
 CAMERAS_FRONTEND_URL="${SEA_SPEED_CAMERAS_FRONTEND_URL:-https://mostdef.ru/sea-speed/cameras/}"
@@ -195,43 +196,60 @@ install_release() {
   fi
 }
 
-verify_url() {
+verify_public_url() {
   local label="$1" target="$2" status
   status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --max-time 15 "$target")" || {
     echo "${label} request failed: ${target}" >&2
     return 1
   }
   case "$status" in
-    200|301|302|307|308|401) log "${label} smoke check passed with HTTP ${status}" ;;
-    *) echo "${label} smoke check failed with HTTP ${status}: ${target}" >&2; return 1 ;;
+    200|301|302|307|308|401|403)
+      log "${label} public smoke check passed with HTTP ${status}"
+      ;;
+    *)
+      echo "${label} public smoke check failed with HTTP ${status}: ${target}" >&2
+      return 1
+      ;;
   esac
 }
 
 verify_frontends() {
   [[ -s "$FRONTEND_TARGET" ]] || { echo "Operator frontend file is missing or empty: ${FRONTEND_TARGET}" >&2; return 1; }
   [[ -s "$ROOT_FRONTEND_TARGET" ]] || { echo "Root frontend file is missing or empty: ${ROOT_FRONTEND_TARGET}" >&2; return 1; }
-  verify_url "Operator frontend" "$FRONTEND_URL"
+
+  # During the source-deploy step these URLs can still return 200 under the
+  # legacy boundary. After the separately approved Auth v1 nginx cutover they
+  # return an Authentik redirect/deny. Either state is a valid code-deploy
+  # smoke result; security acceptance is performed by sea-speed-auth-cutover.sh.
+  verify_public_url "Operator frontend" "$FRONTEND_URL"
+  verify_public_url "Public private-health boundary" "$PUBLIC_HEALTH_URL"
   if [[ -f "$OBJECTS_FRONTEND_TARGET" ]]; then
     [[ -s "$OBJECTS_FRONTEND_TARGET" ]] || { echo "Objects frontend file is empty: ${OBJECTS_FRONTEND_TARGET}" >&2; return 1; }
-    verify_url "Objects frontend" "$OBJECTS_FRONTEND_URL"
+    verify_public_url "Objects frontend" "$OBJECTS_FRONTEND_URL"
   else
     log "Objects frontend is absent in this rollback release"
   fi
   if [[ -f "$CAMERAS_FRONTEND_TARGET" ]]; then
     [[ -s "$CAMERAS_FRONTEND_TARGET" ]] || { echo "Cameras frontend file is empty: ${CAMERAS_FRONTEND_TARGET}" >&2; return 1; }
-    verify_url "Cameras frontend" "$CAMERAS_FRONTEND_URL"
+    verify_public_url "Cameras frontend" "$CAMERAS_FRONTEND_URL"
   else
     log "Cameras frontend is absent in this rollback release"
   fi
-  verify_url "Root frontend" "$ROOT_FRONTEND_URL"
+  verify_public_url "Root frontend" "$ROOT_FRONTEND_URL"
 }
 
 restart_and_verify() {
   sudo -n "$SYSTEMCTL_BIN" restart "$SERVICE_NAME"
   local attempt
   for attempt in {1..12}; do
-    if curl --fail --silent --show-error --max-time 10 "$HEALTH_URL" >/dev/null; then break; fi
-    if [[ "$attempt" -eq 12 ]]; then echo "API health check failed: ${HEALTH_URL}" >&2; return 1; fi
+    if curl --fail --silent --show-error --max-time 10 "$ORIGIN_HEALTH_URL" >/dev/null; then
+      log "API origin health passed: ${ORIGIN_HEALTH_URL}"
+      break
+    fi
+    if [[ "$attempt" -eq 12 ]]; then
+      echo "API origin health check failed: ${ORIGIN_HEALTH_URL}" >&2
+      return 1
+    fi
     sleep 5
   done
   verify_frontends
@@ -261,7 +279,8 @@ payload = {
     "installedAt": datetime.now(timezone.utc).isoformat(),
     "checks": [
         {"name": "source_install", "status": "passed"},
-        {"name": "api_health", "status": "passed"},
+        {"name": "api_origin_health", "status": "passed"},
+        {"name": "public_private_health_smoke", "status": "passed"},
         {"name": "operator_frontend_smoke", "status": "passed"},
         {"name": "objects_frontend_release_state", "status": "passed"},
         {"name": "cameras_frontend_release_state", "status": "passed"},

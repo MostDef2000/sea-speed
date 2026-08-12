@@ -1,0 +1,378 @@
+version: 1
+metadata:
+  name: Sea Speed Auth v1
+  labels:
+    blueprints.goauthentik.io/instantiate: "true"
+
+entries:
+  # Roles. Only Owner is an Authentik superuser group.
+  - id: group-owner
+    model: authentik_core.group
+    identifiers:
+      name: Sea Speed Owner
+    attrs:
+      is_superuser: true
+
+  - id: group-admin
+    model: authentik_core.group
+    identifiers:
+      name: Sea Speed Admin
+    attrs:
+      is_superuser: false
+
+  - id: group-operator
+    model: authentik_core.group
+    identifiers:
+      name: Sea Speed Operator
+    attrs:
+      is_superuser: false
+
+  - id: group-viewer
+    model: authentik_core.group
+    identifiers:
+      name: Sea Speed Viewer
+    attrs:
+      is_superuser: false
+
+  # Shared password policy: length + common/compromised password rejection,
+  # with no arbitrary digit/uppercase/symbol composition counters.
+  - id: password-policy
+    model: authentik_policies_password.passwordpolicy
+    identifiers:
+      name: sea-speed-password-policy
+    attrs:
+      password_field: password
+      check_static_rules: true
+      check_have_i_been_pwned: true
+      check_zxcvbn: true
+      amount_digits: 0
+      amount_uppercase: 0
+      amount_lowercase: 0
+      amount_symbols: 0
+      length_min: 15
+      hibp_allowed_count: 0
+      zxcvbn_score_threshold: 2
+      error_message: Password must be at least 15 characters and not be weak or compromised.
+
+  - id: password-field
+    model: authentik_stages_prompt.prompt
+    identifiers:
+      name: sea-speed-enrollment-field-password
+    attrs:
+      field_key: password
+      label: Password
+      type: password
+      required: true
+      placeholder: Password
+      placeholder_expression: false
+      order: 10
+
+  - id: password-repeat-field
+    model: authentik_stages_prompt.prompt
+    identifiers:
+      name: sea-speed-enrollment-field-password-repeat
+    attrs:
+      field_key: password_repeat
+      label: Password (repeat)
+      type: password
+      required: true
+      placeholder: Password (repeat)
+      placeholder_expression: false
+      order: 20
+
+  - id: enrollment-password-prompt
+    model: authentik_stages_prompt.promptstage
+    identifiers:
+      name: sea-speed-enrollment-password-prompt
+    attrs:
+      fields:
+        - !KeyOf password-field
+        - !KeyOf password-repeat-field
+      validation_policies:
+        - !KeyOf password-policy
+
+  - id: enrollment-login
+    model: authentik_stages_user_login.userloginstage
+    identifiers:
+      name: sea-speed-enrollment-login
+    attrs:
+      session_duration: hours=12
+      remember_me_offset: seconds=0
+      remember_device: seconds=0
+
+  # Role-specific invite-only enrollment flows.
+  - id: enrollment-admin-flow
+    model: authentik_flows.flow
+    identifiers:
+      slug: sea-speed-enrollment-admin
+    attrs:
+      name: Sea Speed Enrollment - Admin
+      title: Complete Sea Speed Admin enrollment
+      designation: enrollment
+      authentication: require_unauthenticated
+
+  - id: enrollment-operator-flow
+    model: authentik_flows.flow
+    identifiers:
+      slug: sea-speed-enrollment-operator
+    attrs:
+      name: Sea Speed Enrollment - Operator
+      title: Complete Sea Speed Operator enrollment
+      designation: enrollment
+      authentication: require_unauthenticated
+
+  - id: enrollment-viewer-flow
+    model: authentik_flows.flow
+    identifiers:
+      slug: sea-speed-enrollment-viewer
+    attrs:
+      name: Sea Speed Enrollment - Viewer
+      title: Complete Sea Speed Viewer enrollment
+      designation: enrollment
+      authentication: require_unauthenticated
+
+  - id: invite-admin
+    model: authentik_stages_invitation.invitationstage
+    identifiers:
+      name: sea-speed-invitation-admin
+    attrs:
+      continue_flow_without_invitation: false
+
+  - id: invite-operator
+    model: authentik_stages_invitation.invitationstage
+    identifiers:
+      name: sea-speed-invitation-operator
+    attrs:
+      continue_flow_without_invitation: false
+
+  - id: invite-viewer
+    model: authentik_stages_invitation.invitationstage
+    identifiers:
+      name: sea-speed-invitation-viewer
+    attrs:
+      continue_flow_without_invitation: false
+
+  - id: write-admin
+    model: authentik_stages_user_write.userwritestage
+    identifiers:
+      name: sea-speed-write-admin
+    attrs:
+      user_creation_mode: always_create
+      user_type: internal
+      user_path_template: users/sea-speed
+      create_users_group: !KeyOf group-admin
+
+  - id: write-operator
+    model: authentik_stages_user_write.userwritestage
+    identifiers:
+      name: sea-speed-write-operator
+    attrs:
+      user_creation_mode: always_create
+      user_type: internal
+      user_path_template: users/sea-speed
+      create_users_group: !KeyOf group-operator
+
+  - id: write-viewer
+    model: authentik_stages_user_write.userwritestage
+    identifiers:
+      name: sea-speed-write-viewer
+    attrs:
+      user_creation_mode: always_create
+      user_type: internal
+      user_path_template: users/sea-speed
+      create_users_group: !KeyOf group-viewer
+
+  # Admin enrollment bindings.
+  - model: authentik_flows.flowstagebinding
+    identifiers:
+      target: !KeyOf enrollment-admin-flow
+      stage: !KeyOf invite-admin
+      order: 5
+    attrs:
+      evaluate_on_plan: true
+      re_evaluate_policies: true
+
+  - model: authentik_flows.flowstagebinding
+    identifiers:
+      target: !KeyOf enrollment-admin-flow
+      stage: !KeyOf enrollment-password-prompt
+      order: 10
+
+  - model: authentik_flows.flowstagebinding
+    identifiers:
+      target: !KeyOf enrollment-admin-flow
+      stage: !KeyOf write-admin
+      order: 20
+
+  - model: authentik_flows.flowstagebinding
+    identifiers:
+      target: !KeyOf enrollment-admin-flow
+      stage: !KeyOf enrollment-login
+      order: 100
+
+  # Operator enrollment bindings.
+  - model: authentik_flows.flowstagebinding
+    identifiers:
+      target: !KeyOf enrollment-operator-flow
+      stage: !KeyOf invite-operator
+      order: 5
+    attrs:
+      evaluate_on_plan: true
+      re_evaluate_policies: true
+
+  - model: authentik_flows.flowstagebinding
+    identifiers:
+      target: !KeyOf enrollment-operator-flow
+      stage: !KeyOf enrollment-password-prompt
+      order: 10
+
+  - model: authentik_flows.flowstagebinding
+    identifiers:
+      target: !KeyOf enrollment-operator-flow
+      stage: !KeyOf write-operator
+      order: 20
+
+  - model: authentik_flows.flowstagebinding
+    identifiers:
+      target: !KeyOf enrollment-operator-flow
+      stage: !KeyOf enrollment-login
+      order: 100
+
+  # Viewer enrollment bindings.
+  - model: authentik_flows.flowstagebinding
+    identifiers:
+      target: !KeyOf enrollment-viewer-flow
+      stage: !KeyOf invite-viewer
+      order: 5
+    attrs:
+      evaluate_on_plan: true
+      re_evaluate_policies: true
+
+  - model: authentik_flows.flowstagebinding
+    identifiers:
+      target: !KeyOf enrollment-viewer-flow
+      stage: !KeyOf enrollment-password-prompt
+      order: 10
+
+  - model: authentik_flows.flowstagebinding
+    identifiers:
+      target: !KeyOf enrollment-viewer-flow
+      stage: !KeyOf write-viewer
+      order: 20
+
+  - model: authentik_flows.flowstagebinding
+    identifiers:
+      target: !KeyOf enrollment-viewer-flow
+      stage: !KeyOf enrollment-login
+      order: 100
+
+  # Sea Speed login flow. TOTP is conditionally required only for Owner.
+  - id: authentication-flow
+    model: authentik_flows.flow
+    identifiers:
+      slug: sea-speed-authentication
+    attrs:
+      name: Sea Speed Authentication
+      title: Sign in to Sea Speed
+      designation: authentication
+      authentication: require_unauthenticated
+
+  - id: identification-stage
+    model: authentik_stages_identification.identificationstage
+    identifiers:
+      name: sea-speed-identification
+    attrs:
+      user_fields:
+        - email
+        - username
+      template: stages/identification/login.html
+
+  - id: authentication-password
+    model: authentik_stages_password.passwordstage
+    identifiers:
+      name: sea-speed-authentication-password
+    attrs:
+      backends:
+        - authentik.core.auth.InbuiltBackend
+
+  - id: owner-totp-stage
+    model: authentik_stages_authenticator_validate.authenticatorvalidatestage
+    identifiers:
+      name: sea-speed-owner-totp
+    attrs:
+      not_configured_action: deny
+      device_classes:
+        - totp
+      last_auth_threshold: seconds=0
+
+  - id: owner-totp-policy
+    model: authentik_policies_expression.expressionpolicy
+    identifiers:
+      name: sea-speed-owner-requires-totp
+    attrs:
+      expression: |
+        pending_user = request.context.get("pending_user")
+        if pending_user is None:
+            return False
+        return ak_is_group_member(pending_user, name="Sea Speed Owner")
+
+  - id: application-access-policy
+    model: authentik_policies_expression.expressionpolicy
+    identifiers:
+      name: sea-speed-application-access
+    attrs:
+      expression: |
+        user = request.user
+        if not user or not user.is_authenticated:
+            return False
+        return any(
+            ak_is_group_member(user, name=group_name)
+            for group_name in (
+                "Sea Speed Owner",
+                "Sea Speed Admin",
+                "Sea Speed Operator",
+                "Sea Speed Viewer",
+            )
+        )
+
+  - id: authentication-login
+    model: authentik_stages_user_login.userloginstage
+    identifiers:
+      name: sea-speed-authentication-login
+    attrs:
+      session_duration: hours=12
+      remember_me_offset: seconds=0
+      remember_device: seconds=0
+
+  - model: authentik_flows.flowstagebinding
+    identifiers:
+      target: !KeyOf authentication-flow
+      stage: !KeyOf identification-stage
+      order: 10
+
+  - model: authentik_flows.flowstagebinding
+    identifiers:
+      target: !KeyOf authentication-flow
+      stage: !KeyOf authentication-password
+      order: 20
+
+  - id: owner-totp-binding
+    model: authentik_flows.flowstagebinding
+    identifiers:
+      target: !KeyOf authentication-flow
+      stage: !KeyOf owner-totp-stage
+      order: 30
+    attrs:
+      re_evaluate_policies: true
+
+  - model: authentik_policies.policybinding
+    identifiers:
+      target: !KeyOf owner-totp-binding
+      policy: !KeyOf owner-totp-policy
+      order: 0
+
+  - model: authentik_flows.flowstagebinding
+    identifiers:
+      target: !KeyOf authentication-flow
+      stage: !KeyOf authentication-login
+      order: 100

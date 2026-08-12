@@ -27,7 +27,7 @@ class CameraPreviewGalleryTests(unittest.TestCase):
         self.assertRegex(OPERATOR, r'<a\s+class="objects-link"\s+href="/sea-speed/objects/">Реестр объектов</a>')
         self.assertRegex(OPERATOR, r'<a\s+class="objects-link cameras-link"\s+href="/sea-speed/cameras/">Камеры</a>')
         for marker in (
-            'const HLS_URL = "/cams/hls/cam1/index.m3u8";',
+            'const HLS_URL = "/sea-speed/media/cam1/index.m3u8";',
             'const STATE_URL = "/sea-speed/api/cam1/state";',
             'data-layout="primary-camera"',
             'data-layout="clean-live"',
@@ -35,6 +35,7 @@ class CameraPreviewGalleryTests(unittest.TestCase):
             'id="speedLinesCanvas"',
         ):
             self.assertIn(marker, OPERATOR)
+        self.assertNotIn('const HLS_URL = "/cams/hls/cam1/index.m3u8";', OPERATOR)
 
     def test_gallery_uses_runtime_catalog_and_has_no_native_rtsp_source(self) -> None:
         for marker in (
@@ -241,20 +242,27 @@ class CameraPreviewGalleryTests(unittest.TestCase):
             'CAMERAS_FRONTEND_TARGET="${SEA_SPEED_CAMERAS_FRONTEND_TARGET:-/var/www/mostdef.ru/sea-speed/cameras/index.html}"',
             'CAMERAS_FRONTEND_URL="${SEA_SPEED_CAMERAS_FRONTEND_URL:-https://mostdef.ru/sea-speed/cameras/}"',
             'frontend/sea-speed/cameras/index.html', 'frontend/sea-speed/cameras/.absent',
-            'ensure_current_release_has_cameras_frontend', 'verify_url "Cameras frontend" "$CAMERAS_FRONTEND_URL"',
+            'ensure_current_release_has_cameras_frontend',
+            'verify_public_url "Cameras frontend" "$CAMERAS_FRONTEND_URL"',
+            'ORIGIN_HEALTH_URL="${SEA_SPEED_ORIGIN_HEALTH_URL:-http://127.0.0.1:8000/api/health}"',
+            'PUBLIC_HEALTH_URL="${SEA_SPEED_HEALTH_URL:-https://mostdef.ru/sea-speed/api/health}"',
             '"cameras_frontend_release_state"',
         ):
             self.assertIn(marker, DEPLOY)
 
-    def test_sdd_links_snapshot_issue_and_preserves_camera1_and_storage_boundary(self) -> None:
+    def test_sdd_links_snapshot_issue_and_preserves_camera1_media_and_storage_boundary(self) -> None:
         for doc in (SPEC, PLAN, TASKS, QUICKSTART):
             self.assertIn("#112", doc)
+        self.assertIn("#115", SPEC)
+        self.assertIn("/sea-speed/media/cam1/index.m3u8", SPEC)
         self.assertIn("/cams/hls/cam1/index.m3u8", SPEC)
+        self.assertIn("retired", SPEC.lower())
         self.assertIn("Camera 1", PLAN)
         self.assertIn("one-active-preview", SPEC.lower())
         self.assertIn("localStorage", SPEC)
         self.assertIn("camera-preview-snapshots", SPEC)
         self.assertIn("sequential", PLAN.lower())
+        self.assertIn("Authentik", PLAN)
 
 
 if __name__ == "__main__":

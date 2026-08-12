@@ -1,29 +1,44 @@
-# Camera 1 direct H264 browser cutover
+# Camera 1 protected H264 browser route
 
-Issue #87 now uses a deliberately smaller browser path for Camera 1. The physical camera remains behind the Ubuntu private RTSP relay, but the VPS browser-facing path no longer depends on VPS MediaMTX.
+Issue #115 supersedes the earlier public Camera 1 browser identity. Camera acquisition and browser-compatibility conversion remain unchanged, but the browser-facing route is now part of the authenticated Sea Speed namespace.
 
-Canonical media path:
+Canonical media path after Auth v1:
 
-`new camera -> Ubuntu private RTSP relay -> VPS FFmpeg H264 fallback -> 127.0.0.1:18889/cam1/ -> nginx -> /cams/hls/cam1/index.m3u8 -> Hls.js`
-
-The public Camera 1 identity remains `/cams/hls/cam1/index.m3u8`. `sea-speed-worker.service` is not started, stopped, restarted, or otherwise controlled by this cutover. MediaMTX may remain active for unrelated runtime use, but it is not the browser upstream for Camera 1 after this cutover.
-
-The motivation is the runtime evidence from Issue #87: the browser reported `manifestIncompatibleCodecsError` for HEVC `hvc1.1.6.L120.0`, while the proven fallback at `127.0.0.1:18889/cam1/index.m3u8` decodes as H264 1280x720 at 15 fps. The direct nginx route removes the stale/wrong HEVC manifest path instead of adding more frontend recovery logic.
-
-## Activate
-
-From exact merged repository source on the VPS, run as root:
-
-```bash
-./deploy/vps/camera1-direct-h264-cutover.sh activate
+```text
+new camera
+-> Ubuntu private RTSP relay
+-> VPS FFmpeg H264 compatibility output
+-> 127.0.0.1:18889/cam1/
+-> nginx
+-> /sea-speed/media/cam1/index.m3u8
+-> Authentik-protected browser session
 ```
 
-The script discovers the active `mostdef.ru` nginx site containing the existing `/cams/hls/` location. `--nginx-site PATH` is available only if discovery is ambiguous.
+The retired `/cams/hls/cam1/index.m3u8` route is not a compatibility requirement after Issue #115 and must not be recreated.
 
-Before changing nginx it requires the loopback fallback playlist and `ffprobe` H264 codec check to pass. It then inserts one managed `location ^~ /cams/hls/cam1/` block that proxies only Camera 1 to `http://127.0.0.1:18889/cam1/`, disables proxy buffering/cache and response caching, copies any `auth_basic` and `auth_basic_user_file` directives from the existing `/cams/hls/` location, validates nginx, and reloads nginx.
+## Repository components
 
-A root-only backup of the prior nginx site is written below `/var/lib/sea-speed-hls-fallback/backups/`. Automatic rollback is not performed. If nginx validation or reload fails, the existing nginx process is not intentionally stopped; the script prints the backup path and stops for an explicit operator decision.
+- `scripts/operations/nginx_cam1_direct_h264.py` renders/verifies only the protected Camera 1 H264 media location.
+- `scripts/operations/nginx_sea_speed_auth.py` subsequently applies the Authentik Forward Auth boundary to every `/sea-speed/**` location and retires all `/cams/**` locations.
+- `deploy/vps/sea-speed-auth-cutover.sh` is the only production activation path for this route after Auth v1.
+- `deploy/vps/camera1-direct-h264-cutover.sh` is retained as a read-only compatibility status helper. Its standalone `activate` mode is deliberately retired.
+
+## Safety rule
+
+Do not activate `nginx_cam1_direct_h264.py` output by itself in production. The media renderer intentionally contains no legacy Basic Auth and is an intermediate candidate. The combined Auth v1 cutover renders the media location first and then the authentication/security configuration before nginx validation and reload.
+
+This ordering guarantees that `/sea-speed/media/cam1/` is not introduced as an unauthenticated browser route.
 
 ## Acceptance
 
-After `READY_FOR_BROWSER_RETEST`, hard-refresh `https://mostdef.ru/sea-speed/`. Product acceptance is advancing video from the new physical Camera 1 in **LIVE CAMERA** while the AI worker remains inactive.
+After the separately authorized Auth v1 production cutover:
+
+- anonymous `/cams/hls/cam1/index.m3u8` exposes no camera content;
+- anonymous `/sea-speed/media/cam1/index.m3u8` is denied/redirected through Authentik;
+- an authenticated Sea Speed user sees advancing H264 Camera 1 video;
+- the browser upstream remains `127.0.0.1:18889/cam1/`;
+- VPS MediaMTX is not reintroduced into the accepted Camera 1 browser path;
+- live viewing remains independent of the AI worker;
+- no camera credential is exposed in browser URLs or repository content.
+
+Production mutation still requires an exact merged `main` SHA and separate `PRODUCTION APPROVED` authorization.
