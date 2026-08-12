@@ -251,7 +251,7 @@ class CameraPreviewGalleryTests(unittest.TestCase):
             self.assertIn("#112", doc)
         self.assertIn("/cams/hls/cam1/index.m3u8", SPEC)
         self.assertIn("Camera 1", PLAN)
-        self.assertIn("one active", SPEC.lower())
+        self.assertIn("one-active-preview", SPEC.lower())
         self.assertIn("localStorage", SPEC)
         self.assertIn("camera-preview-snapshots", SPEC)
         self.assertIn("sequential", PLAN.lower())
