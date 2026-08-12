@@ -1,8 +1,8 @@
 # Feature Specification: Camera Preview Gallery
 
 - Feature: 002-camera-preview-gallery
+- Issue: #109
 - Original Issue: #103
-- Extension Issue: #109
 - Status: Approved extension implementation
 - Parent capability: specs/001-camera-live-pipeline/spec.md
 
