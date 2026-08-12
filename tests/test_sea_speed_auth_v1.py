@@ -9,10 +9,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 RENDERER = ROOT / "scripts/operations/nginx_sea_speed_auth.py"
+CUTOVER = ROOT / "deploy/vps/sea-speed-auth-cutover.sh"
+VPS_DEPLOY = ROOT / "deploy/vps/deploy.sh"
 COMPOSE = ROOT / "deploy/vps/authentik/compose.yml"
 ENV_EXAMPLE = ROOT / "deploy/vps/authentik/env.example"
 BLUEPRINT = ROOT / "deploy/vps/authentik/blueprints/sea-speed-auth-v1.yaml"
 AUTH_DOC = ROOT / "deploy/vps/authentik/README.md"
+OPS_DOC = ROOT / "docs/operations/SEA_SPEED_AUTH_V1.md"
 SPEC = ROOT / "specs/004-sea-speed-auth-v1/spec.md"
 PLAN = ROOT / "specs/004-sea-speed-auth-v1/plan.md"
 TASKS = ROOT / "specs/004-sea-speed-auth-v1/tasks.md"
@@ -246,19 +249,66 @@ class SeaSpeedAuthV1Tests(unittest.TestCase):
         self.assertNotIn("authentik_stages_authenticator_sms", source)
         self.assertNotIn("authentik_stages_authenticator_webauthn", source)
 
+    def test_cutover_is_sha_bound_fail_closed_and_private_worker_scoped(self) -> None:
+        subprocess.run(["bash", "-n", str(CUTOVER)], check=True)
+        source = CUTOVER.read_text(encoding="utf-8")
+        for marker in (
+            "prepare --worker-private-listen IP:PORT --worker-private-peer IP",
+            "activate --worker-private-listen IP:PORT --worker-private-peer IP --expected-sha256 SHA256",
+            "--expected-sha256",
+            "render_candidate",
+            "nginx -t",
+            "systemctl reload nginx.service",
+            "AUTOMATIC_ROLLBACK=NO",
+            "WORKER_RUNTIME_RECONFIGURATION_REQUIRED=YES",
+            "/sea-speed/media/cam1/index.m3u8",
+            "https://auth.mostdef.ru",
+        ):
+            self.assertIn(marker, source)
+        self.assertIn("CANDIDATE_SHA256", source)
+        self.assertIn("rendered candidate SHA256 changed since prepare", source)
+        self.assertIn("/var/lib/sea-speed-auth-v1", source)
+        self.assertNotIn("systemctl restart sea-speed-worker", source)
+        self.assertNotIn("systemctl restart mediamtx", source)
+        self.assertNotIn("auth_basic_user_file", source)
+
+    def test_vps_deploy_uses_origin_health_and_public_auth_smoke(self) -> None:
+        subprocess.run(["bash", "-n", str(VPS_DEPLOY)], check=True)
+        source = VPS_DEPLOY.read_text(encoding="utf-8")
+        self.assertIn(
+            'ORIGIN_HEALTH_URL="${SEA_SPEED_ORIGIN_HEALTH_URL:-http://127.0.0.1:8000/api/health}"',
+            source,
+        )
+        self.assertIn(
+            'PUBLIC_HEALTH_URL="${SEA_SPEED_HEALTH_URL:-https://mostdef.ru/sea-speed/api/health}"',
+            source,
+        )
+        self.assertIn('curl --fail --silent --show-error --max-time 10 "$ORIGIN_HEALTH_URL"', source)
+        self.assertIn('verify_public_url "Public private-health boundary" "$PUBLIC_HEALTH_URL"', source)
+        self.assertIn("200|301|302|307|308|401|403", source)
+        self.assertIn('"api_origin_health"', source)
+        self.assertIn('"public_private_health_smoke"', source)
+        self.assertNotIn('curl --fail --silent --show-error --max-time 10 "$PUBLIC_HEALTH_URL"', source)
+
     def test_sdd_and_runtime_docs_keep_production_separate(self) -> None:
-        for path in (SPEC, PLAN, TASKS, QUICKSTART, AUTH_DOC):
+        for path in (SPEC, PLAN, TASKS, QUICKSTART, AUTH_DOC, OPS_DOC):
             source = path.read_text(encoding="utf-8")
             self.assertIn("#115", source)
         spec_source = SPEC.read_text(encoding="utf-8")
         self.assertIn("PRODUCTION APPROVED", spec_source)
         self.assertIn("/sea-speed/media/cam1/index.m3u8", spec_source)
         self.assertIn("/cams", spec_source)
+        self.assertIn("worker machine-to-machine", spec_source.lower())
         auth_doc = AUTH_DOC.read_text(encoding="utf-8")
         self.assertIn("Forward auth (single application)", auth_doc)
         self.assertIn("authentik Embedded Outpost", auth_doc)
         self.assertIn("fixed_data", auth_doc)
         self.assertIn("single_use: true", auth_doc)
+        ops_doc = OPS_DOC.read_text(encoding="utf-8")
+        self.assertIn("SEA_SPEED_API_URL", ops_doc)
+        self.assertIn("SEA_SPEED_API_TOKEN", ops_doc)
+        self.assertIn("fail-closed", ops_doc.lower())
+        self.assertIn("sea-speed-auth-cutover.sh", ops_doc)
 
 
 if __name__ == "__main__":
