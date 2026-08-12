@@ -6,7 +6,7 @@
 - Pull Request: #116
 - Status: Implementing
 
-## Source tasks
+## Delivery tasks
 
 - [x] T001 Create canonical Issue, approved feature specification and fresh implementation branch from exact `main`.
 - [x] T002 Add pinned Authentik VPS compose/runtime template with secrets outside Git and no Docker socket dependency.
