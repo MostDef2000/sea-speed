@@ -109,16 +109,17 @@ The listener exposes only:
 
 All other paths/methods are absent or denied. State/event writes keep the existing FastAPI Bearer-token check. Production changes only the worker runtime endpoint environment variables; worker source/package, AI behavior and camera acquisition do not change.
 
-## Source contours
+## Affected contours
 
 - `deploy/vps/authentik/**`: pinned Authentik runtime, non-secret configuration template and blueprint.
 - `scripts/operations/nginx_sea_speed_auth.py`: bounded nginx auth/private-M2M transform and verification.
 - `deploy/vps/sea-speed-auth-cutover.sh`: SHA-bound prepare/status/activate security contour.
 - Camera 1 nginx/cutover source: migrate browser path to `/sea-speed/media/cam1/`.
 - root/operator frontend and tests: remove `/cams/` link and use protected HLS URL.
-- existing Camera 1 SDD/docs/tests: explicitly supersede the public-path compatibility requirement while preserving media behavior.
+- existing Camera 1 and Camera Preview Gallery SDD/docs/tests: explicitly supersede the public-path compatibility requirement while preserving accepted media/snapshot behavior.
 - VPS deploy source/docs/baseline: separate local origin health from anonymous auth smoke.
 - `docs/operations/SEA_SPEED_AUTH_V1.md`: production sequencing, worker runtime URL migration and fail-closed rollback.
+- Windows/Ubuntu worker source/package: unchanged; only later runtime endpoint configuration is applicable.
 
 ## Runtime configuration outside Git
 
@@ -149,10 +150,10 @@ Static/source validation must prove:
 - private worker ingress rejects public/network-wide addressing, derives only a loopback FastAPI origin, and exposes only exact methods/paths;
 - cutover is candidate-SHA-bound and has no automatic public-route rollback;
 - frontend no longer references `/cams/` or old Camera 1 HLS;
-- existing Camera 1 private/H.264 behavior is preserved;
+- existing Camera 1 private/H.264 and Camera Preview Gallery snapshot behavior is preserved;
 - VPS deployment uses origin health rather than anonymous private health success.
 
-Production acceptance additionally requires real SMTP, invitation, login, Owner TOTP, password recovery, session revocation, authenticated Camera 1 playback, worker M2M continuity and direct-origin exposure checks.
+Production acceptance additionally requires real SMTP, invitation, login, Owner TOTP, password recovery, session revocation, authenticated Camera 1 playback, gallery persistence, worker M2M continuity and direct-origin exposure checks.
 
 ## Rollout
 
@@ -167,9 +168,17 @@ Production acceptance additionally requires real SMTP, invitation, login, Owner 
 9. Discover exact VPS/worker private IPs and prepare the worker runtime URL update without exposing `SEA_SPEED_API_TOKEN`.
 10. Render the combined Camera 1/Auth/private-worker nginx candidate and record its SHA-256.
 11. Activate the exact candidate, then apply the prepared worker runtime URLs and restart only the applicable worker service.
-12. Run anonymous, authenticated, worker-M2M and direct-origin security/media acceptance.
+12. Run anonymous, authenticated, gallery, worker-M2M and direct-origin security/media acceptance.
 13. Record exact source/runtime evidence in Issue #115.
 
 ## Rollback
 
 Rollback is fail-closed. Backups of nginx and Authentik runtime data/configuration are retained, but the activation script must not automatically restore the old public `/cams/**` route. If post-cutover acceptance fails, stop, preserve evidence and require an explicit production rollback decision. If rollback is approved, matching nginx/auth and worker runtime URLs are restored together. A safe temporary outcome is unavailable private Sea Speed, not anonymous private content.
+
+## Runtime feedback
+
+- Source implementation under Issue #115 identified two compatibility contours that required explicit migration documentation: the accepted Camera 1 browser identity and the Camera Preview Gallery regression contract. Both now treat `/cams/hls/cam1/index.m3u8` as retired while preserving their accepted media/snapshot behavior.
+- Existing worker state/events/config calls cannot use an interactive Authentik browser session. The implementation therefore adds an exact private-peer/method/path nginx listener rather than modifying worker source/package or weakening browser authentication.
+- The VPS code deploy now proves API health through the loopback FastAPI origin and treats the public `/sea-speed/api/health` URL as an auth/security smoke. This allows the same code deployment flow to remain valid before and after the separate Auth v1 nginx cutover.
+- CI findings during implementation are being resolved within the approved source scope before merge; no production mutation has occurred.
+- Runtime Authentik/SMTP/TOTP/invite/media/M2M acceptance remains NOT DEPLOYED and is separately production-gated.
