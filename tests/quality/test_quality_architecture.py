@@ -79,6 +79,12 @@ jobs:
                 filename = f"sea-speed-{component}-{COMMIT}.tar.gz"
                 self.assertEqual((first / filename).read_bytes(), (second / filename).read_bytes())
             self.assertEqual((first / "exact-artifacts.json").read_bytes(), (second / "exact-artifacts.json").read_bytes())
+
+            manifest = json.loads((first / "exact-artifacts.json").read_text(encoding="utf-8"))
+            vps = next(artifact for artifact in manifest["artifacts"] if artifact["component"] == "vps")
+            vps_paths = {entry["path"] for entry in vps["files"]}
+            self.assertIn("frontend/sea-speed/cameras/index.html", vps_paths)
+
             self.run_script("scripts/quality/validate_exact_artifacts.py", "--manifest", str(first / "exact-artifacts.json"))
 
     def test_quality_evidence_binds_artifact_digests(self) -> None:

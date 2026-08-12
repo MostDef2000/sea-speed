@@ -21,6 +21,7 @@ COMPONENT_FILES = {
             "api/app/main.py",
             "frontend/sea-speed/index.html",
             "frontend/sea-speed/objects/index.html",
+            "frontend/sea-speed/cameras/index.html",
             "frontend/root/index.html",
             "deploy/vps/deploy.sh",
         ],
