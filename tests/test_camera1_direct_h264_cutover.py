@@ -8,18 +8,32 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 RENDERER = ROOT / "scripts/operations/nginx_cam1_direct_h264.py"
+AUTH_RENDERER = ROOT / "scripts/operations/nginx_sea_speed_auth.py"
 DEPLOY = ROOT / "deploy/vps/camera1-direct-h264-cutover.sh"
 DOC = ROOT / "docs/operations/CAMERA1_DIRECT_H264_CUTOVER.md"
 
-spec = importlib.util.spec_from_file_location("nginx_cam1_direct_h264", RENDERER)
-assert spec and spec.loader
-nginxcut = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(nginxcut)
+cam_spec = importlib.util.spec_from_file_location("nginx_cam1_direct_h264", RENDERER)
+assert cam_spec and cam_spec.loader
+nginxcut = importlib.util.module_from_spec(cam_spec)
+cam_spec.loader.exec_module(nginxcut)
+
+auth_spec = importlib.util.spec_from_file_location("nginx_sea_speed_auth", AUTH_RENDERER)
+assert auth_spec and auth_spec.loader
+nginxauth = importlib.util.module_from_spec(auth_spec)
+auth_spec.loader.exec_module(nginxauth)
 
 BASE = r'''
 server {
     listen 443 ssl;
     server_name mostdef.ru www.mostdef.ru;
+
+    # SEA-SPEED-CAM1-DIRECT-H264-BEGIN
+    location ^~ /cams/hls/cam1/ {
+        auth_basic "Sea Speed";
+        auth_basic_user_file /etc/nginx/.htpasswd;
+        proxy_pass http://127.0.0.1:18889/cam1/;
+    }
+    # SEA-SPEED-CAM1-DIRECT-H264-END
 
     location /cams/hls/ {
         auth_basic "Sea Speed";
@@ -31,60 +45,48 @@ server {
     location /sea-speed/ {
         try_files $uri $uri/ =404;
     }
+
+    location /sea-speed/api/ {
+        proxy_pass http://127.0.0.1:8000/api/;
+    }
+
+    location /sea-speed/media/ {
+        alias /opt/sea-speed-api/media/;
+    }
 }
 '''
 
-REDIRECT = r'''
-server {
-    listen 80;
-    server_name mostdef.ru www.mostdef.ru;
-    return 301 https://$host$request_uri;
-}
-'''
+PRIVATE_LISTEN = "10.123.239.1:18080"
+PRIVATE_PEER = "10.123.239.102"
 
 
 class Camera1DirectH264CutoverTests(unittest.TestCase):
-    def test_renderer_creates_exact_cam1_precedence_and_preserves_generic_route(self) -> None:
+    def test_renderer_moves_cam1_under_sea_speed_and_preserves_h264_upstream(self) -> None:
         rendered = nginxcut.render(BASE)
         nginxcut.verify(rendered)
-        self.assertIn("location ^~ /cams/hls/cam1/ {", rendered)
+        self.assertIn("location ^~ /sea-speed/media/cam1/ {", rendered)
         self.assertIn("proxy_pass http://127.0.0.1:18889/cam1/;", rendered)
         self.assertIn("proxy_cache off;", rendered)
         self.assertIn('add_header Cache-Control "no-store, no-cache, must-revalidate" always;', rendered)
-        self.assertIn('auth_basic "Sea Speed";', rendered)
-        self.assertIn("auth_basic_user_file /etc/nginx/.htpasswd;", rendered)
+        self.assertNotIn("location ^~ /cams/hls/cam1/ {", rendered)
         self.assertIn("location /cams/hls/ {", rendered)
-        self.assertIn("proxy_pass http://127.0.0.1:8888/;", rendered)
-
-    def test_renderer_selects_hls_server_when_same_host_has_redirect_server(self) -> None:
-        rendered = nginxcut.render(REDIRECT + BASE)
-        nginxcut.verify(rendered)
-        self.assertEqual(rendered.count(nginxcut.BEGIN), 1)
-        before_tls, after_tls = rendered.split("listen 443 ssl;", 1)
-        self.assertNotIn(nginxcut.BEGIN, before_tls)
-        self.assertIn(nginxcut.BEGIN, after_tls)
-        self.assertIn("return 301 https://$host$request_uri;", before_tls)
+        managed = rendered.split(nginxcut.BEGIN, 1)[1].split(nginxcut.END, 1)[0]
+        self.assertNotIn("auth_basic", managed)
+        self.assertNotIn("127.0.0.1:8888", managed)
 
     def test_renderer_is_idempotent(self) -> None:
         first = nginxcut.render(BASE)
         second = nginxcut.render(first)
         self.assertEqual(first, second)
 
-    def test_renderer_replaces_unmanaged_exact_cam1_location(self) -> None:
-        source = BASE.replace(
-            "    location /cams/hls/ {",
-            "    location ^~ /cams/hls/cam1/ { proxy_pass http://127.0.0.1:9999/; }\n\n    location /cams/hls/ {",
+    def test_renderer_requires_single_sea_speed_parent_location(self) -> None:
+        with self.assertRaises(nginxcut.ConfigError):
+            nginxcut.render(BASE.replace("location /sea-speed/ {", "location /operator/ {", 1))
+        duplicate = BASE.replace(
+            "    location /sea-speed/ {",
+            "    location /sea-speed/ { try_files $uri =404; }\n\n    location /sea-speed/ {",
             1,
         )
-        rendered = nginxcut.render(source)
-        nginxcut.verify(rendered)
-        self.assertNotIn("127.0.0.1:9999", rendered)
-        self.assertEqual(rendered.count("location ^~ /cams/hls/cam1/ {"), 1)
-
-    def test_renderer_requires_single_target_server_and_generic_location(self) -> None:
-        with self.assertRaises(nginxcut.ConfigError):
-            nginxcut.render(BASE.replace("mostdef.ru", "example.invalid"))
-        duplicate = BASE + BASE
         with self.assertRaises(nginxcut.ConfigError):
             nginxcut.render(duplicate)
 
@@ -100,35 +102,53 @@ class Camera1DirectH264CutoverTests(unittest.TestCase):
                 text=True,
                 capture_output=True,
             )
-            self.assertIn("CAM1_DIRECT_H264_RENDER=PASS", rendered.stdout)
+            self.assertIn("CAM1_PROTECTED_H264_RENDER=PASS", rendered.stdout)
             verified = subprocess.run(
                 ["python3", str(RENDERER), "verify", "--config", str(candidate)],
                 check=True,
                 text=True,
                 capture_output=True,
             )
-            self.assertIn("CAM1_DIRECT_H264_CONFIG=PASS", verified.stdout)
+            self.assertIn("CAM1_PROTECTED_H264_CONFIG=PASS", verified.stdout)
 
-    def test_deploy_contract_is_narrow_and_no_automatic_rollback(self) -> None:
+    def test_combined_auth_render_protects_new_cam1_and_retires_all_cams(self) -> None:
+        media_candidate = nginxcut.render(BASE)
+        final = nginxauth.render(
+            media_candidate,
+            worker_private_listen=PRIVATE_LISTEN,
+            worker_private_peer=PRIVATE_PEER,
+        )
+        nginxcut.verify(final)
+        nginxauth.verify(
+            final,
+            worker_private_listen=PRIVATE_LISTEN,
+            worker_private_peer=PRIVATE_PEER,
+        )
+        managed = final.split(nginxcut.BEGIN, 1)[1].split(nginxcut.END, 1)[0]
+        self.assertIn("auth_request /outpost.goauthentik.io/auth/nginx;", managed)
+        self.assertIn("/sea-speed/media/cam1/", managed)
+        self.assertNotIn("/cams/hls/cam1/", final)
+        self.assertIn("location ^~ /cams/ {", final)
+
+    def test_standalone_deploy_is_read_only_and_activation_is_retired(self) -> None:
         subprocess.run(["bash", "-n", str(DEPLOY)], check=True)
         source = DEPLOY.read_text(encoding="utf-8")
-        self.assertIn("127.0.0.1:18889/cam1/index.m3u8", source)
-        self.assertIn("MEDIAMTX_BROWSER_PATH=BYPASSED", source)
-        self.assertIn("PLAYLIST_CACHE=DISABLED", source)
-        self.assertIn("AI_CHANGED=NO", source)
-        self.assertIn("AUTOMATIC_ROLLBACK=NO", source)
-        self.assertNotIn("systemctl restart sea-speed-worker", source)
-        self.assertNotIn("systemctl start sea-speed-worker", source)
-        self.assertNotIn("systemctl restart mediamtx", source)
-        self.assertNotIn("systemctl stop mediamtx", source)
+        self.assertIn("STANDALONE_ACTIVATION=RETIRED", source)
+        self.assertIn("sea-speed-auth-cutover.sh", source)
+        self.assertIn("PRODUCTION_MUTATION=NO", source)
+        self.assertNotIn("systemctl reload nginx.service", source)
+        self.assertNotIn("mv -f", source)
+        self.assertNotIn("/cams/hls/cam1/index.m3u8", source)
+        self.assertIn("/sea-speed/media/cam1/index.m3u8", source)
 
-    def test_documentation_keeps_product_acceptance_simple(self) -> None:
+    def test_documentation_records_issue_115_security_migration(self) -> None:
         source = DOC.read_text(encoding="utf-8")
-        self.assertIn("/cams/hls/cam1/index.m3u8", source)
-        self.assertIn("VPS MediaMTX", source)
-        self.assertIn("H264 1280x720 at 15 fps", source)
-        self.assertIn("LIVE CAMERA", source)
-        self.assertIn("Automatic rollback is not performed", source)
+        self.assertIn("Issue #115", source)
+        self.assertIn("/sea-speed/media/cam1/index.m3u8", source)
+        self.assertIn("127.0.0.1:18889/cam1/", source)
+        self.assertIn("sea-speed-auth-cutover.sh", source)
+        self.assertIn("standalone", source.lower())
+        self.assertNotIn("public Camera 1 identity remains", source)
 
 
 if __name__ == "__main__":
