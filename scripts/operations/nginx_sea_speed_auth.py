@@ -20,6 +20,10 @@ LEGACY_CAMS_PREFIX = "/cams"
 AUTHENTIK_UPSTREAM = "http://127.0.0.1:9000"
 WORKER_BEGIN = "# SEA-SPEED-WORKER-PRIVATE-V1-BEGIN"
 WORKER_END = "# SEA-SPEED-WORKER-PRIVATE-V1-END"
+RFC1918_NETWORKS = tuple(
+    ipaddress.ip_network(value)
+    for value in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+)
 
 
 class ConfigError(RuntimeError):
@@ -264,7 +268,7 @@ def _private_ipv4(value: str, *, with_port: bool = False) -> tuple[str, int | No
         address = ipaddress.ip_address(host)
     except ValueError as exc:
         raise ConfigError("worker private address must be a literal IPv4") from exc
-    if address.version != 4 or not address.is_private or address.is_loopback:
+    if address.version != 4 or not any(address in network for network in RFC1918_NETWORKS):
         raise ConfigError("worker private address must be a non-loopback RFC1918 IPv4")
     return str(address), port
 
@@ -338,6 +342,22 @@ def render(
     worker_private_listen: str | None = None,
     worker_private_peer: str | None = None,
 ) -> str:
+    if (worker_private_listen is None) != (worker_private_peer is None):
+        raise ConfigError("worker private listen and peer must be supplied together")
+    want_worker = worker_private_listen is not None
+    has_worker = WORKER_BEGIN in text or WORKER_END in text
+    if GLOBAL_BEGIN in text and GLOBAL_END in text and has_worker == want_worker:
+        try:
+            verify(
+                text,
+                host,
+                worker_private_listen=worker_private_listen,
+                worker_private_peer=worker_private_peer,
+            )
+            return text
+        except ConfigError:
+            pass
+
     text = _strip_marked_sections(text, GLOBAL_BEGIN, GLOBAL_END)
     text = _strip_marked_sections(text, WORKER_BEGIN, WORKER_END)
     text = _strip_marked_sections(text, LOCATION_BEGIN, LOCATION_END)
@@ -361,8 +381,6 @@ def render(
     insert_at = server_start + min(start for start, _spec in sea_locations)
     indent = _indent_at(text, insert_at)
     text = text[:insert_at] + _global_block(indent) + text[insert_at:]
-    if (worker_private_listen is None) != (worker_private_peer is None):
-        raise ConfigError("worker private listen and peer must be supplied together")
     if worker_private_listen and worker_private_peer:
         server_start, _, server_close = _server_for_host(text, host)
         server_text = text[server_start : server_close + 1]
