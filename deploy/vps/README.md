@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Deploy the API, root landing page and operator frontend from one exact Git commit after changes reach `main`.
+Deploy the API, public root landing page and authenticated Sea Speed frontend from one exact Git commit after changes reach `main`.
 
 The deployment model keeps only two code releases:
 
@@ -19,9 +19,11 @@ Default live targets:
 /opt/sea-speed-api/app/main.py
 /var/www/mostdef.ru/index.html
 /var/www/mostdef.ru/sea-speed/index.html
+/var/www/mostdef.ru/sea-speed/objects/index.html
+/var/www/mostdef.ru/sea-speed/cameras/index.html
 ```
 
-The root page at `https://mostdef.ru/` is the public entry point. Its primary action opens `/sea-speed/`; `/cams/` remains a small secondary link in the footer.
+The root page at `https://mostdef.ru/` is the public entry point. Its primary action opens `/sea-speed/`. After Issue #115 there is no `/cams/` frontend/link and all browser-facing Sea Speed UI/API/media lives under the authenticated `/sea-speed/**` contour.
 
 Deployment state:
 
@@ -31,19 +33,20 @@ Deployment state:
 /opt/sea-speed-deploy/state/previous-release
 ```
 
-The existing live API and both frontend files are copied once on the first deployment into a bootstrap release. When the root frontend is introduced into an already-managed installation, the deploy script adds the current live root page to the current release before replacing it, so the first rollout can still restore the original page.
+The existing live API and frontends are copied once on the first deployment into a bootstrap release. Future deployments retain only the current and previous Git releases.
 
-Future deployments retain only the current and previous Git releases.
-
-The script does not modify or archive:
+The normal code deploy script does not modify or archive:
 
 ```text
 /opt/sea-speed-api/data/
 /opt/sea-speed-api/media/
 .env files
 Nginx configuration
+Authentik runtime/database/secrets
 systemd unit files
 ```
+
+Issue #115 adds a separate, explicitly production-gated nginx/Auth deployment helper: `deploy/vps/sea-speed-auth-cutover.sh`. It is not invoked by the normal code deployment workflow. See `docs/operations/SEA_SPEED_AUTH_V1.md`.
 
 Data backups remain a separate operation required only before schema migrations, destructive data changes or explicitly risky infrastructure work.
 
@@ -52,23 +55,44 @@ Data backups remain a separate operation required only before schema migrations,
 ```text
 exact commit SHA
 → download GitHub source archive
-→ stage API, root frontend and operator frontend release
-→ preserve the current root page in the rollback release when needed
+→ stage API and frontend release
+→ preserve current files in rollback release when needed
 → atomically replace live code files
 → restart sea-speed-api
-→ API health check
-→ root and operator frontend smoke checks
+→ API origin health check on loopback
+→ public root + private-surface smoke checks
 → keep current and previous releases only
 ```
+
+### Origin health vs public auth boundary
+
+The deploy script deliberately separates these concerns:
+
+```text
+API health proof:
+  http://127.0.0.1:8000/api/health
+  expected: successful FastAPI response
+
+Public private-surface smoke:
+  https://mostdef.ru/sea-speed/api/health
+  before Auth v1 cutover: may be 200 under the legacy boundary
+  after Auth v1 cutover: authentication redirect/deny is expected
+```
+
+A public `200` from `/sea-speed/api/health` is therefore not required and is not used as proof that the API restarted correctly. No user credential or Authentik session is stored in GitHub Actions for deployment health checks.
+
+The loopback default can be changed for a nonstandard VPS API listener with `SEA_SPEED_ORIGIN_HEALTH_URL`; the production default must match the actual nginx/FastAPI origin.
 
 If any runtime check fails:
 
 ```text
 restore previous code release
 → restart service
-→ repeat health and frontend checks
+→ repeat origin health and frontend checks
 → fail the workflow
 ```
+
+This code rollback is distinct from the Auth v1 nginx security rollback. The normal deploy script never changes the nginx/auth boundary.
 
 ## Least-privilege model
 
@@ -78,7 +102,7 @@ GitHub Actions connects as a dedicated unprivileged SSH user, recommended name:
 sea-speed-deploy
 ```
 
-The SSH session runs the deployment script without `sudo`. The user receives write access only to:
+The SSH session runs the deployment script without a root shell. The user receives write access only to:
 
 ```text
 /opt/sea-speed-deploy/
@@ -87,13 +111,13 @@ The SSH session runs the deployment script without `sudo`. The user receives wri
 /var/www/mostdef.ru/sea-speed/
 ```
 
-The only passwordless `sudo` command is:
+The only passwordless `sudo` command required by the normal deploy is:
 
 ```text
 /usr/bin/systemctl restart sea-speed-api
 ```
 
-The deploy user must not receive unrestricted `sudo`, root shell access, access to `.env`, API data, media, Nginx configuration or unrelated services.
+The deploy user must not receive unrestricted `sudo`, access to `.env`, API data, media, nginx configuration, Authentik secrets/database or unrelated services.
 
 ## One-time VPS preparation
 
@@ -151,6 +175,7 @@ test -w /opt/sea-speed-api/app
 test -w /var/www/mostdef.ru
 test -w /var/www/mostdef.ru/sea-speed
 test -w /opt/sea-speed-deploy
+curl --fail --silent --show-error http://127.0.0.1:8000/api/health >/dev/null
 ```
 
 Verify that unrelated privileged commands are denied:
@@ -180,41 +205,36 @@ Generate the known-hosts value from a trusted network and verify the fingerprint
 ssh-keyscan -p 22 <VPS_HOST>
 ```
 
-After secrets are configured, run the workflow manually once while deployment remains disabled only if testing validation. To perform the first production deployment, set:
-
-```text
-VPS_DEPLOY_ENABLED=true
-```
-
-Then run `Deploy VPS` manually for the full current `main` commit SHA. Verify the API, both frontends and release-state files before relying on automatic pushes.
+Production deployment always remains an explicit action against an exact full `main` SHA with the required quality/production controls. Merge does not itself authorize a deployment.
 
 ## Manual run
 
-The workflow supports `workflow_dispatch`. A full 40-character commit SHA may be supplied. If omitted, GitHub deploys the selected branch SHA.
+The workflow supports `workflow_dispatch` with a required full 40-character commit SHA. The selected commit is checked out exactly, the aggregate quality status is verified, exact artifacts/evidence are built, and only then the VPS deployment script is invoked.
 
-Automatic production deployment runs only for pushes to `main` affecting:
+Relevant VPS source contours include:
 
 - `api/**`;
 - `frontend/**`;
 - `deploy/vps/**`;
 - `.github/workflows/deploy-vps.yml`.
 
-Worker-only and documentation-only changes do not deploy the VPS.
+Worker-only and documentation-only changes do not imply a normal VPS code deployment.
 
 ## Acceptance checks
 
-After the first deployment verify:
+For a normal code deployment, verify at minimum:
 
 ```bash
-curl --fail https://mostdef.ru/sea-speed/api/health
-curl --fail https://mostdef.ru/ >/dev/null
-curl --fail https://mostdef.ru/sea-speed/ >/dev/null
+curl --fail --silent --show-error http://127.0.0.1:8000/api/health >/dev/null
+curl --fail --silent --show-error https://mostdef.ru/ >/dev/null
 systemctl status sea-speed-api --no-pager
 cat /opt/sea-speed-deploy/state/current-release
 cat /opt/sea-speed-deploy/state/previous-release
 ```
 
-Also confirm that existing files under `/opt/sea-speed-api/data/` and `/opt/sea-speed-api/media/` remain unchanged.
+For `/sea-speed/**`, a post-Auth-v1 anonymous redirect/401/403 is expected and is not an API health failure. Authenticated product/security acceptance is a separate step documented in `docs/operations/SEA_SPEED_AUTH_V1.md`.
+
+Also confirm that existing files under `/opt/sea-speed-api/data/` and `/opt/sea-speed-api/media/` remain unchanged by the normal code deploy.
 
 ## Configuration overrides
 
@@ -224,10 +244,15 @@ The deployment script supports these environment overrides when executed directl
 - `SEA_SPEED_DEPLOY_ROOT`;
 - `SEA_SPEED_API_TARGET`;
 - `SEA_SPEED_FRONTEND_TARGET`;
+- `SEA_SPEED_OBJECTS_FRONTEND_TARGET`;
+- `SEA_SPEED_CAMERAS_FRONTEND_TARGET`;
 - `SEA_SPEED_ROOT_FRONTEND_TARGET`;
 - `SEA_SPEED_SYSTEMCTL_BIN`;
-- `SEA_SPEED_HEALTH_URL`;
+- `SEA_SPEED_ORIGIN_HEALTH_URL` — local FastAPI health proof, default `http://127.0.0.1:8000/api/health`;
+- `SEA_SPEED_HEALTH_URL` — public `/sea-speed/api/health` security smoke URL;
 - `SEA_SPEED_FRONTEND_URL`;
+- `SEA_SPEED_OBJECTS_FRONTEND_URL`;
+- `SEA_SPEED_CAMERAS_FRONTEND_URL`;
 - `SEA_SPEED_ROOT_FRONTEND_URL`.
 
 The GitHub workflow intentionally uses the project defaults to keep production behavior deterministic.
