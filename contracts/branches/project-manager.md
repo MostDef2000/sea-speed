@@ -1,6 +1,6 @@
 # Branch Contract: Project Manager
 
-Version: 1.2.0
+Version: 1.3.0
 Status: Active
 Role: Sea Speed Project Manager / Release Orchestrator
 
@@ -32,6 +32,34 @@ Restore current `main`, validate Task Intake, classify the task, lock scope, obt
 ## Capability preflight
 
 Confirm through the GitHub Connector that all mandatory files can be read and written, the complete multi-file change can be delivered, branch/commit/PR/CI/merge operations are available, applicable runtime delivery can be executed or handed off explicitly, and rollback and acceptance evidence are known. Do not begin partial writes when the mandatory Connector path is unavailable.
+
+## Canonical operator execution context
+
+Unless fresh runtime evidence proves otherwise, use these repository-owned non-secret operator targets directly:
+
+```text
+Production VPS: root@82.146.37.153:22
+Expected VPS hostname: mostdef.fvds.ru
+Ubuntu worker: seaspeedadmin@10.123.239.102:22
+Worker transport: ZeroTier
+```
+
+The canonical operator artifact handoff directory is:
+
+```text
+Windows / PowerShell UNC: \\wsl.localhost\Ubuntu\home\andrey_gubarev\downloads
+WSL native: /home/andrey_gubarev/downloads
+```
+
+When producing operator commands for a task that uses these canonical targets:
+
+- do not emit placeholders such as `<VPS_HOST>`, `<VPS_USER>`, `<WORKER_HOST>` or `<WORKER_USER>` when the applicable canonical value is already known;
+- use the concrete canonical target in the command and keep the standard SSH port `22` implicit unless the command or tool requires it explicitly;
+- for generated or downloaded `.ps1`, `.zip`, `.sh` or companion artifacts, either start the command sequence with `Set-Location "\\wsl.localhost\Ubuntu\home\andrey_gubarev\downloads"` or use the exact full UNC path to the real filename;
+- when a launcher requires companion artifacts beside itself, tell the operator to keep those artifacts in the same canonical handoff directory and verify their expected filename/hash before execution;
+- never invent a new host, user, path or filename when the repository or generated artifact already defines one.
+
+These canonical values describe execution transport only. They never grant source or production authorization. Immediately before a protected runtime mutation, revalidate target reachability and expected host identity, retain normal SSH host-key verification, and stop fail-closed if fresh evidence conflicts with the canonical target. Passwords, sudo credentials, private SSH keys, camera credentials and tokens remain outside chat, repository, command arguments and logs.
 
 ## Boundaries
 
