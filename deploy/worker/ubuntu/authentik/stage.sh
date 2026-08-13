@@ -296,12 +296,18 @@ compose_up_and_verify() {
   systemctl is-active --quiet sea-speed-auth-private-proxy.service \
     || fail "PRIVATE_PROXY_SERVICE" 61
 
-  local published
+  local published postgres_id postgres_bindings
   published="$(cd "$runtime_root" && docker compose port server 9000 2>/dev/null || true)"
   [[ "$published" == "127.0.0.1:9000" ]] || fail "AUTHENTIK_DOCKER_NOT_LOOPBACK" 62
-  if (cd "$runtime_root" && docker compose port postgresql 5432 >/dev/null 2>&1); then
-    fail "POSTGRES_HOST_PORT_PRESENT" 63
-  fi
+
+  postgres_id="$(cd "$runtime_root" && docker compose ps -q postgresql)"
+  [[ -n "$postgres_id" ]] || fail "POSTGRES_CONTAINER_MISSING" 63
+  postgres_bindings="$(docker inspect --format '{{json .HostConfig.PortBindings}}' "$postgres_id" 2>/dev/null || true)"
+  case "$postgres_bindings" in
+    "{}"|"null") ;;
+    *) fail "POSTGRES_HOST_PORT_PRESENT" 63 ;;
+  esac
+
   if docker inspect \
        "$(cd "$runtime_root" && docker compose ps -q server)" \
        "$(cd "$runtime_root" && docker compose ps -q worker)" 2>/dev/null \
