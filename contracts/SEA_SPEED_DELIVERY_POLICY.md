@@ -1,6 +1,6 @@
 # Sea Speed Delivery Policy
 
-Version: 1.5.0
+Version: 1.6.0
 Status: Active
 
 ## 1. Purpose
@@ -112,6 +112,28 @@ Hosted CI does not prove NVIDIA, CUDA, physical-camera or RTSP runtime. Such cla
 The normal interactive administration path for the commissioned Ubuntu worker is the operator-managed Windows control laptop connecting over SSH. The primary connection target remains `seaspeedadmin@10.123.239.102:22` over ZeroTier, with the documented operator-owned VPS tunnel as fallback.
 
 SSH access is execution transport only. It never replaces GitHub Connector source operations or grants production authorization. Root-required steps retain the local human sudo boundary; passwords, private keys, camera credentials and tokens must not be transferred through chat, repository or logs.
+
+### Canonical operator execution context
+
+For operator-facing runtime commands, the current canonical non-secret targets are:
+
+```text
+Production VPS: root@82.146.37.153:22
+Expected VPS hostname: mostdef.fvds.ru
+Ubuntu worker: seaspeedadmin@10.123.239.102:22
+Worker transport: ZeroTier
+```
+
+Generated or downloaded operator artifacts are handed off through the canonical operator download directory:
+
+```text
+Windows / PowerShell UNC: \\wsl.localhost\Ubuntu\home\andrey_gubarev\downloads
+WSL native: /home/andrey_gubarev/downloads
+```
+
+When a task uses these known targets and fresh runtime evidence has not invalidated them, operator instructions should use the concrete canonical host/user values instead of placeholders such as `<VPS_HOST>`, `<VPS_USER>` or `<WORKER_HOST>`. Commands for prepared `.ps1`, `.zip`, `.sh` or related artifacts should either first change to the canonical handoff directory or use the exact full path to the real artifact filename. Companion artifacts required by a launcher should be placed in the same directory unless the launcher contract states otherwise.
+
+These values are execution context, not authorization. Before a protected runtime action, revalidate reachability and expected host identity, preserve normal SSH host-key verification, and stop fail-closed if current runtime evidence conflicts with the canonical target. Never place VPS passwords, sudo passwords, private SSH keys, camera credentials or tokens in repository files, command arguments, prompts or logs.
 
 ## 9. Media-storage transition
 
