@@ -309,6 +309,16 @@ class SeaSpeedAuthV1Tests(unittest.TestCase):
         self.assertIn("- totp", source)
         self.assertIn('name="Sea Speed Owner"', source)
         self.assertIn("session_duration: hours=12", source)
+        self.assertIn("slug: sea-speed-owner-totp-setup", source)
+        self.assertIn("designation: stage_configuration", source)
+        self.assertIn("authentication: require_authenticated", source)
+        self.assertIn(
+            "model: authentik_stages_authenticator_totp.authenticatortotpstage",
+            source,
+        )
+        self.assertIn("configure_flow: !KeyOf owner-totp-setup-flow", source)
+        self.assertIn("configuration_stages:", source)
+        self.assertIn("- !KeyOf owner-totp-setup-stage", source)
         self.assertNotIn("authentik_stages_authenticator_sms", source)
         self.assertNotIn("authentik_stages_authenticator_webauthn", source)
 
