@@ -32,7 +32,7 @@
 - [x] T122-04 Add source-restricted worker private Authentik proxy bound to one literal worker private IP and exact VPS peer.
 - [x] T122-05 Parameterize nginx Authentik/outpost upstream and require the production cutover to use a validated non-loopback RFC1918 worker origin.
 - [x] T122-06 Update SDD and operations guidance for worker-hosted identity while preserving Camera 1, gallery, AI and private M2M behavior.
-- [ ] T122-07 Update focused Auth v1 tests for worker Compose/stage/private-origin behavior and legacy regression coverage.
+- [x] T122-07 Update focused Auth v1 tests for worker Compose/stage/private-origin behavior and legacy regression coverage.
 - [ ] T122-08 Verify exact approved changed-file scope against `main` and run required repository validation.
 - [ ] T122-09 Open one bounded PR linked to Issue #122 and `specs/004-sea-speed-auth-v1/spec.md`; resolve CI/review findings only inside approved scope.
 - [ ] T122-10 Merge exact green head and record the new exact source SHA.
