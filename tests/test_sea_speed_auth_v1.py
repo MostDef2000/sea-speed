@@ -11,10 +11,12 @@ ROOT = Path(__file__).resolve().parents[1]
 RENDERER = ROOT / "scripts/operations/nginx_sea_speed_auth.py"
 CUTOVER = ROOT / "deploy/vps/sea-speed-auth-cutover.sh"
 VPS_DEPLOY = ROOT / "deploy/vps/deploy.sh"
-COMPOSE = ROOT / "deploy/vps/authentik/compose.yml"
-ENV_EXAMPLE = ROOT / "deploy/vps/authentik/env.example"
+WORKER_AUTH_ROOT = ROOT / "deploy/worker/ubuntu/authentik"
+WORKER_STAGE = WORKER_AUTH_ROOT / "stage.sh"
+COMPOSE = WORKER_AUTH_ROOT / "compose.yml"
+ENV_EXAMPLE = WORKER_AUTH_ROOT / "env.example"
+AUTH_DOC = WORKER_AUTH_ROOT / "README.md"
 BLUEPRINT = ROOT / "deploy/vps/authentik/blueprints/sea-speed-auth-v1.yaml"
-AUTH_DOC = ROOT / "deploy/vps/authentik/README.md"
 OPS_DOC = ROOT / "docs/operations/SEA_SPEED_AUTH_V1.md"
 SPEC = ROOT / "specs/004-sea-speed-auth-v1/spec.md"
 PLAN = ROOT / "specs/004-sea-speed-auth-v1/plan.md"
@@ -72,22 +74,31 @@ server {
 
 PRIVATE_LISTEN = "10.123.239.1:18080"
 PRIVATE_PEER = "10.123.239.102"
+AUTHENTIK_UPSTREAM = "http://10.123.239.102:19000"
 
 
 class SeaSpeedAuthV1Tests(unittest.TestCase):
-    def test_renderer_retires_cams_and_protects_every_sea_speed_location(self) -> None:
-        rendered = nginxauth.render(
-            BASE,
+    def _render(self, source: str = BASE) -> str:
+        return nginxauth.render(
+            source,
             worker_private_listen=PRIVATE_LISTEN,
             worker_private_peer=PRIVATE_PEER,
+            authentik_upstream=AUTHENTIK_UPSTREAM,
         )
+
+    def _verify(self, source: str) -> None:
         nginxauth.verify(
-            rendered,
+            source,
             worker_private_listen=PRIVATE_LISTEN,
             worker_private_peer=PRIVATE_PEER,
+            authentik_upstream=AUTHENTIK_UPSTREAM,
         )
+
+    def test_renderer_retires_cams_and_protects_every_sea_speed_location(self) -> None:
+        rendered = self._render()
+        self._verify(rendered)
         self.assertNotIn("/cams/hls/cam1/", rendered)
-        self.assertNotIn("auth_basic \"Sea Speed\"", rendered)
+        self.assertNotIn('auth_basic "Sea Speed"', rendered)
         self.assertIn("location = /cams {", rendered)
         self.assertIn("location ^~ /cams/ {", rendered)
         self.assertEqual(
@@ -95,30 +106,50 @@ class SeaSpeedAuthV1Tests(unittest.TestCase):
             3,
         )
         self.assertIn(
+            "proxy_pass http://10.123.239.102:19000/outpost.goauthentik.io;",
+            rendered,
+        )
+        self.assertNotIn(
             "proxy_pass http://127.0.0.1:9000/outpost.goauthentik.io;",
             rendered,
         )
         self.assertIn("location @goauthentik_proxy_signin", rendered)
 
-    def test_renderer_is_idempotent(self) -> None:
-        first = nginxauth.render(
-            BASE,
-            worker_private_listen=PRIVATE_LISTEN,
-            worker_private_peer=PRIVATE_PEER,
-        )
-        second = nginxauth.render(
-            first,
-            worker_private_listen=PRIVATE_LISTEN,
-            worker_private_peer=PRIVATE_PEER,
-        )
+    def test_renderer_is_idempotent_for_exact_private_authentik_origin(self) -> None:
+        first = self._render()
+        second = self._render(first)
         self.assertEqual(first, second)
 
+    def test_renderer_rejects_unsafe_authentik_origins(self) -> None:
+        for upstream in (
+            "https://10.123.239.102:19000",
+            "http://203.0.113.10:19000",
+            "http://10.123.239.102:19000/path",
+            "http://user:pass@10.123.239.102:19000",
+            "http://10.123.239.102",
+            "http://auth.internal:19000",
+        ):
+            with self.subTest(upstream=upstream):
+                with self.assertRaises(nginxauth.ConfigError):
+                    nginxauth.render(
+                        BASE,
+                        worker_private_listen=PRIVATE_LISTEN,
+                        worker_private_peer=PRIVATE_PEER,
+                        authentik_upstream=upstream,
+                    )
+
+    def test_renderer_verification_binds_exact_authentik_origin(self) -> None:
+        rendered = self._render()
+        with self.assertRaises(nginxauth.ConfigError):
+            nginxauth.verify(
+                rendered,
+                worker_private_listen=PRIVATE_LISTEN,
+                worker_private_peer=PRIVATE_PEER,
+                authentik_upstream="http://10.123.239.103:19000",
+            )
+
     def test_private_worker_ingress_is_exact_peer_and_exact_endpoints(self) -> None:
-        rendered = nginxauth.render(
-            BASE,
-            worker_private_listen=PRIVATE_LISTEN,
-            worker_private_peer=PRIVATE_PEER,
-        )
+        rendered = self._render()
         self.assertIn("listen 10.123.239.1:18080;", rendered)
         self.assertIn("allow 10.123.239.102;", rendered)
         self.assertIn("deny all;", rendered)
@@ -147,6 +178,7 @@ class SeaSpeedAuthV1Tests(unittest.TestCase):
                         BASE,
                         worker_private_listen=listen,
                         worker_private_peer=peer,
+                        authentik_upstream=AUTHENTIK_UPSTREAM,
                     )
 
     def test_renderer_rejects_non_loopback_api_upstream(self) -> None:
@@ -160,9 +192,10 @@ class SeaSpeedAuthV1Tests(unittest.TestCase):
                 unsafe,
                 worker_private_listen=PRIVATE_LISTEN,
                 worker_private_peer=PRIVATE_PEER,
+                authentik_upstream=AUTHENTIK_UPSTREAM,
             )
 
-    def test_cli_render_and_verify(self) -> None:
+    def test_cli_render_and_verify_private_authentik_origin(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
             source = root / "site.conf"
@@ -177,6 +210,8 @@ class SeaSpeedAuthV1Tests(unittest.TestCase):
                     str(source),
                     "--output",
                     str(candidate),
+                    "--authentik-upstream",
+                    AUTHENTIK_UPSTREAM,
                     "--worker-private-listen",
                     PRIVATE_LISTEN,
                     "--worker-private-peer",
@@ -194,6 +229,8 @@ class SeaSpeedAuthV1Tests(unittest.TestCase):
                     "verify",
                     "--config",
                     str(candidate),
+                    "--authentik-upstream",
+                    AUTHENTIK_UPSTREAM,
                     "--worker-private-listen",
                     PRIVATE_LISTEN,
                     "--worker-private-peer",
@@ -205,12 +242,14 @@ class SeaSpeedAuthV1Tests(unittest.TestCase):
             )
             self.assertIn("SEA_SPEED_AUTH_CONFIG=PASS", verified.stdout)
 
-    def test_authentik_runtime_is_pinned_private_and_has_no_docker_socket(self) -> None:
+    def test_worker_authentik_runtime_is_pinned_loopback_and_has_no_docker_socket(self) -> None:
         compose = COMPOSE.read_text(encoding="utf-8")
         self.assertEqual(compose.count("ghcr.io/goauthentik/server:2026.5.6"), 2)
+        self.assertIn("docker.io/library/postgres:16-alpine", compose)
         self.assertIn('"127.0.0.1:${AUTHENTIK_HTTP_PORT:-9000}:9000"', compose)
         self.assertNotIn("/var/run/docker.sock", compose)
         self.assertNotRegex(compose, r"(?m)^\s*-\s*[\"']?9000:9000")
+        self.assertNotRegex(compose, r"(?m)^\s*-\s*[\"']?5432:5432")
         self.assertNotIn(":latest", compose)
         env_example = ENV_EXAMPLE.read_text(encoding="utf-8")
         for secret_key in (
@@ -221,6 +260,30 @@ class SeaSpeedAuthV1Tests(unittest.TestCase):
         ):
             self.assertIn(secret_key, env_example)
         self.assertNotRegex(env_example, r"(?m)^(PG_PASS|AUTHENTIK_SECRET_KEY)=\S+")
+
+    def test_worker_stage_is_one_stage_private_and_does_not_mutate_sea_speed_worker(self) -> None:
+        subprocess.run(["bash", "-n", str(WORKER_STAGE)], check=True)
+        source = WORKER_STAGE.read_text(encoding="utf-8")
+        for marker in (
+            "sea-speed-worker",
+            "DOCKER_PACKAGE_CONFLICT",
+            "download.docker.com",
+            "docker-ce",
+            "docker-compose-plugin",
+            "socat",
+            "range=${vps_peer}/32",
+            "TCP4:127.0.0.1:9000",
+            "AUTHENTIK_PRIVATE_ORIGIN=http://%s:%s",
+            "AUTHENTIK_WORKER_STAGE=PASS",
+            "AUTHENTIK_POSTGRESQL_PUBLIC_PORT=NO",
+            "AUTHENTIK_DOCKER_SOCKET_MOUNT=NO",
+        ):
+            self.assertIn(marker, source)
+        self.assertNotIn("SEA_SPEED_API_TOKEN", source)
+        self.assertNotIn("systemctl restart sea-speed-worker", source)
+        self.assertNotIn("systemctl stop sea-speed-worker", source)
+        self.assertNotIn("systemctl restart mediamtx", source)
+        self.assertNotIn("0.0.0.0:9000", source)
 
     def test_blueprint_is_invite_only_and_owner_totp_only(self) -> None:
         source = BLUEPRINT.read_text(encoding="utf-8")
@@ -249,13 +312,15 @@ class SeaSpeedAuthV1Tests(unittest.TestCase):
         self.assertNotIn("authentik_stages_authenticator_sms", source)
         self.assertNotIn("authentik_stages_authenticator_webauthn", source)
 
-    def test_cutover_is_sha_bound_fail_closed_and_private_worker_scoped(self) -> None:
+    def test_cutover_is_sha_bound_fail_closed_remote_authentik_and_private_worker_scoped(self) -> None:
         subprocess.run(["bash", "-n", str(CUTOVER)], check=True)
         source = CUTOVER.read_text(encoding="utf-8")
         for marker in (
-            "prepare --worker-private-listen IP:PORT --worker-private-peer IP",
-            "activate --worker-private-listen IP:PORT --worker-private-peer IP --expected-sha256 SHA256",
-            "--expected-sha256",
+            "prepare --authentik-upstream URL --worker-private-listen IP:PORT --worker-private-peer IP",
+            "activate --authentik-upstream URL --worker-private-listen IP:PORT --worker-private-peer IP --expected-sha256 SHA256",
+            "--authentik-upstream",
+            "AUTHENTIK_PRIVATE_UPSTREAM",
+            "non-loopback RFC1918 IPv4",
             "render_candidate",
             "nginx -t",
             "systemctl reload nginx.service",
@@ -268,6 +333,7 @@ class SeaSpeedAuthV1Tests(unittest.TestCase):
         self.assertIn("CANDIDATE_SHA256", source)
         self.assertIn("rendered candidate SHA256 changed since prepare", source)
         self.assertIn("/var/lib/sea-speed-auth-v1", source)
+        self.assertNotIn('local_authentik="http://127.0.0.1:9000', source)
         self.assertNotIn("systemctl restart sea-speed-worker", source)
         self.assertNotIn("systemctl restart mediamtx", source)
         self.assertNotIn("auth_basic_user_file", source)
@@ -290,21 +356,24 @@ class SeaSpeedAuthV1Tests(unittest.TestCase):
         self.assertIn('"public_private_health_smoke"', source)
         self.assertNotIn('curl --fail --silent --show-error --max-time 10 "$PUBLIC_HEALTH_URL"', source)
 
-    def test_sdd_and_runtime_docs_keep_production_separate(self) -> None:
+    def test_sdd_and_runtime_docs_record_issue_122_and_keep_production_separate(self) -> None:
         for path in (SPEC, PLAN, TASKS, QUICKSTART, AUTH_DOC, OPS_DOC):
             source = path.read_text(encoding="utf-8")
             self.assertIn("#115", source)
+            self.assertIn("#122", source)
         spec_source = SPEC.read_text(encoding="utf-8")
         self.assertIn("PRODUCTION APPROVED", spec_source)
         self.assertIn("/sea-speed/media/cam1/index.m3u8", spec_source)
-        self.assertIn("/cams", spec_source)
+        self.assertIn("worker-loopback-only", spec_source.lower())
         self.assertIn("worker machine-to-machine", spec_source.lower())
         auth_doc = AUTH_DOC.read_text(encoding="utf-8")
-        self.assertIn("Forward auth (single application)", auth_doc)
-        self.assertIn("authentik Embedded Outpost", auth_doc)
-        self.assertIn("fixed_data", auth_doc)
-        self.assertIn("single_use: true", auth_doc)
+        self.assertIn("Ubuntu worker", auth_doc)
+        self.assertIn("socat", auth_doc)
+        self.assertIn("range=<vps-ip>/32", auth_doc)
+        self.assertIn("superseded", auth_doc.lower())
         ops_doc = OPS_DOC.read_text(encoding="utf-8")
+        self.assertIn("stage.sh stage", ops_doc)
+        self.assertIn("AUTHENTIK_PRIVATE_ORIGIN", ops_doc)
         self.assertIn("SEA_SPEED_API_URL", ops_doc)
         self.assertIn("SEA_SPEED_API_TOKEN", ops_doc)
         self.assertIn("fail-closed", ops_doc.lower())
