@@ -229,8 +229,11 @@ stage_runtime_files() {
   install -d -o root -g root -m 0700 "$runtime_root"
   install -d -o root -g root -m 0700 \
     "$runtime_root/blueprints" \
+    "$runtime_root/certs"
+  # Authentik server runs as uid/gid 1000 and must be able to traverse and
+  # write the bind mounts exposed as /data and /templates.
+  install -d -o 1000 -g 1000 -m 0700 \
     "$runtime_root/data" \
-    "$runtime_root/certs" \
     "$runtime_root/custom-templates"
   install -o root -g root -m 0600 "$compose_source" "$runtime_root/compose.yml"
   install -o root -g root -m 0600 "$env_file" "$runtime_root/.env"
