@@ -7,7 +7,9 @@
 - Runtime topology revision: #122
 - Status: Issue #122 worker-hosted Authentik revision in implementation
 
-## Original Auth v1 delivery tasks
+## Delivery tasks
+
+### Original Auth v1 delivery tasks
 
 - [x] T001 Create canonical Issue, approved feature specification and fresh implementation branch from exact `main`.
 - [x] T002 Add pinned Authentik runtime template with secrets outside Git and no Docker socket dependency.
@@ -24,7 +26,7 @@
 - [x] T013 Original bounded PR #116 completed.
 - [x] T014 Original exact green Auth v1 source merged.
 
-## Issue #122 - Worker-hosted Authentik topology
+### Issue #122 - Worker-hosted Authentik topology
 
 - [x] T122-01 Record fresh worker capacity evidence and approve the topology revision after VPS CPU preflight failure.
 - [x] T122-02 Add canonical `deploy/worker/ubuntu/authentik/**` Compose/env/runbook with Authentik `2026.5.6`, PostgreSQL 16, loopback-only Docker publish and no Docker socket.
