@@ -4,6 +4,7 @@ set -euo pipefail
 usage() {
   cat <<'USAGE'
 Usage:
+  sea-speed-auth-cutover.sh bootstrap-public --authentik-upstream URL [options]
   sea-speed-auth-cutover.sh status --authentik-upstream URL [options]
   sea-speed-auth-cutover.sh prepare --authentik-upstream URL --worker-private-listen IP:PORT --worker-private-peer IP [options]
   sea-speed-auth-cutover.sh activate --authentik-upstream URL --worker-private-listen IP:PORT --worker-private-peer IP --expected-sha256 SHA256 [options]
@@ -17,7 +18,11 @@ Options:
   --authentik-public-url URL  default: https://auth.mostdef.ru
 
 Purpose:
-  Atomically prepare/activate the Sea Speed Auth v1 nginx boundary:
+  bootstrap-public creates only the dedicated auth.mostdef.ru TLS reverse proxy
+  to the exact private Ubuntu-worker Authentik origin. It does not modify the
+  existing mostdef.ru /sea-speed/** security boundary.
+
+  prepare/activate atomically prepare/activate the Sea Speed Auth v1 nginx boundary:
   - Camera 1 H264 browser route -> /sea-speed/media/cam1/
   - Authentik Forward Auth -> every existing /sea-speed/** nginx location
   - Authentik/outpost upstream -> exact private Ubuntu-worker origin over ZeroTier
@@ -25,11 +30,14 @@ Purpose:
   - exact private ZeroTier worker M2M endpoints -> existing loopback FastAPI upstream
 
 Production authorization:
-  This script does not grant production permission. prepare/activate may be run
-  only inside a separately approved exact-main-SHA PRODUCTION APPROVED envelope.
+  This script does not grant production permission. bootstrap-public,
+  prepare and activate may run only inside a separately approved exact-main-SHA
+  PRODUCTION APPROVED envelope.
 
 Rollback:
-  A root-only nginx backup is written before activation. Automatic rollback is
+  The isolated auth.mostdef.ru vhost is source-managed by bootstrap-public and
+  never changes the active mostdef.ru site. A root-only mostdef.ru nginx backup
+  is written before activate. Automatic rollback of the main boundary is
   deliberately disabled; restoring the retired public /cams/** contour requires
   an explicit production rollback decision.
 USAGE
@@ -37,7 +45,7 @@ USAGE
 
 mode="${1:-}"
 case "$mode" in
-  status|prepare|activate) shift ;;
+  bootstrap-public|status|prepare|activate) shift ;;
   -h|--help|"") usage; exit 0 ;;
   *) echo "ERROR unknown command: $mode" >&2; usage >&2; exit 2 ;;
 esac
@@ -82,6 +90,12 @@ backup_root="$state_root/backups"
 candidate_path="$state_root/candidate.nginx.conf"
 local_h264="http://127.0.0.1:18889/cam1/index.m3u8"
 private_authentik_health=""
+auth_public_host="auth.mostdef.ru"
+auth_site_available="/etc/nginx/sites-available/auth.mostdef.ru"
+auth_site_enabled="/etc/nginx/sites-enabled/auth.mostdef.ru"
+auth_acme_webroot="/var/www/sea-speed-auth-acme"
+auth_cert_dir="/etc/letsencrypt/live/auth.mostdef.ru"
+auth_managed_marker="# SEA-SPEED-AUTH-PUBLIC-V1"
 
 require_commands() {
   local name
@@ -90,6 +104,17 @@ require_commands() {
   done
   [[ -f "$cam_renderer" ]] || { echo "ERROR Camera 1 renderer missing from exact source" >&2; exit 4; }
   [[ -f "$auth_renderer" ]] || { echo "ERROR Auth v1 renderer missing from exact source" >&2; exit 4; }
+}
+
+require_public_bootstrap_commands() {
+  local name
+  for name in certbot openssl getent sort paste ln readlink; do
+    command -v "$name" >/dev/null 2>&1 || { echo "ERROR $name is required for bootstrap-public" >&2; exit 4; }
+  done
+  [[ -d /etc/nginx/sites-available && -d /etc/nginx/sites-enabled ]] || {
+    echo "ERROR nginx sites-available/sites-enabled layout is required for bootstrap-public" >&2
+    exit 4
+  }
 }
 
 require_root() {
@@ -192,9 +217,166 @@ PY
   }
 }
 
-check_authentik() {
+check_private_authentik() {
   curl --fail --silent --show-error --max-time 8 "$private_authentik_health" >/dev/null
+}
+
+check_public_authentik() {
   curl --fail --silent --show-error --max-time 12 "${authentik_public_url}/-/health/ready/" >/dev/null
+}
+
+check_authentik() {
+  check_private_authentik && check_public_authentik
+}
+
+require_public_dns_exact() {
+  [[ "$authentik_public_url" == "https://${auth_public_host}" ]] || {
+    echo "ERROR bootstrap-public is restricted to https://${auth_public_host}" >&2
+    exit 22
+  }
+  local public_ip dns_ipv4 dns_ipv6
+  public_ip="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for (i=1; i<=NF; i++) if ($i == "src") {print $(i+1); exit}}')"
+  [[ -n "$public_ip" ]] || { echo "ERROR could not discover VPS public IPv4" >&2; exit 22; }
+  dns_ipv4="$(getent ahostsv4 "$auth_public_host" 2>/dev/null | awk '{print $1}' | sort -u | paste -sd, -)"
+  [[ "$dns_ipv4" == "$public_ip" ]] || {
+    echo "ERROR ${auth_public_host} A record must resolve only to VPS public IPv4 ${public_ip}; got ${dns_ipv4:-NONE}" >&2
+    exit 22
+  }
+  dns_ipv6="$(getent ahostsv6 "$auth_public_host" 2>/dev/null | awk '{print $1}' | sort -u | paste -sd, - || true)"
+  [[ -z "$dns_ipv6" ]] || {
+    echo "ERROR ${auth_public_host} has IPv6 DNS but bootstrap-public has no approved IPv6 ingress: $dns_ipv6" >&2
+    exit 22
+  }
+  printf 'AUTHENTIK_PUBLIC_DNS=PASS\n'
+  printf 'AUTHENTIK_PUBLIC_IPV4=%s\n' "$public_ip"
+}
+
+require_auth_vhost_absent_or_managed() {
+  if nginx -T 2>&1 | grep -Eq 'server_name[[:space:]]+[^;]*auth\.mostdef\.ru'; then
+    [[ -f "$auth_site_available" ]] && grep -Fq "$auth_managed_marker" "$auth_site_available" || {
+      echo "ERROR existing auth.mostdef.ru nginx vhost is not Sea Speed managed" >&2
+      exit 23
+    }
+  fi
+  if [[ -e "$auth_site_available" ]] && ! grep -Fq "$auth_managed_marker" "$auth_site_available"; then
+    echo "ERROR existing auth.mostdef.ru site file is not Sea Speed managed" >&2
+    exit 23
+  fi
+  if [[ -e "$auth_site_enabled" && ! -L "$auth_site_enabled" ]]; then
+    echo "ERROR auth.mostdef.ru enabled path exists and is not a symlink" >&2
+    exit 23
+  fi
+}
+
+write_auth_http_vhost() {
+  install -d -o root -g root -m 0755 "$auth_acme_webroot"
+  cat >"$auth_site_available" <<EOF_AUTH_HTTP
+${auth_managed_marker}
+server {
+    listen 80;
+    server_name ${auth_public_host};
+
+    location ^~ /.well-known/acme-challenge/ {
+        root ${auth_acme_webroot};
+        default_type text/plain;
+    }
+
+    location / {
+        return 404;
+    }
+}
+EOF_AUTH_HTTP
+  chmod 0644 "$auth_site_available"
+  ln -sfn "$auth_site_available" "$auth_site_enabled"
+  nginx -t
+  systemctl reload nginx.service
+  systemctl is-active --quiet nginx.service || { echo "ERROR nginx inactive after ACME vhost reload" >&2; exit 24; }
+  printf 'AUTHENTIK_ACME_VHOST=PASS\n'
+}
+
+issue_auth_certificate() {
+  certbot certonly \
+    --webroot \
+    --webroot-path "$auth_acme_webroot" \
+    --cert-name "$auth_public_host" \
+    --domain "$auth_public_host" \
+    --non-interactive \
+    --agree-tos \
+    --no-eff-email \
+    --keep-until-expiring
+  [[ -f "$auth_cert_dir/fullchain.pem" && -f "$auth_cert_dir/privkey.pem" ]] || {
+    echo "ERROR expected auth.mostdef.ru certificate files missing" >&2
+    exit 25
+  }
+  openssl x509 -in "$auth_cert_dir/fullchain.pem" -noout -ext subjectAltName \
+    | grep -Fq "DNS:${auth_public_host}" || {
+      echo "ERROR issued certificate does not cover ${auth_public_host}" >&2
+      exit 25
+    }
+  printf 'AUTHENTIK_TLS_CERT=PASS\n'
+}
+
+write_auth_https_vhost() {
+  cat >"$auth_site_available" <<EOF_AUTH_HTTPS
+${auth_managed_marker}
+server {
+    listen 80;
+    server_name ${auth_public_host};
+
+    location ^~ /.well-known/acme-challenge/ {
+        root ${auth_acme_webroot};
+        default_type text/plain;
+    }
+
+    location / {
+        return 301 https://\$host\$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    server_name ${auth_public_host};
+
+    ssl_certificate ${auth_cert_dir}/fullchain.pem;
+    ssl_certificate_key ${auth_cert_dir}/privkey.pem;
+
+    location / {
+        proxy_pass ${authentik_upstream};
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header X-Forwarded-Host \$host;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+    }
+}
+EOF_AUTH_HTTPS
+  chmod 0644 "$auth_site_available"
+  nginx -t
+  systemctl reload nginx.service
+  systemctl is-active --quiet nginx.service || { echo "ERROR nginx inactive after auth TLS vhost reload" >&2; exit 26; }
+}
+
+bootstrap_public_authentik() {
+  require_root
+  require_public_bootstrap_commands
+  require_public_dns_exact
+  require_auth_vhost_absent_or_managed
+  check_private_authentik || { echo "ERROR private worker Authentik unhealthy" >&2; exit 20; }
+  printf 'AUTHENTIK_PRIVATE_HEALTH=PASS\n'
+  write_auth_http_vhost
+  issue_auth_certificate
+  write_auth_https_vhost
+  check_public_authentik || { echo "ERROR public Authentik health failed after TLS vhost activation" >&2; exit 27; }
+  printf 'AUTHENTIK_PUBLIC_HEALTH=PASS\n'
+  printf 'AUTHENTIK_PUBLIC_BOOTSTRAP=PASS\n'
+  printf 'AUTHENTIK_PUBLIC_URL=%s\n' "$authentik_public_url"
+  printf 'AUTHENTIK_PRIVATE_UPSTREAM=%s\n' "$authentik_upstream"
+  printf 'SEA_SPEED_MAIN_BOUNDARY_CHANGED=NO\n'
+  printf 'NEXT_CHECKPOINT=OWNER_TOTP_PROVIDER\n'
 }
 
 check_h264() {
@@ -230,6 +412,12 @@ http_status() {
 
 require_commands
 require_authentik_upstream
+
+if [[ "$mode" == "bootstrap-public" ]]; then
+  bootstrap_public_authentik
+  exit 0
+fi
+
 discover_site
 printf 'NGINX_SITE=%s\n' "$nginx_site"
 printf 'AUTHENTIK_PRIVATE_UPSTREAM=%s\n' "$authentik_upstream"

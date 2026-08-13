@@ -316,6 +316,7 @@ class SeaSpeedAuthV1Tests(unittest.TestCase):
         subprocess.run(["bash", "-n", str(CUTOVER)], check=True)
         source = CUTOVER.read_text(encoding="utf-8")
         for marker in (
+            "bootstrap-public --authentik-upstream URL",
             "prepare --authentik-upstream URL --worker-private-listen IP:PORT --worker-private-peer IP",
             "activate --authentik-upstream URL --worker-private-listen IP:PORT --worker-private-peer IP --expected-sha256 SHA256",
             "--authentik-upstream",
@@ -324,6 +325,16 @@ class SeaSpeedAuthV1Tests(unittest.TestCase):
             "render_candidate",
             "nginx -t",
             "systemctl reload nginx.service",
+            "certbot certonly",
+            "--webroot-path",
+            "# SEA-SPEED-AUTH-PUBLIC-V1",
+            "proxy_http_version 1.1",
+            "proxy_set_header Host \\$host;",
+            "proxy_set_header X-Forwarded-Proto \\$scheme;",
+            "proxy_set_header X-Forwarded-For \\$proxy_add_x_forwarded_for;",
+            "proxy_set_header Upgrade \\$http_upgrade;",
+            "AUTHENTIK_PUBLIC_BOOTSTRAP=PASS",
+            "SEA_SPEED_MAIN_BOUNDARY_CHANGED=NO",
             "AUTOMATIC_ROLLBACK=NO",
             "WORKER_RUNTIME_RECONFIGURATION_REQUIRED=YES",
             "/sea-speed/media/cam1/index.m3u8",
@@ -333,6 +344,7 @@ class SeaSpeedAuthV1Tests(unittest.TestCase):
         self.assertIn("CANDIDATE_SHA256", source)
         self.assertIn("rendered candidate SHA256 changed since prepare", source)
         self.assertIn("/var/lib/sea-speed-auth-v1", source)
+        self.assertNotIn("certbot --nginx", source)
         self.assertNotIn('local_authentik="http://127.0.0.1:9000', source)
         self.assertNotIn("systemctl restart sea-speed-worker", source)
         self.assertNotIn("systemctl restart mediamtx", source)

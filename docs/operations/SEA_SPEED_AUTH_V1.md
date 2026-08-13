@@ -140,10 +140,36 @@ Before changing the Sea Speed security boundary, prove from the VPS:
 http://<worker-private-ip>:19000/-/health/ready/ -> 200
 ```
 
-Configure the existing VPS TLS/nginx vhost for `auth.mostdef.ru` to proxy to that exact private origin, not to VPS loopback. Then prove:
+`auth.mostdef.ru` must have an A record resolving only to the VPS public IPv4. The existing `mostdef.ru` certificate is not expanded by this procedure. Use the source-managed isolated bootstrap mode to obtain a dedicated webroot certificate and create only the `auth.mostdef.ru` nginx vhost:
+
+```bash
+sudo ./deploy/vps/sea-speed-auth-cutover.sh bootstrap-public \
+  --authentik-upstream http://<worker-private-ip>:19000
+```
+
+`bootstrap-public`:
+
+- refuses a public, loopback, credential-bearing or path-bearing Authentik upstream;
+- proves the private worker Authentik health before changing nginx;
+- requires `auth.mostdef.ru` DNS to resolve exactly to the VPS public IPv4 and rejects an unapproved IPv6 record;
+- refuses any pre-existing `auth.mostdef.ru` vhost that is not marked as Sea Speed managed;
+- installs a dedicated HTTP ACME webroot vhost without changing the existing `mostdef.ru` site;
+- obtains or reuses the separate `auth.mostdef.ru` certificate with Certbot `certonly --webroot`;
+- installs the HTTPS reverse proxy to the exact private worker origin with HTTP/1.1, forwarded request headers and WebSocket upgrade headers;
+- runs `nginx -t`, reloads nginx and requires `https://auth.mostdef.ru/-/health/ready/ -> 200`;
+- prints `SEA_SPEED_MAIN_BOUNDARY_CHANGED=NO` because `/sea-speed/**` remains on the pre-cutover configuration.
+
+Successful evidence includes:
 
 ```text
-https://auth.mostdef.ru/-/health/ready/ -> 200
+AUTHENTIK_PUBLIC_DNS=PASS
+AUTHENTIK_PRIVATE_HEALTH=PASS
+AUTHENTIK_ACME_VHOST=PASS
+AUTHENTIK_TLS_CERT=PASS
+AUTHENTIK_PUBLIC_HEALTH=PASS
+AUTHENTIK_PUBLIC_BOOTSTRAP=PASS
+SEA_SPEED_MAIN_BOUNDARY_CHANGED=NO
+NEXT_CHECKPOINT=OWNER_TOTP_PROVIDER
 ```
 
 The worker private origin itself is not a public URL and must reject traffic from an unapproved private peer.
