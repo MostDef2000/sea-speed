@@ -2,11 +2,14 @@
 
 - Feature: 004-sea-speed-auth-v1
 - Issue: #115
-- Status: Approved for implementation
+- Runtime topology revision: #122
+- Status: Approved; worker-hosted Authentik topology authorized by Issue #122
 
 ## Product outcome
 
 Sea Speed remains reachable from the public Internet, but all private operator, API and media surfaces are protected by centrally managed authentication. The public root page remains available. The legacy `/cams/**` surface is retired and must not expose Camera 1 or any other camera content.
+
+After Issue #122, Authentik and PostgreSQL run on the commissioned Ubuntu worker rather than the undersized public VPS. The VPS remains the sole public nginx/TLS ingress and reaches Authentik only through an exact private ZeroTier/RFC1918 worker origin. Moving identity runtime does not change camera acquisition, AI behavior, the Sea Speed worker application package, or the existing private worker M2M API contract.
 
 ## User scenarios
 
@@ -28,7 +31,7 @@ Given an active non-Owner account with a verified recovery email, when the user 
 
 ### Scenario 5 - Anonymous visitor reaches private resources
 
-Given an unauthenticated visitor, when the visitor requests any `/sea-speed/**` UI, API, snapshot or media URL, then access is denied or redirected to authentication. Authentication failure or Authentik unavailability must fail closed.
+Given an unauthenticated visitor, when the visitor requests any `/sea-speed/**` UI, API, snapshot or media URL, then access is denied or redirected to authentication. Authentication failure, worker failure, private-network failure, or Authentik unavailability must fail closed.
 
 ### Scenario 6 - Legacy camera surface is retired
 
@@ -36,7 +39,11 @@ Given any visitor, when `/cams` or `/cams/**` is requested, then no camera page,
 
 ### Scenario 7 - Worker continues machine-to-machine API traffic
 
-Given the AI worker is an infrastructure peer rather than an interactive browser user, when it publishes state/events or reads ROI/speed configuration, then it uses an exact private VPS listener reachable only from the approved worker private peer. Interactive `/sea-speed/**` remains Authentik-only and no worker source/package change is required.
+Given the AI worker is an infrastructure peer rather than an interactive browser user, when it publishes state/events or reads ROI/speed configuration, then it uses an exact private VPS listener reachable only from the approved worker private peer. Interactive `/sea-speed/**` remains Authentik-only and no Sea Speed worker source/package change is required.
+
+### Scenario 8 - Identity runtime is hosted on the worker
+
+Given the public VPS cannot satisfy the Authentik resource baseline and the commissioned Ubuntu worker has sufficient resources, when Authentik is staged, then Docker, Authentik and PostgreSQL run on the Ubuntu worker; Authentik Docker HTTP remains worker-loopback-only; one source-restricted private proxy exposes only the worker ZeroTier address to the exact VPS peer; and public browser traffic still enters only through VPS HTTPS.
 
 ## Requirements
 
@@ -63,7 +70,14 @@ Given the AI worker is an infrastructure peer rather than an interactive browser
 - FR-021: Runtime credentials, Authentik secret keys, SMTP credentials and generated secrets MUST NOT be committed to the repository.
 - FR-022: Deployment health checks MUST distinguish private origin health from anonymous public security checks so that protecting `/sea-speed/api/health` does not break deployment verification.
 - FR-023: Existing worker machine-to-machine traffic MUST NOT depend on an interactive Authentik browser session. Nginx MUST expose only the exact required worker methods/endpoints on a separate listener bound to a literal private VPS address and restricted to one literal approved private worker peer.
-- FR-024: The private worker ingress MUST proxy only to the existing loopback FastAPI origin, MUST keep the existing Bearer-token requirement for state/event writes, and MUST NOT provide a generic `/api/**` bypass. Production rollout may change worker runtime API URLs to this private listener but MUST NOT require a worker source/package change.
+- FR-024: The private worker ingress MUST proxy only to the existing loopback FastAPI origin, MUST keep the existing Bearer-token requirement for state/event writes, and MUST NOT provide a generic `/api/**` bypass. Production rollout may change worker runtime API URLs to this private listener but MUST NOT require a Sea Speed worker source/package change.
+- FR-025: Authentik server, Authentik worker and PostgreSQL production runtime MUST be hosted on the commissioned Ubuntu worker after Issue #122; the original VPS-local Compose placement is superseded for production.
+- FR-026: Authentik Docker HTTP on the Ubuntu worker MUST publish only to worker loopback. PostgreSQL MUST have no host port, and the Authentik worker container MUST NOT mount `/var/run/docker.sock`.
+- FR-027: The worker MUST expose Authentik to the VPS only through one literal private worker IPv4/port restricted to the exact private VPS peer. The private proxy MUST NOT listen on a public or wildcard address.
+- FR-028: VPS nginx Authentik/outpost routing MUST be rendered against an explicit validated private Authentik origin. Production cutover MUST reject loopback, public, credential-bearing, path-bearing or non-literal origins.
+- FR-029: Loss of the worker, Authentik private proxy, or ZeroTier path MUST make `/sea-speed/**` unavailable rather than anonymous. The public `/` landing page remains independent.
+- FR-030: Worker-hosted Authentik MUST NOT modify Sea Speed AI/detection/tracking/calibration/speed semantics, camera acquisition/relay behavior, the worker API token, or the worker application package.
+- FR-031: The normal production operator path SHOULD use one bounded stage to validate worker resources, install Docker/Compose when absent, stage Authentik/PostgreSQL, establish the private proxy and prove health; manual package/hash/preflight steps are fallback-only.
 
 ## Roles
 
@@ -80,8 +94,9 @@ Fine-grained Sea Speed authorization differences between Admin, Operator and Vie
 - Authentication must fail closed.
 - Secrets remain outside Git source.
 - Existing camera credentials and private relay topology remain protected.
-- No new public backend/media listener is introduced.
-- Private worker ingress is bound only to an approved private VPS address and exact peer, with exact methods/paths.
+- No new public backend/media/Auth listener is introduced.
+- Worker-hosted Authentik is reachable from the VPS only over the exact source-restricted private origin.
+- Private worker M2M ingress remains bound only to an approved private VPS address and exact worker peer, with exact methods/paths.
 - `/cams/**` retirement is intentional and supersedes the earlier public Camera 1 URL compatibility requirement.
 
 ## Acceptance criteria
@@ -99,8 +114,12 @@ Fine-grained Sea Speed authorization differences between Admin, Operator and Vie
 - AC-011: authenticated Camera 1 playback advances through `/sea-speed/media/cam1/index.m3u8` using the existing H.264 compatibility output.
 - AC-012: FastAPI, media origins and relay services are not exposed directly to the public Internet by this change.
 - AC-013: production rollout is not performed without a separate exact-SHA production safety envelope.
-- AC-014: from the exact approved worker peer, the private listener supports only POST state/events and GET ROI/speed-config/speed-lines; unrelated paths/methods are denied or absent.
-- AC-015: the worker continues publishing state/events with its existing API Bearer token and fetching configuration after its runtime URLs are moved to the private listener; no worker source/package update is required.
+- AC-014: from the exact approved worker peer, the private VPS M2M listener supports only POST state/events and GET ROI/speed-config/speed-lines; unrelated paths/methods are denied or absent.
+- AC-015: the worker continues publishing state/events with its existing API Bearer token and fetching configuration after its runtime URLs are moved to the private VPS listener; no Sea Speed worker source/package update is required.
+- AC-016: worker Authentik staging proves at least 2 CPUs, 2 GiB RAM, healthy PostgreSQL/server/worker, worker-loopback Docker publish, no PostgreSQL host port and no Docker socket mount.
+- AC-017: the VPS can reach `http://<worker-private-ip>:<private-port>/-/health/ready/`, while the private origin is not bound to a public interface and is source-restricted to the exact VPS peer.
+- AC-018: rendered nginx contains the exact worker private Authentik origin for the embedded outpost and rejects a different/public origin during verification.
+- AC-019: stopping the worker Authentik/private path causes private Sea Speed auth requests to fail closed rather than serving anonymous content.
 
 ## Explicit exclusions
 
@@ -112,18 +131,20 @@ Fine-grained Sea Speed authorization differences between Admin, Operator and Vie
 - User-controlled email change.
 - Fine-grained API RBAC.
 - A Sea Speed-native user/password/session database.
+- VPS resizing.
 - Changes to AI, detection, tracking, speed estimation or calibration semantics.
-- Changes to the physical camera source, Ubuntu relay, camera codec preparation or Windows worker source/package.
-- Storage/database schema migration.
+- Changes to the physical camera source, Ubuntu relay or camera codec preparation.
+- Changes to the Sea Speed worker application source/package.
+- Storage/database schema migration outside Authentik's own PostgreSQL runtime.
 
 ## Runtime feedback
 
-- Source implementation is tracked by Issue #115 and PR #116 under the approved Outcome Contract.
-- During source integration, the existing accepted Camera 1 and Camera Preview Gallery specifications were found to encode the former `/cams/hls/cam1/index.m3u8` browser identity. Issue #115 explicitly supersedes that identity while preserving their accepted media, snapshot, relay and AI boundaries.
-- Existing worker state/event/config traffic uses the same FastAPI routes as the browser UI. Auth v1 therefore separates interactive browser authentication from a narrowly scoped private worker M2M ingress instead of requiring an Authentik browser session from the worker.
-- Production Authentik, SMTP, invitations, Owner TOTP, nginx cutover, worker runtime URL migration and runtime acceptance have NOT been performed by source implementation and remain separately production-gated.
-- Runtime state for Auth v1 remains NOT DEPLOYED until a separately approved exact merged `main` SHA completes the production acceptance plan.
+- Source implementation originated under Issue #115 and PR #116. Issue #122 is an explicitly approved topology revision after production preflight proved the VPS has fewer than two CPU cores and the operator declined a VPS resize.
+- Fresh worker evidence before Issue #122 implementation: hostname `sea-speed-worker`, Ubuntu 26.04 LTS x86_64, 16 CPU, 30 GiB RAM, 79 GiB free on `/`, Docker not installed.
+- The worker has sufficient capacity for the identity runtime, so Authentik/PostgreSQL placement moves to the worker while public ingress stays on the VPS.
+- Existing worker state/event/config traffic still uses a separate narrow private VPS M2M ingress; hosting Authentik on the same physical worker does not merge those security contours.
+- Production Authentik, SMTP, invitations, Owner TOTP, nginx cutover, worker runtime URL migration and runtime acceptance remain NOT DEPLOYED for the revised topology until a fresh exact merged `main` SHA receives separate `PRODUCTION APPROVED`.
 
 ## Production impact
 
-VPS / security-control-plane change plus bounded worker runtime URL reconfiguration over the existing private network. Source integration does not authorize production mutation. A separate `PRODUCTION APPROVED` envelope bound to the exact final `main` SHA is required before rollout.
+MIXED runtime/security-control-plane change: Ubuntu worker gains Docker/Auth/PostgreSQL/private proxy runtime; VPS nginx uses that private origin and later activates the existing Auth v1 boundary; Sea Speed worker application source/package remains unchanged. Source integration does not authorize production mutation. A fresh `PRODUCTION APPROVED` envelope bound to the exact final merged `main` SHA is required before rollout.
