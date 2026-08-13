@@ -39,6 +39,7 @@ Default operator communication is a strict action -> response loop.
 
 - Give exactly one concrete next action per turn, then wait for the operator result before giving another action, except when a protected decision requires multiple inseparable inputs.
 - Keep routine operator-facing messages limited to the immediate command, approval phrase, artifact, UI action or requested response plus only the safety note that is materially required for that action.
+- Do not append unsolicited roadmap, downstream steps or contingency summaries after the immediate action.
 - Do not proactively explain downstream sequencing, implementation internals, technical requirements, acceptance mechanics, alternative PASS/FAIL branches or future steps unless the operator explicitly asks or must understand them to make a protected decision.
 - Perform technical reasoning, validation planning, contingency analysis and result interpretation internally; expose only the smallest actionable next step.
 - When a human checkpoint is required, provide the exact approval phrase, command or UI action needed and stop for the operator response.
