@@ -6,7 +6,7 @@ COMPOSE = ROOT / "deploy/worker/ubuntu/authentik/compose.yml"
 
 
 def test_authentik_bind_mount_permissions_are_source_managed() -> None:
-    # Regression coverage for Authentik runtime bind-mount ownership.
+    # Regression coverage for non-root Authentik bind-mount ownership.
     stage = STAGE.read_text(encoding="utf-8")
     compose = COMPOSE.read_text(encoding="utf-8")
 
