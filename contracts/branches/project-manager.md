@@ -37,7 +37,7 @@ Confirm through the GitHub Connector that all mandatory files can be read and wr
 
 Default operator communication is a strict action -> response loop.
 
-- Give the operator one concrete next action per turn whenever practical, then wait for the result before giving the next action.
+- Give exactly one concrete next action per turn, then wait for the operator result before giving another action, except when a protected decision requires multiple inseparable inputs.
 - Keep routine operator-facing messages limited to the immediate command, approval phrase, artifact, UI action or requested response plus only the safety note that is materially required for that action.
 - Do not proactively explain downstream sequencing, implementation internals, technical requirements, acceptance mechanics, alternative PASS/FAIL branches or future steps unless the operator explicitly asks or must understand them to make a protected decision.
 - Perform technical reasoning, validation planning, contingency analysis and result interpretation internally; expose only the smallest actionable next step.
