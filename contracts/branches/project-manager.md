@@ -1,6 +1,6 @@
 # Branch Contract: Project Manager
 
-Version: 1.3.0
+Version: 1.4.0
 Status: Active
 Role: Sea Speed Project Manager / Release Orchestrator
 
@@ -61,6 +61,22 @@ When producing operator commands for a task that uses these canonical targets:
 - never invent a new host, user, path or filename when the repository or generated artifact already defines one.
 
 These canonical values describe execution transport only. They never grant source or production authorization. Immediately before a protected runtime mutation, revalidate target reachability and expected host identity, retain normal SSH host-key verification, and stop fail-closed if fresh evidence conflicts with the canonical target. Passwords, sudo credentials, private SSH keys, camera credentials and tokens remain outside chat, repository, command arguments and logs.
+
+## Fastest safe deployment requirement
+
+When handing off an approved runtime deployment, optimize the operator workflow for the fewest safe manual actions rather than exposing internal implementation steps.
+
+- Prefer one ready-to-run command for each logical stage whenever technically possible.
+- Put deterministic hash/integrity verification, exact-source binding, archive extraction, prerequisite discovery, known-path resolution, target checks and bounded health/smoke validation inside the launcher. Do not make the operator perform those steps manually on the normal path.
+- Reuse canonical hosts, users, ports, directories and exact artifact filenames automatically. Do not ask for values already available from repository contracts or generated artifacts.
+- Do not introduce a separate preflight command when the mutating stage can safely perform the same read-only checks before its first mutation and abort without side effects on failure.
+- Do not block an independent deployment stage on connectivity to a runtime contour that the stage does not yet need. Defer worker/camera/auxiliary checks until the first stage that requires that contour.
+- Keep a human interaction only where it is materially required: source or production authorization, secret/password entry, TOTP/IdP enrollment, provider configuration, host-key trust decisions, or other protected-boundary decisions that cannot be automated safely.
+- Do not require the operator to manually unpack a bundle, compare hashes, export redundant environment variables or repeat the same non-secret input when automation can do it deterministically.
+- If a launcher fails, provide the smallest actionable next step and preserve sanitized evidence. Avoid asking the operator to run a chain of diagnostic commands that the launcher or agent can execute itself.
+- Never trade away exact-SHA binding, artifact integrity, backups, rollback semantics, security checks, host identity validation, production authorization or fail-closed behavior for convenience.
+
+Treat unnecessary repeated prompts, avoidable manual verification, redundant preparatory commands and unrelated-contour blockers as deployment-UX defects. Manual multi-command deployment is fallback-only when a simpler bounded automation path is unavailable or demonstrably unsafe.
 
 ## Boundaries
 

@@ -1,6 +1,6 @@
 # Sea Speed Delivery Policy
 
-Version: 1.6.0
+Version: 1.7.0
 Status: Active
 
 ## 1. Purpose
@@ -134,6 +134,21 @@ WSL native: /home/andrey_gubarev/downloads
 When a task uses these known targets and fresh runtime evidence has not invalidated them, operator instructions should use the concrete canonical host/user values instead of placeholders such as `<VPS_HOST>`, `<VPS_USER>` or `<WORKER_HOST>`. Commands for prepared `.ps1`, `.zip`, `.sh` or related artifacts should either first change to the canonical handoff directory or use the exact full path to the real artifact filename. Companion artifacts required by a launcher should be placed in the same directory unless the launcher contract states otherwise.
 
 These values are execution context, not authorization. Before a protected runtime action, revalidate reachability and expected host identity, preserve normal SSH host-key verification, and stop fail-closed if current runtime evidence conflicts with the canonical target. Never place VPS passwords, sudo passwords, private SSH keys, camera credentials or tokens in repository files, command arguments, prompts or logs.
+
+### Fastest safe deployment operator UX
+
+Production rollout must default to the fastest and simplest operator path that still satisfies every applicable safety boundary.
+
+- Prefer one ready-to-run operator command per logical deployment stage whenever technically possible.
+- Move deterministic integrity checks, exact-SHA/source binding, archive unpacking, prerequisite checks, known-path resolution, target validation and health/smoke checks inside the approved launcher instead of making the operator run them manually.
+- Do not ask the operator to repeat canonical host/user/path/filename values, export redundant environment variables or perform a manual hash check when the launcher can derive and validate the same information safely.
+- Do not make a later or independent runtime contour a prerequisite for the current stage. An unavailable worker, camera or auxiliary route must not block an independent VPS-only stage unless that contour is required for the stage's safety or acceptance result.
+- Keep human checkpoints only where a person is genuinely required, including production authorization, local secret/password entry, TOTP or IdP enrollment, provider setup, host-key trust decisions, or equivalent protected-boundary actions that cannot be automated safely.
+- Preserve exact-SHA binding, artifact integrity, security checks, backups, rollback semantics, host identity validation and fail-closed behavior even when the operator flow is compressed.
+- Repeated entry of the same non-secret deployment data, unnecessary unpack/hash/preflight steps and manual diagnostics that automation can perform are deployment-UX defects and should be removed from the normal path.
+- On failure, stop fail-closed and report the smallest concrete next action. Prefer launcher-owned diagnostics and remediation evidence over a long sequence of operator-run troubleshooting commands.
+
+A manual multi-command workflow is acceptable only as an explicit fallback when the bounded automation path is unavailable or unsafe. Simplicity never authorizes skipping a required safety or evidence gate.
 
 ## 9. Media-storage transition
 
