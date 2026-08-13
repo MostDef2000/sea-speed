@@ -234,7 +234,7 @@ require_public_dns_exact() {
     echo "ERROR bootstrap-public is restricted to https://${auth_public_host}" >&2
     exit 22
   }
-  local public_ip dns_ipv4 dns_ipv6
+  local public_ip dns_ipv4 dns_ipv6 raw_ipv6
   public_ip="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for (i=1; i<=NF; i++) if ($i == "src") {print $(i+1); exit}}')"
   [[ -n "$public_ip" ]] || { echo "ERROR could not discover VPS public IPv4" >&2; exit 22; }
   dns_ipv4="$(getent ahostsv4 "$auth_public_host" 2>/dev/null | awk '{print $1}' | sort -u | paste -sd, -)"
@@ -242,7 +242,22 @@ require_public_dns_exact() {
     echo "ERROR ${auth_public_host} A record must resolve only to VPS public IPv4 ${public_ip}; got ${dns_ipv4:-NONE}" >&2
     exit 22
   }
-  dns_ipv6="$(getent ahostsv6 "$auth_public_host" 2>/dev/null | awk '{print $1}' | sort -u | paste -sd, - || true)"
+  raw_ipv6="$(getent ahostsv6 "$auth_public_host" 2>/dev/null | awk '{print $1}' | sort -u || true)"
+  dns_ipv6="$(python3 - "$raw_ipv6" <<'PY'
+import ipaddress
+import sys
+
+real_ipv6 = []
+for token in sys.argv[1].splitlines():
+    token = token.strip()
+    if not token:
+        continue
+    address = ipaddress.ip_address(token)
+    if address.version == 6 and address.ipv4_mapped is None:
+        real_ipv6.append(str(address))
+print(",".join(sorted(set(real_ipv6))))
+PY
+)"
   [[ -z "$dns_ipv6" ]] || {
     echo "ERROR ${auth_public_host} has IPv6 DNS but bootstrap-public has no approved IPv6 ingress: $dns_ipv6" >&2
     exit 22
