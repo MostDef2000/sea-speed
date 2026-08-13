@@ -2,23 +2,25 @@
 set -euo pipefail
 
 usage() {
-  cat <<'EOF'
+  cat <<'USAGE'
 Usage:
-  sea-speed-auth-cutover.sh status [options]
-  sea-speed-auth-cutover.sh prepare --worker-private-listen IP:PORT --worker-private-peer IP [options]
-  sea-speed-auth-cutover.sh activate --worker-private-listen IP:PORT --worker-private-peer IP --expected-sha256 SHA256 [options]
+  sea-speed-auth-cutover.sh status --authentik-upstream URL [options]
+  sea-speed-auth-cutover.sh prepare --authentik-upstream URL --worker-private-listen IP:PORT --worker-private-peer IP [options]
+  sea-speed-auth-cutover.sh activate --authentik-upstream URL --worker-private-listen IP:PORT --worker-private-peer IP --expected-sha256 SHA256 [options]
 
 Options:
   --nginx-site PATH
+  --authentik-upstream URL    required private worker origin, e.g. http://10.x.x.x:19000
   --worker-private-listen IP:PORT
   --worker-private-peer IP
   --expected-sha256 SHA256
-  --authentik-public-url URL   default: https://auth.mostdef.ru
+  --authentik-public-url URL  default: https://auth.mostdef.ru
 
 Purpose:
   Atomically prepare/activate the Sea Speed Auth v1 nginx boundary:
   - Camera 1 H264 browser route -> /sea-speed/media/cam1/
   - Authentik Forward Auth -> every existing /sea-speed/** nginx location
+  - Authentik/outpost upstream -> exact private Ubuntu-worker origin over ZeroTier
   - /cams and /cams/** -> 404
   - exact private ZeroTier worker M2M endpoints -> existing loopback FastAPI upstream
 
@@ -30,7 +32,7 @@ Rollback:
   A root-only nginx backup is written before activation. Automatic rollback is
   deliberately disabled; restoring the retired public /cams/** contour requires
   an explicit production rollback decision.
-EOF
+USAGE
 }
 
 mode="${1:-}"
@@ -41,6 +43,7 @@ case "$mode" in
 esac
 
 nginx_site=""
+authentik_upstream=""
 worker_private_listen=""
 worker_private_peer=""
 expected_sha256=""
@@ -50,6 +53,9 @@ while [[ $# -gt 0 ]]; do
     --nginx-site)
       [[ $# -ge 2 ]] || { echo "ERROR --nginx-site requires a path" >&2; exit 2; }
       nginx_site="$2"; shift 2 ;;
+    --authentik-upstream)
+      [[ $# -ge 2 ]] || { echo "ERROR --authentik-upstream requires URL" >&2; exit 2; }
+      authentik_upstream="$2"; shift 2 ;;
     --worker-private-listen)
       [[ $# -ge 2 ]] || { echo "ERROR --worker-private-listen requires IP:PORT" >&2; exit 2; }
       worker_private_listen="$2"; shift 2 ;;
@@ -75,7 +81,7 @@ state_root="/var/lib/sea-speed-auth-v1"
 backup_root="$state_root/backups"
 candidate_path="$state_root/candidate.nginx.conf"
 local_h264="http://127.0.0.1:18889/cam1/index.m3u8"
-local_authentik="http://127.0.0.1:9000/-/health/ready/"
+private_authentik_health=""
 
 require_commands() {
   local name
@@ -117,6 +123,48 @@ discover_site() {
   nginx_site="$found"
 }
 
+require_authentik_upstream() {
+  [[ -n "$authentik_upstream" ]] || {
+    echo "ERROR --authentik-upstream is required and must be the worker private origin" >&2
+    exit 2
+  }
+  local normalized host
+  normalized="$(python3 - "$authentik_upstream" <<'PY'
+import ipaddress
+import sys
+from urllib.parse import urlsplit
+raw = sys.argv[1].strip().rstrip("/")
+parsed = urlsplit(raw)
+if parsed.scheme != "http":
+    raise SystemExit("ERROR Authentik upstream must use private HTTP behind VPS TLS")
+if parsed.username or parsed.password:
+    raise SystemExit("ERROR Authentik upstream must not contain credentials")
+if parsed.path not in ("", "/") or parsed.query or parsed.fragment:
+    raise SystemExit("ERROR Authentik upstream must be an origin without path/query/fragment")
+if not parsed.hostname or parsed.port is None:
+    raise SystemExit("ERROR Authentik upstream must be literal IPv4:port")
+try:
+    address = ipaddress.ip_address(parsed.hostname)
+except ValueError as exc:
+    raise SystemExit(f"ERROR Authentik upstream host must be literal IPv4: {exc}")
+private = tuple(ipaddress.ip_network(x) for x in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"))
+if address.version != 4 or address.is_loopback or not any(address in network for network in private):
+    raise SystemExit("ERROR Authentik upstream must be non-loopback RFC1918 IPv4")
+if not 1024 <= parsed.port <= 65535:
+    raise SystemExit("ERROR Authentik upstream port must be 1024..65535")
+print(f"http://{address}:{parsed.port}")
+PY
+)" || exit $?
+  authentik_upstream="$normalized"
+  host="${authentik_upstream#http://}"
+  host="${host%:*}"
+  if ip -4 -o addr show | grep -Fq " ${host}/"; then
+    echo "ERROR Authentik upstream resolves to an address configured on the VPS; Issue #122 requires the remote worker" >&2
+    exit 6
+  fi
+  private_authentik_health="${authentik_upstream}/-/health/ready/"
+}
+
 require_private_args() {
   [[ -n "$worker_private_listen" ]] || { echo "ERROR --worker-private-listen is required" >&2; exit 2; }
   [[ -n "$worker_private_peer" ]] || { echo "ERROR --worker-private-peer is required" >&2; exit 2; }
@@ -145,7 +193,7 @@ PY
 }
 
 check_authentik() {
-  curl --fail --silent --show-error --max-time 8 "$local_authentik" >/dev/null
+  curl --fail --silent --show-error --max-time 8 "$private_authentik_health" >/dev/null
   curl --fail --silent --show-error --max-time 12 "${authentik_public_url}/-/health/ready/" >/dev/null
 }
 
@@ -165,11 +213,13 @@ render_candidate() {
   python3 "$auth_renderer" render \
     --config "$stage1" \
     --output "$output" \
+    --authentik-upstream "$authentik_upstream" \
     --worker-private-listen "$worker_private_listen" \
     --worker-private-peer "$worker_private_peer" >/dev/null
   python3 "$cam_renderer" verify --config "$output" >/dev/null
   python3 "$auth_renderer" verify \
     --config "$output" \
+    --authentik-upstream "$authentik_upstream" \
     --worker-private-listen "$worker_private_listen" \
     --worker-private-peer "$worker_private_peer" >/dev/null
 }
@@ -179,11 +229,14 @@ http_status() {
 }
 
 require_commands
+require_authentik_upstream
 discover_site
 printf 'NGINX_SITE=%s\n' "$nginx_site"
+printf 'AUTHENTIK_PRIVATE_UPSTREAM=%s\n' "$authentik_upstream"
 
 if check_authentik; then
-  printf 'AUTHENTIK_HEALTH=PASS\n'
+  printf 'AUTHENTIK_PRIVATE_HEALTH=PASS\n'
+  printf 'AUTHENTIK_PUBLIC_HEALTH=PASS\n'
 else
   printf 'AUTHENTIK_HEALTH=FAIL\n'
   exit 20
@@ -200,6 +253,7 @@ if [[ "$mode" == "status" ]]; then
     require_private_args
     if python3 "$cam_renderer" verify --config "$nginx_site" >/dev/null 2>&1 \
        && python3 "$auth_renderer" verify --config "$nginx_site" \
+            --authentik-upstream "$authentik_upstream" \
             --worker-private-listen "$worker_private_listen" \
             --worker-private-peer "$worker_private_peer" >/dev/null 2>&1; then
       printf 'SEA_SPEED_AUTH_V1=ACTIVE\n'
@@ -274,9 +328,10 @@ systemctl is-active --quiet nginx.service || {
 python3 "$cam_renderer" verify --config "$nginx_site" >/dev/null
 python3 "$auth_renderer" verify \
   --config "$nginx_site" \
+  --authentik-upstream "$authentik_upstream" \
   --worker-private-listen "$worker_private_listen" \
   --worker-private-peer "$worker_private_peer" >/dev/null
-check_authentik || { echo "ERROR Authentik unhealthy after nginx reload" >&2; exit 34; }
+check_authentik || { echo "ERROR remote Authentik unhealthy after nginx reload" >&2; exit 34; }
 check_h264 || { echo "ERROR local H264 fallback unhealthy after nginx reload" >&2; exit 35; }
 
 root_status="$(http_status https://mostdef.ru/)"
@@ -291,6 +346,7 @@ case "$cam_status" in 302|401|403) ;; *) echo "ERROR protected Camera 1 is not a
 [[ "$outpost_status" == "200" ]] || { echo "ERROR Authentik outpost ping expected 200, got $outpost_status" >&2; exit 40; }
 
 printf 'SEA_SPEED_AUTH_CUTOVER=PASS\n'
+printf 'AUTHENTIK_PRIVATE_UPSTREAM=%s\n' "$authentik_upstream"
 printf 'PUBLIC_ROOT_HTTP=%s\n' "$root_status"
 printf 'LEGACY_CAMS_HTTP=%s\n' "$cams_status"
 printf 'SEA_SPEED_ANONYMOUS_HTTP=%s\n' "$sea_status"
