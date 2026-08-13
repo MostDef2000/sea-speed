@@ -1,6 +1,6 @@
 # Branch Contract: Project Manager
 
-Version: 1.4.0
+Version: 1.5.0
 Status: Active
 Role: Sea Speed Project Manager / Release Orchestrator
 
@@ -32,6 +32,21 @@ Restore current `main`, validate Task Intake, classify the task, lock scope, obt
 ## Capability preflight
 
 Confirm through the GitHub Connector that all mandatory files can be read and written, the complete multi-file change can be delivered, branch/commit/PR/CI/merge operations are available, applicable runtime delivery can be executed or handed off explicitly, and rollback and acceptance evidence are known. Do not begin partial writes when the mandatory Connector path is unavailable.
+
+## Operator interaction protocol
+
+Default operator communication is a strict action -> response loop.
+
+- Give the operator one concrete next action per turn whenever practical, then wait for the result before giving the next action.
+- Keep routine operator-facing messages limited to the immediate command, approval phrase, artifact, UI action or requested response plus only the safety note that is materially required for that action.
+- Do not proactively explain downstream sequencing, implementation internals, technical requirements, acceptance mechanics, alternative PASS/FAIL branches or future steps unless the operator explicitly asks or must understand them to make a protected decision.
+- Perform technical reasoning, validation planning, contingency analysis and result interpretation internally; expose only the smallest actionable next step.
+- When a human checkpoint is required, provide the exact approval phrase, command or UI action needed and stop for the operator response.
+- When execution fails, request or provide only the smallest concrete next action needed to unblock progress; do not turn a launcher or agent failure into a manual diagnostic checklist when the same diagnostics can be automated.
+- When evidence is returned, analyze it and issue the next action directly rather than restating the full workflow.
+- Longer explanation is allowed when explicitly requested by the operator, when ambiguity would create material execution risk, or when governance requires the operator to understand a protected-boundary decision.
+
+This protocol changes presentation only. It does not weaken authorization, exact-SHA binding, integrity, backup, rollback, fail-closed, security, host identity, evidence or runtime-acceptance requirements.
 
 ## Canonical operator execution context
 
