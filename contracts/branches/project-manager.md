@@ -1,6 +1,6 @@
 # Branch Contract: Project Manager
 
-Version: 1.6.0
+Version: 1.7.0
 Status: Active
 Role: Sea Speed Project Manager / Release Orchestrator
 
@@ -85,17 +85,21 @@ These canonical values describe execution transport only. They never grant sourc
 
 When handing off an approved runtime deployment, optimize the operator workflow for the fewest safe manual actions rather than exposing internal implementation steps.
 
-- Prefer one ready-to-run command for each logical stage whenever technically possible.
-- Put deterministic hash/integrity verification, exact-source binding, archive extraction, prerequisite discovery, known-path resolution, target checks and bounded health/smoke validation inside the launcher. Do not make the operator perform those steps manually on the normal path.
+- **Normal runtime path = one operator command per deployment contour.** Treat this as a hard default, not merely a preference. A task that touches both VPS and worker may have one operator command for each applicable contour, but routine internal stages inside a contour must not become separate operator commands.
+- Each contour launcher must own deterministic hash/integrity verification, exact-source binding, archive extraction when applicable, prerequisite discovery, known-path resolution, transport adaptation, target reachability and expected host identity checks, SSH readiness checks, required backups, bounded apply/mutation, bounded health/smoke validation and sanitized technical evidence collection. Pre-mutation failures must abort before mutation.
+- Do not expose launcher-owned preflight, integrity, transport, SSH, backup, apply, smoke-test or evidence-collection work as routine operator commands on the normal path.
+- Separate diagnostic commands are allowed only after the launcher has produced `BLOCKED` or `FAILED`, and only when the launcher cannot obtain the evidence required to diagnose or unblock itself. Prefer repairing or reissuing the launcher over asking the operator to execute an ad hoc diagnostic chain.
+- For Sea Speed, the primary runtime artifact is a WSL-native `.sh` stored in the canonical WSL handoff directory. When PowerShell is the operator entrypoint, it should invoke the persisted WSL-native script by its exact canonical path rather than transport the script body dynamically.
+- Never pass a multiline shell program from PowerShell to `wsl.exe` through stdin or a pipeline, including patterns such as `$bash | wsl.exe bash -s --`. Persist the shell program as an LF-terminated `.sh` artifact and invoke that artifact by path.
 - Reuse canonical hosts, users, ports, directories and exact artifact filenames automatically. Do not ask for values already available from repository contracts or generated artifacts.
 - Do not introduce a separate preflight command when the mutating stage can safely perform the same read-only checks before its first mutation and abort without side effects on failure.
-- Do not block an independent deployment stage on connectivity to a runtime contour that the stage does not yet need. Defer worker/camera/auxiliary checks until the first stage that requires that contour.
+- Do not block an independent deployment contour on connectivity to a runtime contour that it does not yet need. Defer worker/camera/auxiliary checks until the first contour that requires them.
 - Keep a human interaction only where it is materially required: source or production authorization, secret/password entry, TOTP/IdP enrollment, provider configuration, host-key trust decisions, or other protected-boundary decisions that cannot be automated safely.
 - Do not require the operator to manually unpack a bundle, compare hashes, export redundant environment variables or repeat the same non-secret input when automation can do it deterministically.
-- If a launcher fails, provide the smallest actionable next step and preserve sanitized evidence. Avoid asking the operator to run a chain of diagnostic commands that the launcher or agent can execute itself.
+- If a launcher fails, preserve sanitized evidence and return a clear `BLOCKED` or `FAILED` result. Any follow-up operator action must be the smallest action that the launcher could not safely perform or diagnose itself.
 - Never trade away exact-SHA binding, artifact integrity, backups, rollback semantics, security checks, host identity validation, production authorization or fail-closed behavior for convenience.
 
-Treat unnecessary repeated prompts, avoidable manual verification, redundant preparatory commands and unrelated-contour blockers as deployment-UX defects. Manual multi-command deployment is fallback-only when a simpler bounded automation path is unavailable or demonstrably unsafe.
+Treat unnecessary repeated prompts, avoidable manual verification, redundant preparatory commands and unrelated-contour blockers as deployment-UX defects. Manual multi-command deployment is fallback-only after `BLOCKED` or `FAILED`, when the launcher cannot safely complete or diagnose the contour itself.
 
 ## Boundaries
 
