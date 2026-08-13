@@ -4,8 +4,8 @@ from __future__ import annotations
 import argparse
 import ipaddress
 import re
-from urllib.parse import urlsplit
 from pathlib import Path
+from urllib.parse import urlsplit
 
 GLOBAL_BEGIN = "# SEA-SPEED-AUTH-V1-BEGIN"
 GLOBAL_END = "# SEA-SPEED-AUTH-V1-END"
@@ -17,7 +17,7 @@ AUTH_URI = "/outpost.goauthentik.io/auth/nginx"
 OUTPOST_PREFIX = "/outpost.goauthentik.io"
 SEA_SPEED_PREFIX = "/sea-speed"
 LEGACY_CAMS_PREFIX = "/cams"
-AUTHENTIK_UPSTREAM = "http://127.0.0.1:9000"
+DEFAULT_AUTHENTIK_UPSTREAM = "http://127.0.0.1:9000"
 WORKER_BEGIN = "# SEA-SPEED-WORKER-PRIVATE-V1-BEGIN"
 WORKER_END = "# SEA-SPEED-WORKER-PRIVATE-V1-END"
 RFC1918_NETWORKS = tuple(
@@ -220,8 +220,33 @@ def _inject_location_auth(text: str, host: str) -> str:
     return text
 
 
-def _global_block(indent: str) -> str:
+def _authentik_upstream(value: str) -> str:
+    raw = value.strip().rstrip("/")
+    parsed = urlsplit(raw)
+    if parsed.scheme != "http":
+        raise ConfigError("Authentik upstream must use private HTTP behind VPS TLS")
+    if parsed.username or parsed.password:
+        raise ConfigError("Authentik upstream must not contain credentials")
+    if parsed.path not in {"", "/"} or parsed.query or parsed.fragment:
+        raise ConfigError("Authentik upstream must be an origin without path/query/fragment")
+    if not parsed.hostname or parsed.port is None:
+        raise ConfigError("Authentik upstream must be literal IPv4:port")
+    try:
+        address = ipaddress.ip_address(parsed.hostname)
+    except ValueError as exc:
+        raise ConfigError("Authentik upstream host must be a literal IPv4") from exc
+    if address.version != 4:
+        raise ConfigError("Authentik upstream must use IPv4")
+    if not address.is_loopback and not any(address in network for network in RFC1918_NETWORKS):
+        raise ConfigError("Authentik upstream must be loopback or RFC1918 private IPv4")
+    if not 1024 <= parsed.port <= 65535:
+        raise ConfigError("Authentik upstream port must be 1024..65535")
+    return f"http://{address}:{parsed.port}"
+
+
+def _global_block(indent: str, authentik_upstream: str) -> str:
     inner = indent + "    "
+    origin = _authentik_upstream(authentik_upstream)
     lines = [
         indent + GLOBAL_BEGIN,
         indent + "location = /cams {",
@@ -231,7 +256,7 @@ def _global_block(indent: str) -> str:
         inner + "return 404;",
         indent + "}",
         indent + f"location ^~ {OUTPOST_PREFIX} {{",
-        inner + f"proxy_pass {AUTHENTIK_UPSTREAM}{OUTPOST_PREFIX};",
+        inner + f"proxy_pass {origin}{OUTPOST_PREFIX};",
         inner + "proxy_set_header Host $host;",
         inner + "proxy_set_header X-Original-URL $scheme://$http_host$request_uri;",
         inner + "add_header Set-Cookie $auth_cookie;",
@@ -341,7 +366,9 @@ def render(
     host: str = "mostdef.ru",
     worker_private_listen: str | None = None,
     worker_private_peer: str | None = None,
+    authentik_upstream: str = DEFAULT_AUTHENTIK_UPSTREAM,
 ) -> str:
+    origin = _authentik_upstream(authentik_upstream)
     if (worker_private_listen is None) != (worker_private_peer is None):
         raise ConfigError("worker private listen and peer must be supplied together")
     want_worker = worker_private_listen is not None
@@ -353,6 +380,7 @@ def render(
                 host,
                 worker_private_listen=worker_private_listen,
                 worker_private_peer=worker_private_peer,
+                authentik_upstream=origin,
             )
             return text
         except ConfigError:
@@ -380,16 +408,16 @@ def render(
         raise ConfigError("no /sea-speed location after auth injection")
     insert_at = server_start + min(start for start, _spec in sea_locations)
     indent = _indent_at(text, insert_at)
-    text = text[:insert_at] + _global_block(indent) + text[insert_at:]
+    text = text[:insert_at] + _global_block(indent, origin) + text[insert_at:]
     if worker_private_listen and worker_private_peer:
         server_start, _, server_close = _server_for_host(text, host)
         server_text = text[server_start : server_close + 1]
-        origin = _api_origin(server_text)
+        api_origin = _api_origin(server_text)
         insert_worker_at = server_close + 1
         text = (
             text[:insert_worker_at]
             + "\n"
-            + _worker_private_block(worker_private_listen, worker_private_peer, origin)
+            + _worker_private_block(worker_private_listen, worker_private_peer, api_origin)
             + text[insert_worker_at:]
         )
     verify(
@@ -397,6 +425,7 @@ def render(
         host,
         worker_private_listen=worker_private_listen,
         worker_private_peer=worker_private_peer,
+        authentik_upstream=origin,
     )
     return text
 
@@ -406,13 +435,15 @@ def verify(
     host: str = "mostdef.ru",
     worker_private_listen: str | None = None,
     worker_private_peer: str | None = None,
+    authentik_upstream: str = DEFAULT_AUTHENTIK_UPSTREAM,
 ) -> None:
+    origin = _authentik_upstream(authentik_upstream)
     server_start, _, server_close = _server_for_host(text, host)
     server_text = text[server_start : server_close + 1]
     if server_text.count(GLOBAL_BEGIN) != 1 or server_text.count(GLOBAL_END) != 1:
         raise ConfigError("global Sea Speed Auth v1 block missing or duplicated")
-    if f"proxy_pass {AUTHENTIK_UPSTREAM}{OUTPOST_PREFIX};" not in server_text:
-        raise ConfigError("embedded Authentik outpost proxy missing")
+    if f"proxy_pass {origin}{OUTPOST_PREFIX};" not in server_text:
+        raise ConfigError("embedded Authentik outpost proxy missing or wrong private origin")
     if "location @goauthentik_proxy_signin" not in server_text:
         raise ConfigError("Authentik signin location missing")
 
@@ -473,6 +504,7 @@ def main() -> int:
     parser.add_argument("--host", default="mostdef.ru")
     parser.add_argument("--worker-private-listen")
     parser.add_argument("--worker-private-peer")
+    parser.add_argument("--authentik-upstream", default=DEFAULT_AUTHENTIK_UPSTREAM)
     args = parser.parse_args()
     source = Path(args.config)
     text = source.read_text(encoding="utf-8")
@@ -482,6 +514,7 @@ def main() -> int:
             args.host,
             worker_private_listen=args.worker_private_listen,
             worker_private_peer=args.worker_private_peer,
+            authentik_upstream=args.authentik_upstream,
         )
         print("SEA_SPEED_AUTH_CONFIG=PASS")
         return 0
@@ -492,6 +525,7 @@ def main() -> int:
         args.host,
         worker_private_listen=args.worker_private_listen,
         worker_private_peer=args.worker_private_peer,
+        authentik_upstream=args.authentik_upstream,
     )
     Path(args.output).write_text(rendered, encoding="utf-8")
     print("SEA_SPEED_AUTH_RENDER=PASS")
