@@ -54,6 +54,7 @@ WSL native: /home/andrey_gubarev/downloads
 When producing operator commands for a task that uses these canonical targets:
 
 - do not emit placeholders such as `<VPS_HOST>`, `<VPS_USER>`, `<WORKER_HOST>` or `<WORKER_USER>` when the applicable canonical value is already known;
+- do not ask the operator to re-enter or export environment variables for these canonical host/user values unless fresh runtime evidence requires an explicit override;
 - use the concrete canonical target in the command and keep the standard SSH port `22` implicit unless the command or tool requires it explicitly;
 - for generated or downloaded `.ps1`, `.zip`, `.sh` or companion artifacts, either start the command sequence with `Set-Location "\\wsl.localhost\Ubuntu\home\andrey_gubarev\downloads"` or use the exact full UNC path to the real filename;
 - when a launcher requires companion artifacts beside itself, tell the operator to keep those artifacts in the same canonical handoff directory and verify their expected filename/hash before execution;
