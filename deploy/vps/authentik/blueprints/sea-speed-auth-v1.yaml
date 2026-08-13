@@ -322,6 +322,7 @@ entries:
       stage: !KeyOf owner-totp-setup-stage
       order: 0
 
+  # Enrollment is user-initiated; Owner login remains fail-closed until TOTP exists.
   - id: owner-totp-stage
     model: authentik_stages_authenticator_validate.authenticatorvalidatestage
     identifiers:
