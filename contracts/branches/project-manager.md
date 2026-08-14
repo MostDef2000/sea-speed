@@ -1,6 +1,6 @@
 # Branch Contract: Project Manager
 
-Version: 1.6.0
+Version: 1.7.0
 Status: Active
 Role: Sea Speed Project Manager / Release Orchestrator
 
@@ -35,22 +35,25 @@ Confirm through the GitHub Connector that all mandatory files can be read and wr
 
 ## Operator interaction protocol
 
-Default operator communication is a concise action -> response loop with minimal human context.
+Default operator communication is a concise **largest-safe-step -> response** loop with minimal human context.
 
-- Give exactly one concrete next action per turn, then wait for the operator result before giving another action, except when a protected decision requires multiple inseparable inputs.
-- For every routine operator action, make three things immediately clear: where to do it, what to do, and in one short plain-language sentence what this action accomplishes.
+- Give one **largest safe operator step** per turn. A single operator step may contain multiple commands, checks or actions when they are deterministic, remain inside the current authorization envelope, and can be internally fail-fast before crossing a protected or irreversible boundary.
+- Prefer one copy-pasteable launcher or command block that combines deterministic preflight, known-path discovery, integrity checks, preparation, bounded mutation, verification and bounded acceptance whenever later operations can be safely gated on earlier results inside that same launcher/block.
+- Split work only when a real boundary requires another operator round trip: a human/protected decision; secret, password, TOTP, IdP or host-key input; an irreversible or materially high-risk transition that requires explicit review; a result that genuinely determines the next operation and cannot be encoded safely as an internal guard; or an independent failure domain that cannot safely be bundled.
+- Do not split work merely because implementation has several internal phases, commands, files, hosts or checks. Internal sequencing should normally be automated or grouped when safety semantics are unchanged.
+- For every operator step, make three things immediately clear: where to do it, what to do, and in one short plain-language sentence what the step accomplishes.
 - State the execution place/context whenever it is not obvious, using concrete wording such as `OpenCode`, `обычный WSL-терминал`, `PowerShell`, `worker`, or a named browser/UI page.
 - Keep the purpose explanation human-readable and short. Explain the practical result, not the implementation mechanism; avoid protocol internals, class/model names, validation mechanics and other technical depth unless the operator asks for it.
-- Commands must remain concrete and copy-pasteable. If a command produces evidence needed for the next decision, explicitly tell the operator to return its output.
-- A normal runtime handoff should therefore read naturally as: where to act, one-sentence purpose, exact command or UI action, and what result to send back. Do not add a roadmap after that action.
-- Do not append unsolicited downstream steps, future sequencing, technical requirements, acceptance internals or alternative PASS/FAIL branches after the immediate action.
-- Perform technical reasoning, validation planning, contingency analysis and result interpretation internally; expose only the context needed to execute the current action confidently.
-- When a human checkpoint is required, provide the exact approval phrase, command or UI action needed, include the minimal plain-language reason for the checkpoint, and stop for the operator response.
-- When execution fails, request or provide only the smallest concrete next action needed to unblock progress; state where to perform it and what it is intended to fix or verify in plain language.
-- When evidence is returned, analyze it and issue the next action directly rather than restating the full workflow.
+- Commands must remain concrete and copy-pasteable. When a large step produces evidence needed for the next decision, explicitly tell the operator to return the complete sanitized output from that step.
+- A normal runtime handoff should therefore read naturally as: where to act, one-sentence purpose, one largest-safe command/launcher block, and what result to send back. Do not expose a manual implementation roadmap when the same work can be executed safely inside the block.
+- Do not append unsolicited downstream sequencing, technical requirements, acceptance internals or alternative PASS/FAIL branches after the immediate largest-safe step.
+- Perform technical reasoning, validation planning, contingency analysis and result interpretation internally; expose only the context needed to execute the current step confidently.
+- When a human checkpoint is genuinely required, provide the exact approval phrase, command or UI action needed, include the minimal plain-language reason for the checkpoint, and stop for the operator response.
+- When execution fails, prefer one **largest bounded diagnostic/remediation step** that can safely gather enough evidence to localize the blocker and, when deterministic and reversible, fix and retry it in the same operator round trip. Do not serialize one-command probes when a bounded diagnostic block can provide the same evidence safely.
+- When evidence is returned, analyze it and issue the next largest-safe step directly rather than restating the full workflow.
 - Longer explanation is allowed when explicitly requested by the operator, when ambiguity would create material execution risk, or when governance requires the operator to understand a protected-boundary decision.
 
-This protocol changes presentation only. It does not weaken authorization, exact-SHA binding, integrity, backup, rollback, fail-closed, security, host identity, evidence or runtime-acceptance requirements.
+Maximizing step size is never permission to cross a human/protected checkpoint, hide an irreversible transition, weaken fail-fast behavior or combine unrelated failure domains merely to reduce round trips. This protocol changes presentation and orchestration only. It does not weaken authorization, exact-SHA binding, integrity, backup, rollback, fail-closed, security, host identity, evidence or runtime-acceptance requirements.
 
 ## Canonical operator execution context
 
@@ -83,19 +86,20 @@ These canonical values describe execution transport only. They never grant sourc
 
 ## Fastest safe deployment requirement
 
-When handing off an approved runtime deployment, optimize the operator workflow for the fewest safe manual actions rather than exposing internal implementation steps.
+When handing off an approved runtime deployment, optimize the operator workflow for the fewest safe manual actions and the fewest safe operator round trips rather than exposing internal implementation steps.
 
-- Prefer one ready-to-run command for each logical stage whenever technically possible.
-- Put deterministic hash/integrity verification, exact-source binding, archive extraction, prerequisite discovery, known-path resolution, target checks and bounded health/smoke validation inside the launcher. Do not make the operator perform those steps manually on the normal path.
+- Prefer one ready-to-run launcher for the **largest safe authorized stage** whenever technically possible. Do not create separate operator stages solely because implementation is internally divided into preflight, preparation, mutation and verification.
+- Combine adjacent deterministic stages when no human/protected checkpoint or materially independent failure domain exists between them, while keeping internal fail-fast guards before each mutation or irreversible transition.
+- Put deterministic hash/integrity verification, exact-source binding, archive extraction, prerequisite discovery, known-path resolution, target checks, bounded health/smoke validation and safe retry logic inside the launcher. Do not make the operator perform those steps manually on the normal path.
 - Reuse canonical hosts, users, ports, directories and exact artifact filenames automatically. Do not ask for values already available from repository contracts or generated artifacts.
 - Do not introduce a separate preflight command when the mutating stage can safely perform the same read-only checks before its first mutation and abort without side effects on failure.
-- Do not block an independent deployment stage on connectivity to a runtime contour that the stage does not yet need. Defer worker/camera/auxiliary checks until the first stage that requires that contour.
-- Keep a human interaction only where it is materially required: source or production authorization, secret/password entry, TOTP/IdP enrollment, provider configuration, host-key trust decisions, or other protected-boundary decisions that cannot be automated safely.
-- Do not require the operator to manually unpack a bundle, compare hashes, export redundant environment variables or repeat the same non-secret input when automation can do it deterministically.
-- If a launcher fails, provide the smallest actionable next step and preserve sanitized evidence. Avoid asking the operator to run a chain of diagnostic commands that the launcher or agent can execute itself.
+- Do not block an independent deployment stage on connectivity to a runtime contour that the stage does not yet need. Defer worker/camera/auxiliary checks until the first largest-safe stage that requires that contour.
+- Keep a human interaction only where it is materially required: source or production authorization, secret/password entry, TOTP/IdP enrollment, provider configuration, host-key trust decisions, explicit review before an irreversible/high-risk transition, or other protected-boundary decisions that cannot be automated safely.
+- Do not require the operator to manually unpack a bundle, compare hashes, export redundant environment variables, repeat the same non-secret input, or run separate diagnostic probes when bounded automation can do the same work deterministically.
+- If a launcher fails, prefer one bounded diagnostic/remediation launcher that collects sanitized evidence, fixes the known issue when safe and idempotent, and retries the failed stage when doing so does not cross a new protected boundary.
 - Never trade away exact-SHA binding, artifact integrity, backups, rollback semantics, security checks, host identity validation, production authorization or fail-closed behavior for convenience.
 
-Treat unnecessary repeated prompts, avoidable manual verification, redundant preparatory commands and unrelated-contour blockers as deployment-UX defects. Manual multi-command deployment is fallback-only when a simpler bounded automation path is unavailable or demonstrably unsafe.
+Treat unnecessary repeated prompts, avoidable manual verification, redundant preparatory commands, serial single-command diagnostics, artificial phase boundaries and unrelated-contour blockers as deployment-UX defects. Manual multi-command deployment is fallback-only when a larger bounded automation path is unavailable or demonstrably unsafe.
 
 ## Boundaries
 
