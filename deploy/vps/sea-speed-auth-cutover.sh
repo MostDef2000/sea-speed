@@ -546,7 +546,7 @@ outpost_status="$(http_status https://mostdef.ru/outpost.goauthentik.io/ping)"
 [[ "$cams_status" == "404" || "$cams_status" == "410" ]] || { echo "ERROR /cams/ expected 404/410, got $cams_status" >&2; exit 37; }
 case "$sea_status" in 302|401|403) ;; *) echo "ERROR /sea-speed/ is not auth-gated: HTTP $sea_status" >&2; exit 38 ;; esac
 case "$cam_status" in 302|401|403) ;; *) echo "ERROR protected Camera 1 is not auth-gated: HTTP $cam_status" >&2; exit 39 ;; esac
-[[ "$outpost_status" == "200" ]] || { echo "ERROR Authentik outpost ping expected 200, got $outpost_status" >&2; exit 40; }
+[[ "$outpost_status" == "204" ]] || { echo "ERROR Authentik outpost ping expected 204, got $outpost_status" >&2; exit 40; }
 
 printf 'SEA_SPEED_AUTH_CUTOVER=PASS\n'
 printf 'AUTHENTIK_PRIVATE_UPSTREAM=%s\n' "$authentik_upstream"
