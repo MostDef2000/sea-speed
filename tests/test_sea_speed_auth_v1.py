@@ -116,6 +116,58 @@ class SeaSpeedAuthV1Tests(unittest.TestCase):
         )
         self.assertIn("location @goauthentik_proxy_signin", rendered)
 
+    def test_renderer_canonicalizes_www_before_forward_auth(self) -> None:
+        rendered = self._render()
+        self.assertEqual(rendered.count("if ($host = www.mostdef.ru) {"), 1)
+        self.assertEqual(
+            rendered.count("return 308 https://mostdef.ru$request_uri;"),
+            1,
+        )
+        sea_location = re.search(
+            r"(?m)^[ \t]*location[ \t]+(?:\^~[ \t]+)?/sea-speed/[ \t]*\{",
+            rendered,
+        )
+        self.assertIsNotNone(sea_location)
+        self.assertLess(
+            rendered.index("if ($host = www.mostdef.ru) {"),
+            sea_location.start(),
+        )
+
+    def test_renderer_keeps_only_root_outpost_without_recursive_auth(self) -> None:
+        rendered = self._render()
+        self.assertEqual(
+            rendered.count("location ^~ /outpost.goauthentik.io {"),
+            1,
+        )
+        self.assertNotIn("location ^~ /sea-speed/outpost.goauthentik.io", rendered)
+        match = re.search(
+            r"location \^~ /outpost\.goauthentik\.io \{(?P<body>.*?)\n\s*\}",
+            rendered,
+            re.S,
+        )
+        self.assertIsNotNone(match)
+        body = match.group("body")
+        self.assertIn(
+            "proxy_pass http://10.123.239.102:19000/outpost.goauthentik.io;",
+            body,
+        )
+        self.assertNotIn("auth_request ", body)
+        self.assertNotIn("error_page 401", body)
+
+    def test_renderer_verification_rejects_missing_www_canonicalization(self) -> None:
+        rendered = self._render()
+        start = rendered.index("if ($host = www.mostdef.ru) {")
+        line_start = rendered.rfind("\n", 0, start) + 1
+        return_end = rendered.index(
+            "return 308 https://mostdef.ru$request_uri;",
+            start,
+        )
+        close_start = rendered.index("}", return_end)
+        close_end = rendered.index("\n", close_start) + 1
+        broken = rendered[:line_start] + rendered[close_end:]
+        with self.assertRaises(nginxauth.ConfigError):
+            self._verify(broken)
+
     def test_renderer_is_idempotent_for_exact_private_authentik_origin(self) -> None:
         first = self._render()
         second = self._render(first)
@@ -564,6 +616,13 @@ server {
         self.assertIn("range=<vps-ip>/32", auth_doc)
         self.assertIn("superseded", auth_doc.lower())
         ops_doc = OPS_DOC.read_text(encoding="utf-8")
+        self.assertIn("#146", ops_doc)
+        self.assertIn("External host: https://mostdef.ru", ops_doc)
+        self.assertIn("Launch URL: https://mostdef.ru/sea-speed/", ops_doc)
+        self.assertNotIn(
+            "External host: https://mostdef.ru/sea-speed/",
+            ops_doc,
+        )
         self.assertIn("stage.sh stage", ops_doc)
         self.assertIn("AUTHENTIK_PRIVATE_ORIGIN", ops_doc)
         self.assertIn("SEA_SPEED_API_URL", ops_doc)

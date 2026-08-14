@@ -334,11 +334,14 @@ def _authentik_upstream(value: str) -> str:
     return f"http://{address}:{parsed.port}"
 
 
-def _global_block(indent: str, authentik_upstream: str) -> str:
+def _global_block(indent: str, authentik_upstream: str, host: str) -> str:
     inner = indent + "    "
     origin = _authentik_upstream(authentik_upstream)
     lines = [
         indent + GLOBAL_BEGIN,
+        indent + f"if ($host = www.{host}) {{",
+        inner + f"return 308 https://{host}$request_uri;",
+        indent + "}",
         indent + "location = /cams {",
         inner + "return 404;",
         indent + "}",
@@ -498,7 +501,7 @@ def render(
         raise ConfigError("no /sea-speed location after auth injection")
     insert_at = server_start + min(start for start, _spec in sea_locations)
     indent = _indent_at(text, insert_at)
-    text = text[:insert_at] + _global_block(indent, origin) + text[insert_at:]
+    text = text[:insert_at] + _global_block(indent, origin, host) + text[insert_at:]
     if worker_private_listen and worker_private_peer:
         server_start, _, server_close = _server_for_host(text, host)
         server_text = text[server_start : server_close + 1]
@@ -532,6 +535,10 @@ def verify(
     server_text = text[server_start : server_close + 1]
     if server_text.count(GLOBAL_BEGIN) != 1 or server_text.count(GLOBAL_END) != 1:
         raise ConfigError("global Sea Speed Auth v1 block missing or duplicated")
+    canonical_if = f"if ($host = www.{host}) {{"
+    canonical_return = f"return 308 https://{host}$request_uri;"
+    if server_text.count(canonical_if) != 1 or server_text.count(canonical_return) != 1:
+        raise ConfigError("canonical www host redirect missing or duplicated")
     if f"proxy_pass {origin}{OUTPOST_PREFIX};" not in server_text:
         raise ConfigError("embedded Authentik outpost proxy missing or wrong private origin")
     if "location @goauthentik_proxy_signin" not in server_text:
@@ -539,9 +546,18 @@ def verify(
 
     sea_count = 0
     cams_count = 0
+    outpost_count = 0
     for spec, _start, open_index, close_index in _location_blocks(server_text):
         uri = _location_uri(spec)
         body = server_text[open_index + 1 : close_index]
+        if uri == OUTPOST_PREFIX:
+            outpost_count += 1
+            if f"proxy_pass {origin}{OUTPOST_PREFIX};" not in body:
+                raise ConfigError("root Authentik outpost proxy uses wrong private origin")
+            if "auth_request " in body or "error_page 401" in body:
+                raise ConfigError("root Authentik outpost must not recursively require auth")
+        if uri.startswith(SEA_SPEED_PREFIX + OUTPOST_PREFIX):
+            raise ConfigError("prefixed Authentik outpost location is not allowed")
         if uri == SEA_SPEED_PREFIX or uri.startswith(SEA_SPEED_PREFIX + "/"):
             sea_count += 1
             required = (
@@ -563,6 +579,8 @@ def verify(
             cams_count += 1
             if "return 404;" not in body or "proxy_pass" in body:
                 raise ConfigError(f"legacy cams location is not retired: {spec}")
+    if outpost_count != 1:
+        raise ConfigError(f"expected exactly one root Authentik outpost location, found {outpost_count}")
     if sea_count < 1:
         raise ConfigError("no protected Sea Speed locations found")
     if cams_count != 2:

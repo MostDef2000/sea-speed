@@ -2,17 +2,20 @@
 
 Original Issue: #115  
 Runtime topology revision: #122  
-Split nginx cutover remediation: #140
+Split nginx cutover remediation: #140  
+Browser auth routing remediation: #146
 
-Sea Speed Auth v1 replaces the legacy browser Basic Auth/public camera contour with self-hosted Authentik Forward Auth. Issue #122 relocated Authentik and PostgreSQL from the undersized public VPS to the commissioned Ubuntu worker. Issue #140 makes the final cutover compatible with the production `mostdef.ru` split nginx layout. This runbook describes bounded runtime sequencing only; it is not production authorization.
+Sea Speed Auth v1 replaces the legacy browser Basic Auth/public camera contour with self-hosted Authentik Forward Auth. Issue #122 relocated Authentik and PostgreSQL from the undersized public VPS to the commissioned Ubuntu worker. Issue #140 makes the final cutover compatible with the production `mostdef.ru` split nginx layout. Issue #146 corrects the canonical-host and Forward Auth callback routing discovered during authenticated browser acceptance. This runbook describes bounded runtime sequencing only; it is not production authorization.
 
 ## Final browser boundary
 
 ```text
 https://mostdef.ru/                         public
+https://www.mostdef.ru/**                   308 -> https://mostdef.ru/**
 https://mostdef.ru/cams                     404/410
 https://mostdef.ru/cams/**                  404/410
 https://mostdef.ru/sea-speed/**             Authentik required
+https://mostdef.ru/outpost.goauthentik.io/** Authentik outpost, no recursive auth
 https://auth.mostdef.ru/                    Authentik login/admin via VPS HTTPS
 ```
 
@@ -78,6 +81,29 @@ Password-recovery deep acceptance is deferred/non-blocking by current operator d
 
 The Authentik User Login Stage browser session remains targeted at **12 hours**. The Sea Speed Proxy Provider access-token validity is intentionally **96 hours**. These are separate timers. The 96 hours provider token does not redefine or extend the 12 hours browser login-stage session contract.
 
+## Issue #146 - Canonical host and Forward Auth callback routing
+
+Authenticated browser acceptance after the first nginx activation proved two routing defects that are corrected by Issue #146:
+
+1. `www.mostdef.ru` must not enter Forward Auth as a separate application host. The canonical TLS server redirects `www.mostdef.ru` to `https://mostdef.ru$request_uri` with HTTP 308 before protected location handling.
+2. The Authentik Proxy Provider **External host** must be the application origin only:
+
+```text
+External host: https://mostdef.ru
+```
+
+The Sea Speed Application launch URL remains path-scoped and separate:
+
+```text
+Launch URL: https://mostdef.ru/sea-speed/
+```
+
+Do not configure the Proxy Provider External host as `https://mostdef.ru/sea-speed/`. A path-bearing External host can make Authentik emit callback URLs under `/sea-speed/outpost.goauthentik.io/**`; that path is intentionally protected by `/sea-speed/**` and therefore creates recursive authentication. The only unauthenticated callback/start contour is root `/outpost.goauthentik.io/**` on canonical `mostdef.ru`.
+
+Issue #146 does not add nginx buffer tuning: production evidence did not show `upstream sent too big header`. It also does not change the worker Authentik private origin, worker M2M listener, browser session/token timers, Camera 1 media path, or `/cams/**` retirement.
+
+After the #146 source merge, changing the live Proxy Provider External host and activating the regenerated nginx candidate are production mutations and require a fresh literal `PRODUCTION APPROVED <exact-main-sha>`.
+
 ## Machine-to-machine worker contour remains separate
 
 The Sea Speed worker must not use interactive browser authentication. The final nginx candidate creates a private-only listener on the VPS, bound to the VPS private address and restricted to the exact worker peer.
@@ -134,9 +160,9 @@ After successful activation the root `mostdef.ru` site is the flattened reviewed
 
 Before the next mutation require all of the following:
 
-1. Issue #140 is merged to `main` with required CI green.
+1. The applicable Auth v1 remediation source is merged to `main` with required CI green.
 2. The new exact full 40-character `main` SHA is identified.
-3. A fresh literal `PRODUCTION APPROVED <exact-sha>` is recorded for the remaining nginx/M2M rollout. Any production approval bound to an earlier SHA is superseded for these mutations.
+3. A fresh literal `PRODUCTION APPROVED <exact-sha>` is recorded for the remaining provider/nginx rollout. Any production approval bound to an earlier SHA is superseded for these mutations.
 4. Current private Authentik health and public `auth.mostdef.ru` readiness remain good.
 5. Current nginx root site/snippet layout and private M2M addresses are freshly validated by the bounded launcher/cutover path.
 6. `SEA_SPEED_API_TOKEN` and other secrets remain available only through protected runtime channels.
@@ -162,7 +188,8 @@ sudo ./deploy/vps/sea-speed-auth-cutover.sh prepare \
 - materialize only approved `sea-speed-*.conf` snippets into temporary input;
 - render Camera 1 under `/sea-speed/media/cam1/`;
 - apply Authentik Forward Auth to every materialized `/sea-speed/**` location;
-- route embedded outpost traffic to the exact private worker Authentik origin;
+- canonicalize `www.mostdef.ru` to `https://mostdef.ru$request_uri` before Forward Auth;
+- route only root `/outpost.goauthentik.io/**` to the exact private worker Authentik origin without recursive auth;
 - retire `/cams/**`;
 - create the exact-peer/method/path private M2M listener;
 - verify Camera/Auth output;
@@ -195,9 +222,11 @@ Activation must:
 - run `nginx -t`;
 - reload only nginx;
 - never automatically restore the old public `/cams/**` contour;
-- require public `/ -> 200`, `/cams/** -> 404/410`, anonymous `/sea-speed/** -> 302/401/403`, protected Camera 1 -> 302/401/403 and embedded outpost ping -> 204.
+- require public `/ -> 200`, `www` canonical redirect, `/cams/** -> 404/410`, anonymous `/sea-speed/** -> 302/401/403`, protected Camera 1 -> 302/401/403 and embedded root outpost ping -> 204.
 
-Immediately apply the prepared worker M2M URL update and restart only the applicable Sea Speed worker service.
+For #146 remediation, update the live Sea Speed Proxy Provider External host to exactly `https://mostdef.ru` inside the same approved production checkpoint before browser acceptance. Keep the Application launch URL at `https://mostdef.ru/sea-speed/`.
+
+Immediately apply any still-pending prepared worker M2M URL update and restart only the applicable Sea Speed worker service. If the worker M2M cutover is already proven, do not repeat it merely for #146.
 
 ## Phase D - Primary integration acceptance
 
@@ -205,17 +234,20 @@ Anonymous Internet:
 
 ```text
 /                                      -> 200
+www.mostdef.ru/**                      -> 308 canonical mostdef.ru
 /cams/                                 -> 404/410
 /cams/hls/cam1/index.m3u8              -> 404/410
 /sea-speed/                            -> Authentik redirect/deny
 /sea-speed/api/health                  -> Authentik redirect/deny
 /sea-speed/media/cam1/index.m3u8       -> Authentik redirect/deny
+/outpost.goauthentik.io/ping           -> 204
 ```
 
 Authenticated browser:
 
 - Owner still requires TOTP;
 - Viewer/Admin/Operator password login semantics remain unchanged;
+- login callback stays under root `/outpost.goauthentik.io/**`, never `/sea-speed/outpost.goauthentik.io/**`;
 - `/sea-speed/`, Cameras, Objects and expected API operations load;
 - Camera 1 H.264 playlist/video advances through `/sea-speed/media/cam1/index.m3u8`;
 - crafted client `X-authentik-*` headers do not bypass or control identity.
@@ -252,4 +284,4 @@ If preparation, activation or acceptance fails:
 5. obtain an explicit production rollback decision before restoring a previous nginx/M2M topology;
 6. if rollback is approved, restore matching nginx and worker M2M runtime URLs together and re-run the large integration checks.
 
-Never disclose Authentik secrets, SMTP passwords, TOTP seeds/codes, invitation/recovery links, `SEA_SPEED_API_TOKEN`, camera credentials, SSH private keys or Authorization headers in #140/#122/#115 evidence.
+Never disclose Authentik secrets, SMTP passwords, TOTP seeds/codes, invitation/recovery links, `SEA_SPEED_API_TOKEN`, camera credentials, SSH private keys, Authorization headers, OAuth callback codes, or OAuth state values in #146/#140/#122/#115 evidence.
