@@ -3,8 +3,9 @@
 - Specification: `specs/004-sea-speed-auth-v1/spec.md`
 - Original Issue: #115
 - Runtime topology revision: #122
+- Cutover split-layout remediation: #140
 
-This is an acceptance guide, not production authorization. Do not mutate production until the exact merged `main` SHA for Issue #122 has a fresh separate `PRODUCTION APPROVED` envelope.
+This is an acceptance guide, not production authorization. After Issue #140 source merges, do not perform the remaining nginx/M2M production mutation until that new exact merged `main` SHA has a fresh separate `PRODUCTION APPROVED` envelope.
 
 ## Source checks
 
@@ -39,6 +40,14 @@ Ubuntu worker
 
 The original VPS-local Authentik Compose placement is superseded for production. Public ingress remains only the VPS.
 
+## Current staged identity acceptance
+
+The worker Authentik runtime, VPS-to-worker private health, public `auth.mostdef.ru`, Owner TOTP login, Sea Speed provider/application/policy, Viewer single-use enrollment, password-only Viewer login, disabled-session revocation, SMTP test delivery and real invitation-email delivery have been proven.
+
+Deep password-recovery acceptance is currently deferred/non-blocking by operator decision. It can be verified later if operationally required; the underlying product requirement is not removed.
+
+The browser User Login Stage remains targeted at **12 hours**. The Proxy Provider access-token validity is intentionally **96 hours**. These are separate timers; 96 hours does not redefine the 12 hours browser session.
+
 ## Fastest-safe worker stage
 
 The normal operator launcher should collect secrets locally and invoke the worker stage once. Repository helper shape:
@@ -52,7 +61,7 @@ sudo deploy/worker/ubuntu/authentik/stage.sh stage \
 
 The protected env file must be mode `0600` and contain the required Authentik/PostgreSQL/bootstrap/SMTP values. Do not place secrets in argv, chat, Issue comments or logs.
 
-The stage helper must own deterministic work:
+The stage helper owns deterministic work:
 
 ```text
 expected worker identity/resources
@@ -87,6 +96,21 @@ The renderer/cutover must reject public, wildcard, loopback, credential-bearing 
 
 `auth.mostdef.ru` remains an HTTPS VPS vhost which proxies to the same private worker origin. The worker private origin itself is not a public URL.
 
+## Split nginx source acceptance after Issue #140
+
+The production root TLS site may contain direct includes such as:
+
+```text
+include /etc/nginx/snippets/sea-speed-api.conf;
+include /etc/nginx/snippets/sea-speed-page.conf;
+```
+
+`sea-speed-auth-cutover.sh prepare` must discover the exact TLS `mostdef.ru` root site even when `/sea-speed/**` locations are not literal in that file. It materializes only direct regular `/etc/nginx/snippets/sea-speed-*.conf` files into temporary candidate input before running the existing Camera 1 and Auth renderers.
+
+The operation must fail closed for wildcard Sea Speed includes, nested includes inside a Sea Speed snippet, symlink/out-of-root Sea Speed snippets, or an ambiguous target TLS site. Non-Sea-Speed includes remain literal and unchanged. `prepare` must not edit the active root site, edit/delete snippet files or reload nginx.
+
+`activate` repeats materialization and rendering. If the root site or any materialized Sea Speed snippet changed since `prepare`, the candidate SHA-256 changes and `--expected-sha256` must block activation.
+
 ## Anonymous acceptance
 
 Expected externally after cutover:
@@ -108,13 +132,16 @@ A request supplying forged `X-authentik-username`, `X-authentik-email`, `X-authe
 
 ## Identity acceptance
 
-1. Owner creates a role-specific invitation with fixed `username=email`, `email=email`, fixed display name, `single_use=true`, and expiry no later than 24 hours.
-2. Invitee follows the link and can set only the password fields supplied by the flow.
-3. The invitation cannot be reused.
-4. Admin/Operator/Viewer can sign in from a second device with email and password.
-5. Owner password-only login is rejected; password plus valid TOTP succeeds.
-6. Password recovery sends a one-time email recovery path and does not remove Owner TOTP.
-7. Disabling a user and revoking sessions prevents continued Sea Speed access.
+The integration-critical identity contour requires:
+
+1. a role-specific invitation with fixed `username=email`, `email=email`, fixed role and single-use semantics;
+2. successful password enrollment and inability to reuse the invitation;
+3. Admin/Operator/Viewer password-only login behavior;
+4. Owner password-only rejection and password + valid TOTP success;
+5. disabling a user plus session revocation stopping continued access;
+6. SMTP and real invitation email delivery.
+
+Password recovery remains available for later focused acceptance if required and must not remove Owner TOTP when verified.
 
 ## Media acceptance
 
@@ -171,6 +198,23 @@ Internet -> https://auth.mostdef.ru/-/health/ready/     -> healthy through VPS T
 
 The public `https://mostdef.ru/sea-speed/api/health` URL is an authentication-boundary smoke check after Auth v1, not the service health proof.
 
+## Final cutover sequence
+
+After #140 exact-head CI is green and merged, identify the new exact `main` SHA and obtain a fresh `PRODUCTION APPROVED <sha>`. Then:
+
+```text
+prepare split-layout-aware candidate
+-> review candidate SHA/diff
+-> prepare worker private M2M URL switch
+-> activate exact candidate with expected SHA
+-> apply worker M2M URLs
+-> primary anonymous/authenticated/media/M2M acceptance
+-> controlled fail-closed dependency test
+-> restore dependency and record evidence
+```
+
+Do not reuse a production approval tied to any SHA before the #140 merge.
+
 ## Network acceptance
 
 From an untrusted Internet host verify no direct access to FastAPI origin ports, MediaMTX, Camera 1 loopback HLS origin, Authentik PostgreSQL, worker Authentik loopback HTTP, worker private Authentik proxy or Ubuntu private camera relay. Public ingress remains VPS nginx HTTPS for `mostdef.ru` and `auth.mostdef.ru`.
@@ -179,4 +223,4 @@ From an unapproved ZeroTier/private peer, the worker Authentik private proxy mus
 
 ## Failure posture
 
-Stop/interrupt the worker private Authentik path and prove `/sea-speed/**` fails closed rather than becoming anonymous. The public `/` page should remain available. Do not automatically restore the retired `/cams/**` camera route or move Authentik back to the undersized VPS. Any rollback requires an explicit production rollback decision.
+Interrupt the worker private Authentik path in a controlled final test and prove `/sea-speed/**` fails closed rather than becoming anonymous. The public `/` page should remain available. Restore the Authentik path and prove authenticated Sea Speed recovers. Do not automatically restore the retired `/cams/**` camera route or move Authentik back to the undersized VPS. Any rollback requires an explicit production rollback decision.
