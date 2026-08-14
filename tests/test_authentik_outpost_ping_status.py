@@ -6,7 +6,7 @@ CUTOVER = ROOT / "deploy/vps/sea-speed-auth-cutover.sh"
 
 
 def test_authentik_outpost_ping_requires_canonical_204() -> None:
-    # Canonical Authentik Forward Auth health contract: ping returns HTTP 204.
+    # Canonical Authentik Forward Auth health contract is HTTP 204 for ping.
     source = CUTOVER.read_text(encoding="utf-8")
 
     assert '[[ "$outpost_status" == "204" ]]' in source
