@@ -97,7 +97,7 @@
 
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
   <script>
-    const SESSION_URL="/outpost.goauthentik.io/auth/nginx";
+    const SESSION_URL="/sea-speed/api/session";
     const CAMERAS_URL="/sea-speed/api/cameras";
     const PREVIEW_STATUS_URL="/sea-speed/api/cameras/preview";
     const PREVIEW_STOP_URL="/sea-speed/api/cameras/preview/stop";
@@ -129,7 +129,9 @@
     async function loadSessionIdentity(){
       try{
         const response=await fetch(SESSION_URL,{cache:"no-store",credentials:"same-origin"});
-        const username=(response.headers.get("X-authentik-username")||"").trim();
+        let body={};
+        try{body=await response.json()}catch(_error){}
+        const username=String(body.username||"").trim();
         if(!response.ok||!username)throw new Error("trusted identity unavailable");
         sessionUser.textContent=username;
         sessionUser.classList.remove("bad");

@@ -1167,6 +1167,19 @@ def post_cam1_speed_lines(payload: Dict[str, Any]) -> Dict[str, Any]:
     return config
 
 
+@app.get("/api/session")
+def get_session_identity(
+    x_authentik_username: Optional[str] = Header(None),
+) -> Dict[str, Any]:
+    username = (x_authentik_username or "").strip()
+    if not username:
+        raise HTTPException(
+            status_code=503,
+            detail="Trusted Authentik identity is unavailable",
+        )
+    return {"ok": True, "username": username}
+
+
 @app.get("/api/health")
 def health() -> Dict[str, Any]:
     return {
