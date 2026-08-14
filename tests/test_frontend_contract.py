@@ -8,6 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 OPERATOR_SOURCE = ROOT / "frontend/sea-speed/index.html"
 ROOT_SOURCE = ROOT / "frontend/root/index.html"
 OBJECTS_SOURCE = ROOT / "frontend/sea-speed/objects/index.html"
+CAMERAS_SOURCE = ROOT / "frontend/sea-speed/cameras/index.html"
 
 
 class FrontendContractTests(unittest.TestCase):
@@ -16,6 +17,7 @@ class FrontendContractTests(unittest.TestCase):
         cls.source = OPERATOR_SOURCE.read_text(encoding="utf-8-sig")
         cls.root_source = ROOT_SOURCE.read_text(encoding="utf-8-sig")
         cls.objects_source = OBJECTS_SOURCE.read_text(encoding="utf-8-sig")
+        cls.cameras_source = CAMERAS_SOURCE.read_text(encoding="utf-8-sig")
 
     def test_operator_endpoints_are_explicit(self) -> None:
         expected = {
@@ -229,6 +231,30 @@ class FrontendContractTests(unittest.TestCase):
             r'<a\s+class="objects-link"\s+href="/sea-speed/objects/">Реестр объектов</a>',
         )
 
+    def test_protected_headers_use_trusted_authentik_identity_and_logout(self) -> None:
+        pages = (self.source, self.objects_source, self.cameras_source)
+        for page in pages:
+            self.assertEqual(page.count('id="sessionUser"'), 1)
+            self.assertIn('class="project-home" href="/"', page)
+            self.assertIn('class="project-lighthouse"', page)
+            self.assertIn('aria-label="На главную mostdef.ru"', page)
+            self.assertIn('href="/outpost.goauthentik.io/sign_out">Выйти</a>', page)
+            self.assertRegex(
+                page,
+                r'const\s+SESSION_URL\s*=\s*["\']/outpost\.goauthentik\.io/auth/nginx["\']',
+            )
+            self.assertIn('X-authentik-username', page)
+            self.assertIn('credentials:"same-origin"', page)
+            self.assertIn('textContent=', page)
+            self.assertNotIn('localStorage', page)
+            self.assertNotIn('sessionStorage', page)
+
+    def test_common_protected_headers_are_mobile_responsive(self) -> None:
+        for page in (self.source, self.objects_source, self.cameras_source):
+            self.assertIn('@media(max-width:760px)', page)
+            self.assertIn('.session-bar', page)
+            self.assertIn('.project-home', page)
+
     def test_objects_page_api_and_operator_actions(self) -> None:
         self.assertRegex(
             self.objects_source,
@@ -259,6 +285,13 @@ class FrontendContractTests(unittest.TestCase):
         self.assertIn('@media(max-width:760px)', self.objects_source)
         self.assertIn('min-height:44px', self.objects_source)
         self.assertIn('viewport-fit=cover', self.objects_source)
+
+    def test_cameras_page_runtime_ids_are_unique(self) -> None:
+        ids = re.findall(r'\bid="([^"]+)"', self.cameras_source)
+        self.assertEqual(len(ids), len(set(ids)))
+        self.assertEqual(self.cameras_source.count('id="sessionUser"'), 1)
+        self.assertIn('const CAMERAS_URL="/sea-speed/api/cameras"', self.cameras_source)
+        self.assertIn('const PREVIEW_STOP_URL="/sea-speed/api/cameras/preview/stop"', self.cameras_source)
 
     def test_root_page_primary_action_opens_operator_frontend(self) -> None:
         self.assertRegex(self.root_source, r'<a\s+class="primary-link"\s+href="/sea-speed/">')
