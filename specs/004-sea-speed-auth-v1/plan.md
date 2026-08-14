@@ -4,7 +4,9 @@
 - Issue: #115
 - Runtime topology revision: #122
 - Cutover split-layout remediation: #140
-- Status: Worker identity contour staged; Issue #140 source remediation in progress before final cutover
+- Browser-routing remediation: #146
+- Authenticated header UX: #148
+- Status: Authentik/nginx boundary active; Issue #148 application source lifecycle and final acceptance pending
 
 ## Architecture
 
@@ -27,10 +29,24 @@ Internet
           +-- VPS nginx auth_request
           |      -> same exact worker private Authentik/outpost origin
           |
-          +-- authenticated static UI
+          +-- authenticated Operator / Cameras / Objects UI
           +-- authenticated FastAPI proxy
           +-- authenticated snapshots/media
           +-- authenticated Camera 1 HLS
+```
+
+The browser header identity path added by Issue #148 reuses the same outpost rather than adding another identity service:
+
+```text
+authenticated browser
+  -> GET /outpost.goauthentik.io/auth/nginx (same origin, existing session cookie)
+  -> Authentik forward-auth check
+  -> response X-authentik-username
+  -> UI textContent only
+
+Выйти
+  -> /outpost.goauthentik.io/sign_out
+  -> Authentik Proxy Provider logout
 ```
 
 Worker identity runtime:
@@ -73,20 +89,28 @@ GET ROI/speed configuration remains private-peer-only
 
 The Authentik private origin and the worker M2M listener are separate flows in opposite directions and must not be conflated.
 
-Before final cutover, production nginx may be split across a root TLS site and direct Sea Speed snippets:
+Production nginx was prepared from a split root TLS site and direct Sea Speed snippets. The active candidate is flattened by the already merged bounded source pipeline:
 
 ```text
 /etc/nginx/sites-available/mostdef.ru
-  -> include /etc/nginx/snippets/sea-speed-api.conf
-  -> include /etc/nginx/snippets/sea-speed-page.conf
-  -> unrelated includes remain as includes
+  -> direct Sea Speed snippets before cutover
 
 prepare/activate source pipeline
   root site
     -> materialize only direct /etc/nginx/snippets/sea-speed-*.conf
     -> Camera 1 renderer
     -> Auth v1 renderer
-    -> verified flattened candidate + SHA-256
+    -> reviewed flattened candidate + SHA-256
+    -> activated root site after exact SHA guard
+```
+
+Issue #146 adds the canonical host/outpost browser-routing rules before Forward Auth:
+
+```text
+www.mostdef.ru/** -> 308 https://mostdef.ru/**
+Proxy Provider External host -> https://mostdef.ru
+public outpost contour -> /outpost.goauthentik.io/**
+protected application contour -> /sea-speed/**
 ```
 
 ## Decisions
@@ -135,7 +159,7 @@ The normal VPS code deploy does not depend on anonymous success from `/sea-speed
 
 ### D-011 - Separate worker M2M ingress from browser auth
 
-The worker is infrastructure, not an interactive user. The nginx renderer still derives the FastAPI loopback origin from the existing `/sea-speed/api/` proxy and creates a private M2M listener only when supplied an exact private VPS `IP:PORT` and exact private worker peer IP.
+The worker is infrastructure, not an interactive user. The nginx renderer derives the FastAPI loopback origin from the existing `/sea-speed/api/` proxy and creates a private M2M listener only when supplied an exact private VPS `IP:PORT` and exact private worker peer IP.
 
 The listener exposes only:
 
@@ -173,16 +197,27 @@ After activation the installed root site is the reviewed flattened candidate. Th
 
 The Authentik User Login Stage remains configured for a browser session targeted at 12 hours. The Sea Speed Proxy Provider access-token validity is intentionally 96 hours. The 96 hours provider token is not the browser-session lifetime and does not redefine the 12 hours User Login Stage contract. Both values are deliberate and must be reviewed independently if either is changed later.
 
+### D-016 - Reuse the forward-auth response for authenticated header UX
+
+Issue #148 must not create a parallel identity/session API. Operator, Cameras and Objects perform a same-origin `fetch` to the already routed `/outpost.goauthentik.io/auth/nginx` endpoint using browser credentials. The page requires a successful response plus a non-empty `X-authentik-username` response header and renders that value only with `textContent`. If the trusted header is unavailable, the UI displays `недоступно`; it does not fall back to URL parameters, local storage, session storage or a hard-coded identity.
+
+The header logout action is a normal navigation to `/outpost.goauthentik.io/sign_out`, delegating session invalidation to the Proxy Provider. It does not attempt to delete Authentik cookies from JavaScript.
+
+The compact lighthouse mark is presentation/navigation only. It links to `/`, which remains public. Operator, Cameras and Objects use the same markup/class contract so future internal pages with headers can adopt the same baseline without changing authentication semantics.
+
 ## Affected contours
 
-- `deploy/worker/ubuntu/authentik/**`: canonical worker-hosted Authentik Compose/env/runbook/stage helper; unchanged by #140.
-- `scripts/operations/nginx_sea_speed_auth.py`: parameterized validated Authentik private origin, existing browser-auth/private-M2M renderer, exact TLS host source check and bounded Sea Speed snippet materialization.
-- `deploy/vps/sea-speed-auth-cutover.sh`: SHA-bound prepare/status/activate security contour using the exact worker private Authentik origin and materialized candidate input.
-- `docs/operations/SEA_SPEED_AUTH_V1.md`: revised worker-first production sequencing, split-layout preparation and fail-closed topology.
-- `specs/004-sea-speed-auth-v1/**`: topology, timing and cutover requirements/acceptance.
-- `tests/test_sea_speed_auth_v1.py`: worker runtime, private origin, split-layout materialization and existing Auth v1 security regression coverage.
+- `deploy/worker/ubuntu/authentik/**`: canonical worker-hosted Authentik Compose/env/runbook/stage helper; unchanged by #148.
+- `scripts/operations/nginx_sea_speed_auth.py`: active browser-auth/private-M2M renderer and #146 canonical host/outpost behavior; unchanged by #148.
+- `deploy/vps/sea-speed-auth-cutover.sh`: active SHA-bound security contour; unchanged by #148.
+- `frontend/sea-speed/index.html`: common lighthouse/session/logout header plus existing protected Camera 1 path.
+- `frontend/sea-speed/cameras/index.html`: common lighthouse/session/logout header; preview behavior unchanged.
+- `frontend/sea-speed/objects/index.html`: common lighthouse/session/logout header; registry behavior unchanged.
+- `tests/test_frontend_contract.py`: common header identity/logout/lighthouse regression coverage plus existing frontend contracts.
+- `specs/004-sea-speed-auth-v1/**`: topology, timing, browser UX and acceptance requirements.
 - Camera 1 media source/relay/H.264 code: unchanged.
 - Sea Speed worker application source/package: unchanged.
+- FastAPI application code: unchanged by Issue #148.
 
 ## Runtime configuration outside Git
 
@@ -208,52 +243,48 @@ Non-secret rollout values discovered/validated at runtime include:
 
 Static/source validation must prove:
 
-- SDD completeness and Issue #115/#122/#140 linkage;
+- SDD completeness and Issue #115/#122/#140/#146/#148 linkage;
 - worker Compose pins Authentik `2026.5.6` and PostgreSQL 16;
 - Authentik Docker HTTP publishes only to worker loopback;
 - PostgreSQL has no host port and no Authentik container mounts the Docker socket;
-- worker stage script is shell-syntax-valid, requires expected hostname/private addresses/resources and uses a source-restricted private proxy;
-- worker stage can install Docker/Compose when absent without removing conflicting packages automatically;
-- nginx renderer is idempotent, fail-closed and removes all `/cams` locations;
-- production Authentik origin validation rejects public/wildcard/credential/path inputs;
-- exact `mostdef.ru` TLS host matching does not confuse `auth.mostdef.ru` with the application site;
-- production-style direct `sea-speed-*.conf` snippets are flattened before Camera/Auth rendering while unrelated includes remain literal;
-- wildcard, nested, symlink and out-of-root Sea Speed snippet expansion fails closed;
-- every existing `/sea-speed` nginx location receives auth directives;
-- spoofed browser identity headers are overwritten;
+- nginx renderer remains idempotent, fail-closed and removes all `/cams` locations;
+- `www.mostdef.ru` canonicalization and root outpost callback routing remain intact;
+- every existing `/sea-speed` nginx location receives auth directives and spoofed browser identity headers are overwritten;
 - private worker M2M ingress remains exact-peer/method/path scoped and derives only a loopback FastAPI origin;
-- cutover is candidate-SHA-bound and has no automatic public-route rollback;
-- the accepted 12 hours browser session and 96 hours Proxy Provider token distinction is documented;
-- existing Camera 1 private/H.264 and Camera Preview Gallery behavior is preserved.
+- accepted 12 hours browser session and 96 hours Proxy Provider token distinction remains documented;
+- Operator, Cameras and Objects each contain one lighthouse home link, one session username target and one provider logout action;
+- each internal page reads only `X-authentik-username` from the same-origin Authentik forward-auth response and uses no `localStorage` or `sessionStorage` identity fallback;
+- the Operator page keeps `/sea-speed/media/cam1/index.m3u8` and does not reintroduce `/cams/**`;
+- existing Camera Preview Gallery, registry and operator controls remain structurally intact.
 
-Production acceptance focuses on the large integration contours: worker Docker/Auth/PostgreSQL health, VPS-to-worker private Authentik health, public `auth.mostdef.ru`, SMTP/invitation delivery, Owner TOTP, basic role login/session revocation, final nginx boundary, authenticated Camera 1 playback, worker M2M continuity, direct-origin exposure and fail-closed behavior. Password-recovery deep acceptance is deferred/non-blocking by current operator decision and can be added later if required.
+Production acceptance focuses on the large integration contours: current Authentik/private health, canonical host routing, anonymous gate, authenticated session/login, username display, provider logout, lighthouse navigation, protected Camera 1 playback, worker M2M continuity and controlled fail-closed behavior. Password-recovery deep acceptance remains deferred/non-blocking by current operator decision. Camera/AI overlay freshness is a separate runtime contour and is not a blocker for the #148 presentation change itself.
 
 ## Rollout
 
-1. Complete Issue #140 source remediation from current `main` while preserving the already staged worker identity runtime.
-2. Pass exact-head CI, merge Issue #140, identify the new exact `main` SHA, and obtain a fresh `PRODUCTION APPROVED <sha>` for the remaining VPS/M2M mutations.
-3. Re-prove the existing worker private Authentik health and public `auth.mostdef.ru` readiness; do not restage working identity internals without a specific need.
-4. Confirm the current root `mostdef.ru` nginx site and direct Sea Speed snippet layout.
-5. Run `sea-speed-auth-cutover.sh prepare` with exact worker Authentik origin and private M2M addresses. The script must materialize only direct `sea-speed-*.conf` snippets, run Camera/Auth renderers, write the protected flattened candidate and print its SHA-256 without reloading nginx.
-6. Review the prepared candidate digest/diff and coordinate the Sea Speed worker private M2M URL change without exposing `SEA_SPEED_API_TOKEN`.
-7. Run `activate` with the exact prepare SHA. It must re-materialize/re-render, refuse any SHA drift, back up the root site, install the reviewed flattened candidate, pass `nginx -t`, reload nginx and perform bounded anonymous checks.
-8. Apply the prepared worker runtime URLs and restart only the applicable Sea Speed worker service.
-9. Run the large integration acceptance: anonymous/authenticated `/sea-speed/**`, Camera 1 H.264, private M2M continuity and direct-origin checks.
-10. Perform the controlled Authentik/private-path fail-closed test, restore the dependency and record sanitized final evidence in #122/#115/#140.
+1. Implement Issue #148 on a fresh branch from the current merged Auth v1 source without touching nginx, Authentik runtime or worker source.
+2. Pass exact-head PR Validation and Quality integration, verify exact changed-file scope/no unresolved threads, merge, identify the new exact `main` SHA and obtain fresh `PRODUCTION APPROVED <sha>`.
+3. Before deployment, re-prove that active nginx remains the reviewed #146 boundary and that private/public Authentik health is good.
+4. Use the normal exact-SHA VPS application deployer to synchronize API/frontend/root release files. It may restart `sea-speed-api`, but must not replace/re-render/reload the already active Auth v1 nginx candidate.
+5. Verify the deployed operator source uses `/sea-speed/media/cam1/index.m3u8`, `/api/health` reports the exact deployed source, and anonymous `/sea-speed/**` remains gated.
+6. In a clean browser session, authenticate through Authentik and verify Operator, Cameras and Objects show the correct username, lighthouse goes to `/`, `Выйти` ends the provider session, and returning to `/sea-speed/**` requires authentication again.
+7. Verify authenticated Camera 1 playback through the protected media path. Treat worker/overlay freshness as a separate diagnostic if the AI worker is not currently producing fresh frames.
+8. Perform the controlled Authentik/private-path fail-closed test, restore the dependency and record sanitized final evidence in #122/#148.
 
 The operator handoff should use one ready-to-run command per human checkpoint whenever safe.
 
 ## Rollback
 
-Rollback is fail-closed. Backups of nginx and worker Authentik runtime configuration/data are retained, but activation must not automatically restore the old public `/cams/**` route. If post-cutover acceptance fails, stop and preserve evidence. A safe temporary result is an unavailable private Sea Speed surface while `/` remains public.
+Rollback is fail-closed. The normal application deployer retains the previous release as rollback target. Issue #148 does not change nginx or Authentik runtime. If the new application release fails frontend/API acceptance, stop and preserve evidence; do not weaken the active Authentik boundary. A separately approved application rollback may restore the previous application files while keeping the current Auth v1 nginx/security contour active.
 
-A runtime rollback requires an explicit production rollback decision. If approved, restore the reviewed previous nginx/auth topology and matching worker API runtime URLs together. Do not silently move Authentik back to the undersized VPS.
+A rollback of nginx/Authentik/private M2M topology remains a different protected operation and requires an explicit production rollback decision.
 
 ## Runtime feedback
 
 - Original Issue #115 source assumed Authentik on VPS loopback. Production preflight later proved the VPS resource floor insufficient.
 - Issue #122 records the approved topology revision to the capable Ubuntu worker while preserving the existing identity policy and browser/M2M security semantics.
-- Worker Authentik/PostgreSQL/private proxy, public `auth.mostdef.ru`, Owner TOTP, provider/application/policy, Viewer invite/login/session revocation and SMTP/invitation delivery are now proven enough to proceed with integration rollout; deep password-recovery acceptance is deferred.
-- Issue #140 records the remaining source blocker discovered from the actual nginx layout: the `mostdef.ru` TLS site uses direct Sea Speed snippets and therefore must be safely materialized before the existing renderers run.
-- The accepted timing contract is 12 hours for the browser User Login Stage and 96 hours for Proxy Provider access-token validity, as separate timers.
-- Final nginx activation, worker M2M URL switch and fail-closed dependency acceptance remain pending and require a fresh production approval after the #140 merge.
+- Worker Authentik/PostgreSQL/private proxy, public `auth.mostdef.ru`, Owner TOTP, provider/application/policy, Viewer invite/login/session revocation and SMTP/invitation delivery are proven enough for integration rollout; deep password-recovery acceptance is deferred.
+- Issue #140 resolved the actual split nginx layout and produced a deterministic flattened candidate pipeline.
+- Issue #146 corrected `www` host mismatch and the subpath callback loop; its reviewed nginx candidate is active in production and browser login now completes.
+- Authenticated browser evidence shows an existing session enters directly while an incognito session is prompted to authenticate, and protected `/sea-speed/api/health` and `/sea-speed/cameras/` work.
+- The production application release remains older than current merged source, which explains the still-visible retired `/cams/hls/cam1/index.m3u8` reference on the live Operator page. Deployment is deferred until #148 merges so one exact application synchronization includes both the protected media URL and authenticated header UX.
+- Final provider logout, protected Camera 1 playback and controlled fail-closed acceptance remain pending after the #148 application release deploy.
