@@ -68,7 +68,8 @@ while [[ $# -gt 0 ]]; do
       [[ $# -ge 2 ]] || { echo "ERROR --worker-private-listen requires IP:PORT" >&2; exit 2; }
       worker_private_listen="$2"; shift 2 ;;
     --worker-private-peer)
-      [[ $# -ge 2 ]] || { echo "ERROR --worker-private-peer requires IP" >&2; exit 2; }
+      [[ $# -ge 2 ]] || { echo "ERROR --worker-private-peer requires IP" >&2; exit 2 ;;
+      }
       worker_private_peer="$2"; shift 2 ;;
     --expected-sha256)
       [[ $# -ge 2 ]] || { echo "ERROR --expected-sha256 requires SHA256" >&2; exit 2; }
@@ -119,6 +120,19 @@ require_public_bootstrap_commands() {
 
 require_root() {
   [[ "$EUID" -eq 0 ]] || { echo "ERROR $mode must run as root" >&2; exit 1; }
+}
+
+ipv4_is_local() {
+  local needle="$1"
+  ip -4 -o addr show | awk -v needle="$needle" '
+    {
+      split($4, parts, "/")
+      if (parts[1] == needle) {
+        found = 1
+      }
+    }
+    END { exit found ? 0 : 1 }
+  '
 }
 
 discover_site() {
@@ -186,7 +200,7 @@ PY
   authentik_upstream="$normalized"
   host="${authentik_upstream#http://}"
   host="${host%:*}"
-  if ip -4 -o addr show | grep -Fq " ${host}/"; then
+  if ipv4_is_local "$host"; then
     echo "ERROR Authentik upstream resolves to an address configured on the VPS; Issue #122 requires the remote worker" >&2
     exit 6
   fi
@@ -214,7 +228,7 @@ if not 1024 <= port <= 65535:
     raise SystemExit("ERROR worker private port must be 1024..65535")
 PY
   local listen_ip="${worker_private_listen%:*}"
-  ip -4 -o addr show | grep -Fq " ${listen_ip}/" || {
+  ipv4_is_local "$listen_ip" || {
     echo "ERROR worker private listen IP is not configured on this VPS: $listen_ip" >&2
     exit 6
   }
