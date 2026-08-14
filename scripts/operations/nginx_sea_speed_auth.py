@@ -18,12 +18,19 @@ OUTPOST_PREFIX = "/outpost.goauthentik.io"
 SEA_SPEED_PREFIX = "/sea-speed"
 LEGACY_CAMS_PREFIX = "/cams"
 DEFAULT_AUTHENTIK_UPSTREAM = "http://127.0.0.1:9000"
+DEFAULT_SEA_SPEED_INCLUDE_ROOT = Path("/etc/nginx/snippets")
+MATERIALIZED_INCLUDE_BEGIN = "# SEA-SPEED-INCLUDE-MATERIALIZED-BEGIN"
+MATERIALIZED_INCLUDE_END = "# SEA-SPEED-INCLUDE-MATERIALIZED-END"
 WORKER_BEGIN = "# SEA-SPEED-WORKER-PRIVATE-V1-BEGIN"
 WORKER_END = "# SEA-SPEED-WORKER-PRIVATE-V1-END"
 RFC1918_NETWORKS = tuple(
     ipaddress.ip_network(value)
     for value in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
 )
+INCLUDE_DIRECTIVE_RE = re.compile(
+    r"(?m)^(?P<indent>[ \t]*)include[ \t]+(?P<path>[^; \t\r\n]+)[ \t]*;[ \t]*(?:#.*)?$"
+)
+SEA_SPEED_INCLUDE_NAME_RE = re.compile(r"^sea-speed-[A-Za-z0-9._-]+\.conf$")
 
 
 class ConfigError(RuntimeError):
@@ -98,9 +105,11 @@ def _location_uri(spec: str) -> str:
 
 
 def _is_target_host_server(body: str, host: str) -> bool:
-    host_re = re.compile(rf"(?m)^\s*server_name\s+[^;]*\b{re.escape(host)}\b[^;]*;")
+    names: list[str] = []
+    for match in re.finditer(r"(?m)^\s*server_name\s+([^;]+);", body):
+        names.extend(match.group(1).split())
     tls_re = re.compile(r"(?m)^\s*listen\s+[^;]*\b443\b[^;]*;")
-    return bool(host_re.search(body) and tls_re.search(body))
+    return host in names and bool(tls_re.search(body))
 
 
 def _server_for_host(text: str, host: str) -> tuple[int, int, int]:
@@ -113,6 +122,87 @@ def _server_for_host(text: str, host: str) -> tuple[int, int, int]:
     if len(matches) != 1:
         raise ConfigError(f"expected exactly one TLS server block for {host}, found {len(matches)}")
     return matches[0]
+
+
+def _is_sea_speed_include_path(raw: str) -> bool:
+    name = raw.rsplit("/", 1)[-1]
+    return name.startswith("sea-speed-") and name.endswith(".conf")
+
+
+def verify_source_layout(text: str, host: str = "mostdef.ru") -> None:
+    server_start, _, server_close = _server_for_host(text, host)
+    server_text = text[server_start : server_close + 1]
+    for spec, _start, _open_index, _close_index in _location_blocks(server_text):
+        uri = _location_uri(spec)
+        if uri == SEA_SPEED_PREFIX or uri.startswith(SEA_SPEED_PREFIX + "/"):
+            return
+    if any(
+        _is_sea_speed_include_path(match.group("path"))
+        for match in INCLUDE_DIRECTIVE_RE.finditer(server_text)
+    ):
+        return
+    raise ConfigError(
+        f"target TLS server for {host} has no /sea-speed locations or direct Sea Speed snippet include"
+    )
+
+
+def materialize_sea_speed_includes(
+    text: str,
+    host: str = "mostdef.ru",
+    include_root: str | Path = DEFAULT_SEA_SPEED_INCLUDE_ROOT,
+) -> str:
+    verify_source_layout(text, host)
+    server_start, _, server_close = _server_for_host(text, host)
+    server_text = text[server_start : server_close + 1]
+    try:
+        root = Path(include_root).resolve(strict=True)
+    except OSError as exc:
+        raise ConfigError(f"Sea Speed include root is unavailable: {include_root}") from exc
+    if not root.is_dir():
+        raise ConfigError(f"Sea Speed include root is not a directory: {root}")
+
+    replacements: list[tuple[int, int, str]] = []
+    for match in INCLUDE_DIRECTIVE_RE.finditer(server_text):
+        raw = match.group("path")
+        if not _is_sea_speed_include_path(raw):
+            continue
+        if any(char in raw for char in "*?["):
+            raise ConfigError(f"wildcard Sea Speed include is not allowed: {raw}")
+        include_path = Path(raw)
+        if not include_path.is_absolute():
+            raise ConfigError(f"Sea Speed include must use an absolute path: {raw}")
+        if not SEA_SPEED_INCLUDE_NAME_RE.fullmatch(include_path.name):
+            raise ConfigError(f"invalid Sea Speed include name: {raw}")
+        if include_path.is_symlink():
+            raise ConfigError(f"Sea Speed include must be a regular non-symlink file: {raw}")
+        try:
+            resolved = include_path.resolve(strict=True)
+        except OSError as exc:
+            raise ConfigError(f"Sea Speed include is unavailable: {raw}") from exc
+        if resolved.parent != root:
+            raise ConfigError(f"Sea Speed include is outside approved root {root}: {raw}")
+        if not resolved.is_file():
+            raise ConfigError(f"Sea Speed include is not a regular file: {raw}")
+        body = resolved.read_text(encoding="utf-8")
+        if re.search(r"(?m)^[ \t]*include[ \t]+[^;]+;", body):
+            raise ConfigError(f"nested include is not allowed in Sea Speed snippet: {raw}")
+        indent = match.group("indent")
+        normalized = body.rstrip("\r\n")
+        replacement = (
+            f"{indent}{MATERIALIZED_INCLUDE_BEGIN} {raw}\n"
+            f"{normalized}\n"
+            f"{indent}{MATERIALIZED_INCLUDE_END} {raw}"
+        )
+        replacements.append((match.start(), match.end(), replacement))
+
+    if not replacements:
+        return text
+
+    for start, end, replacement in reversed(replacements):
+        server_text = server_text[:start] + replacement + server_text[end:]
+    rendered = text[:server_start] + server_text + text[server_close + 1 :]
+    verify_source_layout(rendered, host)
+    return rendered
 
 
 def _strip_marked_sections(text: str, begin: str, end: str) -> str:
@@ -498,16 +588,32 @@ def verify(
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("command", choices=("render", "verify"))
+    parser.add_argument("command", choices=("render", "verify", "materialize", "source-check"))
     parser.add_argument("--config", required=True)
     parser.add_argument("--output")
     parser.add_argument("--host", default="mostdef.ru")
+    parser.add_argument("--include-root", default=str(DEFAULT_SEA_SPEED_INCLUDE_ROOT))
     parser.add_argument("--worker-private-listen")
     parser.add_argument("--worker-private-peer")
     parser.add_argument("--authentik-upstream", default=DEFAULT_AUTHENTIK_UPSTREAM)
     args = parser.parse_args()
     source = Path(args.config)
     text = source.read_text(encoding="utf-8")
+    if args.command == "source-check":
+        verify_source_layout(text, args.host)
+        print("SEA_SPEED_AUTH_SOURCE_LAYOUT=PASS")
+        return 0
+    if args.command == "materialize":
+        if not args.output:
+            parser.error("materialize requires --output")
+        materialized = materialize_sea_speed_includes(
+            text,
+            args.host,
+            include_root=args.include_root,
+        )
+        Path(args.output).write_text(materialized, encoding="utf-8")
+        print("SEA_SPEED_AUTH_INCLUDE_MATERIALIZE=PASS")
+        return 0
     if args.command == "verify":
         verify(
             text,

@@ -3,13 +3,16 @@
 - Feature: 004-sea-speed-auth-v1
 - Issue: #115
 - Runtime topology revision: #122
-- Status: Approved; worker-hosted Authentik topology authorized by Issue #122
+- Cutover split-layout remediation: #140
+- Status: Approved; worker-hosted Authentik runtime and identity contour staged, final nginx/M2M cutover pending
 
 ## Product outcome
 
 Sea Speed remains reachable from the public Internet, but all private operator, API and media surfaces are protected by centrally managed authentication. The public root page remains available. The legacy `/cams/**` surface is retired and must not expose Camera 1 or any other camera content.
 
 After Issue #122, Authentik and PostgreSQL run on the commissioned Ubuntu worker rather than the undersized public VPS. The VPS remains the sole public nginx/TLS ingress and reaches Authentik only through an exact private ZeroTier/RFC1918 worker origin. Moving identity runtime does not change camera acquisition, AI behavior, the Sea Speed worker application package, or the existing private worker M2M API contract.
+
+Issue #140 corrects the cutover assumption that all `/sea-speed/**` locations live in the physical `mostdef.ru` site file. Production may keep direct Sea Speed nginx snippets before cutover; preparation must materialize only those bounded snippets into the reviewed candidate without expanding unrelated nginx includes or changing the active configuration.
 
 ## User scenarios
 
@@ -78,6 +81,8 @@ Given the public VPS cannot satisfy the Authentik resource baseline and the comm
 - FR-029: Loss of the worker, Authentik private proxy, or ZeroTier path MUST make `/sea-speed/**` unavailable rather than anonymous. The public `/` landing page remains independent.
 - FR-030: Worker-hosted Authentik MUST NOT modify Sea Speed AI/detection/tracking/calibration/speed semantics, camera acquisition/relay behavior, the worker API token, or the worker application package.
 - FR-031: The normal production operator path SHOULD use one bounded stage to validate worker resources, install Docker/Compose when absent, stage Authentik/PostgreSQL, establish the private proxy and prove health; manual package/hash/preflight steps are fallback-only.
+- FR-032: The Authentik User Login Stage browser session lifetime MUST remain targeted at 12 hours. The Proxy Provider access-token validity is intentionally 96 hours; these are separate timers, and the 96 hours provider token validity MUST NOT redefine or extend the 12 hours browser login-stage session contract.
+- FR-033: Auth v1 cutover MUST support a split `mostdef.ru` nginx source layout by materializing only direct regular `/etc/nginx/snippets/sea-speed-*.conf` includes into the candidate input. Wildcard Sea Speed includes, nested includes inside a materialized Sea Speed snippet, symlink/out-of-root Sea Speed snippet expansion, and ambiguous target TLS sites MUST fail closed. Unrelated nginx includes MUST remain unchanged.
 
 ## Roles
 
@@ -98,6 +103,7 @@ Fine-grained Sea Speed authorization differences between Admin, Operator and Vie
 - Worker-hosted Authentik is reachable from the VPS only over the exact source-restricted private origin.
 - Private worker M2M ingress remains bound only to an approved private VPS address and exact worker peer, with exact methods/paths.
 - `/cams/**` retirement is intentional and supersedes the earlier public Camera 1 URL compatibility requirement.
+- Split nginx source materialization is candidate-only during `prepare`; it must not mutate active nginx or the source snippets.
 
 ## Acceptance criteria
 
@@ -120,6 +126,8 @@ Fine-grained Sea Speed authorization differences between Admin, Operator and Vie
 - AC-017: the VPS can reach `http://<worker-private-ip>:<private-port>/-/health/ready/`, while the private origin is not bound to a public interface and is source-restricted to the exact VPS peer.
 - AC-018: rendered nginx contains the exact worker private Authentik origin for the embedded outpost and rejects a different/public origin during verification.
 - AC-019: stopping the worker Authentik/private path causes private Sea Speed auth requests to fail closed rather than serving anonymous content.
+- AC-020: from a production-style root site containing direct `sea-speed-*.conf` snippets, `prepare` produces a flattened, verified candidate while leaving the active root site and snippet files unchanged; non-Sea-Speed includes remain intact.
+- AC-021: changing a materialized Sea Speed snippet between `prepare` and `activate` changes the re-rendered candidate digest and blocks activation through the expected SHA-256 guard.
 
 ## Explicit exclusions
 
@@ -140,11 +148,14 @@ Fine-grained Sea Speed authorization differences between Admin, Operator and Vie
 ## Runtime feedback
 
 - Source implementation originated under Issue #115 and PR #116. Issue #122 is an explicitly approved topology revision after production preflight proved the VPS has fewer than two CPU cores and the operator declined a VPS resize.
-- Fresh worker evidence before Issue #122 implementation: hostname `sea-speed-worker`, Ubuntu 26.04 LTS x86_64, 16 CPU, 30 GiB RAM, 79 GiB free on `/`, Docker not installed.
-- The worker has sufficient capacity for the identity runtime, so Authentik/PostgreSQL placement moves to the worker while public ingress stays on the VPS.
-- Existing worker state/event/config traffic still uses a separate narrow private VPS M2M ingress; hosting Authentik on the same physical worker does not merge those security contours.
-- Production Authentik, SMTP, invitations, Owner TOTP, nginx cutover, worker runtime URL migration and runtime acceptance remain NOT DEPLOYED for the revised topology until a fresh exact merged `main` SHA receives separate `PRODUCTION APPROVED`.
+- Fresh worker evidence before Issue #122 implementation: hostname `sea-speed-worker`, Ubuntu 26.04 LTS x86_64, 16 CPU, 30 GiB RAM, 79 GiB free on `/`, Docker not installed at initial staging.
+- The worker now hosts healthy Authentik `2026.5.6` plus PostgreSQL, with Authentik Docker HTTP on worker loopback and a source-restricted private path from the VPS. Public `auth.mostdef.ru` health is proven through VPS HTTPS.
+- Owner TOTP login, role groups, application/provider/policy binding, Viewer password-only login, single-use invitation behavior, user disable/session revocation, SMTP test delivery and real invitation email delivery have been proven in the staged identity contour.
+- Password recovery acceptance is deferred/non-blocking by operator decision and may be verified later if operationally required; the specification requirement remains unchanged.
+- The Proxy Provider token validity is accepted at 96 hours while the User Login Stage browser session remains targeted at 12 hours; these timers are intentionally independent.
+- Issue #140 records the production nginx split-layout blocker discovered before final cutover: the root TLS site includes Sea Speed locations from direct snippets, so candidate preparation must materialize those snippets before the existing Camera/Auth renderers run.
+- Final `/sea-speed/**` nginx activation, worker M2M URL migration and controlled fail-closed dependency test remain pending. A new source merge for Issue #140 supersedes earlier exact-SHA production approval for those remaining mutations and requires a fresh `PRODUCTION APPROVED <new-main-sha>`.
 
 ## Production impact
 
-MIXED runtime/security-control-plane change: Ubuntu worker gains Docker/Auth/PostgreSQL/private proxy runtime; VPS nginx uses that private origin and later activates the existing Auth v1 boundary; Sea Speed worker application source/package remains unchanged. Source integration does not authorize production mutation. A fresh `PRODUCTION APPROVED` envelope bound to the exact final merged `main` SHA is required before rollout.
+MIXED runtime/security-control-plane change: Ubuntu worker hosts Docker/Auth/PostgreSQL/private proxy runtime; VPS nginx uses that private origin and later activates the existing Auth v1 boundary; Sea Speed worker application source/package remains unchanged. Issue #140 changes only deterministic source preparation for the existing nginx boundary plus documentation of already accepted timing semantics. Source integration does not authorize production mutation. A fresh `PRODUCTION APPROVED` envelope bound to the exact final merged `main` SHA is required before the remaining rollout.
