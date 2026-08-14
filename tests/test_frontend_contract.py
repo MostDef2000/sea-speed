@@ -241,9 +241,9 @@ class FrontendContractTests(unittest.TestCase):
             self.assertIn('href="/outpost.goauthentik.io/sign_out">Выйти</a>', page)
             self.assertRegex(
                 page,
-                r'const\s+SESSION_URL\s*=\s*["\']/outpost\.goauthentik\.io/auth/nginx["\']',
+                r'const\s+SESSION_URL\s*=\s*["\']/sea-speed/api/session["\']',
             )
-            self.assertIn('X-authentik-username', page)
+            self.assertNotIn('/outpost.goauthentik.io/auth/nginx', page)
             self.assertIn('credentials:"same-origin"', page)
             self.assertIn('textContent=', page)
             self.assertNotIn('localStorage', page)
