@@ -15,6 +15,9 @@
     button:disabled{cursor:not-allowed;opacity:.5}
     .page{width:min(1540px,100%);margin:auto;padding:max(18px,env(safe-area-inset-top)) max(18px,env(safe-area-inset-right)) max(32px,env(safe-area-inset-bottom)) max(18px,env(safe-area-inset-left))}
     .top{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;margin-bottom:18px}
+    .header-brand{display:flex;align-items:flex-start;gap:14px;min-width:0}.header-copy{min-width:0}
+    .project-home{display:grid;place-items:center;flex:0 0 auto;width:48px;height:48px;border:1px solid var(--strong);border-radius:15px;background:#082234e0;text-decoration:none;box-shadow:0 12px 30px #0006}.project-home:hover{background:#0d354bf5}.project-lighthouse{display:block;width:34px;height:34px}
+    .header-actions{display:grid;gap:9px;justify-items:end;min-width:0}.session-bar{display:flex;align-items:center;justify-content:flex-end;gap:8px;min-width:0}.session-login{display:grid;gap:1px;max-width:320px;padding:7px 10px;border:1px solid var(--border);border-radius:12px;background:#041826d1}.session-label{color:var(--muted);font-size:.56rem;font-weight:750;letter-spacing:.08em;text-transform:uppercase}.session-user{overflow:hidden;font-size:.78rem;text-overflow:ellipsis;white-space:nowrap}.session-user.bad{color:var(--bad)}.logout-link{display:inline-flex;align-items:center;justify-content:center;min-height:40px;padding:7px 12px;border:1px solid #fb718557;border-radius:12px;background:#7f1d1d2b;color:#fecdd3;font-size:.74rem;font-weight:800;text-decoration:none;white-space:nowrap}.logout-link:hover{background:#7f1d1d55}
     .eyebrow{margin:0 0 6px;color:var(--cyan);font-size:.7rem;font-weight:800;letter-spacing:.15em;text-transform:uppercase}
     h1{margin:0 0 5px;font-size:clamp(1.8rem,3vw,2.55rem);line-height:1;letter-spacing:-.045em}
     .subtitle,.muted{color:var(--muted);font-size:.78rem;line-height:1.5}
@@ -49,22 +52,29 @@
     .play{color:var(--good);border-color:#4ade8050}.stop{color:var(--bad);border-color:#fb718550}
     .error{min-height:1.2em;margin-top:8px;color:var(--bad);font-size:.68rem;line-height:1.45;overflow-wrap:anywhere}
     .empty{padding:28px;border:1px dashed var(--border);border-radius:20px;background:#041421aa;color:var(--muted);text-align:center}
-    @media(max-width:760px){.top{display:grid}.grid{grid-template-columns:1fr}.page{padding-left:max(10px,env(safe-area-inset-left));padding-right:max(10px,env(safe-area-inset-right))}.batch-progress{width:100%;margin-left:0}}
+    @media(max-width:760px){.top{display:grid}.header-brand{gap:10px}.project-home{width:44px;height:44px;border-radius:13px}.project-lighthouse{width:31px;height:31px}.header-actions{justify-items:start;width:100%}.session-bar{width:100%;align-items:stretch}.session-login{min-width:0;flex:1}.logout-link{flex:0 0 auto}.grid{grid-template-columns:1fr}.page{padding-left:max(10px,env(safe-area-inset-left));padding-right:max(10px,env(safe-area-inset-right))}.batch-progress{width:100%;margin-left:0}}
+    @media(max-width:390px){.session-label{display:none}}
     @media(prefers-reduced-motion:reduce){*{transition:none!important}}
   </style>
 </head>
 <body>
   <main class="page">
     <header class="top">
-      <div>
-        <p class="eyebrow">Vladivostok maritime monitoring</p>
-        <h1>Камеры</h1>
-        <div class="subtitle">Предпросмотр найденных потоков. Последний хороший кадр сохраняется на VPS и доступен на всех устройствах до следующего успешного обновления.</div>
+      <div class="header-brand">
+        <a class="project-home" href="/" aria-label="На главную mostdef.ru" title="mostdef.ru"><svg class="project-lighthouse" viewBox="0 0 48 48" aria-hidden="true" focusable="false"><path fill="#ffe59a" opacity=".28" d="M27 8 47 3v11z"/><path fill="#d24f49" d="M14 13h20v5H14z"/><path fill="#ffe59a" d="M18 6h12v7H18z"/><path fill="#d24f49" d="m17 18-3 23h20l-3-23z"/><path fill="#edf8f6" d="M16 25h16l-1 8H15z"/><path fill="#91e6df" d="M11 41h26v3H11z"/></svg></a>
+        <div class="header-copy">
+          <p class="eyebrow">Vladivostok maritime monitoring</p>
+          <h1>Камеры</h1>
+          <div class="subtitle">Предпросмотр найденных потоков. Последний хороший кадр сохраняется на VPS и доступен на всех устройствах до следующего успешного обновления.</div>
+        </div>
       </div>
-      <nav class="nav" aria-label="Sea Speed navigation">
-        <a href="/sea-speed/">Оператор</a>
-        <a href="/sea-speed/objects/">Реестр объектов</a>
-      </nav>
+      <div class="header-actions">
+        <div class="session-bar" aria-label="Сессия пользователя"><span class="session-login"><span class="session-label">Пользователь</span><strong id="sessionUser" class="session-user">…</strong></span><a class="logout-link" href="/outpost.goauthentik.io/sign_out">Выйти</a></div>
+        <nav class="nav" aria-label="Sea Speed navigation">
+          <a href="/sea-speed/">Оператор</a>
+          <a href="/sea-speed/objects/">Реестр объектов</a>
+        </nav>
+      </div>
     </header>
 
     <section class="summary" aria-label="Preview status">
@@ -87,12 +97,14 @@
 
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
   <script>
+    const SESSION_URL="/outpost.goauthentik.io/auth/nginx";
     const CAMERAS_URL="/sea-speed/api/cameras";
     const PREVIEW_STATUS_URL="/sea-speed/api/cameras/preview";
     const PREVIEW_STOP_URL="/sea-speed/api/cameras/preview/stop";
     const BATCH_STABLE_ADVANCE_SEC=3;
     const BATCH_VIDEO_READY_TIMEOUT_MS=8000;
     const BATCH_STABLE_TIMEOUT_MS=12000;
+    const sessionUser=document.getElementById("sessionUser");
     const grid=document.getElementById("cameraGrid");
     const cameraCount=document.getElementById("cameraCount");
     const activeCamera=document.getElementById("activeCamera");
@@ -113,6 +125,19 @@
     const cameraErrors=new Map();
 
     const esc=value=>String(value??"").replace(/[&<>"']/g,char=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[char]));
+
+    async function loadSessionIdentity(){
+      try{
+        const response=await fetch(SESSION_URL,{cache:"no-store",credentials:"same-origin"});
+        const username=(response.headers.get("X-authentik-username")||"").trim();
+        if(!response.ok||!username)throw new Error("trusted identity unavailable");
+        sessionUser.textContent=username;
+        sessionUser.classList.remove("bad");
+      }catch(_error){
+        sessionUser.textContent="недоступно";
+        sessionUser.classList.add("bad");
+      }
+    }
 
     function cardFor(cameraId){
       return grid.querySelector(`[data-camera-id="${CSS.escape(cameraId)}"]`);
@@ -449,6 +474,7 @@
       destroyPlayer();
     });
 
+    loadSessionIdentity();
     loadCatalog();
     setInterval(refreshPreviewStatus,3000);
   </script>
