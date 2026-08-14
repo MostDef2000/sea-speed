@@ -68,8 +68,7 @@ while [[ $# -gt 0 ]]; do
       [[ $# -ge 2 ]] || { echo "ERROR --worker-private-listen requires IP:PORT" >&2; exit 2; }
       worker_private_listen="$2"; shift 2 ;;
     --worker-private-peer)
-      [[ $# -ge 2 ]] || { echo "ERROR --worker-private-peer requires IP" >&2; exit 2 ;;
-      }
+      [[ $# -ge 2 ]] || { echo "ERROR --worker-private-peer requires IP" >&2; exit 2; }
       worker_private_peer="$2"; shift 2 ;;
     --expected-sha256)
       [[ $# -ge 2 ]] || { echo "ERROR --expected-sha256 requires SHA256" >&2; exit 2; }
