@@ -3,7 +3,8 @@
 - Specification: `specs/004-sea-speed-auth-v1/spec.md`
 - Issue: #115
 - Runtime topology revision: #122
-- Status: Implementing worker-hosted Authentik revision
+- Cutover split-layout remediation: #140
+- Status: Worker identity contour staged; Issue #140 source remediation in progress before final cutover
 
 ## Architecture
 
@@ -71,6 +72,22 @@ GET ROI/speed configuration remains private-peer-only
 ```
 
 The Authentik private origin and the worker M2M listener are separate flows in opposite directions and must not be conflated.
+
+Before final cutover, production nginx may be split across a root TLS site and direct Sea Speed snippets:
+
+```text
+/etc/nginx/sites-available/mostdef.ru
+  -> include /etc/nginx/snippets/sea-speed-api.conf
+  -> include /etc/nginx/snippets/sea-speed-page.conf
+  -> unrelated includes remain as includes
+
+prepare/activate source pipeline
+  root site
+    -> materialize only direct /etc/nginx/snippets/sea-speed-*.conf
+    -> Camera 1 renderer
+    -> Auth v1 renderer
+    -> verified flattened candidate + SHA-256
+```
 
 ## Decisions
 
@@ -144,14 +161,26 @@ The original `deploy/vps/authentik/**` Compose placement is historical/supersede
 
 Human checkpoints remain only for exact production authorization, secret entry, Owner/TOTP/provider configuration and acceptance decisions.
 
+### D-014 - Materialize only direct Sea Speed nginx snippets
+
+Issue #140 resolves the observed production split-layout without teaching the existing Camera 1 and Auth renderers to recursively evaluate arbitrary nginx configuration. The Auth renderer owns a bounded pre-render operation that first identifies the exact TLS `mostdef.ru` root site and then replaces only direct regular `/etc/nginx/snippets/sea-speed-*.conf` include directives inside that server with the exact file contents.
+
+The operation rejects wildcard Sea Speed includes, nested includes inside materialized snippets, symlinks, missing files and Sea Speed snippets resolving outside the approved snippets root. Non-Sea-Speed includes, including certificate/Let’s Encrypt includes, stay literal and unchanged. `prepare` materializes only into temporary candidate input; it never edits the active root file or snippet files. `activate` repeats the same materialization from current source state, so any Sea Speed snippet drift changes candidate SHA-256 and the existing expected-SHA guard stops activation.
+
+After activation the installed root site is the reviewed flattened candidate. The old Sea Speed snippet files remain on disk but are no longer referenced by that root site; no cleanup/deletion is part of this outcome.
+
+### D-015 - Browser session and provider token are distinct timers
+
+The Authentik User Login Stage remains configured for a browser session targeted at 12 hours. The Sea Speed Proxy Provider access-token validity is intentionally 96 hours. The 96 hours provider token is not the browser-session lifetime and does not redefine the 12 hours User Login Stage contract. Both values are deliberate and must be reviewed independently if either is changed later.
+
 ## Affected contours
 
-- `deploy/worker/ubuntu/authentik/**`: canonical worker-hosted Authentik Compose/env/runbook/stage helper.
-- `scripts/operations/nginx_sea_speed_auth.py`: parameterized validated Authentik private origin plus existing browser-auth/private-M2M renderer.
-- `deploy/vps/sea-speed-auth-cutover.sh`: SHA-bound prepare/status/activate security contour using the exact worker private Authentik origin.
-- `docs/operations/SEA_SPEED_AUTH_V1.md`: revised worker-first production sequencing and fail-closed topology.
-- `specs/004-sea-speed-auth-v1/**`: topology requirements/acceptance.
-- `tests/test_sea_speed_auth_v1.py`: worker runtime, private origin and existing Auth v1 security regression coverage.
+- `deploy/worker/ubuntu/authentik/**`: canonical worker-hosted Authentik Compose/env/runbook/stage helper; unchanged by #140.
+- `scripts/operations/nginx_sea_speed_auth.py`: parameterized validated Authentik private origin, existing browser-auth/private-M2M renderer, exact TLS host source check and bounded Sea Speed snippet materialization.
+- `deploy/vps/sea-speed-auth-cutover.sh`: SHA-bound prepare/status/activate security contour using the exact worker private Authentik origin and materialized candidate input.
+- `docs/operations/SEA_SPEED_AUTH_V1.md`: revised worker-first production sequencing, split-layout preparation and fail-closed topology.
+- `specs/004-sea-speed-auth-v1/**`: topology, timing and cutover requirements/acceptance.
+- `tests/test_sea_speed_auth_v1.py`: worker runtime, private origin, split-layout materialization and existing Auth v1 security regression coverage.
 - Camera 1 media source/relay/H.264 code: unchanged.
 - Sea Speed worker application source/package: unchanged.
 
@@ -179,7 +208,7 @@ Non-secret rollout values discovered/validated at runtime include:
 
 Static/source validation must prove:
 
-- SDD completeness and Issue #115/#122 linkage;
+- SDD completeness and Issue #115/#122/#140 linkage;
 - worker Compose pins Authentik `2026.5.6` and PostgreSQL 16;
 - Authentik Docker HTTP publishes only to worker loopback;
 - PostgreSQL has no host port and no Authentik container mounts the Docker socket;
@@ -187,29 +216,32 @@ Static/source validation must prove:
 - worker stage can install Docker/Compose when absent without removing conflicting packages automatically;
 - nginx renderer is idempotent, fail-closed and removes all `/cams` locations;
 - production Authentik origin validation rejects public/wildcard/credential/path inputs;
+- exact `mostdef.ru` TLS host matching does not confuse `auth.mostdef.ru` with the application site;
+- production-style direct `sea-speed-*.conf` snippets are flattened before Camera/Auth rendering while unrelated includes remain literal;
+- wildcard, nested, symlink and out-of-root Sea Speed snippet expansion fails closed;
 - every existing `/sea-speed` nginx location receives auth directives;
 - spoofed browser identity headers are overwritten;
 - private worker M2M ingress remains exact-peer/method/path scoped and derives only a loopback FastAPI origin;
 - cutover is candidate-SHA-bound and has no automatic public-route rollback;
+- the accepted 12 hours browser session and 96 hours Proxy Provider token distinction is documented;
 - existing Camera 1 private/H.264 and Camera Preview Gallery behavior is preserved.
 
-Production acceptance additionally requires worker Docker/Auth/PostgreSQL health, VPS-to-worker private Authentik health, public `auth.mostdef.ru`, real SMTP, invitation, login, Owner TOTP, password recovery, session revocation, authenticated Camera 1 playback, gallery persistence, worker M2M continuity and direct-origin exposure checks.
+Production acceptance focuses on the large integration contours: worker Docker/Auth/PostgreSQL health, VPS-to-worker private Authentik health, public `auth.mostdef.ru`, SMTP/invitation delivery, Owner TOTP, basic role login/session revocation, final nginx boundary, authenticated Camera 1 playback, worker M2M continuity, direct-origin exposure and fail-closed behavior. Password-recovery deep acceptance is deferred/non-blocking by current operator decision and can be added later if required.
 
 ## Rollout
 
-1. Merge exact Issue #122 source after CI.
-2. Obtain a fresh `PRODUCTION APPROVED` bound to that exact merged `main` SHA and revised MIXED topology.
-3. From one operator launcher stage, connect to `sea-speed-worker` (direct ZeroTier or VPS SSH jump as required), create a temporary protected env file locally on the worker and invoke `deploy/worker/ubuntu/authentik/stage.sh stage` with exact worker bind IP and exact VPS peer.
-4. The stage helper installs Docker/Compose when absent, starts PostgreSQL/Auth server/Auth worker, establishes the source-restricted worker private proxy and returns `AUTHENTIK_PRIVATE_ORIGIN`.
-5. Configure the VPS TLS/nginx `auth.mostdef.ru` vhost to proxy only to that private origin and prove public Authentik readiness.
-6. Configure the Owner, TOTP, Forward Auth provider/application and embedded outpost; prove invitation and password recovery.
-7. Discover/confirm exact VPS M2M listen and worker peer addresses and prepare worker API URL changes without exposing `SEA_SPEED_API_TOKEN`.
-8. Render the combined Camera 1/Auth/private-worker nginx candidate with `--authentik-upstream <worker-private-origin>` and record its SHA-256.
-9. Activate the exact candidate, apply prepared worker runtime API URLs and restart only the applicable Sea Speed worker service.
-10. Run anonymous, authenticated, gallery, worker-M2M, VPS-to-worker Authentik and direct-origin acceptance.
-11. Record sanitized exact source/runtime evidence in Issue #122 and cross-reference Issue #115.
+1. Complete Issue #140 source remediation from current `main` while preserving the already staged worker identity runtime.
+2. Pass exact-head CI, merge Issue #140, identify the new exact `main` SHA, and obtain a fresh `PRODUCTION APPROVED <sha>` for the remaining VPS/M2M mutations.
+3. Re-prove the existing worker private Authentik health and public `auth.mostdef.ru` readiness; do not restage working identity internals without a specific need.
+4. Confirm the current root `mostdef.ru` nginx site and direct Sea Speed snippet layout.
+5. Run `sea-speed-auth-cutover.sh prepare` with exact worker Authentik origin and private M2M addresses. The script must materialize only direct `sea-speed-*.conf` snippets, run Camera/Auth renderers, write the protected flattened candidate and print its SHA-256 without reloading nginx.
+6. Review the prepared candidate digest/diff and coordinate the Sea Speed worker private M2M URL change without exposing `SEA_SPEED_API_TOKEN`.
+7. Run `activate` with the exact prepare SHA. It must re-materialize/re-render, refuse any SHA drift, back up the root site, install the reviewed flattened candidate, pass `nginx -t`, reload nginx and perform bounded anonymous checks.
+8. Apply the prepared worker runtime URLs and restart only the applicable Sea Speed worker service.
+9. Run the large integration acceptance: anonymous/authenticated `/sea-speed/**`, Camera 1 H.264, private M2M continuity and direct-origin checks.
+10. Perform the controlled Authentik/private-path fail-closed test, restore the dependency and record sanitized final evidence in #122/#115/#140.
 
-The operator handoff should compress steps 3 and the deterministic parts of 5/8/9 into one ready-to-run command per human checkpoint whenever safe.
+The operator handoff should use one ready-to-run command per human checkpoint whenever safe.
 
 ## Rollback
 
@@ -221,6 +253,7 @@ A runtime rollback requires an explicit production rollback decision. If approve
 
 - Original Issue #115 source assumed Authentik on VPS loopback. Production preflight later proved the VPS resource floor insufficient.
 - Issue #122 records the approved topology revision to the capable Ubuntu worker while preserving the existing identity policy and browser/M2M security semantics.
-- Fresh worker evidence: Ubuntu 26.04 LTS x86_64, hostname `sea-speed-worker`, 16 CPU, 30 GiB RAM, 79 GiB free, Docker initially absent.
-- The revised source automates Docker installation as part of the bounded worker stage and keeps the Docker Authentik port loopback-only behind a source-restricted private proxy.
-- Production remains separately gated by the exact merged SHA; no Issue #122 runtime mutation is authorized by source approval alone.
+- Worker Authentik/PostgreSQL/private proxy, public `auth.mostdef.ru`, Owner TOTP, provider/application/policy, Viewer invite/login/session revocation and SMTP/invitation delivery are now proven enough to proceed with integration rollout; deep password-recovery acceptance is deferred.
+- Issue #140 records the remaining source blocker discovered from the actual nginx layout: the `mostdef.ru` TLS site uses direct Sea Speed snippets and therefore must be safely materialized before the existing renderers run.
+- The accepted timing contract is 12 hours for the browser User Login Stage and 96 hours for Proxy Provider access-token validity, as separate timers.
+- Final nginx activation, worker M2M URL switch and fail-closed dependency acceptance remain pending and require a fresh production approval after the #140 merge.
