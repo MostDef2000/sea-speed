@@ -53,7 +53,7 @@
 </div>
 <div id="toast" class="toast" role="status"></div>
 <script>
-const SESSION_URL="/outpost.goauthentik.io/auth/nginx";
+const SESSION_URL="/sea-speed/api/session";
 const OBJECTS_URL="/sea-speed/api/cam1/objects";
 const PAGE_SIZE=24;
 const $=id=>document.getElementById(id);
@@ -63,7 +63,7 @@ const escapeHtml=value=>String(value??"").replace(/[&<>"']/g,char=>({"&":"&amp;"
 const formatDate=value=>{if(!value)return "—";let date=new Date(value);return Number.isNaN(date.getTime())?value:date.toLocaleString()};
 const formatSpeed=value=>value==null?"—":`${Number(value).toFixed(1)} km/h`;
 const statusLabel=value=>({new:"Новый",reviewed:"Проверен",ignored:"Игнорировать"})[value]||value||"—";
-async function loadSessionIdentity(){try{let response=await fetch(SESSION_URL,{cache:"no-store",credentials:"same-origin"}),username=(response.headers.get("X-authentik-username")||"").trim();if(!response.ok||!username)throw Error("trusted identity unavailable");sessionUser.textContent=username;sessionUser.classList.remove("bad")}catch(_error){sessionUser.textContent="недоступно";sessionUser.classList.add("bad")}}
+async function loadSessionIdentity(){try{let response=await fetch(SESSION_URL,{cache:"no-store",credentials:"same-origin"}),body={};try{body=await response.json()}catch(_error){}let username=String(body.username||"").trim();if(!response.ok||!username)throw Error("trusted identity unavailable");sessionUser.textContent=username;sessionUser.classList.remove("bad")}catch(_error){sessionUser.textContent="недоступно";sessionUser.classList.add("bad")}}
 function showToast(message,bad=false){clearTimeout(toastTimer);toast.textContent=message;toast.className=`toast show${bad?" bad":""}`;toastTimer=setTimeout(()=>toast.className="toast",2600)}
 function filterParams(){let data=new FormData(filters),params=new URLSearchParams({limit:String(PAGE_SIZE),offset:String(offset)});for(let [key,value] of data.entries()){value=String(value).trim();if(!value)continue;if((key==="date_from"||key==="date_to")&&value){let date=new Date(value);if(!Number.isNaN(date.getTime()))value=date.toISOString()}params.set(key,value)}return params}
 async function request(url,options={}){let response=await fetch(url,{cache:"no-store",credentials:"same-origin",...options});if(!response.ok){let body=await response.text();try{body=JSON.parse(body).detail||body}catch(_error){}throw Error(`${response.status}: ${body}`)}return response.json()}
