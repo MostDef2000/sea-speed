@@ -123,9 +123,14 @@ class SeaSpeedAuthV1Tests(unittest.TestCase):
             rendered.count("return 308 https://mostdef.ru$request_uri;"),
             1,
         )
+        sea_location = re.search(
+            r"(?m)^[ \t]*location[ \t]+(?:\^~[ \t]+)?/sea-speed/[ \t]*\{",
+            rendered,
+        )
+        self.assertIsNotNone(sea_location)
         self.assertLess(
             rendered.index("if ($host = www.mostdef.ru) {"),
-            rendered.index("location ^~ /sea-speed/ {"),
+            sea_location.start(),
         )
 
     def test_renderer_keeps_only_root_outpost_without_recursive_auth(self) -> None:
@@ -151,13 +156,15 @@ class SeaSpeedAuthV1Tests(unittest.TestCase):
 
     def test_renderer_verification_rejects_missing_www_canonicalization(self) -> None:
         rendered = self._render()
-        broken = rendered.replace(
-            "    if ($host = www.mostdef.ru) {\n"
-            "        return 308 https://mostdef.ru$request_uri;\n"
-            "    }\n",
-            "",
-            1,
+        start = rendered.index("if ($host = www.mostdef.ru) {")
+        line_start = rendered.rfind("\n", 0, start) + 1
+        return_end = rendered.index(
+            "return 308 https://mostdef.ru$request_uri;",
+            start,
         )
+        close_start = rendered.index("}", return_end)
+        close_end = rendered.index("\n", close_start) + 1
+        broken = rendered[:line_start] + rendered[close_end:]
         with self.assertRaises(nginxauth.ConfigError):
             self._verify(broken)
 
