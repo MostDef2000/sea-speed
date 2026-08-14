@@ -9,6 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 RENDERER = ROOT / "scripts/operations/nginx_sea_speed_auth.py"
+CAM_RENDERER = ROOT / "scripts/operations/nginx_cam1_direct_h264.py"
 CUTOVER = ROOT / "deploy/vps/sea-speed-auth-cutover.sh"
 VPS_DEPLOY = ROOT / "deploy/vps/deploy.sh"
 WORKER_AUTH_ROOT = ROOT / "deploy/worker/ubuntu/authentik"
@@ -242,6 +243,165 @@ class SeaSpeedAuthV1Tests(unittest.TestCase):
             )
             self.assertIn("SEA_SPEED_AUTH_CONFIG=PASS", verified.stdout)
 
+    def test_split_layout_materializes_direct_snippets_and_runs_full_render_pipeline(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            snippets = root / "snippets"
+            snippets.mkdir()
+            api = snippets / "sea-speed-api.conf"
+            page = snippets / "sea-speed-page.conf"
+            unrelated = root / "letsencrypt-options.conf"
+            api.write_text(
+                r'''
+    location /sea-speed/api/ {
+        proxy_pass http://127.0.0.1:8000/api/;
+    }
+
+    location /sea-speed/media/ {
+        alias /opt/sea-speed-api/media/;
+    }
+'''.lstrip(),
+                encoding="utf-8",
+            )
+            page.write_text(
+                r'''
+    location ^~ /sea-speed/ {
+        auth_basic "Sea Speed";
+        auth_basic_user_file /etc/nginx/.htpasswd;
+        try_files $uri $uri/ =404;
+    }
+'''.lstrip(),
+                encoding="utf-8",
+            )
+            source = f'''
+server {{
+    listen 443 ssl;
+    server_name mostdef.ru www.mostdef.ru;
+    include {unrelated};
+    include {api};
+    include {page};
+}}
+'''
+            nginxauth.verify_source_layout(source)
+            materialized = nginxauth.materialize_sea_speed_includes(
+                source,
+                include_root=snippets,
+            )
+            self.assertIn(f"include {unrelated};", materialized)
+            self.assertNotIn(f"include {api};", materialized)
+            self.assertNotIn(f"include {page};", materialized)
+            self.assertIn(nginxauth.MATERIALIZED_INCLUDE_BEGIN, materialized)
+            self.assertIn("location /sea-speed/api/", materialized)
+            self.assertIn("location ^~ /sea-speed/", materialized)
+
+            flattened = root / "flattened.conf"
+            cam_stage = root / "cam.conf"
+            candidate = root / "candidate.conf"
+            flattened.write_text(materialized, encoding="utf-8")
+            subprocess.run(
+                [
+                    "python3",
+                    str(CAM_RENDERER),
+                    "render",
+                    "--config",
+                    str(flattened),
+                    "--output",
+                    str(cam_stage),
+                ],
+                check=True,
+                text=True,
+                capture_output=True,
+            )
+            subprocess.run(
+                [
+                    "python3",
+                    str(RENDERER),
+                    "render",
+                    "--config",
+                    str(cam_stage),
+                    "--output",
+                    str(candidate),
+                    "--authentik-upstream",
+                    AUTHENTIK_UPSTREAM,
+                    "--worker-private-listen",
+                    PRIVATE_LISTEN,
+                    "--worker-private-peer",
+                    PRIVATE_PEER,
+                ],
+                check=True,
+                text=True,
+                capture_output=True,
+            )
+            final = candidate.read_text(encoding="utf-8")
+            self._verify(final)
+            self.assertIn(f"include {unrelated};", final)
+            self.assertNotIn(f"include {api};", final)
+            self.assertNotIn(f"include {page};", final)
+            self.assertIn("location ^~ /sea-speed/media/cam1/", final)
+
+    def test_split_layout_materialization_fails_closed_for_unsafe_includes(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            snippets = root / "snippets"
+            snippets.mkdir()
+
+            wildcard = f'''
+server {{
+    listen 443 ssl;
+    server_name mostdef.ru;
+    include {snippets}/sea-speed-*.conf;
+}}
+'''
+            with self.assertRaises(nginxauth.ConfigError):
+                nginxauth.materialize_sea_speed_includes(wildcard, include_root=snippets)
+
+            nested_path = snippets / "sea-speed-page.conf"
+            nested_path.write_text(
+                "include /etc/nginx/snippets/other.conf;\n"
+                "location /sea-speed/ { try_files $uri $uri/ =404; }\n",
+                encoding="utf-8",
+            )
+            nested = f'''
+server {{
+    listen 443 ssl;
+    server_name mostdef.ru;
+    include {nested_path};
+}}
+'''
+            with self.assertRaises(nginxauth.ConfigError):
+                nginxauth.materialize_sea_speed_includes(nested, include_root=snippets)
+
+            outside_root = root / "outside"
+            outside_root.mkdir()
+            outside = outside_root / "sea-speed-api.conf"
+            outside.write_text(
+                "location /sea-speed/api/ { proxy_pass http://127.0.0.1:8000/api/; }\n",
+                encoding="utf-8",
+            )
+            outside_source = f'''
+server {{
+    listen 443 ssl;
+    server_name mostdef.ru;
+    include {outside};
+}}
+'''
+            with self.assertRaises(nginxauth.ConfigError):
+                nginxauth.materialize_sea_speed_includes(
+                    outside_source,
+                    include_root=snippets,
+                )
+
+    def test_source_layout_requires_exact_mostdef_tls_host(self) -> None:
+        wrong_host = r'''
+server {
+    listen 443 ssl;
+    server_name auth.mostdef.ru;
+    location /sea-speed/ { return 200; }
+}
+'''
+        with self.assertRaises(nginxauth.ConfigError):
+            nginxauth.verify_source_layout(wrong_host)
+
     def test_worker_authentik_runtime_is_pinned_loopback_and_has_no_docker_socket(self) -> None:
         compose = COMPOSE.read_text(encoding="utf-8")
         self.assertEqual(compose.count("ghcr.io/goauthentik/server:2026.5.6"), 2)
@@ -333,6 +493,8 @@ class SeaSpeedAuthV1Tests(unittest.TestCase):
             "AUTHENTIK_PRIVATE_UPSTREAM",
             "non-loopback RFC1918 IPv4",
             "render_candidate",
+            "source-check",
+            "materialize",
             "nginx -t",
             "systemctl reload nginx.service",
             "certbot certonly",
@@ -351,6 +513,10 @@ class SeaSpeedAuthV1Tests(unittest.TestCase):
             "https://auth.mostdef.ru",
         ):
             self.assertIn(marker, source)
+        self.assertIn('python3 "$auth_renderer" source-check --config "$resolved"', source)
+        self.assertIn('python3 "$auth_renderer" materialize', source)
+        self.assertIn('--config "$materialized"', source)
+        self.assertNotIn('cam_renderer" render --config "$nginx_site"', source)
         self.assertIn("CANDIDATE_SHA256", source)
         self.assertIn("rendered candidate SHA256 changed since prepare", source)
         self.assertIn("/var/lib/sea-speed-auth-v1", source)
@@ -383,11 +549,15 @@ class SeaSpeedAuthV1Tests(unittest.TestCase):
             source = path.read_text(encoding="utf-8")
             self.assertIn("#115", source)
             self.assertIn("#122", source)
+        for path in (SPEC, PLAN, TASKS, QUICKSTART, OPS_DOC):
+            self.assertIn("#140", path.read_text(encoding="utf-8"))
         spec_source = SPEC.read_text(encoding="utf-8")
         self.assertIn("PRODUCTION APPROVED", spec_source)
         self.assertIn("/sea-speed/media/cam1/index.m3u8", spec_source)
         self.assertIn("worker-loopback-only", spec_source.lower())
         self.assertIn("worker machine-to-machine", spec_source.lower())
+        self.assertIn("96 hours", spec_source)
+        self.assertIn("12 hours", spec_source)
         auth_doc = AUTH_DOC.read_text(encoding="utf-8")
         self.assertIn("Ubuntu worker", auth_doc)
         self.assertIn("socat", auth_doc)
@@ -400,6 +570,9 @@ class SeaSpeedAuthV1Tests(unittest.TestCase):
         self.assertIn("SEA_SPEED_API_TOKEN", ops_doc)
         self.assertIn("fail-closed", ops_doc.lower())
         self.assertIn("sea-speed-auth-cutover.sh", ops_doc)
+        self.assertIn("sea-speed-*.conf", ops_doc)
+        self.assertIn("96 hours", ops_doc)
+        self.assertIn("12 hours", ops_doc)
 
 
 if __name__ == "__main__":
