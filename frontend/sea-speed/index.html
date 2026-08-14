@@ -82,7 +82,7 @@
 <footer class="operator-footer">Sea Speed · Maritime computer vision prototype</footer>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 <script>
-const SESSION_URL = "/outpost.goauthentik.io/auth/nginx";
+const SESSION_URL = "/sea-speed/api/session";
 const HLS_URL = "/sea-speed/media/cam1/index.m3u8";
 const STATE_URL = "/sea-speed/api/cam1/state";
 const EVENTS_URL = "/sea-speed/api/cam1/events?limit=3";
@@ -96,7 +96,7 @@ const STREAM_RECOVERY_GRACE_MS=3500;
 const HLS_MEDIA_RECOVERY_COOLDOWN_MS=5000;
 let hls=null,streamDesired=false,connectInFlight=false,playInFlight=false,reconnectAttempt=0,reconnectTimer=null,playbackWatchdogTimer=null,recoveryTimer=null,streamGeneration=0,lastPlaybackTime=0,lastPlaybackProgressAt=0,lastMediaRecoveryAt=0,lastEventsSignature="",roiPoints=[],roiEditing=false,speedLineEditing=null,speedLines={enabled:false,distance_m:57,line_a:[],line_b:[]};
 const log=m=>{debugLog.textContent=`[${new Date().toLocaleTimeString()}] ${m}\n`+debugLog.textContent},setStatus=(e,t,c="")=>{e.textContent=t;e.className="value "+c},post=async(u,b)=>{let r=await fetch(u,{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify(b)});if(!r.ok)throw Error("HTTP "+r.status+" "+await r.text());return r.json()};
-async function loadSessionIdentity(){try{let r=await fetch(SESSION_URL,{cache:"no-store",credentials:"same-origin"}),u=(r.headers.get("X-authentik-username")||"").trim();if(!r.ok||!u)throw Error("trusted identity unavailable");sessionUser.textContent=u;sessionUser.classList.remove("bad")}catch(_error){sessionUser.textContent="недоступно";sessionUser.classList.add("bad")}}
+async function loadSessionIdentity(){try{let r=await fetch(SESSION_URL,{cache:"no-store",credentials:"same-origin"}),d={};try{d=await r.json()}catch(_error){}let u=String(d.username||"").trim();if(!r.ok||!u)throw Error("trusted identity unavailable");sessionUser.textContent=u;sessionUser.classList.remove("bad")}catch(_error){sessionUser.textContent="недоступно";sessionUser.classList.add("bad")}}
 overlayImg.addEventListener("load",()=>{roiEditorWrap.classList.add("has-overlay");resizeAll()});overlayImg.addEventListener("error",()=>roiEditorWrap.classList.remove("has-overlay"));
 async function loadSpeedConfig(){try{let d=await(await fetch(SPEED_CONFIG_URL,{cache:"no-store",credentials:"same-origin"})).json();speedFactorInput.value=Number(d.kmh_per_px_s||0).toFixed(3);speedConfigStatus.textContent=d.enabled?`Speed config: включен, коэффициент ${Number(d.kmh_per_px_s).toFixed(3)}`:"Speed config: выключен"}catch(e){speedConfigStatus.textContent="Speed config: API error";log(e)}}
 async function saveSpeedConfig(){let v=Number(speedFactorInput.value);if(!Number.isFinite(v)||v<0)return alert("Коэффициент должен быть числом >= 0.");try{let d=await post(SPEED_CONFIG_URL,{enabled:v>0,kmh_per_px_s:v});speedConfigStatus.textContent=d.enabled?`Speed config: сохранен, коэффициент ${Number(d.kmh_per_px_s).toFixed(3)}`:"Speed config: выключен"}catch(e){speedConfigStatus.textContent="Speed config: save error";log(e)}}
