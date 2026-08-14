@@ -125,6 +125,10 @@ discover_site() {
   if [[ -n "$nginx_site" ]]; then
     nginx_site="$(readlink -f "$nginx_site" 2>/dev/null || true)"
     [[ -n "$nginx_site" && -f "$nginx_site" ]] || { echo "ERROR nginx site must be a regular file" >&2; exit 5; }
+    if ! python3 "$auth_renderer" source-check --config "$nginx_site" >/dev/null 2>&1; then
+      echo "ERROR explicit nginx site is not the unique mostdef.ru TLS site with Sea Speed locations/includes" >&2
+      exit 5
+    fi
     return
   fi
   local dump path resolved found=""
@@ -133,8 +137,7 @@ discover_site() {
   while IFS= read -r path; do
     resolved="$(readlink -f "$path" 2>/dev/null || true)"
     [[ -n "$resolved" && -f "$resolved" ]] || continue
-    if grep -Eq '^[[:space:]]*server_name[[:space:]].*mostdef\.ru' "$resolved" \
-       && grep -Fq '/sea-speed/' "$resolved"; then
+    if python3 "$auth_renderer" source-check --config "$resolved" >/dev/null 2>&1; then
       if [[ -n "$found" && "$found" != "$resolved" ]]; then
         echo "ERROR multiple nginx site candidates; pass --nginx-site explicitly" >&2
         rm -f "$dump"
@@ -144,7 +147,7 @@ discover_site() {
     fi
   done < <(sed -n 's/^# configuration file \([^:]*\):$/\1/p' "$dump")
   rm -f "$dump"
-  [[ -n "$found" ]] || { echo "ERROR could not discover mostdef.ru nginx site with /sea-speed/" >&2; exit 5; }
+  [[ -n "$found" ]] || { echo "ERROR could not discover mostdef.ru TLS nginx site with Sea Speed locations/includes" >&2; exit 5; }
   nginx_site="$found"
 }
 
@@ -402,10 +405,14 @@ check_h264() {
 }
 
 render_candidate() {
-  local output="$1" stage1
+  local output="$1" materialized stage1
+  materialized="$(mktemp)"
   stage1="$(mktemp)"
-  trap 'rm -f "$stage1"' RETURN
-  python3 "$cam_renderer" render --config "$nginx_site" --output "$stage1" >/dev/null
+  trap 'rm -f "$materialized" "$stage1"' RETURN
+  python3 "$auth_renderer" materialize \
+    --config "$nginx_site" \
+    --output "$materialized" >/dev/null
+  python3 "$cam_renderer" render --config "$materialized" --output "$stage1" >/dev/null
   python3 "$cam_renderer" verify --config "$stage1" >/dev/null
   python3 "$auth_renderer" render \
     --config "$stage1" \
