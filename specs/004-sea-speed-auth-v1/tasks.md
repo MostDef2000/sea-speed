@@ -5,7 +5,8 @@
 - Original Issue: #115
 - Original Pull Request: #116
 - Runtime topology revision: #122
-- Status: Issue #122 worker-hosted Authentik revision in implementation
+- Cutover split-layout remediation: #140
+- Status: worker identity/runtime stages complete enough for rollout; Issue #140 source integration pending PR/CI/merge
 
 ## Delivery tasks
 
@@ -35,25 +36,50 @@
 - [x] T122-05 Parameterize nginx Authentik/outpost upstream and require the production cutover to use a validated non-loopback RFC1918 worker origin.
 - [x] T122-06 Update SDD and operations guidance for worker-hosted identity while preserving Camera 1, gallery, AI and private M2M behavior.
 - [x] T122-07 Update focused Auth v1 tests for worker Compose/stage/private-origin behavior and legacy regression coverage.
-- [ ] T122-08 Verify exact approved changed-file scope against `main` and run required repository validation.
-- [ ] T122-09 Open one bounded PR linked to Issue #122 and `specs/004-sea-speed-auth-v1/spec.md`; resolve CI/review findings only inside approved scope.
-- [ ] T122-10 Merge exact green head and record the new exact source SHA.
+- [x] T122-08 Verify approved changed-file scope against `main` and run required repository validation for the worker topology source.
+- [x] T122-09 Complete bounded source PR lifecycle for the worker-hosted topology and subsequent in-scope corrections.
+- [x] T122-10 Merge exact green worker-topology source and track exact-main production approvals per correction.
 
-## Production tasks - separately authorized for the new merged SHA
+### Issue #140 - Split nginx cutover remediation
 
-- [ ] T201 Obtain fresh exact-SHA `PRODUCTION APPROVED` for the Issue #122 MIXED worker+VPS topology.
-- [ ] T202 Run the fastest-safe worker stage: protected env -> Docker/Compose if absent -> Authentik/PostgreSQL -> private source-restricted proxy -> health acceptance.
-- [ ] T203 Prove VPS-to-worker private Authentik health and configure `auth.mostdef.ru` HTTPS through the VPS only.
-- [ ] T204 Configure Owner email/TOTP and prove password-only Owner login is rejected.
-- [ ] T205 Prove a single-use role invitation, cross-device email/password login and password recovery.
-- [ ] T206 Discover/confirm exact private VPS M2M listen and worker peer addresses; prepare the Sea Speed worker runtime URL switch while preserving the existing Bearer token.
-- [ ] T207 Prepare and activate the exact SHA-bound nginx/auth/media/private-M2M candidate using the exact worker private Authentik origin.
-- [ ] T208 Prove anonymous root access, `/cams/**` retirement, `/sea-speed/**` protection, header-spoof resistance and no direct backend/media/Auth exposure.
-- [ ] T209 Prove authenticated Camera 1 advancing H.264 playback and existing Cameras/Objects/API behavior.
-- [ ] T210 Prove worker ROI/speed GETs and Bearer-authenticated state/events POSTs continue through the exact private VPS listener; unrelated peers/methods/paths remain denied.
-- [ ] T211 Prove worker/Auth/ZeroTier loss fails `/sea-speed/**` closed without affecting the public `/` landing page.
-- [ ] T212 Record runtime acceptance or explicit blocker/rollback evidence in Issue #122 and cross-reference Issue #115.
+- [x] T140-01 Record the production split-layout blocker and Implementation Scope Check without expanding the #122 security/product boundary.
+- [x] T140-02 Add exact TLS `mostdef.ru` source discovery and bounded direct `/etc/nginx/snippets/sea-speed-*.conf` materialization.
+- [x] T140-03 Feed the materialized source into the existing Camera 1 then Auth v1 render/verify pipeline while keeping `prepare` non-active and `activate` expected-SHA guarded.
+- [x] T140-04 Add regression coverage for production-style split layout plus wildcard/nested/out-of-root fail-closed cases and record the intentional `12 hours` browser session / `96 hours` Proxy Provider token distinction.
+- [ ] T140-05 Verify exact changed-file scope, run required CI and resolve only in-scope findings.
+- [ ] T140-06 Merge the exact green head, record the new exact `main` SHA and require a fresh `PRODUCTION APPROVED <new-main-sha>` before remaining runtime mutation.
+
+## Production tasks
+
+### Completed staged identity/runtime work
+
+- [x] T201-stage Worker Authentik/PostgreSQL runtime is healthy on `sea-speed-worker`; Authentik Docker HTTP is worker-loopback-only and private VPS access is source-restricted.
+- [x] T202-stage VPS reaches the worker private Authentik origin and public `https://auth.mostdef.ru` is healthy through VPS TLS.
+- [x] T203-stage Owner TOTP login, Sea Speed provider/application/policy binding and role groups are proven.
+- [x] T204-stage SMTP test delivery and real invitation email delivery are proven; single-use Viewer enrollment, password-only Viewer login, disable/session-revocation behavior are proven.
+- [x] T205-stage Deep password-recovery acceptance is explicitly deferred/non-blocking by current operator decision; the product requirement remains documented for later verification if needed.
+
+### Remaining separately authorized final rollout
+
+- [ ] T206 Obtain fresh exact-SHA `PRODUCTION APPROVED` after Issue #140 merges.
+- [ ] T207 Run split-layout-aware `prepare`; record/review the exact flattened candidate SHA-256 without changing active nginx.
+- [ ] T208 Coordinate the Sea Speed worker runtime URL switch to the exact private VPS M2M listener while preserving the existing `SEA_SPEED_API_TOKEN`.
+- [ ] T209 Activate only the exact reviewed candidate; require `nginx -t`, nginx-only reload, `/cams/**` retirement and anonymous `/sea-speed/**` gating.
+- [ ] T210 Prove authenticated `/sea-speed/**`, Cameras/Objects/API behavior and advancing Camera 1 H.264 playback.
+- [ ] T211 Prove worker ROI/speed GETs and Bearer-authenticated state/events POSTs continue through the exact private VPS listener; unrelated peers/methods/paths remain denied.
+- [ ] T212 Prove no direct public backend/media/Auth origin exposure and perform the controlled worker/Auth/ZeroTier fail-closed test without affecting public `/`.
+- [ ] T213 Record sanitized final runtime evidence and close/cross-reference #140, #122 and #115 as applicable.
+
+## Seven-stage rollout view
+
+1. Worker Authentik runtime: COMPLETE.
+2. Identity/access contour sufficient for integration rollout: COMPLETE; password-recovery deep test deferred.
+3. Split nginx source remediation and timing documentation: source implementation complete on #140 branch; PR/CI pending.
+4. PR/CI/merge/new exact SHA/fresh production approval: PENDING.
+5. SHA-reviewed `prepare`: PENDING.
+6. Coordinated M2M + nginx production activation and primary runtime acceptance: PENDING.
+7. Controlled fail-closed test, final evidence and Issue closure: PENDING.
 
 ## Completion gate
 
-`COMPLETE` for the revised Auth v1 topology requires Issue #122 source integration plus every applicable separately authorized production acceptance item. Merge alone is not deployment, and deployment alone is not runtime acceptance.
+`COMPLETE` for Auth v1 requires the remaining final integration rollout and fail-closed acceptance after Issue #140 source integration. Merge alone is not deployment, deployment alone is not runtime acceptance, and no final production mutation may reuse an exact-SHA approval that predates the #140 merge.
