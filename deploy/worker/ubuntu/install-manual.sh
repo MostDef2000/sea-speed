@@ -2,13 +2,16 @@
 set -euo pipefail
 
 usage() {
-  cat <<'EOF'
+  cat <<'USAGE'
 Usage: install-manual.sh <40-character-source-commit> [install-root]
 
 Run from the root of an exact Sea Speed checkout. This script prepares a
 manual Ubuntu worker installation only. It does not install NVIDIA drivers,
-CUDA, PyTorch, systemd services, secrets, models, or production data.
-EOF
+CUDA, systemd services, secrets, models, or production data.
+
+The canonical CUDA worker runtime requires the exact PyTorch CUDA 13.0 pair
+shown in NEXT_ACTION when it is absent or mismatched.
+USAGE
 }
 
 expected_commit="${1:-}"
@@ -78,23 +81,62 @@ if [[ ! -x "$venv_root/bin/python" ]]; then
   "$venv_root/bin/python" -m pip install --upgrade pip setuptools wheel
 fi
 
-if ! "$venv_root/bin/python" -c 'import torch' >/dev/null 2>&1; then
-  cat >&2 <<EOF
-NEXT_ACTION PyTorch is not installed in the prepared release environment.
-Verify the NVIDIA driver on the physical server, obtain the compatible command
-from the official PyTorch installation selector, and install it with:
-  $venv_root/bin/python -m pip install <verified-pytorch-build>
+pytorch_versions_ok=false
+if "$venv_root/bin/python" - <<'PY' >/dev/null 2>&1
+from importlib.metadata import version
+
+assert version("torch") == "2.13.0+cu130"
+assert version("torchvision") == "0.28.0+cu130"
+PY
+then
+  pytorch_versions_ok=true
+fi
+
+if [[ "$pytorch_versions_ok" != true ]]; then
+  cat >&2 <<NEXT
+NEXT_ACTION The prepared release requires the canonical CUDA 13.0 PyTorch pair.
+Install the exact verified wheels into this release environment with:
+  $venv_root/bin/python -m pip install --index-url https://download.pytorch.org/whl/cu130 --only-binary=:all: 'torch==2.13.0+cu130' 'torchvision==0.28.0+cu130'
 Then rerun this exact installer command. The prepared source and protected
 shared directories will be reused without overwrite.
-EOF
+NEXT
   exit 20
 fi
 
 "$venv_root/bin/python" -m pip install \
   -r "$source_root/deploy/worker/ubuntu/requirements-runtime.txt"
 
-"$venv_root/bin/python" -c \
-  'import av, cv2, numpy, requests, torch, ultralytics; print("PASS runtime_imports")'
+"$venv_root/bin/python" - <<'PY'
+from importlib.metadata import version
+
+expected = {
+    "torch": "2.13.0+cu130",
+    "torchvision": "0.28.0+cu130",
+    "ultralytics": "8.4.117",
+    "opencv-python": "5.0.0.93",
+    "opencv-python-headless": "5.0.0.93",
+    "numpy": "2.4.4",
+    "requests": "2.34.2",
+    "python-dotenv": "1.2.2",
+}
+actual = {name: version(name) for name in expected}
+mismatched = {
+    name: {"expected": expected[name], "actual": actual[name]}
+    for name in expected
+    if actual[name] != expected[name]
+}
+if mismatched:
+    raise SystemExit(f"runtime version mismatch: {mismatched}")
+
+import cv2  # noqa: F401
+import numpy  # noqa: F401
+import requests  # noqa: F401
+import torch  # noqa: F401
+import torchvision  # noqa: F401
+import ultralytics  # noqa: F401
+
+print("PASS runtime_imports_and_versions")
+PY
 
 if [[ ! -e "$install_root/shared/config/worker.env" ]] && \
    [[ ! -e "$install_root/shared/config/worker.env.example" ]]; then
