@@ -112,7 +112,7 @@ def validate_authorization(fields: dict[str, str]) -> str:
     return authorization
 
 
-def validate_deployment_fields(impact: str, fields: dict[str, str]) -> None:
+def validate_deployment_fields(expected_contours: set[str], fields: dict[str, str]) -> None:
     allowed = {"REQUIRED", "NOT REQUIRED"}
     values = {
         "VPS": fields.get("VPS deployment", ""),
@@ -121,26 +121,17 @@ def validate_deployment_fields(impact: str, fields: dict[str, str]) -> None:
     }
     if any(value not in allowed for value in values.values()):
         raise ContractError("all deployment contour fields must be REQUIRED or NOT REQUIRED")
-    expected = {
-        "NONE": set(),
-        "CONTROL_PLANE": set(),
-        "VPS": {"VPS"},
-        "UBUNTU_WORKER": {"UBUNTU_WORKER"},
-        "WINDOWS_WORKER": {"WINDOWS_WORKER"},
-    }
     declared = {name for name, value in values.items() if value == "REQUIRED"}
-    if impact == "MIXED":
-        if len(declared) < 2:
-            raise ContractError("MIXED impact must mark every applicable runtime contour REQUIRED")
-    elif declared != expected[impact]:
-        raise ContractError(f"deployment contour declaration {sorted(declared)} does not match {impact}")
+    if declared != expected_contours:
+        raise ContractError(
+            f"deployment contour declaration {sorted(declared)} does not match exact derived contours {sorted(expected_contours)}"
+        )
     production_envelope = fields.get("Production safety envelope", "")
     if production_envelope not in allowed:
         raise ContractError("Production safety envelope must be REQUIRED or NOT REQUIRED")
-    runtime_impact = bool(declared)
-    if runtime_impact and production_envelope != "REQUIRED":
+    if expected_contours and production_envelope != "REQUIRED":
         raise ContractError("runtime production impact requires a Production safety envelope")
-    if not runtime_impact and production_envelope != "NOT REQUIRED":
+    if not expected_contours and production_envelope != "NOT REQUIRED":
         raise ContractError("non-runtime impact must declare Production safety envelope NOT REQUIRED")
 
 
@@ -170,12 +161,13 @@ def validate_contract(body: str, changed_files: Iterable[str], policy: dict | No
         extra = sorted(declared - actual)
         raise ContractError(f"declared changed files do not match Git diff; missing={missing}; extra={extra}")
     impact = derive_impact(actual, policy)
+    contours = derive_runtime_contours(actual, policy)
     declared_impact = fields.get("Production impact", "")
     if declared_impact not in policy["impact_classes"]:
         raise ContractError("Production impact must use a policy impact class")
     if declared_impact != impact:
         raise ContractError(f"declared Production impact {declared_impact} does not match derived {impact}")
-    validate_deployment_fields(impact, fields)
+    validate_deployment_fields(contours, fields)
     return impact
 
 
