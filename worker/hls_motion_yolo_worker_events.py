@@ -424,6 +424,11 @@ _roi_cache = {
     "signature": "",
 }
 
+# The Worker main loop is serial. Bind the effective ROI captured before
+# motion/inference so the legacy one-argument final guard cannot refetch a
+# different polygon after a slow AI inference.
+_roi_processing_points = None
+
 
 def get_roi_url():
     url = env_str("SEA_SPEED_ROI_URL", "").strip()
@@ -535,6 +540,8 @@ def mask_frame_to_roi(frame, points):
 
 
 def prepare_roi_processing_frame(frame, motion_detector):
+    global _roi_processing_points
+
     enabled, points = fetch_remote_roi()
     points = list(points) if enabled and len(points) >= 3 else []
     signature = roi_processing_signature(bool(points), points)
@@ -551,6 +558,7 @@ def prepare_roi_processing_frame(frame, motion_detector):
         motion_detector.last_area = 0.0
         motion_detector._roi_processing_signature = signature
 
+    _roi_processing_points = list(points)
     return mask_frame_to_roi(frame, points), points
 
 
@@ -560,6 +568,8 @@ def bbox_center(det):
 
 
 def detection_inside_road_roi(det, points=None):
+    if points is None:
+        points = _roi_processing_points
     if points is None:
         points = parse_road_roi_polygon()
 
@@ -1428,7 +1438,7 @@ def main():
             if ai_active:
                 raw_detections = detect_vehicles(model, processing_frame)
                 detections = filter_detections_by_motion(raw_detections, motion_boxes)
-                detections = filter_detections_by_roi(detections, roi_points)
+                detections = filter_detections_by_roi(detections)
 
             active_track_ids = set()
 
