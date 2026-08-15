@@ -18,21 +18,22 @@
       "status": "accepted-temporary",
       "owner": "project owner",
       "trust_boundary": "NVIDIA CUDA and physical RTSP runtime",
-      "consequence": "GitHub-hosted CI validates the exact edge package without proving GPU inference on the target server.",
-      "compensating_controls": ["exact source package validation", "Python syntax validation", "deterministic contract tests", "runtime acceptance remains separate"],
-      "remediation_target": "Install a self-hosted edge staging runner with NVIDIA and RTSP fixtures",
+      "consequence": "GitHub-hosted CI validates exact Worker packages/source without proving GPU inference on the physical target.",
+      "compensating_controls": ["exact source/package validation", "Python syntax validation", "deterministic contract tests", "runtime acceptance remains separate"],
+      "remediation_target": "Install a self-hosted staging/runtime gate with NVIDIA and RTSP fixtures",
       "review_date": "2026-10-01"
     },
     {
       "id": "RISK-ACTIONS-PIN-001",
       "severity": "low",
-      "status": "accepted-temporary",
+      "status": "closed",
       "owner": "project owner",
       "trust_boundary": "GitHub Actions dependencies",
-      "consequence": "Existing workflows use official major-version action tags instead of immutable commit SHAs.",
-      "compensating_controls": ["only official actions are allowed by workflow policy", "workflow permissions are explicit and minimal"],
-      "remediation_target": "Pin all actions to reviewed commit SHAs",
-      "review_date": "2026-10-01"
+      "consequence": "Historical workflows used mutable major-version action tags.",
+      "compensating_controls": ["workflow policy allow-list", "explicit minimal permissions", "immutable action SHA validation"],
+      "remediation_target": "Completed: external workflow actions are pinned to immutable 40-character SHAs and policy validation rejects mutable references.",
+      "resolution_evidence": "Quality gate architecture and scripts/quality/validate_workflow_policy.py enforce immutable action SHAs; Stage A exact-head and post-merge aggregate quality passed with the policy active.",
+      "closed_date": "2026-08-15"
     }
   ]
 }

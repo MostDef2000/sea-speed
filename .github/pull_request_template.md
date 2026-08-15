@@ -3,7 +3,7 @@
 - Issue: #
 - Specification: `specs/NNN-feature/spec.md` / NOT REQUIRED
 - Approved scope:
-- Source authorization: OUTCOME APPROVED / LEGACY COMMIT APPROVED
+- Source authorization: OUTCOME APPROVED
 - Approval recorded after Implementation Scope Check: YES/NO
 - Material scope/protected-boundary change since authorization: NO/YES
 - Acceptance criteria:

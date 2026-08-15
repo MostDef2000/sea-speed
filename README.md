@@ -1,134 +1,91 @@
 # Sea Speed
 
-Camera-based vehicle detection and speed-estimation project.
+Camera-based vehicle/vessel detection and speed-estimation project.
 
 ## Runtime architecture
 
-Current MVP runtime:
+Current production has three explicit execution contours:
 
 ```text
-camera / HLS stream
-→ Windows AI worker
-→ VPS FastAPI backend and storage
-→ operator web UI
+Ubuntu Worker/relay
+  -> camera/private relay and Linux worker services when applicable
+
+Windows AI Worker
+  -> Windows-specific AI worker packaging/runtime when applicable
+
+VPS
+  -> FastAPI, public nginx/TLS, protected Sea Speed UI/API/media
 ```
 
-Target edge runtime:
+Shared `worker/**` source may affect both Worker contours. Runtime applicability is derived from exact paths; `MIXED` never replaces the exact VPS/Ubuntu/Windows declarations.
 
-```text
-IP camera
-→ local edge server: worker, local database and durable media
-→ VPS: frontend, backend and metadata only
-```
-
-The target `edge_v2` media contract requires durable images and video to remain on the edge node. Until that migration is delivered, current VPS JPEG persistence remains an explicit temporary accepted risk.
-
-GitHub `main` is the source of truth. The VPS and edge/Windows hosts are runtime environments, not places for manual source edits.
-
-## Repository layout
-
-```text
-worker/      Edge/Windows AI worker source and runtime scripts
-api/         FastAPI backend
-frontend/    Operator web UI
-deploy/      VPS and worker delivery helpers
-contracts/   canonical governance, runtime and branch contracts
-data/        versioned data contracts, quality rollout and risk registers
-docs/        architecture, decisions, operations, quality and diagnostics
-scripts/     repository validation, quality and release tooling
-tests/       behavioral, contract, reliability and exact-artifact tests
-schemas/     release, deployment, telemetry and quality-evidence schemas
-skills/      compatibility entrypoints that route to contracts
-```
+GitHub `main` is the source of truth. Runtime hosts are not places for manual source edits.
 
 ## Development control plane
 
-GitHub Issues are the canonical persistent backlog and task history for repository work. A read-only Task Intake step converts each unstructured request into a canonical Task Brief before implementation planning.
+GitHub Issues are the canonical backlog, authorization and task-history record. Read-only Task Intake converts an unstructured request into a Task Brief. The single active orchestration role is **Sea Speed Delivery Orchestrator**.
 
-Every task follows:
+Normal source lifecycle:
 
 ```text
-request and issue recovery
-→ read-only Task Intake
-→ scope lock
-→ Implementation Scope Check
-→ explicit approval
-→ capability preflight
-→ fresh branch from current main
-→ implementation
-→ post-write integrity gate
-→ pull request
-→ four independent quality domains
-→ aggregate quality context
-→ merge into main
-→ deterministic exact artifacts and evidence
-→ separately approved applicable deployment
-→ runtime verification
-→ COMPLETE / BLOCKED / FAILED
+request / Issue recovery
+-> read-only Task Intake
+-> Outcome Contract + Implementation Scope Check
+-> OUTCOME APPROVED
+-> capability preflight
+-> fresh branch from current main
+-> implementation + SDD
+-> integrity gate
+-> pull request
+-> PR Validation + Quality integration
+-> fresh base/head/scope/review check
+-> expected-head merge
+-> post-merge exact-main verification
+-> separately authorized runtime delivery when applicable
+-> runtime acceptance
+-> COMPLETE / BLOCKED / FAILED
 ```
 
-Repository-write approval is valid only after the Implementation Scope Check identifies the exact files, exclusions, risks, impact, checks, release applicability, and acceptance criteria. Do not begin a partial multi-file implementation unless the complete approved file set can be changed and published safely.
+`OUTCOME APPROVED` is the active source-authorization model for new tasks. Historical `COMMIT APPROVED` / `MERGE APPROVED` records remain audit history but are not accepted in new Change Contracts.
 
 Canonical project rules:
 
+- `AGENTS.md`
 - `contracts/SEA_SPEED_GOVERNANCE.md`
 - `contracts/SEA_SPEED_DELIVERY_POLICY.md`
 - `contracts/runtime/SEA_SPEED_TASK_RUNTIME.md`
 - `contracts/runtime/RELEASE_READINESS_GATE.md`
 - `contracts/branches/task-intake.md`
-- `contracts/branches/project-manager.md`
+- `contracts/branches/project-manager.md` (compatibility path for Delivery Orchestrator)
 - `docs/architecture/sea-speed-control-plane.md`
-- `docs/quality/testing-policy.md`
-- `docs/quality/quality-gate-architecture.md`
+- `specs/README.md`
 
-Repository writes require `COMMIT APPROVED` or an approved equivalent. Changes under `skills/**` additionally require `SKILL UPDATE APPROVED`.
+Domain files under `contracts/branches/`, including `core-release.md`, are on-demand review lenses/checklists. They do not require autonomous-agent handoffs.
 
 ## Quality integration gate
 
-The merge-facing quality context is:
+The merge-facing context is:
 
 ```text
 Quality integration gate / quality-integration
 ```
 
-It runs without path filters and aggregates four independent domains:
-
-- `static-contract-security`;
-- `property-fuzz-reliability`;
-- `exact-artifact-e2e`;
-- `release-deployment-evidence`.
-
-A failure or cancellation in any domain fails the aggregate context. Source installation of the gate does not prove GitHub branch-protection enforcement; that state is recorded separately in `data/quality/quality-gates-v1.json`.
-
-## Validation
-
-Pull requests execute:
-
-- repository structure, syntax, secret-pattern and canonical-reference validation;
-- versioned contract schemas with positive and negative fixtures;
-- API, worker and frontend behavioral contract tests;
-- deterministic property, fuzz and interrupted-write recovery checks;
-- deterministic VPS and edge archive construction and byte-for-byte rebuild comparison;
-- artifact inventory, SHA-256, safe extraction and executable-boundary checks;
-- quality evidence tied to exact source commit and artifact digests.
-
-The production baseline procedure is documented in `docs/operations/PRODUCTION_BASELINE.md`.
+It aggregates independent static/security, reliability, exact-artifact and release/deployment-evidence domains. Significant PRs must link one valid feature specification. Workflow presence does not prove branch-protection settings.
 
 ## Release contours
 
-- `api/**` and `frontend/**`: normally require VPS deployment.
-- `worker/**`: normally requires worker update.
-- mixed API/worker or schema-changing work requires compatibility notes and an explicit rollout order.
-- contracts/docs/skills/README-only work requires no runtime release.
+- `api/**`, `frontend/**`, `deploy/vps/**`: normally VPS.
+- `deploy/worker/ubuntu/**`, `worker/ubuntu_*`: Ubuntu Worker/relay.
+- Windows-specific `worker/*.ps1`, `worker/*.cmd`, `worker/windows/**`: Windows AI Worker.
+- shared `worker/**`: Ubuntu + Windows unless a more-specific rule applies.
+- control-plane/docs/SDD work: no runtime release.
 
-Production deployment never runs merely because a commit was pushed or merged to `main`. It requires explicit dispatch of a full 40-character commit SHA, a successful aggregate quality check for that exact commit, production-environment approval, validated evidence and rollback availability.
+Every runtime contour requires a separate production safety envelope. Production is never implied by source authorization, push or merge.
 
-Merge is not release. Release is not deployment. Deployment is not runtime acceptance. COMPLETE requires evidence from source integration and every applicable runtime contour.
+## Provenance
+
+New deployable releases use `sea_speed_release_manifest_v2`, binding canonical Issue/merged PR, exact source/base commits, Outcome and Change Contract hashes, approved vs actual files, exact artifacts and quality evidence. Deployment manifests identify the installed contour and rollback target. Persisted v1 evidence remains readable for rollback compatibility.
 
 ## Secrets policy
 
-Never commit tokens, passwords, camera credentials, `.env`, SSH keys, runtime logs, event snapshots, overlays, videos, model binaries, local virtual environments or other runtime data.
-
-## Current baseline
-
-The reviewed runtime baseline is integrated into `main`. Installed VPS and worker revisions must still be verified independently because repository state does not prove runtime state. Use `docs/operations/PRODUCTION_BASELINE.md` and record only non-secret commit and health evidence.
+Never commit tokens, passwords, camera credentials, `.env`, SSH keys, TOTP material, runtime logs, event media, model binaries, local virtual environments or generated runtime data.

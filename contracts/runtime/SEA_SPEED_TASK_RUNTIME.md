@@ -1,17 +1,14 @@
 # Sea Speed Task Runtime
 
-Version: 1.4.0
+Version: 1.5.0
 Status: Active
 
-## States
+## Active states
 
 ```text
 DISCUSSION
 READY_FOR_IMPLEMENTATION
 IMPLEMENTING
-MODULE_COMMITTED
-HANDOFF_VALIDATED
-CORE_RELEASE_INTEGRATING
 SOURCE_INTEGRATED
 ACTIONS_REQUIRED
 ACTIONS_RUNNING
@@ -22,19 +19,24 @@ BLOCKED
 FAILED
 ```
 
+Historical evidence may contain `HANDOFF_VALIDATED` or `CORE_RELEASE_INTEGRATING`; new tasks do not emit those states because Delivery Orchestrator retains one task context instead of handing lifecycle ownership to another orchestrator.
+
 ## Semantics
 
-- `DISCUSSION` includes read-only Task Intake, repository discovery, Task Brief and Outcome Contract preparation.
-- `READY_FOR_IMPLEMENTATION` requires a canonical Task Brief, Outcome Contract / Implementation Scope Check and valid source authorization.
-- `SOURCE_INTEGRATED` means source is verified on `main`; it does not mean production deployment or worker update.
-- `ACTIONS_REQUIRED` is manual fallback only.
-- `ACTIONS_COMPLETED` may mean a package or deployment action completed; it is not runtime acceptance by itself.
-- `RUNTIME_ACCEPTANCE` verifies provenance, health, freshness, telemetry and product evidence for applicable runtime contours.
-- Terminal states are only `COMPLETE`, `BLOCKED`, and `FAILED`.
+- `DISCUSSION`: read-only Task Intake, repository discovery, Task Brief and Outcome Contract preparation.
+- `READY_FOR_IMPLEMENTATION`: scope locked, `OUTCOME APPROVED` valid and capability preflight passed.
+- `IMPLEMENTING`: bounded source/SDD work and in-scope CI remediation.
+- `SOURCE_INTEGRATED`: exact approved source verified on `main`; not production evidence.
+- `ACTIONS_REQUIRED`: explicit manual/fallback protected action is required.
+- `ACTIONS_RUNNING` / `ACTIONS_COMPLETED`: runtime operation state; not acceptance by itself.
+- `RUNTIME_ACCEPTANCE`: provenance, health, freshness/telemetry and product evidence are being verified for applicable contours.
+- terminal states: `COMPLETE`, `BLOCKED`, `FAILED` only.
 
-## Canonical Task Brief and Outcome Contract
+## Canonical owner
 
-Implementation tasks should be represented in the linked GitHub Issue with the existing Task Brief plus:
+The **Sea Speed Delivery Orchestrator** owns the task state from intake through terminal evidence. Domain/release files are on-demand review lenses; invoking them does not transfer lifecycle ownership.
+
+## Outcome Contract
 
 ```text
 Outcome Contract
@@ -47,13 +49,7 @@ Outcome Contract
 - Acceptance evidence:
 ```
 
-The Project Manager validates both against current repository state before requesting source authorization.
-
-## Source authorization
-
-Preferred authorization is `OUTCOME APPROVED` after the Outcome Contract / Implementation Scope Check. It covers the bounded reversible repository lifecycle through exact-green-head merge when the outcome, exact approved scope, runtime contour and protected boundaries remain unchanged.
-
-Legacy `COMMIT APPROVED` remains accepted during transition but does not remove the legacy separate merge-approval requirement.
+New repository work requires `OUTCOME APPROVED` after the Implementation Scope Check. Historical legacy approvals remain audit history only.
 
 ## Required status block
 
@@ -61,9 +57,9 @@ Legacy `COMMIT APPROVED` remains accepted during transition but does not remove 
 Sea Speed Task Runtime
 - Task:
 - Issue:
-- Responsible agent:
+- Responsible role: Sea Speed Delivery Orchestrator
 - Current phase:
-- Source authorization: OUTCOME APPROVED/LEGACY COMMIT APPROVED/OTHER
+- Source authorization: OUTCOME APPROVED
 - Branch:
 - Approved outcome/scope:
 - Changed files:
@@ -84,69 +80,33 @@ Sea Speed Task Runtime
 - Final state: PENDING/COMPLETE/BLOCKED/FAILED
 ```
 
-## Production contour rule
+## Runtime contour rule
 
-The explicit production runtime contours are VPS, Ubuntu Worker/relay, and Windows AI Worker. A task may affect exactly one contour or a mixed set. The summary class `MIXED` never replaces the exact per-contour deployment fields. Ubuntu-only production-impact source is not CONTROL_PLANE simply because it resides under `deploy/**`; shared Worker source may legitimately require both Ubuntu and Windows contours.
-
-Every non-empty runtime contour set requires `Production safety envelope: REQUIRED`. CONTROL_PLANE and NONE require all three deployment fields and the production safety envelope to be `NOT REQUIRED`.
+Explicit contours are VPS, Ubuntu Worker/relay, Windows AI Worker. `MIXED` never replaces exact per-contour fields. Every non-empty runtime set requires a production safety envelope; CONTROL_PLANE/NONE require all runtime fields and envelope to be `NOT REQUIRED`.
 
 ## Continuation rule
 
-After `OUTCOME APPROVED`, continue automatically through every deterministic safe repository transition: implementation, integrity checks, PR, metadata repair, CI, in-scope CI remediation and exact-green-head merge. Do not wait for another user message between these transitions.
+After `OUTCOME APPROVED`, continue automatically through deterministic safe repository transitions: implementation, integrity checks, PR, metadata repair, CI, in-scope CI remediation and exact-green-head merge. New source authorization is required only when outcome/scope/protected boundaries materially change.
 
-New source authorization is required only when the product outcome materially changes or a protected boundary is crossed: scope expansion, destructive action, secrets/security-boundary change, protected behavior change, schema incompatibility, data migration, behavior redesign, or equivalent material change.
+Production remains separate. Continue runtime mutation only after the exact production envelope and release-readiness evidence are current.
 
-Ordinary in-scope bug fixes, test changes and CI remediation do not require fresh authorization.
+## Integrity / merge rule
 
-Production mutation is never implied by source authorization. When production applies, continue only after the separate production safety envelope is available and release readiness binds it to the final exact green SHA.
-
-## Production authorization identity
-
-Production authorization is durable Issue evidence bound to the canonical Issue, applicable merged PR, exact source SHA, Outcome Contract, exact runtime contour set, security impact, deployment target and rollback target. The authorized actor set is source controlled. Material change to a bound field makes prior authorization stale; GitHub API failure, ambiguity or missing linkage fails closed.
-
-## Capability rule
-
-Before first write, verify that the full approved file set and required lifecycle are executable. Do not create a partial implementation when mandatory files, PR operations, CI evidence, merge, release, deployment, verification or rollback paths are unavailable.
-
-## Remote worker execution boundary
-
-The canonical worker SSH transport and local sudo boundary remain unchanged. SSH reachability is transport only and does not authorize source publication or production mutation.
-
-## Integrity rule
-
-After writes, fetch complete files, validate syntax/structure, compare the branch with `main`, verify exact changed-file scope and check for secrets/runtime artifacts. In-scope repairs remain covered by active Outcome Authorization.
-
-## Merge rule
-
-Before merge verify fresh base/head, exact scope, successful required CI and zero unresolved review threads. If source authorization is `OUTCOME APPROVED` and remains valid, merge may proceed automatically with expected-head protection when supported. Legacy `COMMIT APPROVED` tasks still require post-CI `MERGE APPROVED`.
+After writes validate complete files, syntax/structure, exact diff, scope, branch freshness and secret/runtime-artifact absence. Before merge re-read `main`, verify exact head/scope, successful required checks and zero unresolved review threads, then merge with expected-head protection when supported.
 
 ## Evidence hierarchy
 
-Completion evidence remains:
-
 ```text
 approved outcome/scope
-→ exact changed files
-→ PR validation and aggregate SDD gate
-→ authorized merge commit on main
-→ release manifest v2 and exact artifact identity when runtime delivery applies
-→ durable production authorization bound to exact main SHA
-→ deployment manifest for each applicable contour
-→ runtime source identity and health
-→ freshness/telemetry where applicable
-→ post-release evidence verdict
+-> exact changed files
+-> PR Validation + aggregate SDD gate
+-> exact-green-head merge on main
+-> release manifest v2/exact artifacts when applicable
+-> durable exact-main production authorization
+-> deployment manifest for every applicable contour
+-> runtime source identity/health
+-> freshness/telemetry where applicable
+-> product evidence verdict
 ```
 
-A running process, open PR, green CI, merge, uploaded package or deployment start is not sufficient by itself.
-
-## Runtime acceptance
-
-Worker/API runtime acceptance requirements remain unchanged for their applicable contours. Governance/control-plane-only work may classify runtime acceptance as `NOT REQUIRED` after successful aggregate CI and authorized merge.
-
-## Feedback decision
-
-Use `docs/evidence/POST_RELEASE_REVIEW.md`. A regression creates a linked Issue and requires a rollback decision unless an active production safety envelope already covers the exact declared safe rollback condition.
-
-## Terminal response gate
-
-After source authorization, a final response is permitted only in `COMPLETE`, `BLOCKED`, or `FAILED`. Waiting for CI is not itself a blocker. Waiting for a legacy merge approval or a required production/user privilege boundary is a valid `BLOCKED` state when no further authorized transition is possible.
+Governance/control-plane-only work may mark runtime acceptance `NOT REQUIRED` after exact merge and post-merge quality verification.

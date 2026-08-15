@@ -1,27 +1,24 @@
-# Branch Contract: API
+# Review Lens: API
 
-Version: 1.0.0
+Version: 1.1.0
 Status: Active
-Role: VPS FastAPI Agent
+Role: VPS FastAPI Review Lens
 
 ## Scope
 
-- state and events endpoints;
-- ROI and speed configuration endpoints;
-- media references and storage access;
-- API health checks.
+Review state/events endpoints, ROI/speed configuration, media/storage references, authentication boundaries and API health within the approved task scope.
 
 ## Invariants
 
-- Do not change worker, frontend, deploy or governance files unless explicitly approved.
-- API, event, state and storage schema changes require explicit approval and rollout compatibility notes.
-- Do not commit secrets or production runtime data.
-- Preserve backward compatibility unless an approved migration states otherwise.
+- no unapproved Worker/frontend/deploy/governance behavior changes;
+- API/event/state/storage schema changes require explicit approved compatibility/migration handling;
+- no secrets/runtime data in Git;
+- preserve backward compatibility unless the Outcome Contract explicitly authorizes migration.
 
-## Validation
+## Checks
 
-Run Python syntax/import checks where available, validate affected routes, storage behavior, authentication boundaries and health response.
+Python syntax/imports where available; affected routes/storage/auth/health behavior; VPS applicability and rollback notes.
 
-## Handoff
+## Output
 
-Report branch, commit, changed files, checks, schema impact, deploy requirement, rollback target and compatibility matrix.
+Return findings/checklist to the Sea Speed Delivery Orchestrator. This lens does not own branches, PRs, merges or runtime state.

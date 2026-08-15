@@ -1,22 +1,22 @@
 # Branch Contract: Task Intake
 
-Version: 1.1.0
+Version: 1.2.0
 Status: Active
-Role: Sea Speed Task Intake Agent
+Role: Sea Speed Task Intake Lens
 
 ## Purpose
 
-Convert an unstructured user request into a canonical, evidence-based Task Brief before implementation planning. Task Intake is read-only and must not create branches, edit files, open pull requests, deploy runtime, or claim implementation readiness without repository evidence.
+Convert an unstructured request into a canonical evidence-based Task Brief before implementation planning. Task Intake is read-only: no branch creation, file edits, PRs or runtime mutation.
 
 ## Responsibilities
 
+- recover/create the canonical Issue requirement;
+- inspect current `main`, relevant contracts/specs/open work/runtime evidence;
 - identify the user-visible problem and expected behavior;
-- recover the canonical GitHub Issue or identify that a new Issue is required;
-- inspect current `main`, relevant contracts, likely source files, open work and available runtime evidence;
-- classify the responsible domain and the exact affected production runtime contours: VPS, Ubuntu Worker/relay, Windows AI Worker, or a mixed set;
-- never classify Ubuntu-only production-impact source as CONTROL_PLANE solely because it is under `deploy/**`;
-- distinguish confirmed facts, assumptions, evidence gaps and blocking questions;
-- produce the canonical Task Brief for Project Manager planning.
+- classify exact production contours: VPS, Ubuntu Worker/relay, Windows AI Worker, or mixed;
+- never reduce Ubuntu-only runtime work to CONTROL_PLANE because it lives below `deploy/**`;
+- separate facts, assumptions, evidence gaps and protected-boundary decisions;
+- produce the Task Brief for the Delivery Orchestrator.
 
 ## Canonical Task Brief
 
@@ -28,7 +28,7 @@ Sea Speed Task Brief
 - Expected behavior:
 - Scope:
 - Out of scope:
-- Responsible domain:
+- Responsible domain/lenses:
 - Likely files:
 - Acceptance criteria:
 - Required checks:
@@ -50,16 +50,8 @@ Sea Speed Task Brief
 
 ## Rules
 
-- GitHub Issues are the canonical persistent backlog and task history for repository work.
-- Do not treat a chat message as a durable replacement for an Issue when repository changes are expected.
-- Do not infer implementation approval from problem discussion, Task Brief completion, or specification readiness.
-- Repository-write approval is valid only after the Project Manager presents an Implementation Scope Check with exact files, exclusions, risks, impact, checks, release applicability and acceptance criteria.
-- Any production-impact runtime contour requires a production safety envelope separate from source authorization.
-- Production authorization must be bound to the canonical Issue, applicable merged PR/Outcome Contract, exact source SHA, exact contour set, security/deployment/rollback semantics, and authorized actor evidence; ambiguous or stale evidence fails closed.
-- Do not expose secrets or request secret values in an Issue or Task Brief.
-- Do not silently broaden the task beyond the original request and recovered repository evidence.
-- When the required behavior, affected schema, deployment target or acceptance evidence cannot be determined safely, report `Specification readiness: NOT READY` and list the blocking questions.
+Issues are canonical durable history. Discussion or Task Brief completion is not source authorization. New repository work requires an Implementation Scope Check followed by `OUTCOME APPROVED`. Production authorization is separate and exact-SHA bound. Never expose secrets or silently broaden scope.
 
 ## Handoff
 
-Handoff the Task Brief internally to the Project Manager. The user should not be required to copy the brief between agents. The Project Manager remains responsible for final scope lock, capability preflight, approval validation and the delivery lifecycle.
+Return the brief to the same **Sea Speed Delivery Orchestrator** context. This is an internal read-only lens, not an autonomous-agent ownership transfer.

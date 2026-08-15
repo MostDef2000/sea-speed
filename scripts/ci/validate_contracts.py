@@ -32,6 +32,7 @@ CANONICAL_FILES = (
     "docs/decision_records/DR-001-two-runtime-delivery-model.md",
     "docs/decision_records/DR-002-task-intake-and-delivery-controls.md",
     "docs/decision_records/DR-003-release-provenance-and-evidence-loop.md",
+    "docs/decision_records/DR-004-delivery-orchestrator-convergence.md",
     "docs/operations/PRODUCTION_BASELINE.md",
     "docs/operations/RELEASE_PROVENANCE.md",
     "docs/evidence/POST_RELEASE_REVIEW.md",
@@ -45,6 +46,7 @@ CANONICAL_FILES = (
     "scripts/release/verify_production_authorization.py",
     "scripts/ci/validate_change_contract.py",
     "scripts/ci/validate_telemetry.py",
+    "scripts/ci/validate_sdd.py",
     "scripts/quality/validate_quality_contracts.py",
     "scripts/quality/validate_workflow_policy.py",
     "scripts/quality/build_exact_artifacts.py",
@@ -56,8 +58,9 @@ CANONICAL_FILES = (
     ".github/workflows/quality-integration.yml",
     ".github/workflows/deploy-vps.yml",
     "specs/012-delivery-control-hardening/spec.md",
-    "specs/012-delivery-control-hardening/plan.md",
-    "specs/012-delivery-control-hardening/tasks.md",
+    "specs/013-delivery-orchestrator-convergence/spec.md",
+    "specs/013-delivery-orchestrator-convergence/plan.md",
+    "specs/013-delivery-orchestrator-convergence/tasks.md",
 )
 
 REFERENCE_FILES = (
@@ -71,16 +74,12 @@ REFERENCE_FILES = (
     "contracts/branches/project-manager.md",
     "contracts/branches/core-release.md",
     "docs/architecture/sea-speed-control-plane.md",
-    "docs/quality/testing-policy.md",
-    "docs/quality/quality-gate-architecture.md",
     "docs/operations/PRODUCTION_BASELINE.md",
     "docs/operations/RELEASE_PROVENANCE.md",
     "docs/evidence/POST_RELEASE_REVIEW.md",
 )
 
-REPO_PATH_PATTERN = re.compile(
-    r"`((?:contracts|data|docs|scripts|deploy|api|frontend|worker|tests|schemas|specs|\.github)/[^`\n]+)`"
-)
+REPO_PATH_PATTERN = re.compile(r"`((?:contracts|data|docs|scripts|deploy|api|frontend|worker|tests|schemas|specs|\.github)/[^`\n]+)`")
 
 
 def fail(message: str) -> None:

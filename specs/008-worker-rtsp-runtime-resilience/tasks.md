@@ -6,22 +6,19 @@
 
 ## Delivery tasks
 
-- [x] T001 Add an Ubuntu-only FFmpeg RTSP entrypoint with TCP transport, bounded frame reads, redacted logging, and bounded subprocess recreation while delegating non-RTSP input to the existing worker.
-- [x] T002 Point the Ubuntu Worker systemd unit at the resilient entrypoint without changing detection/tracking/calibration logic.
-- [x] T003 Pin critical top-level Worker runtime dependencies and require the exact CUDA 13.0 torch/torchvision pair before release preparation completes.
-- [x] T004 Add an exact-SHA heartbeat progression verifier for frame and state-post counters.
-- [x] T005 Strengthen `update-exact.sh --activate` so the active marker moves only after progression and the previous unit/service is restored automatically on candidate failure.
-- [x] T006 Update focused Worker RTSP, manual-install, and exact-updater contract tests for the new runtime architecture and preserve calibration ownership assertions.
-- [ ] T007 Obtain green PR validation, quality integration, and Worker package gates for the exact branch head.
-- [ ] T008 Merge with expected-head protection and obtain green post-merge gates on the exact release SHA.
-- [ ] T009 After fresh exact-SHA production authorization, roll out Worker first and record sustained frame/state progression plus clean AI-frame acceptance.
-- [ ] T010 Roll out VPS frontend on the same exact SHA and record browser acceptance for persistent single-owner ROI/A/B geometry.
+- [x] Localize production frame stall to the RTSP reader path.
+- [x] Move Ubuntu production RTSP ingestion to bounded FFmpeg/TCP.
+- [x] Add bounded timeout/recreation and redacted diagnostics.
+- [x] Require exact candidate frame/state progression before activation commit.
+- [x] Preserve automatic previous-release restoration.
+- [x] Pin/verify critical Ubuntu runtime package contract.
+- [x] Pass focused source/quality checks.
+- [x] Feed runtime evidence into subsequent AI-supervision remediation.
+- [x] Final Issue #159 Worker acceptance reached sustained progression.
 
 ## Completion gate
 
-- [x] Requirements are covered by tasks.
-- [x] Spec, plan and tasks match the implemented behavior.
-- [ ] Required CI is green.
-- [ ] Separate merge approval is present.
-- [ ] Applicable deployment/runtime acceptance is complete, or explicitly NOT REQUIRED.
-- [ ] Runtime learning and deferred work are written back to the feature artifacts.
+- [x] RTSP reads are bounded.
+- [x] Activation is progression-gated.
+- [x] Rollback/restore remains exact.
+- [x] Supporting runtime remediation is accepted as part of closed Issue #159.

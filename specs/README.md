@@ -2,69 +2,54 @@
 
 Status: Active
 
-This directory is the durable Spec-Driven Development (SDD) layer for Sea Speed, compatible with the GitHub Spec Kit workflow.
+This directory is the durable Spec-Driven Development layer for Sea Speed.
 
 ## Source-of-truth hierarchy
 
-- `contracts/**` defines HOW Sea Speed work is authorized, merged, deployed and accepted.
-- `specs/<feature>/spec.md` defines WHAT the product must do and WHY for that feature.
-- `specs/<feature>/plan.md` records the accepted architecture and important technical decisions.
-- `specs/<feature>/tasks.md` records the bounded implementation work.
-- source code implements the feature.
-- runtime acceptance proves what actually works in production and feeds that learning back into the feature artifacts.
+- `contracts/**`: HOW work is authorized, merged, deployed and accepted.
+- GitHub Issue: canonical backlog, authorization and audit history.
+- `specs/<feature>/spec.md`: WHAT/WHY.
+- `plan.md`: HOW/decisions/contours.
+- `tasks.md`: bounded execution and completion evidence.
+- source code: implementation.
+- runtime evidence: operational truth written back into active artifacts.
 
-GitHub Issues remain the canonical backlog, approval and audit history. A specification may supersede an obsolete technical assumption from an older Issue, but the change must be explicit and traceable.
+## Feature identifiers
 
-## Feature directory format
+Use `NNN-feature-slug`. The **full directory name** is the canonical identifier; the number is only a sequence prefix.
 
-Use `NNN-feature-slug`, for example:
+The historical directories `002-camera-preview-gallery` and `002-sdd-adoption` are grandfathered audit history. They must not be renamed solely for cleanup. `scripts/ci/validate_sdd.py` rejects any new duplicate numeric prefix.
 
-```text
-specs/003-ai-worker-control/
-  spec.md
-  plan.md
-  research.md       # optional but recommended for non-trivial decisions
-  tasks.md
-  quickstart.md     # optional validation/operator guide
-  contracts/        # optional normative API/runtime/integration contracts
-```
-
-Every feature directory MUST contain `spec.md`, `plan.md` and `tasks.md`.
-
-## Normal development flow
+## Normal flow
 
 ```text
-Issue and approved scope
--> specification
--> implementation plan
--> tasks
--> code and tests
--> PR links the specification
--> CI checks code + SDD structure
--> separate merge approval
--> runtime acceptance when applicable
--> actual outcome/learning written back into spec/plan/research
+Issue / evidence recovery
+-> Delivery Orchestrator + optional Task Intake lens
+-> Outcome Contract / scope check
+-> OUTCOME APPROVED
+-> spec / plan / tasks
+-> implementation + tests
+-> PR links specification
+-> SDD + quality CI
+-> exact-green-head merge
+-> separately authorized runtime delivery when applicable
+-> accepted/regressed/insufficient_evidence feedback
 ```
 
-For significant implementation and control-plane changes, the PR body must include:
+Domain/release contracts are review lenses; SDD does not require chat-agent handoffs.
+
+## Required structure
+
+Every feature directory contains `spec.md`, `plan.md`, `tasks.md`. Optional `research.md`, `quickstart.md`, `contracts/` may be added when useful.
+
+Significant implementation/control-plane PRs include:
 
 ```text
 - Specification: `specs/NNN-feature-slug/spec.md`
 ```
 
-Narrow documentation/spec-only maintenance does not require a new feature specification.
+Narrow docs/spec-only maintenance retains the existing lightweight exception.
 
-## Spec Kit
+## Historical truth
 
-The project follows the GitHub Spec Kit model (`https://github.com/github/spec-kit`) while keeping Sea Speed governance authoritative. When Spec Kit tooling is available, the normal sequence is:
-
-```text
-/speckit.specify
-/speckit.plan
-/speckit.tasks
-/speckit.implement
-```
-
-Use `/speckit.clarify`, `/speckit.analyze`, `/speckit.checklist` and `/speckit.converge` when useful. Project-local behavior is defined by `.specify/memory/constitution.md` and `.specify/templates/overrides/`.
-
-CI does not require the Spec Kit CLI itself. It validates the durable repository artifacts with `scripts/ci/validate_sdd.py` so the source of truth remains the GitHub repository rather than a local tool installation.
+Completion/status fields in active SDD should be reconciled to durable Issue/PR/CI/runtime evidence. This does not rewrite historical Issues, PR comments or decision records; those remain the audit trail.

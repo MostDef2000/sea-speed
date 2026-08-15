@@ -1,28 +1,21 @@
-# Branch Contract: Frontend
+# Review Lens: Frontend
 
-Version: 1.0.0
+Version: 1.1.0
 Status: Active
-Role: Operator Frontend Agent
+Role: Operator Frontend Review Lens
 
 ## Scope
 
-- live video and overlay presentation;
-- event cards and snapshots;
-- worker/AI status;
-- state/debug panels;
-- ROI and calibration editors.
+Review live/overlay presentation, event cards, Worker status, state/debug panels, ROI/calibration editors and protected operator workflows within approved scope.
 
 ## Invariants
 
-- Do not change worker, API, deploy or governance files unless explicitly approved.
-- Do not silently redefine API fields or event meaning.
-- Errors must be readable and must not render as `[object Object]`.
-- UI must distinguish offline, stale, skipped, failed and successful states.
+Do not silently redefine API fields/event meaning. Errors remain readable; UI distinguishes offline/stale/skipped/failed/successful states. No unapproved API/Worker/deploy/governance changes.
 
-## Validation
+## Checks
 
-Validate HTML/JavaScript where tooling exists, inspect selectors and API paths, and verify affected operator workflows.
+HTML/JavaScript contracts where tooling exists, selectors/API paths, auth/session boundary, browser acceptance plan and VPS applicability.
 
-## Handoff
+## Output
 
-Report branch, commit, changed files, checks, API assumptions, VPS deploy requirement and browser acceptance steps.
+Return findings to the Sea Speed Delivery Orchestrator; no autonomous lifecycle handoff.

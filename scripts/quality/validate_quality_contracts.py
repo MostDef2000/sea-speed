@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate versioned quality contracts, fixtures, rollout state and risks."""
+"""Validate versioned quality contracts, fixtures, rollout state and accepted-risk state."""
 from __future__ import annotations
 
 import sys
@@ -68,13 +68,19 @@ def main() -> int:
         fail("aggregate quality context is incorrect")
     if gates.get("state") not in {"aggregate_installed_not_enforced", "aggregate_enforced"}:
         fail("quality rollout state is invalid")
+
     limits = budget.get("limits", {})
     if int(limits.get("minimum_deterministic_fuzz_cases", 0)) < 128:
         fail("fuzz budget must require at least 128 deterministic cases")
-    risk_ids = {item.get("id") for item in risks.get("risks", [])}
-    for risk_id in ("RISK-MEDIA-001", "RISK-EDGE-E2E-001"):
-        if risk_id not in risk_ids:
-            fail(f"required accepted risk missing: {risk_id}")
+
+    risk_by_id = {item.get("id"): item for item in risks.get("risks", [])}
+    for risk_id in ("RISK-MEDIA-001", "RISK-EDGE-E2E-001", "RISK-ACTIONS-PIN-001"):
+        if risk_id not in risk_by_id:
+            fail(f"required risk record missing: {risk_id}")
+    actions_risk = risk_by_id["RISK-ACTIONS-PIN-001"]
+    if actions_risk.get("status") != "closed" or not actions_risk.get("resolution_evidence"):
+        fail("RISK-ACTIONS-PIN-001 must remain as a closed audit record with resolution evidence")
+
     critical_open = [item for item in risks.get("risks", []) if item.get("severity") == "critical" and item.get("status") != "closed"]
     if len(critical_open) > int(limits.get("maximum_open_critical_risks", 0)):
         fail("open critical risks exceed the reliability budget")

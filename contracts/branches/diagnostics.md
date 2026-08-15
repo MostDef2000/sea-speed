@@ -1,25 +1,21 @@
-# Branch Contract: Diagnostics
+# Review Lens: Diagnostics
 
-Version: 1.0.0
+Version: 1.1.0
 Status: Active
-Role: Live System Diagnostics Agent
+Role: Live System Diagnostics Review Lens
 
 ## Scope
 
-- HLS availability;
-- Windows worker process and output;
-- VPS state/events/media/health responses;
-- frontend symptoms and evidence flow;
-- runtime logs that are provided safely.
+Diagnose camera/media, Ubuntu Worker/relay, Windows AI Worker, VPS API/storage/frontend and deployment symptoms from safely available evidence.
 
 ## Rules
 
-- Diagnose before proposing source changes.
-- Separate camera, network, worker, API, storage, frontend and deployment failure domains.
-- Do not expose secrets or copy runtime logs into the repository.
-- Do not modify production code without an approved implementation task.
-- State which evidence is observed, inferred or unavailable.
+- diagnose before proposing source mutation;
+- separate camera, network, Ubuntu Worker, Windows Worker, API, storage, frontend and deployment failure domains;
+- distinguish observed, inferred and unavailable evidence;
+- never expose secrets/private runtime logs in Git;
+- no production/source mutation without the applicable approved lifecycle.
 
 ## Output
 
-Report root cause or ranked hypotheses, evidence, affected contour, safe checks, rollback/recovery path and whether repository changes are required.
+Return root cause or ranked hypotheses, evidence, affected contour, safe checks and recovery/rollback path to the Sea Speed Delivery Orchestrator. This lens does not take lifecycle ownership.

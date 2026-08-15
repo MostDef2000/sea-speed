@@ -1,30 +1,27 @@
-# Branch Contract: Worker
+# Review Lens: Worker
 
-Version: 1.0.0
+Version: 1.1.0
 Status: Active
-Role: Windows AI Worker Agent
+Role: Worker Runtime Review Lens
 
 ## Scope
 
-- HLS and FFmpeg ingestion;
-- motion detection and AI activation;
-- YOLO detection and filtering;
-- ROI, tracking, overlay and event snapshots;
-- speed estimation and worker command scripts.
+Review shared Worker source plus Ubuntu/Windows-specific runtime behavior: ingestion, motion/AI activation, YOLO/tracking, ROI, overlays/events, speed estimation and command/service boundaries.
 
 ## Invariants
 
-- Do not change API, frontend, deploy or governance files unless explicitly approved.
-- Do not change detection, tracking, speed or calibration formulas without approval.
-- Preserve Stop/Resume progress.
-- Do not report skipped or failed records as successfully processed.
-- Normalize errors; never display or transmit `[object Object]`.
-- Keep API/state/event schema compatibility unless a schema change is explicitly approved.
+Do not change detection/tracking/speed/calibration formulas without approved outcome. Preserve Stop/Resume progress, error normalization and API/state/event compatibility. Failed/skipped work must not be reported as success.
 
-## Validation
+## Contour classification
 
-Run Python syntax/import checks where available, inspect startup/shutdown scripts, verify state posting, overlay/event behavior and affected compatibility boundaries.
+- `deploy/worker/ubuntu/**`, `worker/ubuntu_*`: Ubuntu Worker/relay.
+- Windows-specific scripts/paths: Windows AI Worker.
+- shared `worker/**`: normally Ubuntu + Windows (`MIXED`) unless a more-specific policy rule applies.
 
-## Handoff
+## Checks
 
-Report branch, commit, changed files, checks, schema impact, runtime configuration impact, release requirement and rollback notes.
+Python syntax/imports, service/start-stop contracts, state posting, overlay/event semantics, exact source/runtime identity, compatibility and rollback evidence.
+
+## Output
+
+Return findings to the Sea Speed Delivery Orchestrator; this lens does not own deployment authorization or lifecycle state.

@@ -1,28 +1,29 @@
-# Branch Contract: Core Release
+# Review Lens: Release Integration
 
-Version: 1.1.0
+Version: 2.0.0
 Status: Active
-Role: Sea Speed Core Release Orchestrator
+Compatibility path: `contracts/branches/core-release.md`
+Role: Release Integration Review Lens
 
 ## Purpose
 
-Execute the deterministic Git-safe path for approved changes after domain implementation.
+Provide an on-demand release/integration checklist to the Sea Speed Delivery Orchestrator. This file is not a second orchestrator and never owns task lifecycle state.
 
-## Responsibilities
+## Review checklist
 
-- validate the linked Issue, approved commit/range and exact changed files;
-- confirm capability preflight covers the complete mandatory file set and lifecycle;
-- reconcile the task branch with current `main`;
-- verify no secrets, runtime artifacts or unapproved schema changes;
-- create or update the PR;
-- wait for required CI;
-- re-check branch freshness and merge safely;
-- verify approved files on `main`;
-- classify VPS and Windows worker release applicability;
-- verify mixed-contour compatibility and rollout order when both apply;
-- verify required deployment/update evidence and runtime acceptance;
-- record terminal evidence or blockers in the canonical Issue.
+- canonical Issue and current Outcome Contract are linked;
+- exact changed files equal approved scope;
+- branch is fresh against current `main`;
+- required PR Validation and Quality integration succeeded on exact head;
+- unresolved review threads are zero;
+- expected-head merge protection is available/used;
+- merged source is re-read on `main`;
+- release manifest v2/exact artifacts are valid when runtime delivery applies;
+- exact runtime contour set is VPS, Ubuntu Worker/relay, Windows AI Worker, or mixed;
+- mixed compatibility/rollout/rollback order is explicit;
+- production authorization and runtime evidence are present only when applicable;
+- terminal evidence is persisted on the canonical Issue.
 
-## Rules
+## Output
 
-PR validation never equals deployment. Runtime release is `NOT REQUIRED` for governance/docs-only changes. Do not implement or deploy partial mandatory multi-file sets. Retry deterministic Git conflicts once after refetching current state. Never expand scope or claim release success without evidence.
+Return findings to the Delivery Orchestrator as `APPROVED FOR RELEASE`, `CHANGES REQUIRED`, or `BLOCKED`. The Delivery Orchestrator retains merge/runtime/terminal ownership.

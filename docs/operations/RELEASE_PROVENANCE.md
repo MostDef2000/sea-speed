@@ -1,55 +1,47 @@
 # Sea Speed release and deployment provenance
 
-Status: Active operational contract  
+Status: Active operational contract
 Issue: #24
 
 ## Identity model
 
-Sea Speed uses two related records:
+A release manifest proves what exact repository scope/artifacts were prepared. A deployment manifest proves what exact release/runtime identity was installed on one contour and which checks passed.
 
-1. a release manifest proves which repository scope and artifacts were prepared from an exact source commit;
-2. a deployment manifest proves which version was installed on one runtime contour and which checks passed.
+`packaged`, `installed`, `deployed` and `runtime_verified` are distinct.
 
-`packaged`, `installed`, `deployed` and `runtime_verified` are distinct states. A package artifact is not evidence that the Windows worker is installed. A successful VPS validation job is not evidence that production deployment ran.
+## New release provenance
 
-## Release manifest
+New deployable releases use `sea_speed_release_manifest_v2` and must bind:
 
-Schema: `schemas/release-manifest.schema.json`
-
-Required provenance:
-
-- canonical Issue number when discoverable;
-- exact base and source commits;
-- sorted unique changed-file set;
+- canonical Issue;
+- applicable merged PR;
+- exact base/source commits;
+- Outcome Contract and Change Contract hashes;
+- approved file set and actual Git diff separately;
 - deterministic scope hash;
-- component classification;
-- artifact path, SHA-256 and size;
-- state: `validated`, `packaged` or `ready_for_deployment`.
+- component/contour;
+- exact artifact path, SHA-256 and size;
+- exact-artifact and quality-evidence digests;
+- production authorization fingerprint when production applies.
 
-Generate with `scripts/release/build_release_manifest.py` and validate with `scripts/release/validate_release_manifest.py`.
+Generate/validate with `scripts/release/build_release_manifest.py` and `scripts/release/validate_release_manifest.py`. Persisted v1 manifests remain readable for rollback compatibility.
 
-## Deployment manifest
+## Deployment provenance
 
-Schema: `schemas/deployment-manifest.schema.json`
+`schemas/deployment-manifest.schema.json` supports `vps`, `ubuntu-worker`, and `windows-worker`. Runtime acceptance requires a valid manifest plus contour-specific identity/health/freshness evidence.
 
-The VPS writes `/opt/sea-speed-deploy/state/deployment-manifest.json` only after API health and frontend smoke checks. The Windows updater writes `D:\sea-speed\.sea-speed-worker-deployment.json` after managed files are installed and records whether process verification was performed.
+## VPS
 
-Deployment evidence must not contain tokens, environment values, camera credentials, SSH configuration, runtime images or model content.
+VPS deployment must identify exact first-parent `main` source, current `push/main` quality proof, installed release, previous release and health/smoke results. The normal production API origin is `127.0.0.1:8010`; protected public `/sea-speed/api/health` is an authentication-boundary check.
 
-## VPS evidence
+## Ubuntu Worker/relay
 
-The VPS workflow collects the target deployment manifest after the deploy command, validates it and uploads it as a workflow artifact. If `VPS_DEPLOY_ENABLED` is not `true`, the workflow reports `NOT DEPLOYED`; validation success must not be presented as production deployment.
+Ubuntu evidence records exact source release, runtime/package identity where applicable, systemd/service identity, previous/rollback source/runtime, and advancing frame/state/AI/relay evidence required by the task. Protected local config/models/datasets/output are not evidence payloads.
 
-## Windows evidence
+## Windows AI Worker
 
-The package workflow produces:
+Windows evidence records exact package/archive digest, installed source identity, previous/rollback version, process verification and applicable freshness/telemetry.
 
-- `sea-speed-worker.zip`;
-- `sea-speed-worker.zip.sha256`;
-- `release-manifest-windows-worker.json`.
+## Completion
 
-Installation remains a controlled local operation. The updater records the downloaded source archive digest, previous version, rollback target and process-check result.
-
-## Completion rule
-
-A runtime contour can advance to `runtime_verified` only when its deployment manifest is valid and all required checks are `passed`. Merge and packaging alone do not satisfy runtime acceptance.
+Package creation is not installation. A runtime contour advances to `runtime_verified` only when its exact deployment evidence and acceptance checks pass. Evidence must contain no credentials, tokens, TOTP, private media or populated environment values.
