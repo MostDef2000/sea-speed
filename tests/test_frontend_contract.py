@@ -27,6 +27,7 @@ class FrontendContractTests(unittest.TestCase):
             "ROI_URL": "/sea-speed/api/cam1/roi",
             "SPEED_CONFIG_URL": "/sea-speed/api/cam1/speed-config",
             "SPEED_LINES_URL": "/sea-speed/api/cam1/speed-lines",
+            "WORKER_CONTROL_URL": "/sea-speed/api/worker/control",
         }
         for name, value in expected.items():
             self.assertRegex(self.source, rf"const\s+{name}\s*=\s*[\"']{re.escape(value)}[\"']")
@@ -42,11 +43,26 @@ class FrontendContractTests(unittest.TestCase):
         ids = re.findall(r'\bid="([^"]+)"', self.source)
         self.assertEqual(len(ids), len(set(ids)))
         for element_id in (
-            "video", "streamStatus", "workerStatus", "motionStatus", "aiStatus",
+            "video", "streamStatus", "workerStatus", "workerControlBtn", "motionStatus", "aiStatus",
             "detectionsStatus", "tracksStatus", "overlayImg", "roiCanvas",
             "speedLinesCanvas", "stateJson", "debugLog", "eventsList",
         ):
             self.assertEqual(self.source.count(f'id="{element_id}"'), 1)
+
+    def test_worker_control_is_separate_from_live_hls_controls(self) -> None:
+        self.assertIn('id="workerControlBtn"', self.source)
+        self.assertIn('async function refreshWorkerControl()', self.source)
+        self.assertIn('async function toggleWorker()', self.source)
+        self.assertIn('WORKER_START_URL', self.source)
+        self.assertIn('WORKER_STOP_URL', self.source)
+        self.assertIn('Остановить только AI worker? Чистый live HLS останется включён.', self.source)
+        self.assertIn('AI worker stopped; live HLS unchanged', self.source)
+        self.assertIn('const HLS_URL = "/sea-speed/media/cam1/index.m3u8";', self.source)
+        self.assertIn('connectBtn.onclick=()=>connectStream', self.source)
+        self.assertIn('disconnectBtn.onclick=()=>disconnectStream(true)', self.source)
+        self.assertNotIn('systemctl', self.source)
+        refresh = self.source[self.source.index('async function refreshState()'):self.source.index('function renderEvents', self.source.index('async function refreshState()'))]
+        self.assertNotIn('setStatus(workerStatus', refresh)
 
     def test_desktop_workspace_has_three_columns_and_named_areas(self) -> None:
         self.assertIn('data-layout="three-column-workspace"', self.source)

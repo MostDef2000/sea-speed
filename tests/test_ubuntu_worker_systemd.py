@@ -5,6 +5,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 UNIT = ROOT / "deploy/worker/ubuntu/sea-speed-worker.service.template"
+CONTROL_UNIT = ROOT / "deploy/worker/ubuntu/sea-speed-worker-control.service.template"
 INSTALLER = ROOT / "deploy/worker/ubuntu/install-systemd.sh"
 DOC = ROOT / "docs/operations/UBUNTU_WORKER_SYSTEMD.md"
 
@@ -63,6 +64,19 @@ class UbuntuWorkerSystemdTests(unittest.TestCase):
             "WorkingDirectory=__INSTALL_ROOT__/shared/runtime",
             UNIT.read_text(encoding="utf-8"),
         )
+
+    def test_control_service_is_independent_and_exact_source_bound(self) -> None:
+        control = CONTROL_UNIT.read_text(encoding="utf-8")
+        installer = INSTALLER.read_text(encoding="utf-8")
+        self.assertIn("Description=Sea Speed bounded AI worker control agent", control)
+        self.assertIn("User=root", control)
+        self.assertIn("EnvironmentFile=__INSTALL_ROOT__/shared/config/worker.env", control)
+        self.assertIn("releases/__SOURCE_COMMIT__/source/deploy/worker/ubuntu/worker-control-agent.py", control)
+        self.assertNotIn("PartOf=sea-speed-worker.service", control)
+        self.assertNotIn("Requires=sea-speed-worker.service", control)
+        self.assertIn('control_service_name="sea-speed-worker-control.service"', installer)
+        self.assertIn('systemctl enable "$control_service_name"', installer)
+        self.assertIn('systemd-analyze verify "$unit_target" "$control_unit_target"', installer)
 
     def test_documentation_preserves_runtime_boundary(self) -> None:
         source = DOC.read_text(encoding="utf-8")

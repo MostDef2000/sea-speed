@@ -31,7 +31,7 @@ class UbuntuWorkerRollbackTests(unittest.TestCase):
         self.assertIn("--expected-current", self.rollback)
         self.assertIn("active source commit does not match --expected-current", self.rollback)
         self.assertIn("installed unit and active source marker disagree", self.rollback)
-        self.assertIn("running service and active source marker disagree", self.rollback)
+        self.assertIn("worker unit and active source marker disagree", self.rollback)
         self.assertIn("target commit is already active", self.rollback)
 
     def test_target_must_be_prepared_and_quality_approved(self) -> None:
@@ -48,13 +48,13 @@ class UbuntuWorkerRollbackTests(unittest.TestCase):
     def test_new_target_requires_recorded_ready_runtime(self) -> None:
         self.assertIn('target_runtime_file="$target_root/runtime-id"', self.rollback)
         self.assertIn('target_runtime_root="$install_root/runtimes/$target_runtime_id"', self.rollback)
-        self.assertIn('target_python="$target_runtime_root/venv/bin/python"', self.rollback)
+        self.assertIn('target_runtime_root/venv/bin/python', self.rollback)
         self.assertIn("rollback target runtime ID is invalid", self.rollback)
         self.assertIn("rollback target shared runtime is not ready", self.rollback)
         self.assertIn('/runtimes/$target_runtime_id/venv/bin/python', self.rollback)
 
     def test_legacy_per_release_target_remains_supported_during_migration(self) -> None:
-        self.assertIn('target_python="$target_root/venv/bin/python"', self.rollback)
+        self.assertIn('$target_root/venv/bin/python', self.rollback)
         self.assertIn("rollback target legacy runtime is missing", self.rollback)
         self.assertIn("legacy-per-release", self.rollback)
 
@@ -65,22 +65,32 @@ class UbuntuWorkerRollbackTests(unittest.TestCase):
             self.assertIn("flock -n 9", source)
         self.assertIn("another worker update or rollback is already running", self.rollback)
 
-    def test_current_unit_is_backed_up_before_target_activation(self) -> None:
+    def test_current_units_are_backed_up_before_target_activation(self) -> None:
         backup = self.rollback.index('install -o root -g root -m 0600 "$unit_target" "$unit_backup"')
         activation = self.rollback.index("if ! activate_target; then")
         self.assertLess(backup, activation)
-        self.assertIn("unit-backup", self.rollback)
+        self.assertIn("control-unit-backup", self.rollback)
         self.assertIn("systemctl daemon-reload", self.rollback)
 
-    def test_failed_target_restores_previous_exact_source_and_runtime(self) -> None:
+    def test_failed_target_restores_previous_exact_source_runtime_and_intent(self) -> None:
         self.assertIn("restore_previous()", self.rollback)
         self.assertIn('install -o root -g root -m 0644 "$unit_backup" "$unit_target"', self.rollback)
-        self.assertIn('systemctl reset-failed "$service_name"', self.rollback)
+        self.assertIn('apply_desired_state', self.rollback)
         self.assertIn('systemctl restart "$service_name"', self.rollback)
-        self.assertIn('restored_exec" != *"$current_commit"*', self.rollback)
+        self.assertIn('systemctl stop "$service_name"', self.rollback)
+        self.assertIn('[[ "$restored_exec" == *"$current_commit"* ]]', self.rollback)
         self.assertIn("current_runtime_id", self.rollback)
         self.assertIn("ROLLBACK_ABORTED", self.rollback)
         self.assertIn("CRITICAL previous service restoration failed", self.rollback)
+
+    def test_intentional_stopped_state_and_control_service_are_preserved(self) -> None:
+        self.assertIn('desired_state_file="$install_root/shared/runtime/operator-desired-state"', self.rollback)
+        self.assertIn('desired_state="running"', self.rollback)
+        self.assertIn('if [[ "$desired_state" == "running" ]]', self.rollback)
+        self.assertIn('control_service_name="sea-speed-worker-control.service"', self.rollback)
+        self.assertIn('systemctl restart "$control_service_name"', self.rollback)
+        self.assertIn("CONTROL_SERVICE_ACTIVE", self.rollback)
+        self.assertIn("SERVICE_STOPPED", self.rollback)
 
     def test_active_marker_changes_only_after_target_acceptance(self) -> None:
         acceptance = self.rollback.index("if ! activate_target; then")
@@ -94,10 +104,7 @@ class UbuntuWorkerRollbackTests(unittest.TestCase):
         self.assertNotIn('rm -rf "$install_root/shared', self.rollback)
         self.assertNotIn('rm -rf "$install_root/releases', self.rollback)
         self.assertNotIn('rm -rf "$install_root/runtimes', self.rollback)
-        self.assertIn(
-            "PRESERVED shared_config_models_datasets_output_releases_runtimes=true",
-            self.rollback,
-        )
+        self.assertIn("PRESERVED shared_config_models_datasets_output_releases_runtimes=true", self.rollback)
         doc = DOC.read_text(encoding="utf-8")
         self.assertIn("Runtime remains `UNKNOWN`", doc)
         self.assertIn("Stage 7", doc)

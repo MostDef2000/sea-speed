@@ -5,9 +5,10 @@ usage() {
   cat <<'EOF'
 Usage: install-systemd.sh <40-character-source-commit> [install-root] [service-user]
 
-Installs and enables the Sea Speed worker systemd unit for one exact prepared
-source release and its recorded immutable shared runtime. The script never
-starts the service and never reads or prints secrets.
+Installs and enables the Sea Speed worker systemd unit and the independent
+bounded worker-control unit for one exact prepared source release and its
+recorded immutable shared runtime. The script never starts either service and
+never reads or prints secrets.
 EOF
 }
 
@@ -15,7 +16,9 @@ source_commit="${1:-}"
 install_root="${2:-/opt/sea-speed-worker}"
 service_user="${3:-sea-speed}"
 service_name="sea-speed-worker.service"
+control_service_name="sea-speed-worker-control.service"
 unit_target="/etc/systemd/system/$service_name"
+control_unit_target="/etc/systemd/system/$control_service_name"
 
 if [[ "$EUID" -ne 0 ]]; then
   echo "ERROR run as root" >&2
@@ -38,12 +41,16 @@ runtime_id_file="$release_root/runtime-id"
 env_file="$install_root/shared/config/worker.env"
 runtime_state_root="$install_root/shared/runtime"
 template="$source_root/deploy/worker/ubuntu/sea-speed-worker.service.template"
+control_template="$source_root/deploy/worker/ubuntu/sea-speed-worker-control.service.template"
+control_agent="$source_root/deploy/worker/ubuntu/worker-control-agent.py"
 
 for required in \
   "$source_root/worker/hls_motion_yolo_worker_events.py" \
   "$provenance" \
   "$runtime_id_file" \
-  "$template"; do
+  "$template" \
+  "$control_template" \
+  "$control_agent"; do
   if [[ ! -e "$required" ]]; then
     echo "ERROR prepared release component missing: $required" >&2
     exit 4
@@ -98,23 +105,33 @@ chmod 750 "$install_root/shared" "$install_root/shared/config" "$install_root/sh
 chmod 600 "$env_file"
 
 rendered="$(mktemp)"
-trap 'rm -f "$rendered"' EXIT
+control_rendered="$(mktemp)"
+trap 'rm -f "$rendered" "$control_rendered"' EXIT
 sed \
   -e "s|__INSTALL_ROOT__|$install_root|g" \
   -e "s|__SOURCE_COMMIT__|$source_commit|g" \
   -e "s|__RUNTIME_ID__|$runtime_id|g" \
   -e "s|__SERVICE_USER__|$service_user|g" \
   "$template" > "$rendered"
+sed \
+  -e "s|__INSTALL_ROOT__|$install_root|g" \
+  -e "s|__SOURCE_COMMIT__|$source_commit|g" \
+  "$control_template" > "$control_rendered"
 
 install -o root -g root -m 0644 "$rendered" "$unit_target"
-systemd-analyze verify "$unit_target"
+install -o root -g root -m 0644 "$control_rendered" "$control_unit_target"
+systemd-analyze verify "$unit_target" "$control_unit_target"
 systemctl daemon-reload
 systemctl enable "$service_name"
+systemctl enable "$control_service_name"
 
 printf 'INSTALLED %s\n' "$unit_target"
+printf 'INSTALLED %s\n' "$control_unit_target"
 printf 'SOURCE_COMMIT %s\n' "$source_commit"
 printf 'RUNTIME_ID %s\n' "$runtime_id"
 printf 'SERVICE_USER %s\n' "$service_user"
 printf 'ENABLED %s\n' "$service_name"
+printf 'ENABLED %s\n' "$control_service_name"
 printf 'NOT_STARTED %s\n' "$service_name"
+printf 'NOT_STARTED %s\n' "$control_service_name"
 printf 'UNKNOWN worker_runtime=server_not_commissioned\n'

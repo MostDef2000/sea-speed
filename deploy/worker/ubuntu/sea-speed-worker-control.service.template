@@ -1,0 +1,38 @@
+[Unit]
+Description=Sea Speed bounded AI worker control agent
+Documentation=https://github.com/MostDef2000/sea-speed
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=__INSTALL_ROOT__/shared/runtime
+EnvironmentFile=__INSTALL_ROOT__/shared/config/worker.env
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=SEA_SPEED_WORKER_INSTALL_ROOT=__INSTALL_ROOT__
+Environment=SEA_SPEED_SOURCE_COMMIT=__SOURCE_COMMIT__
+ExecStart=/usr/bin/python3 __INSTALL_ROOT__/releases/__SOURCE_COMMIT__/source/deploy/worker/ubuntu/worker-control-agent.py
+Restart=on-failure
+RestartSec=3s
+TimeoutStopSec=10s
+KillSignal=SIGTERM
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_INET AF_UNIX
+ReadWritePaths=__INSTALL_ROOT__/shared/runtime
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=sea-speed-worker-control
+
+[Install]
+WantedBy=multi-user.target

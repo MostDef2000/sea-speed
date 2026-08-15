@@ -50,7 +50,7 @@ class UbuntuWorkerExactUpdaterTests(unittest.TestCase):
         self.assertNotIn("-m pip install", self.source)
         self.assertNotIn("download.pytorch.org", self.source)
 
-    def test_activation_requires_exact_runtime_progression_and_dual_binding(self) -> None:
+    def test_running_activation_requires_exact_runtime_progression_and_dual_binding(self) -> None:
         self.assertIn("--activate", self.source)
         self.assertIn("NOT_ACTIVATED explicit_flag_required=--activate", self.source)
         self.assertIn("verify-runtime-progression.py", self.source)
@@ -60,10 +60,22 @@ class UbuntuWorkerExactUpdaterTests(unittest.TestCase):
         self.assertIn("RUNTIME_GATE frame_and_state_progression=PASS", self.source)
         self.assertIn("active-source-commit", self.source)
         self.assertIn('/runtimes/$runtime_id/venv/bin/python', self.source)
-        self.assertIn("active unit does not reference requested runtime ID", self.source)
+        self.assertIn("worker unit does not reference requested runtime ID", self.source)
 
-    def test_failed_activation_restores_previous_release_and_runtime_binding(self) -> None:
+    def test_intentional_stopped_state_is_preserved_without_runtime_gate(self) -> None:
+        self.assertIn('desired_state_file="$install_root/shared/runtime/operator-desired-state"', self.source)
+        self.assertIn('desired_state="running"', self.source)
+        self.assertIn('if [[ "$desired_state" == "stopped" ]]', self.source)
+        self.assertIn('systemctl stop "$service_name"', self.source)
+        self.assertIn("RUNTIME_GATE skipped_reason=operator_desired_stopped", self.source)
+        self.assertIn("SERVICE_STOPPED", self.source)
+        self.assertIn('control_service_name="sea-speed-worker-control.service"', self.source)
+        self.assertIn('systemctl restart "$control_service_name"', self.source)
+        self.assertIn("CONTROL_SERVICE_ACTIVE", self.source)
+
+    def test_failed_activation_restores_previous_release_runtime_and_desired_state(self) -> None:
         self.assertIn("unit-backup.XXXXXX", self.source)
+        self.assertIn("control-unit-backup.XXXXXX", self.source)
         self.assertIn("restore_previous()", self.source)
         self.assertIn("RESTORE previous_source_commit=", self.source)
         self.assertIn("RESTORED previous_source_commit=", self.source)
@@ -71,15 +83,10 @@ class UbuntuWorkerExactUpdaterTests(unittest.TestCase):
         self.assertIn("ACTIVATION_ABORTED target=", self.source)
         self.assertIn("ACTIVE_MARKER_UNCHANGED", self.source)
         self.assertIn("automatic_on_activation_failure=true", self.source)
-
-        restore = self.source.split("restore_previous() {", 1)[1].split(
-            "abort_activation() {", 1
-        )[0]
-        reset = 'systemctl reset-failed "$service_name"'
-        restart = 'systemctl restart "$service_name"'
-        self.assertIn(reset, restore)
-        self.assertIn(restart, restore)
-        self.assertLess(restore.index(reset), restore.index(restart))
+        restore = self.source.split("restore_previous() {", 1)[1].split("abort_activation() {", 1)[0]
+        self.assertIn('if [[ "$desired_state" == "running" ]]', restore)
+        self.assertIn('systemctl restart "$service_name"', restore)
+        self.assertIn('systemctl stop "$service_name"', restore)
 
     def test_shared_state_releases_and_runtimes_are_preserved(self) -> None:
         self.assertIn("PRESERVED shared_config_models_datasets_output=true", self.source)
