@@ -75,7 +75,7 @@ Parent feature runtime acceptance remains:
 - Windows AI Worker: NO.
 - Parent outcome summary: MIXED.
 
-Current 5-path source remediation is narrower:
+Current 7-path source remediation is narrower:
 - Derived Change Contract production impact: VPS.
 - VPS deployment: REQUIRED after a fresh exact-SHA production authorization.
 - Ubuntu worker/relay update from this diff: NOT REQUIRED.
@@ -90,9 +90,10 @@ The final product verdict still requires accepted evidence for the pending Ubunt
 ## Validation
 
 - Integration: `tests/test_vps_deploy_origin_health.py` proves the canonical 8010 default, rejects the stale 8000 URL, and proves candidate/rollback paths use the same `restart_and_verify` origin verifier.
+- Historical deploy-contract alignment: `tests/test_camera_preview_gallery.py` and `tests/test_sea_speed_auth_v1.py` assert the same canonical 8010 deployment origin while retaining their unrelated media/auth boundary assertions unchanged.
 - Existing product/security tests from PR #179/#180 remain authoritative and are re-run by aggregate CI.
 - Release provenance: deterministic `vps`, release-specific `ubuntu-worker`, and legacy `edge` artifacts remain covered by Quality integration.
-- End-to-end: exact PR Validation + Quality integration on the final 5-path remediation head.
+- End-to-end: exact PR Validation + Quality integration on the final 7-path remediation head.
 - Runtime-manual after fresh production authorization: deploy VPS with the corrected verifier and confirm exact source/health on 8010; separately re-verify the pending compatible Ubuntu release before bounded worker stop/start plus continuous HLS acceptance.
 
 ## Risk profile
@@ -112,24 +113,24 @@ The current PR has VPS-only derived impact, Security impact `NONE`, API/event/st
 - TEST-007 | Covers: AC-012 | Level: runtime-manual | Priority: P0 | Evidence: production service status plus continuous Camera 1 HLS playback before/during/after stop/start, recorded on Issue #178
 - TEST-008 | Covers: AC-013 | Level: unit | Priority: P0 | Evidence: tests/test_worker_operator_control.py
 - TEST-009 | Covers: AC-014 | Level: end-to-end | Priority: P0 | Evidence: tests/quality/test_quality_architecture.py plus Quality integration exact-artifact/release-evidence jobs
-- TEST-010 | Covers: AC-015 | Level: integration | Priority: P0 | Evidence: tests/test_vps_deploy_origin_health.py plus later runtime origin-health/source verification on 8010
+- TEST-010 | Covers: AC-015 | Level: integration | Priority: P0 | Evidence: tests/test_vps_deploy_origin_health.py, tests/test_camera_preview_gallery.py, tests/test_sea_speed_auth_v1.py, plus later runtime origin-health/source verification on 8010
 
 ## Correct-course check
 
 - Trigger: PRODUCTION_LEARNING
 - Prior evidence: release admission for merged PR #179 / `dc0fd44dbea5ba38f8e18a4ba6ed3eeb93db3d11` stopped before the first runtime write because exact-artifact tooling lacked `ubuntu-worker`; merged PR #180 / `1d0aa285d5f30165980c4d628a97da7e23b66ffe` closed that provenance gap.
 - Current observed evidence: authorized Deploy VPS run #25 for `1d0aa285d5f30165980c4d628a97da7e23b66ffe` reached the VPS, then candidate verification and rollback verification both failed against stale `127.0.0.1:8000`. Immediate read-only operator evidence showed `current-release=6bf909c13d48df1d44b87a62d0686b61d8c3af45`, `sea-speed-api=active`, listener `127.0.0.1:8010`, and healthy `/api/health` reporting that restored source.
-- Issue impact: Issue #178 carries the new durable 5-path remediation Implementation Scope Check; original 17-path and prior 9-path scopes remain immutable audit history.
+- Issue impact: Issue #178 carries the durable 7-path remediation Implementation Scope Check; original 17-path, prior 9-path, and superseded 5-path scopes remain immutable audit history.
 - Specification impact: adds FR-015, AC-015, NFR-007 and the restored VPS baseline/false-negative learning.
 - Plan impact: adds D-008 and TEST-010, aligns active risk applicability to the exact VPS-only diff, and distinguishes this remediation from the parent feature's pending Ubuntu acceptance.
-- Tasks impact: active source gate becomes exactly the approved 5 paths and adds the VPS health-probe/regression tasks.
-- Authorization impact: fresh `OUTCOME APPROVED` obtained after the exact 5-path scope check on 2026-08-16. Production authorization for `1d0aa285...` is not transferable to the next merge SHA.
+- Tasks impact: active source gate becomes exactly the approved 7 paths, including the two stale historical deploy-contract tests exposed by exact-head CI.
+- Authorization impact: fresh `OUTCOME APPROVED` obtained after CI exposed the required 7-path scope expansion on 2026-08-16. Production authorization for `1d0aa285...` is not transferable to the next merge SHA.
 - Protected boundaries: unchanged — no media ownership, credential, Authentik/private-M2M, worker-control command surface, Windows Worker or AI-semantic expansion.
 - Follow-up: after exact-green-head merge and push/main quality, obtain a fresh production authorization for the new VPS remediation SHA before retrying VPS deployment; separately re-verify authorization/compatibility for the pending Ubuntu worker-control contour before any Ubuntu mutation.
 
 ## Rollout and rollback
 
-- Source rollout: merge only the exact green 5-path remediation head after fresh base/head/scope/review verification.
+- Source rollout: merge only the exact green 7-path remediation head after fresh base/head/scope/review verification.
 - Current remediation production contour: VPS only by exact changed-path derivation. After a fresh exact-SHA approval, run the canonical VPS deployment; candidate and rollback health checks must prove `127.0.0.1:8010/api/health` and correct source identity.
 - VPS rollback target: restored runtime-verified `6bf909c13d48df1d44b87a62d0686b61d8c3af45`; corrected 8010 verification must prove rollback health if candidate activation fails.
 - Parent Outcome continuation: after VPS acceptance, re-verify the eligible exact Ubuntu worker-control source/authorization from PR #180 (or a later authorized Ubuntu-affecting merge), install the compatible Ubuntu release/control service, verify protocol/status, then perform bounded stop/start while monitoring HLS.
@@ -141,5 +142,5 @@ The current PR has VPS-only derived impact, Security impact `NONE`, API/event/st
 - Actual architecture after acceptance: PENDING final production evidence.
 - Restored VPS baseline after run #25: `6bf909c13d48df1d44b87a62d0686b61d8c3af45`, `sea-speed-api` active, healthy on `127.0.0.1:8010`; Ubuntu rollout not started.
 - Production learning: deployment automation was inconsistent with the accepted Auth v1 origin. The stale 8000 probe produced false-negative candidate and rollback verdicts while the restored API was healthy on 8010.
-- Corrective source task: active 5-path remediation for canonical 8010 deployment/rollback verification plus regression evidence.
+- Corrective source task: active 7-path remediation for canonical 8010 deployment/rollback verification, focused regression evidence, and alignment of the two stale historical deploy-contract assertions found by CI.
 - Deferred work: fresh VPS production approval/retry, then pending Ubuntu worker-control installation and runtime-manual AC-012/AC-015 acceptance.
