@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -64,6 +65,14 @@ class AuthLogoutContractTests(unittest.TestCase):
         self.assertNotIn("model: authentik_stages_redirect.redirectstage", source)
         self.assertNotIn("target_static:", source)
 
+    def test_worker_operation_shell_syntax(self) -> None:
+        subprocess.run(
+            ["bash", "-n", str(WORKER_OPERATION)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
     def test_worker_operation_is_repo_owned_idempotent_apply_and_rollback(self) -> None:
         source = WORKER_OPERATION.read_text(encoding="utf-8")
         self.assertIn("apply|rollback", source)
@@ -71,8 +80,9 @@ class AuthLogoutContractTests(unittest.TestCase):
         self.assertIn("SOURCE_REPOSITORY=MostDef2000/sea-speed", source)
         self.assertIn("sea-speed-logout-v1.yaml", source)
         self.assertIn("sea-speed-logout-rollback-v1.yaml", source)
+        self.assertIn("/blueprints/.sea-speed-logout-operation", source)
         self.assertIn("docker cp", source)
-        self.assertIn('ak apply_blueprint "$container_path"', source)
+        self.assertIn('ak apply_blueprint "$container_blueprint"', source)
         self.assertIn("from authentik.providers.proxy.models import ProxyProvider", source)
         self.assertIn('ProxyProvider.objects.get(name="Provider for Sea Speed")', source)
         self.assertIn("sea-speed-provider-invalidation", source)
