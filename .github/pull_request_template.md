@@ -17,7 +17,7 @@
 
 ## Impact
 
-- Production impact: NONE / CONTROL_PLANE / VPS / WINDOWS_WORKER / MIXED
+- Production impact: NONE / CONTROL_PLANE / VPS / UBUNTU_WORKER / WINDOWS_WORKER / MIXED
 - Production-impact rationale:
 - Security impact:
 - API/event/state/storage schema impact:
@@ -27,6 +27,7 @@
 ## Delivery
 
 - VPS deployment: REQUIRED / NOT REQUIRED
+- Ubuntu worker/relay update: REQUIRED / NOT REQUIRED
 - Windows worker update: REQUIRED / NOT REQUIRED
 - Production safety envelope: REQUIRED / NOT REQUIRED
 - Rollout order:
