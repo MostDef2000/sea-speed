@@ -132,7 +132,7 @@ class ChangeContractTests(unittest.TestCase):
             "MIXED",
         )
 
-    def test_vps_plus_ubuntu_is_mixed(self) -> None:
+    def test_vps_plus_ubuntu_is_mixed_with_exact_flags(self) -> None:
         files = ["api/app/main.py", "deploy/worker/ubuntu/update-exact.sh"]
         self.assertEqual(self.validator.derive_impact(files, self.policy), "MIXED")
         self.assertEqual(
@@ -141,6 +141,24 @@ class ChangeContractTests(unittest.TestCase):
             ),
             "MIXED",
         )
+        with self.assertRaisesRegex(self.validator.ContractError, "exact derived contours"):
+            self.validator.validate_contract(
+                body(files, impact="MIXED", ubuntu="REQUIRED", worker="REQUIRED", production_envelope="REQUIRED"), files, self.policy
+            )
+
+    def test_all_three_runtime_contours_require_all_three_flags(self) -> None:
+        files = ["api/app/main.py", "worker/camera_worker.py"]
+        self.assertEqual(self.validator.derive_runtime_contours(files, self.policy), {"VPS", "UBUNTU_WORKER", "WINDOWS_WORKER"})
+        self.assertEqual(
+            self.validator.validate_contract(
+                body(files, impact="MIXED", vps="REQUIRED", ubuntu="REQUIRED", worker="REQUIRED", production_envelope="REQUIRED"), files, self.policy
+            ),
+            "MIXED",
+        )
+        with self.assertRaisesRegex(self.validator.ContractError, "exact derived contours"):
+            self.validator.validate_contract(
+                body(files, impact="MIXED", vps="REQUIRED", worker="REQUIRED", production_envelope="REQUIRED"), files, self.policy
+            )
 
     def test_control_plane_requires_no_production_envelope(self) -> None:
         files = ["contracts/SEA_SPEED_GOVERNANCE.md"]
