@@ -12,6 +12,38 @@ The Ubuntu Worker release model currently puts a complete Python virtualenv unde
 
 Separate immutable source identity from immutable runtime identity. Multiple exact source releases may bind to one verified `RUNTIME_ID`. A source-only rollout with an unchanged runtime definition must reuse the existing runtime with zero package installation and zero dependency download.
 
+## User scenarios
+
+1. A small Worker source change is released without changing Python, PyTorch, torchvision, CUDA wheel channel or pinned runtime requirements. The new source release must bind the already-ready runtime and must not invoke pip or download heavyweight packages.
+2. The existing production Worker is migrated from the legacy per-source venv layout. The installer verifies the active legacy venv against the new runtime definition and seeds the shared runtime from local bytes, reporting `RUNTIME_ADOPTED ... network_download=false`.
+3. The active legacy venv does not exactly match the runtime definition. The first migration stops with explicit evidence instead of silently downloading a new multi-gigabyte runtime.
+4. A future change intentionally modifies the runtime definition. A different runtime ID is produced and a new immutable runtime may be built once using the persistent local package cache without mutating prior ready runtimes.
+5. A candidate source activation fails its runtime gate. The updater restores the previous exact systemd unit, preserving the previous source/runtime binding and protected shared state.
+6. An operator explicitly rolls back across the migration boundary. New releases use their recorded shared runtime ID while legacy releases remain executable from their original per-release venv.
+
+## Requirements
+
+1. Runtime identity must depend on the canonical runtime lock and exact pinned runtime requirements, not on source commit identity.
+2. `RUNTIME_ID` must be deterministic and must change whenever either canonical runtime-definition input changes.
+3. An existing ready runtime must be verified and reused before any package-install or network-download path is reachable.
+4. Ready-runtime reuse must emit `RUNTIME_REUSED runtime_id=<id>` and perform zero `pip install` operations.
+5. First migration must prefer an exact matching local legacy per-release venv and emit `RUNTIME_ADOPTED ... network_download=false` when adoption succeeds.
+6. If the active release is legacy and no matching local runtime can be safely adopted, preparation must fail closed with `RUNTIME_NETWORK_FALLBACK_BLOCKED`; network creation is forbidden for that migration attempt.
+7. A genuinely new runtime may be created only when no ready runtime exists and the protected first-migration block does not apply.
+8. New runtime creation must use a persistent package cache under `/opt/sea-speed-worker/cache/wheels`.
+9. A new runtime must be prepared in a temporary sibling directory and published to its final runtime ID path only after version/import verification, manifest generation and ready-marker creation.
+10. A published ready runtime must be treated as immutable and must never be modified by later source deployments.
+11. Each new-format source release must record its exact `runtime-id` alongside source provenance and quality approval.
+12. New-format source preparation must not create or populate a heavyweight `releases/<SOURCE_SHA>/venv`.
+13. systemd must execute the interpreter from the exact shared runtime ID while executing runner/source paths from the exact source SHA.
+14. The unit must expose both `SEA_SPEED_SOURCE_COMMIT` and `SEA_SPEED_RUNTIME_ID` without changing Worker API or event schemas.
+15. Activation must retain the existing exact-main quality provenance checks and frame/state/AI runtime progression gate.
+16. The active source marker must change only after the exact source/runtime candidate passes activation validation.
+17. Automatic activation failure must restore the complete prior exact unit and service.
+18. Explicit rollback must validate new-format target runtime readiness and must retain migration-era legacy per-release venv compatibility.
+19. Shared config, models, datasets, output, source releases and runtime directories must be preserved.
+20. The change must not alter Worker detection, motion, ROI, tracking, speed or event behavior.
+
 ## Runtime identity
 
 1. `deploy/worker/ubuntu/runtime-lock.json` defines the canonical Python ABI family, PyTorch version, torchvision version, CUDA wheel index and verification imports.
@@ -81,6 +113,10 @@ This feature must not change:
 - First-migration adoption mismatch fails closed with explicit evidence rather than network fallback.
 - A new runtime creation failure leaves any previously ready runtime and active service untouched.
 - Activation failure restores the prior exact unit/service before the updater returns failure whenever a prior accepted release exists.
+
+## Runtime feedback
+
+The accepted production rollout of source release `8cdf7d5d0a4b2b03ec26500bbfa15a20922c5fb4` exposed the deployment inefficiency directly: a fresh per-SHA venv caused the same canonical PyTorch/CUDA dependency family to be installed again, including large cuDNN, cuBLAS, NCCL, cuFFT, cuSolver, cuSPARSE and torch artifacts. The Worker itself subsequently passed its sustained frame/state/AI progression gate, so this feature does not remediate application-runtime instability; it specifically removes redundant dependency preparation from otherwise healthy source-only deployments. The currently accepted release is also the required local migration seed: the first shared-runtime rollout must verify/adopt its compatible venv locally or fail closed rather than redownload the same heavyweight stack.
 
 ## Acceptance criteria
 
