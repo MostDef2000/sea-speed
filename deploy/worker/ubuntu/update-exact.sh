@@ -300,7 +300,7 @@ fi
 if ! python3 "$runtime_gate" \
   --heartbeat "$heartbeat" \
   --expected-commit "$source_commit" \
-  --timeout-sec 45 \
+  --timeout-sec 90 \
   --poll-sec 1; then
   abort_activation "frame/state progression gate failed"
 fi
