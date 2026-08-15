@@ -1,6 +1,7 @@
 # PyTorch and torchvision are installed and verified separately because their
 # CUDA wheels must come from the official hardware-specific PyTorch index.
 ultralytics==8.4.117
+lap==0.5.13
 opencv-python==5.0.0.93
 opencv-python-headless==5.0.0.93
 numpy==2.4.4
