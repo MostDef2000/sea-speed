@@ -61,6 +61,15 @@ class UbuntuWorkerExactUpdaterTests(unittest.TestCase):
         self.assertIn("ACTIVE_MARKER_UNCHANGED", self.source)
         self.assertIn("automatic_on_activation_failure=true", self.source)
 
+        restore = self.source.split("restore_previous() {", 1)[1].split(
+            "abort_activation() {", 1
+        )[0]
+        reset = 'systemctl reset-failed "$service_name"'
+        restart = 'systemctl restart "$service_name"'
+        self.assertIn(reset, restore)
+        self.assertIn(restart, restore)
+        self.assertLess(restore.index(reset), restore.index(restart))
+
     def test_shared_state_and_previous_releases_are_preserved(self) -> None:
         self.assertIn("PRESERVED shared_config_models_datasets_output=true", self.source)
         self.assertNotIn('rm -rf "$install_root/shared', self.source)

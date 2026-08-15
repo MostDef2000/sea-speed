@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 INSTALLER = ROOT / "deploy/worker/ubuntu/install-manual.sh"
 ENV_EXAMPLE = ROOT / "deploy/worker/ubuntu/worker.env.example"
 REQUIREMENTS = ROOT / "deploy/worker/ubuntu/requirements-runtime.txt"
+SERVICE_TEMPLATE = ROOT / "deploy/worker/ubuntu/sea-speed-worker.service.template"
 DOC = ROOT / "docs/operations/UBUNTU_WORKER_MANUAL_INSTALL.md"
 
 
@@ -34,6 +35,7 @@ class UbuntuWorkerManualInstallTests(unittest.TestCase):
         self.assertNotIn("av==", requirements)
         for requirement in (
             "ultralytics==8.4.117",
+            "lap==0.5.13",
             "opencv-python==5.0.0.93",
             "opencv-python-headless==5.0.0.93",
             "numpy==2.4.4",
@@ -46,8 +48,14 @@ class UbuntuWorkerManualInstallTests(unittest.TestCase):
         self.assertIn("torch==2.13.0+cu130", installer)
         self.assertIn("torchvision==0.28.0+cu130", installer)
         self.assertIn("https://download.pytorch.org/whl/cu130", installer)
+        self.assertIn('"lap": "0.5.13"', installer)
+        self.assertIn("import lap", installer)
         self.assertIn("runtime version mismatch", installer)
         self.assertNotIn("import av", installer)
+
+    def test_service_disables_ultralytics_runtime_autoinstall(self) -> None:
+        source = SERVICE_TEMPLATE.read_text(encoding="utf-8")
+        self.assertIn("Environment=YOLO_AUTOINSTALL=false", source)
 
     def test_environment_template_contains_names_not_secrets(self) -> None:
         source = ENV_EXAMPLE.read_text(encoding="utf-8")

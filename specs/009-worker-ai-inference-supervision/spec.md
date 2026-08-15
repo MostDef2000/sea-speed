@@ -4,15 +4,22 @@
 
 ## Product outcome
 
-The Ubuntu Worker must not allow a stuck YOLO inference/tracking call to freeze
-media, overlay, or state progression. Production evidence first showed the exact
-`e7fb93319c951408a126757ad5554378e5cdce63` candidate stopping at two rendered
-frames and one successful state post after RTSP input had already moved to
-bounded FFmpeg/TCP. The subsequent AI-supervision candidate
-`c73c6e048399ff5985918348c028d3f9a6a2ca89` also failed closed before reaching
-an AI-ready runtime baseline and was automatically restored to the previous
-Worker. Source inspection of that failed candidate identified boundedness and
-activation-budget defects inside the new AI supervisor itself.
+The Ubuntu Worker must not allow a stuck or unbootable YOLO inference/tracking
+path to freeze media, overlay, or state progression. Production evidence first
+showed the exact `e7fb93319c951408a126757ad5554378e5cdce63` candidate stopping
+at two rendered frames and one successful state post after RTSP input had moved
+to bounded FFmpeg/TCP. The subsequent AI-supervision candidates
+`c73c6e048399ff5985918348c028d3f9a6a2ca89` and
+`e5d4d25b731328951c7a2178c244b99c5ad64372` both failed closed before reaching
+an AI-ready runtime baseline. The latter also exhausted the systemd start limit,
+which prevented the first automatic restore attempt from restarting the previous
+Worker until the operator reset the failed state.
+
+Source inspection of the clean immutable runtime after the `e5d4d25...` failure
+identified an additional dependency-closure defect: Ultralytics ByteTrack loads
+`lap` lazily, `lap` was not present in the pinned Worker requirements, and
+Ultralytics enables runtime auto-install by default. A production service must
+not depend on mutating its root-prepared release environment at first inference.
 
 ## User scenarios
 
@@ -25,8 +32,11 @@ activation-budget defects inside the new AI supervisor itself.
    consecutive bounded AI startup inferences succeed on the same persistent
    child that will process production frames, and frame/state counters
    subsequently advance.
-4. If activation fails, the existing updater restores the previous exact Worker
-   release automatically.
+4. A clean prepared release contains every runtime dependency needed by the
+   configured tracker before the service starts; service-time package mutation
+   is disabled.
+5. If activation fails, the updater restores the previous exact Worker even when
+   the candidate consumed the systemd start-rate budget.
 
 ## Requirements
 
@@ -56,9 +66,14 @@ activation-budget defects inside the new AI supervisor itself.
    inferences plus subsequent frame and successful state-post progression. The
    deployment wait budget must be longer than the bounded two-step AI startup
    budget and initial frame/state progression window.
-10. Failure of any activation gate remains fail-closed and the existing updater
-    restores the previous exact Worker release.
-11. YOLO model architecture, confidence policy, tracker algorithm, vehicle
+10. The canonical Worker runtime pins the tracker linear-assignment dependency
+    required by Ultralytics ByteTrack and verifies its installed version/import
+    during preparation. Ultralytics service-time auto-install is disabled.
+11. Failure of any activation gate remains fail-closed. Before restarting the
+    previous exact release, automatic restore clears the candidate-induced
+    systemd failed/start-limit state and then verifies service, ExecStart, and
+    active-marker consistency.
+12. YOLO model architecture, confidence policy, ByteTrack algorithm, vehicle
     allow-list, ROI filtering, speed calculation, event formulas, and API/event/
     storage schemas remain unchanged.
 
@@ -66,7 +81,11 @@ activation-budget defects inside the new AI supervisor itself.
 
 - Source tests prove the AI process boundary, absolute write/read deadline,
   restart/backoff, persistent tracker call, explicit device, two-step same-child
-  self-test, warm-child semantics, and heartbeat contract.
+  self-test, warm-child semantics, and activation-gate budget.
+- Runtime packaging tests require the exact tracker dependency and verify that
+  the service disables Ultralytics auto-install.
+- Restore contract tests require `systemctl reset-failed` before restart of the
+  previous service.
 - The activation verifier rejects frame/state progress when fewer than two
   successful AI startup inferences are present.
 - The updater gives the bounded AI startup enough time to establish readiness,
@@ -83,10 +102,21 @@ activation-budget defects inside the new AI supervisor itself.
 Production attempt `c73c6e048399ff5985918348c028d3f9a6a2ca89` failed with
 `reason=no_exact_running_baseline`, `ai_inference_ready=false`, and
 `ai_inference_success_count=0`; the updater restored
-`50efe6ff687129a90d4a939710d98857cc6bad2c`. The failed implementation started
-its inference timeout only after blocking writes to the child pipe, allowed up
-to two startup calls whose combined budget exceeded the 45-second activation
-window, and discarded the self-tested child before production. Those defects
-are corrected within this existing approved outcome. Browser/runtime acceptance
-still requires sustained fresh Worker frames and AI progression before Issue
-#159 proceeds to VPS/frontend rollout.
+`50efe6ff687129a90d4a939710d98857cc6bad2c`. Its supervisor boundedness and
+activation-budget defects were corrected in `e5d4d25b731328951c7a2178c244b99c5ad64372`.
+
+Production attempt `e5d4d25b731328951c7a2178c244b99c5ad64372` again failed
+before any AI inference success. The candidate restarted often enough to hit
+systemd `StartLimitBurst`, and the automatic restore could not restart the old
+unit until `systemctl reset-failed` was applied. After that recovery, the old
+release was active again but retained its previously known application-level
+`frame_progress_sequence=2` / `state_post_success_count=1` stall.
+
+Post-failure source inspection showed that the pinned runtime did not include
+`lap` even though Ultralytics ByteTrack imports it lazily and attempts automatic
+installation when it is absent. The correction therefore closes the tracker
+runtime dependency explicitly, disables Ultralytics runtime auto-install, and
+makes automatic restore clear the systemd start-limit state before restarting
+the previous release. Browser/runtime acceptance still requires sustained fresh
+Worker frames and AI progression before Issue #159 proceeds to VPS/frontend
+rollout.
