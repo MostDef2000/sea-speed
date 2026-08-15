@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 SERVICE_NAME = "sea-speed-worker.service"
+WORKER_CONTROL_PROTOCOL = "sea_speed_worker_control_v1"
 DEFAULT_INSTALL_ROOT = "/opt/sea-speed-worker"
 DEFAULT_LISTEN = "10.123.239.102:19001"
 ALLOWED_PATHS = {"/v1/status", "/v1/start", "/v1/stop"}
@@ -98,6 +99,7 @@ def service_status() -> dict[str, Any]:
     sub_state = values[1] if len(values) > 1 else "unknown"
     return {
         "ok": True,
+        "protocol": WORKER_CONTROL_PROTOCOL,
         "service": SERVICE_NAME,
         "active": active,
         "enabled": enabled,
