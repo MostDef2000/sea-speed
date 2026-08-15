@@ -4,6 +4,7 @@ import re
 import unittest
 from pathlib import Path
 
+
 ROOT = Path(__file__).resolve().parents[1]
 INSTALLER = ROOT / "deploy/worker/ubuntu/install-manual.sh"
 ENV_EXAMPLE = ROOT / "deploy/worker/ubuntu/worker.env.example"
@@ -26,13 +27,27 @@ class UbuntuWorkerManualInstallTests(unittest.TestCase):
         self.assertNotIn('rm -rf "$install_root/shared', source)
         self.assertIn('Do not remove `shared/`', DOC.read_text(encoding="utf-8"))
 
-    def test_pytorch_is_not_version_guessed(self) -> None:
+    def test_cuda_pair_and_critical_runtime_versions_are_exact(self) -> None:
         requirements = REQUIREMENTS.read_text(encoding="utf-8")
         self.assertNotRegex(requirements, re.compile(r"^torch(?:[=<>]|$)", re.MULTILINE))
+        self.assertNotRegex(requirements, re.compile(r"^torchvision(?:[=<>]|$)", re.MULTILINE))
+        self.assertNotIn("av==", requirements)
+        for requirement in (
+            "ultralytics==8.4.117",
+            "opencv-python==5.0.0.93",
+            "opencv-python-headless==5.0.0.93",
+            "numpy==2.4.4",
+            "requests==2.34.2",
+            "python-dotenv==1.2.2",
+        ):
+            self.assertIn(requirement, requirements)
+
         installer = INSTALLER.read_text(encoding="utf-8")
-        self.assertIn("verified-pytorch-build", installer)
-        self.assertIn("official PyTorch installation selector", installer)
-        self.assertNotIn("cu12", installer.lower())
+        self.assertIn("torch==2.13.0+cu130", installer)
+        self.assertIn("torchvision==0.28.0+cu130", installer)
+        self.assertIn("https://download.pytorch.org/whl/cu130", installer)
+        self.assertIn("runtime version mismatch", installer)
+        self.assertNotIn("import av", installer)
 
     def test_environment_template_contains_names_not_secrets(self) -> None:
         source = ENV_EXAMPLE.read_text(encoding="utf-8")

@@ -4,6 +4,7 @@ import subprocess
 import unittest
 from pathlib import Path
 
+
 ROOT = Path(__file__).resolve().parents[1]
 UPDATER = ROOT / "deploy/worker/ubuntu/update-exact.sh"
 DOC = ROOT / "docs/operations/UBUNTU_WORKER_EXACT_UPDATE.md"
@@ -36,19 +37,29 @@ class UbuntuWorkerExactUpdaterTests(unittest.TestCase):
     def test_updates_are_serialized_and_staged(self) -> None:
         self.assertIn("update.lock", self.source)
         self.assertIn("flock -n 9", self.source)
-        self.assertIn("mktemp -d", self.source)
+        self.assertIn("staging.XXXXXX", self.source)
         self.assertIn("trap cleanup EXIT", self.source)
         self.assertIn('cd "$staging_root"', self.source)
         self.assertIn("install-manual.sh", self.source)
 
-    def test_activation_is_explicit_and_exact(self) -> None:
+    def test_activation_requires_exact_runtime_progression(self) -> None:
         self.assertIn("--activate", self.source)
         self.assertIn("NOT_ACTIVATED explicit_flag_required=--activate", self.source)
-        self.assertIn("install-systemd.sh", self.source)
-        self.assertIn('systemctl restart "$service_name"', self.source)
-        self.assertIn('systemctl is-active --quiet "$service_name"', self.source)
+        self.assertIn("verify-runtime-progression.py", self.source)
+        self.assertIn("--heartbeat", self.source)
+        self.assertIn("--expected-commit", self.source)
+        self.assertIn("frame/state progression gate failed", self.source)
+        self.assertIn("RUNTIME_GATE frame_and_state_progression=PASS", self.source)
         self.assertIn("active-source-commit", self.source)
-        self.assertIn("active unit does not reference requested commit", self.source)
+
+    def test_failed_activation_restores_previous_release(self) -> None:
+        self.assertIn("unit-backup.XXXXXX", self.source)
+        self.assertIn("restore_previous()", self.source)
+        self.assertIn("RESTORE previous_source_commit=", self.source)
+        self.assertIn("RESTORED previous_source_commit=", self.source)
+        self.assertIn("ACTIVATION_ABORTED target=", self.source)
+        self.assertIn("ACTIVE_MARKER_UNCHANGED", self.source)
+        self.assertIn("automatic_on_activation_failure=true", self.source)
 
     def test_shared_state_and_previous_releases_are_preserved(self) -> None:
         self.assertIn("PRESERVED shared_config_models_datasets_output=true", self.source)

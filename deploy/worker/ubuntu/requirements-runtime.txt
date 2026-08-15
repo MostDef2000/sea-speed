@@ -1,9 +1,8 @@
-# Install the hardware-compatible PyTorch build first using the official
-# PyTorch installation selector. Do not add torch here: the correct wheel
-# depends on the verified NVIDIA driver and supported CUDA runtime.
-ultralytics
-opencv-python-headless
-numpy
-requests
-python-dotenv
-av==18.0.0
+# PyTorch and torchvision are installed and verified separately because their
+# CUDA wheels must come from the official hardware-specific PyTorch index.
+ultralytics==8.4.117
+opencv-python==5.0.0.93
+opencv-python-headless==5.0.0.93
+numpy==2.4.4
+requests==2.34.2
+python-dotenv==1.2.2
