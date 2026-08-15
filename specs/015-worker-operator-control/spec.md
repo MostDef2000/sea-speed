@@ -2,7 +2,7 @@
 
 - Feature: 015-worker-operator-control
 - Issue: #178
-- Status: Correct-course remediation validation
+- Status: Control-plane admission remediation validation
 - Owner outcome: Allow an authenticated Sea Speed operator to start and stop only the Ubuntu AI worker while Camera 1 live HLS remains independent and uninterrupted.
 
 ## Product outcome
@@ -40,6 +40,7 @@ Given the VPS cannot reach, authenticate to, or confirm the fixed protocol versi
 - FR-013: Every successful Ubuntu worker-control response MUST carry the fixed protocol marker `sea_speed_worker_control_v1`, and VPS FastAPI MUST reject a missing or different marker as an unavailable/incompatible control agent.
 - FR-014: Exact-artifact tooling MUST build and validate a deterministic `ubuntu-worker` source artifact as release-specific provenance while preserving the existing quality-evidence v1 `vps` and legacy `edge` component contract. Release-manifest v2 MUST be able to bind the Ubuntu archive digest directly plus the SHA-256 of the complete exact-artifacts manifest.
 - FR-015: VPS exact deployment and automatic rollback verification MUST use the accepted Auth v1 FastAPI loopback origin `http://127.0.0.1:8010/api/health` by default; the retired `127.0.0.1:8000` origin MUST NOT be the deployment health default.
+- FR-016: Deploy VPS admission MUST retain exact lowercase SHA and current-`main` first-parent membership checks without a producer-to-early-exit pipeline that can turn a valid match into a `pipefail`/SIGPIPE false-negative.
 
 ## Acceptance criteria
 
@@ -58,6 +59,7 @@ Given the VPS cannot reach, authenticate to, or confirm the fixed protocol versi
 - AC-013: Source tests prove the Ubuntu agent emits `sea_speed_worker_control_v1` and the VPS proxy has an explicit fail-closed protocol mismatch guard before returning successful control payloads.
 - AC-014: Two independent exact-artifact builds produce byte-identical `vps`, `ubuntu-worker`, and `edge` archives/manifests; the validator accepts all three, quality-evidence v1 remains valid for its existing `vps`/`edge` inventory, and the exact-artifacts manifest separately records the Ubuntu artifact digest for later release-manifest v2 binding.
 - AC-015: Source regression evidence proves `deploy/vps/deploy.sh` defaults `SEA_SPEED_ORIGIN_HEALTH_URL` to `http://127.0.0.1:8010/api/health`, contains no stale `http://127.0.0.1:8000/api/health` default, and uses the same origin verifier for both deployment and automatic rollback verification.
+- AC-016: Source regression evidence proves Deploy VPS no longer uses `git rev-list --first-parent origin/main | grep -q` under `pipefail`, still enumerates `origin/main` first-parent history, admits an exact matching SHA through an explicit membership result, and preserves fail-closed rejection when no first-parent match exists.
 
 ## NFR assessment
 
@@ -68,6 +70,7 @@ Given the VPS cannot reach, authenticate to, or confirm the fixed protocol versi
 - NFR-005 | Area: PERFORMANCE | Target: worker-control status/action upstream timeout is bounded to <= 5 seconds by configuration clamp | Validation: API contract assertions | Evidence: tests/test_worker_operator_control.py | Status: PASS
 - NFR-006 | Area: RELEASE_PROVENANCE | Target: MIXED release provenance contains deterministic exact artifacts for VPS and Ubuntu Worker while preserving the existing quality-evidence v1 `vps`/legacy-`edge` contract | Validation: deterministic build, extraction/digest/syntax validation, quality-evidence validation, and exact-manifest/release-artifact binding | Evidence: tests/quality/test_quality_architecture.py | Status: PASS
 - NFR-007 | Area: OPERABILITY | Target: VPS deployment and rollback health verification use the accepted FastAPI origin on loopback port 8010 and cannot silently regress to the retired port 8000 default | Validation: source contract regression tests plus exact-head CI | Evidence: tests/test_vps_deploy_origin_health.py, tests/test_camera_preview_gallery.py, and tests/test_sea_speed_auth_v1.py | Status: PASS
+- NFR-008 | Area: RELIABILITY | Target: Deploy VPS first-parent admission accepts a valid current-main/first-parent SHA without `pipefail` SIGPIPE false-negatives while preserving rejection of non-first-parent commits | Validation: workflow architecture regression plus exact-head CI | Evidence: tests/quality/test_quality_architecture.py | Status: PASS
 
 ## Compatibility and boundaries
 
@@ -77,14 +80,16 @@ Given the VPS cannot reach, authenticate to, or confirm the fixed protocol versi
 - Private Ubuntu agent: fixed status/start/stop HTTP surface on a configured RFC1918 listener.
 - Private worker-control compatibility identity: `sea_speed_worker_control_v1`; mismatches fail closed rather than falling back.
 - VPS deployment origin identity: accepted FastAPI origin `127.0.0.1:8010`; public protected health remains an authentication-boundary smoke, not origin-health proof.
+- Deploy admission identity: exact lowercase 40-character target SHA must remain on current `main` first-parent history; implementation must not weaken that requirement while removing the `grep -q`/`pipefail` false-negative.
 - Release evidence: the exact-artifacts manifest retains `vps` and legacy `edge` in its quality-evidence-compatible inventory and adds `ubuntu-worker` as release-specific exact provenance. Release-manifest v2 directly binds the Ubuntu archive and the complete exact-manifest hash; this does not activate `edge_v2` or change media ownership.
 - Out of scope: MediaMTX/relay lifecycle, Camera 2, Windows Worker, browser SSH, arbitrary systemd control, new credentials, secret migration, AI algorithm changes.
 
 ## Runtime feedback
 
-- Runtime acceptance: PENDING a new exact-SHA production authorization after the current remediation merge.
-- Accepted production behavior: restored VPS baseline is `6bf909c13d48df1d44b87a62d0686b61d8c3af45`, `sea-speed-api` active, with `/api/health` healthy on `127.0.0.1:8010`; Ubuntu Worker rollout was not started in deploy run #25.
+- Runtime acceptance: PENDING corrected Deploy VPS admission, successful deployment of the already-authorized runtime SHA, then pending Ubuntu worker-control/HLS acceptance.
+- Accepted production behavior: restored VPS baseline is `6bf909c13d48df1d44b87a62d0686b61d8c3af45`, `sea-speed-api` active, with `/api/health` healthy on `127.0.0.1:8010`; Ubuntu Worker rollout has not started.
 - Regressions/learning #1: pre-production release admission for merged PR #179 stopped before any runtime write because exact-artifact tooling did not provide an `ubuntu-worker` artifact required by release-manifest v2 for the declared MIXED contour; PR #180 remediated that provenance gap.
-- Regressions/learning #2: authorized Deploy VPS run #25 for `1d0aa285d5f30165980c4d628a97da7e23b66ffe` reached production but both deployment and automatic rollback verification used stale loopback port 8000. Read-only operator evidence immediately after the run proved the restored release was healthy on the accepted port 8010, so the deployment result was a verifier false-negative rather than an API outage.
-- Corrective action: current separately approved 7-path remediation binds the VPS origin-health default to 8010, adds a focused regression test, aligns two historical deploy-contract assertions with the accepted origin, and updates this SDD; product/media/worker-control behavior is unchanged.
-- Previous production authorization: bound only to `1d0aa285d5f30165980c4d628a97da7e23b66ffe` and not reusable for the next remediation merge SHA.
+- Regressions/learning #2: authorized Deploy VPS run #25 for `1d0aa285d5f30165980c4d628a97da7e23b66ffe` reached production but both deployment and automatic rollback verification used stale loopback port 8000. Read-only operator evidence immediately after the run proved the restored release was healthy on the accepted port 8010, so the deployment result was a verifier false-negative rather than an API outage; PR #181 remediated the source default.
+- Regressions/learning #3: authorized Deploy VPS run #26 received exact `INPUT_COMMIT=1d7c8478a467f28f4519111bae06f5d2f7fa5e61` while runner `origin/main` was the same SHA, but the first-parent admission pipeline `git rev-list ... | grep -Fxq` failed under `set -o pipefail` because the early successful `grep -q` close caused `git rev-list` SIGPIPE. The run stopped before quality verification, authorization verification, SSH, or runtime mutation.
+- Corrective action: current separately approved 5-path control-plane remediation replaces the early-exit pipeline with an explicit full-consumption first-parent membership result, adds a regression contract, and updates this SDD; runtime application/media/worker source is unchanged.
+- Current production authorization: `PRODUCTION APPROVED 1d7c8478a467f28f4519111bae06f5d2f7fa5e61` with fingerprint `80f24ed75de983aabfcfd4f31103cbd53111980cb1a2846ca19ee5d1c75d40c6` remains bound to that runtime SHA. The control-plane remediation merge SHA is not a runtime deployment target and does not itself require or inherit a production envelope.
