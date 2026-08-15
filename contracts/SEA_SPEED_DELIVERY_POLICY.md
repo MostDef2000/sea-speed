@@ -1,6 +1,6 @@
 # Sea Speed Delivery Policy
 
-Version: 1.7.0
+Version: 1.8.0
 Status: Active
 
 ## 1. Purpose
@@ -87,6 +87,8 @@ Bounded implementation or CI-remediation commits do not by themselves invalidate
 
 Before merging a mixed API/worker change, document old/new compatibility, schema/migration requirements, deployment order, acceptance checks and rollback order. The default safe order remains backward-compatible VPS/API first, API acceptance second, worker update third, worker runtime acceptance last.
 
+VPS and worker are independent execution and failure domains unless the approved architecture explicitly requires host-to-host orchestration. A mixed deployment therefore normally exposes one independently executable command/entrypoint per affected contour in the declared rollout order, not one host acting as the other host's deployment controller solely to reduce operator actions.
+
 ## 7. VPS release evidence
 
 A VPS release is complete only when applicable evidence confirms:
@@ -113,6 +115,8 @@ The normal interactive administration path for the commissioned Ubuntu worker is
 
 SSH access is execution transport only. It never replaces GitHub Connector source operations or grants production authorization. Root-required steps retain the local human sudo boundary; passwords, private keys, camera credentials and tokens must not be transferred through chat, repository or logs.
 
+After the operator opens the worker shell, the normal deployment command runs target-local and follows the server-pull model below. The control laptop is not the normal staging location for deployment programs.
+
 ### Canonical operator execution context
 
 For operator-facing runtime commands, the current canonical non-secret targets are:
@@ -124,31 +128,60 @@ Ubuntu worker: seaspeedadmin@10.123.239.102:22
 Worker transport: ZeroTier
 ```
 
-Generated or downloaded operator artifacts are handed off through the canonical operator download directory:
+When a task uses these known targets and fresh runtime evidence has not invalidated them, operator instructions should identify the concrete target shell instead of placeholders such as `<VPS_HOST>`, `<VPS_USER>` or `<WORKER_HOST>`. The operator establishes the SSH/session boundary themselves; subsequent normal deployment bootstrap executes on that target.
+
+The historical operator download directory remains defined for explicit fallback-only artifact transport:
 
 ```text
 Windows / PowerShell UNC: \\wsl.localhost\Ubuntu\home\andrey_gubarev\downloads
 WSL native: /home/andrey_gubarev/downloads
 ```
 
-When a task uses these known targets and fresh runtime evidence has not invalidated them, operator instructions should use the concrete canonical host/user values instead of placeholders such as `<VPS_HOST>`, `<VPS_USER>` or `<WORKER_HOST>`. Commands for prepared `.ps1`, `.zip`, `.sh` or related artifacts should either first change to the canonical handoff directory or use the exact full path to the real artifact filename. Companion artifacts required by a launcher should be placed in the same directory unless the launcher contract states otherwise.
+Do not make that directory a normal prerequisite for VPS/worker deployment. If fallback artifact transport is required, use an exact repository-derived or CI-produced artifact pinned to the approved source/release and verify its integrity/provenance before execution.
 
-These values are execution context, not authorization. Before a protected runtime action, revalidate reachability and expected host identity, preserve normal SSH host-key verification, and stop fail-closed if current runtime evidence conflicts with the canonical target. Never place VPS passwords, sudo passwords, private SSH keys, camera credentials or tokens in repository files, command arguments, prompts or logs.
+These values are execution context, not authorization. Before a protected runtime action, revalidate reachability and expected host identity, preserve normal SSH host-key verification, and stop fail-closed if current runtime evidence conflicts with the canonical target. Never place VPS passwords, sudo passwords, private SSH keys, camera credentials, populated `.env` values, TOTP material or API tokens in repository files, command arguments, prompts or logs.
+
+### Server-pull deployment transport
+
+The default interactive runtime transport for the production VPS and commissioned Ubuntu worker is **server-pull from the canonical GitHub repository at the exact approved source SHA** when technically available and safe.
+
+The normal path is:
+
+```text
+operator opens the named target shell
+  -> short copy-paste bootstrap selects canonical repository + exact approved 40-char SHA
+  -> target retrieves/stages that exact reviewed source in a temporary local location
+  -> target invokes a repository-owned deployment/operation entrypoint from that source
+  -> entrypoint performs bounded preflight/mutation/verification and emits sanitized evidence
+```
+
+Requirements:
+
+- Substantive deployment logic MUST be repository-owned before production handoff. If the exact approved SHA lacks the operation required for safe rollout, production is blocked on source implementation through the normal Issue/branch/PR/CI/merge lifecycle.
+- The bootstrap command MUST be transport/bootstrap only. It may select repository/SHA, retrieve/extract exact source and invoke an entrypoint, but it MUST NOT embed a large ad-hoc deployment program, backup algorithm, configuration mutation or acceptance suite in chat.
+- The canonical repository identity and full approved 40-character SHA MUST be explicit and immutable for the execution. Retrieval or identity mismatch MUST fail closed before mutation.
+- The repository-owned entrypoint MUST own applicable deterministic prerequisite checks, host identity checks, exact-source/integrity/provenance verification, backup/rollback preparation, bounded mutation, restart/reload, smoke/health validation and sanitized evidence collection.
+- When exact artifacts, release manifests, quality evidence or deployment manifests exist for the contour, the entrypoint SHOULD validate/reuse them rather than replacing them with manual control-laptop checks.
+- Target-local temporary staging SHOULD be removed after the operation unless repository/runtime evidence rules require a retained exact release directory.
+- Secrets remain target-local or in trusted external systems. Server-pull source retrieval MUST NOT require storing populated runtime secrets in GitHub or transmitting them through chat.
+- GitHub Actions deployment remains an additional supported execution path when configured. It is not the only normal path when a safe repository-owned server-pull entrypoint exists, and an assistant connector lacking `workflow_dispatch` does not by itself justify an ad-hoc control-laptop launcher.
+- Generated/downloaded `.sh`, `.ps1`, `.zip` or companion files on the control laptop are fallback-only. Fallback transport MUST be explicitly justified, pinned to the approved exact source/release, preserve integrity/provenance, and transport repository-owned logic rather than create new substantive deployment logic outside GitHub.
 
 ### Fastest safe deployment operator UX
 
 Production rollout must default to the fastest and simplest operator path that still satisfies every applicable safety boundary.
 
-- Prefer one ready-to-run operator command per logical deployment stage whenever technically possible.
-- Move deterministic integrity checks, exact-SHA/source binding, archive unpacking, prerequisite checks, known-path resolution, target validation and health/smoke checks inside the approved launcher instead of making the operator run them manually.
-- Do not ask the operator to repeat canonical host/user/path/filename values, export redundant environment variables or perform a manual hash check when the launcher can derive and validate the same information safely.
+- Prefer one short target-local server-pull bootstrap command per deployment contour whenever technically possible.
+- Keep substantive implementation inside the reviewed repository entrypoint. One-command UX is not permission to paste a large shell program into chat.
+- Move deterministic integrity/exact-SHA checks, archive handling, prerequisite checks, known-path resolution, host validation, backups/rollback preparation and health/smoke checks inside the approved repository entrypoint instead of making the operator run them manually.
+- Do not ask the operator to repeat canonical host/user/path values, export redundant environment variables or perform a manual hash check when the repo-owned entrypoint can derive and validate the same information safely.
 - Do not make a later or independent runtime contour a prerequisite for the current stage. An unavailable worker, camera or auxiliary route must not block an independent VPS-only stage unless that contour is required for the stage's safety or acceptance result.
 - Keep human checkpoints only where a person is genuinely required, including production authorization, local secret/password entry, TOTP or IdP enrollment, provider setup, host-key trust decisions, or equivalent protected-boundary actions that cannot be automated safely.
-- Preserve exact-SHA binding, artifact integrity, security checks, backups, rollback semantics, host identity validation and fail-closed behavior even when the operator flow is compressed.
-- Repeated entry of the same non-secret deployment data, unnecessary unpack/hash/preflight steps and manual diagnostics that automation can perform are deployment-UX defects and should be removed from the normal path.
-- On failure, stop fail-closed and report the smallest concrete next action. Prefer launcher-owned diagnostics and remediation evidence over a long sequence of operator-run troubleshooting commands.
+- Preserve exact-SHA binding, artifact/source integrity, security checks, backups, rollback semantics, host identity validation and fail-closed behavior even when the operator flow is compressed.
+- Repeated entry of the same non-secret deployment data, unnecessary control-laptop downloads/unpacking, manual preflight/hash steps and manual diagnostics that repository automation can perform are deployment-UX defects and should be removed from the normal path.
+- On failure, stop fail-closed and report the smallest concrete next action. Prefer repository-owned diagnostics and remediation evidence over a long sequence of operator-run troubleshooting commands.
 
-A manual multi-command workflow is acceptable only as an explicit fallback when the bounded automation path is unavailable or unsafe. Simplicity never authorizes skipping a required safety or evidence gate.
+A manual multi-command or control-laptop-artifact workflow is acceptable only as an explicit fallback when the bounded repository-owned server-pull path is unavailable or unsafe. Simplicity never authorizes skipping a required safety or evidence gate.
 
 ## 9. Media-storage transition
 
@@ -164,7 +197,9 @@ The target required branch context remains `Quality integration gate / quality-i
 
 ## 12. Manual fallback
 
-Manual deployment or worker update is fallback-only when automation is unavailable. It must identify exact target and commit, health checks, manifest locations, rollback steps and expected result, and remain within the approved production safety envelope.
+Manual deployment, control-laptop artifact staging or worker update is fallback-only when the repository-owned server-pull path is unavailable or demonstrably unsafe. The fallback must identify the reason, exact target and commit/release, artifact/source provenance and integrity, health checks, manifest locations, rollback steps and expected result, and remain within the approved production safety envelope.
+
+Fallback artifacts should be exact repository-derived archives/files or CI-produced artifacts pinned to the approved source/release. Do not introduce new substantive deployment logic only in chat or a transient local file.
 
 ## 13. Documentation-only changes
 
