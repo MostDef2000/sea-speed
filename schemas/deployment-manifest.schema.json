@@ -8,7 +8,7 @@
   "properties": {
     "schema": {"const": "sea_speed_deployment_manifest_v1"},
     "deliveryId": {"type": "string", "minLength": 8},
-    "target": {"enum": ["vps", "windows-worker"]},
+    "target": {"enum": ["vps", "ubuntu-worker", "windows-worker"]},
     "sourceCommit": {"type": "string", "pattern": "^[0-9a-f]{40}$|^bootstrap-[0-9TZ]+$|^unmanaged-baseline$"},
     "attemptedSourceCommit": {"type": ["string", "null"]},
     "previousVersion": {"type": ["string", "null"]},

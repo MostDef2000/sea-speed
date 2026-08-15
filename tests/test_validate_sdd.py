@@ -19,29 +19,20 @@ class ValidateSddTests(unittest.TestCase):
             target = temp / path
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text("baseline\n", encoding="utf-8")
-
         feature = temp / "specs/001-example"
         feature.mkdir(parents=True)
         (feature / "spec.md").write_text(
-            "# Feature Specification: Example\n\n"
-            "- Issue: #1\n\n"
-            "## Product outcome\nOutcome\n\n"
-            "## User scenarios\nScenario\n\n"
-            "## Requirements\nRequirement\n\n"
-            "## Acceptance criteria\nCriteria\n\n"
-            "## Runtime feedback\nPending\n",
+            "# Feature Specification: Example\n\n- Issue: #1\n\n## Product outcome\nOutcome\n\n## User scenarios\nScenario\n\n"
+            "## Requirements\nRequirement\n\n## Acceptance criteria\nCriteria\n\n## Runtime feedback\nPending\n",
             encoding="utf-8",
         )
         (feature / "plan.md").write_text(
-            "# Implementation Plan: Example\n\n"
-            "Specification: specs/001-example/spec.md\n\n"
-            "## Architecture\nA\n\n## Decisions\nD\n\n## Affected contours\nNone\n\n"
-            "## Validation\nV\n\n## Runtime feedback\nPending\n",
+            "# Implementation Plan: Example\n\nSpecification: specs/001-example/spec.md\n\n## Architecture\nA\n\n## Decisions\nD\n\n"
+            "## Affected contours\nNone\n\n## Validation\nV\n\n## Runtime feedback\nPending\n",
             encoding="utf-8",
         )
         (feature / "tasks.md").write_text(
-            "# Tasks: Example\n\nSpecification: specs/001-example/spec.md\n\n"
-            "## Delivery tasks\n- [ ] T001\n\n## Completion gate\n- [ ] Done\n",
+            "# Tasks: Example\n\nSpecification: specs/001-example/spec.md\n\n## Delivery tasks\n- [ ] T001\n\n## Completion gate\n- [ ] Done\n",
             encoding="utf-8",
         )
         return temp
@@ -49,16 +40,18 @@ class ValidateSddTests(unittest.TestCase):
     def test_valid_repository_and_significant_pr_link(self) -> None:
         root = self.make_repo()
         sdd.validate_repository(root)
-        sdd.validate_pr_link(
-            "- Specification: `specs/001-example/spec.md`\n",
-            ["frontend/sea-speed/index.html"],
-            root,
-        )
+        sdd.validate_pr_link("- Specification: `specs/001-example/spec.md`\n", ["frontend/sea-speed/index.html"], root)
 
     def test_significant_pr_without_spec_fails(self) -> None:
         root = self.make_repo()
         with self.assertRaises(sdd.SddError):
             sdd.validate_pr_link("", ["api/app/main.py"], root)
+
+    def test_quality_workflow_change_is_significant(self) -> None:
+        root = self.make_repo()
+        with self.assertRaises(sdd.SddError):
+            sdd.validate_pr_link("", [".github/workflows/quality-integration.yml"], root)
+        sdd.validate_pr_link("- Specification: `specs/001-example/spec.md`\n", [".github/workflows/quality-integration.yml"], root)
 
     def test_spec_only_change_does_not_require_pr_link(self) -> None:
         root = self.make_repo()

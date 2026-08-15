@@ -19,6 +19,7 @@
   "additionalProperties": false,
   "$defs": {
     "sha40": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "eventId": {"type": "string", "minLength": 1, "maxLength": 160},
     "mediaKey": {"type": "string", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\)[A-Za-z0-9._/-]+$", "minLength": 1, "maxLength": 512},
     "sea_speed_edge_event_v1": {
@@ -97,9 +98,14 @@
       "required": ["schema", "component", "source_commit", "artifact_sha256", "state"],
       "properties": {
         "schema": {"const": "sea_speed_release_manifest_v2"},
-        "component": {"type": "string", "enum": ["edge", "vps"]},
+        "component": {"type": "string", "enum": ["edge", "vps", "ubuntu-worker", "windows-worker", "mixed", "governance"]},
         "source_commit": {"$ref": "#/$defs/sha40"},
-        "artifact_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "artifact_sha256": {"$ref": "#/$defs/sha256"},
+        "canonical_issue": {"type": "integer", "minimum": 1},
+        "pull_request": {"type": "integer", "minimum": 1},
+        "outcome_contract_hash": {"$ref": "#/$defs/sha256"},
+        "change_contract_hash": {"$ref": "#/$defs/sha256"},
+        "approved_scope_hash": {"$ref": "#/$defs/sha256"},
         "state": {"type": "string", "enum": ["built", "ready_for_deployment", "deployed", "runtime_verified"]}
       },
       "additionalProperties": true

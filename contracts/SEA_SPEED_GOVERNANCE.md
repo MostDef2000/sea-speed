@@ -1,6 +1,6 @@
 # Sea Speed Governance
 
-Version: 1.6.0
+Version: 1.7.0
 Status: Active
 Source of truth: GitHub `main`
 
@@ -112,12 +112,16 @@ Before merge, re-check current `main`, exact changed-file scope and head identit
 
 ## 6. Domain boundaries
 
-- `worker/**`: Windows AI worker.
+- `worker/**`: Worker runtime source; specific path rules determine Ubuntu Worker/relay, Windows AI Worker, or shared/mixed applicability.
 - `api/**`: VPS FastAPI backend.
 - `frontend/**`: operator UI.
-- `deploy/**`: deployment, service, updater, health and rollback infrastructure.
+- `deploy/vps/**`: VPS deployment, service, health and rollback infrastructure.
+- `deploy/worker/ubuntu/**`: Ubuntu Worker/relay deployment, service, health and rollback infrastructure.
+- `deploy/**`: deployment/control infrastructure after more-specific runtime rules are applied.
 - `schemas/**`: release, deployment and telemetry contracts.
 - `contracts/**`, `docs/**`, `specs/**`, `.specify/**`, `skills/**`: governance, SDD and documentation.
+
+The explicit production runtime contours are VPS, Ubuntu Worker/relay, and Windows AI Worker. `MIXED` summarizes two or more applicable contours but does not erase the exact per-contour deployment flags. Ubuntu-only production-impact source must never be treated as CONTROL_PLANE solely because it is under `deploy/**`.
 
 Domain agents edit only approved files. Cross-domain changes must be declared in scope.
 
@@ -143,9 +147,11 @@ Ordinary bug fixes, test corrections, PR metadata repair and CI remediation that
 
 Applicable delivery work must use:
 
-- `schemas/release-manifest.schema.json` for source, approved file set, scope hash and artifact identity;
+- `schemas/release-manifest.schema.json` for source, canonical Issue/PR, Outcome/Change Contract identity, approved and actual file sets, scope hash and artifact/evidence identity;
 - `schemas/deployment-manifest.schema.json` for installed version, checks and rollback identity;
 - `schemas/telemetry.schema.json` for worker state and vehicle-event identity.
+
+New deployable release provenance is `sea_speed_release_manifest_v2`. Persisted v1 release/deployment evidence remains readable where required for rollback compatibility. Approved scope and actual Git diff are different facts; v2 records both and admission requires them to match. Canonical Issue identity must not be inferred from a PR number found in a merge message.
 
 `packaged`, `installed`, `deployed` and `runtime_verified` are different states. A green workflow, uploaded ZIP or running process does not prove runtime acceptance.
 
@@ -190,6 +196,8 @@ Sea Speed uses GitHub Spec Kit concepts as a parallel artifact layer for product
 
 Significant implementation and control-plane PRs must declare exactly one active specification in the PR body using `- Specification: specs/<feature>/spec.md`. The feature directory must contain at least `spec.md`, `plan.md` and `tasks.md`. `scripts/ci/validate_sdd.py` enforces the baseline and PR linkage.
 
+The aggregate `quality-integration` workflow executes this SDD validation for pull requests. A significant PR with missing or invalid SDD linkage therefore cannot obtain aggregate success. Narrow documentation/spec-only maintenance retains the existing lightweight exception in the validator.
+
 Narrow documentation/spec-only maintenance does not require recursively creating a new feature spec. Emergency runtime recovery may begin from an already authorized Issue when production restoration is the immediate goal, but any accepted behavior or architecture change must be written back to linked SDD artifacts before completion.
 
 Historical Issues remain audit history. Runtime evidence may supersede an obsolete technical assumption in the feature spec/plan without rewriting history.
@@ -209,10 +217,12 @@ The Change Contract must include:
 - the exact changed-file set matching the Git diff;
 - one derived production-impact class;
 - production-impact rationale and compatibility statements;
-- deployment applicability, rollout, evidence and rollback declarations;
+- exact VPS, Ubuntu Worker/relay and Windows AI Worker deployment applicability;
+- a required production safety envelope whenever any runtime contour applies;
+- rollout, evidence and rollback declarations;
 - local, CI and applicable runtime-validation plans.
 
-A changed-file mismatch, placeholder, missing section, invalid authorization declaration, material-boundary-change declaration, incorrect production-impact class, incorrect SDD linkage or incorrect deterministic deployment declaration fails the pull-request quality gate.
+A changed-file mismatch, placeholder, missing section, invalid authorization declaration, material-boundary-change declaration, incorrect production-impact class, incorrect exact contour declaration, incorrect SDD linkage or incorrect deterministic deployment declaration fails the pull-request quality gate.
 
 ## 14. Merge authorization
 
@@ -231,19 +241,28 @@ Authorization is then resolved by source-authorization model:
 
 If a head change introduces material scope or protected-boundary change, Outcome Authorization is stale and must be renewed. Ordinary in-scope CI remediation does not stale it.
 
-## 15. Production safety envelope
+## 15. Production safety envelope and durable authorization
 
 Source authorization never authorizes production mutation.
 
-A separately recorded `PRODUCTION APPROVED` safety envelope may authorize the bounded release execution for one canonical task and runtime contour, including:
+A separately recorded `PRODUCTION APPROVED <full-sha>` safety envelope may authorize bounded release execution for one canonical task and exact runtime contour set, including:
 
 - deployment of the final exact green source SHA attributable to the approved Outcome Contract;
 - declared normal service restart/reload operations required by that deployment;
 - declared smoke/health checks;
 - an explicitly declared safe rollback to a known target when the stated rollback condition occurs.
 
-The production envelope remains valid across bounded source/CI remediation only when product outcome, runtime contour, protected boundaries, deployment method and rollback semantics remain unchanged. Immediately before production execution, release readiness must bind the envelope to the final exact 40-character SHA, successful aggregate quality, validated artifacts/evidence and known rollback target.
+The authorized actor set and approval format are source controlled by `data/contracts/production-authorization-policy-v1.json`. Durable authorization must bind the canonical Issue, applicable merged PR, exact source SHA, Outcome Contract, exact runtime contours, security impact, deployment target and rollback target through a deterministic fingerprint. Any material change to a bound semantic makes prior approval stale. GitHub API failure, missing linkage or ambiguity fails closed.
 
-Any material runtime-scope change, new destructive operation, changed secret/security boundary, changed deployment target or changed rollback semantics requires fresh production authorization.
+For VPS production, `.github/workflows/deploy-vps.yml` remains manual and retains the protected `production` environment. Before SSH configuration it must:
+
+- require dispatch from the `main` workflow definition;
+- reject any commit input that is not already a lowercase full 40-character SHA;
+- prove the selected SHA is on current `main` first-parent history;
+- prove a successful completed `quality-integration.yml` run with event `push`, branch `main`, and exact matching head SHA; PR/check-name evidence is insufficient;
+- resolve the canonical Issue through exactly one applicable merged PR and verify the current durable production authorization fingerprint;
+- validate exact artifact, quality and release provenance evidence.
+
+The production environment remains defense in depth and does not replace durable authorization.
 
 Repository rulesets, branch protection, required approvals and protected environments are GitHub settings, not facts proven by source installation. They may be reported as enforced only after independent settings verification and durable evidence.

@@ -10,7 +10,7 @@ from pathlib import Path
 
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
-TARGETS = {"vps", "windows-worker"}
+TARGETS = {"vps", "ubuntu-worker", "windows-worker"}
 STATES = {"installed", "deployed", "runtime_verified", "rolled_back", "failed"}
 CHECK_STATUSES = {"passed", "skipped", "failed"}
 

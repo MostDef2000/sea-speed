@@ -22,6 +22,7 @@ CANONICAL_FILES = (
     "data/contracts/fixtures-v1.json",
     "data/contracts/contract-policy-v1.json",
     "data/contracts/change-control-policy-v1.json",
+    "data/contracts/production-authorization-policy-v1.json",
     "data/quality/quality-gates-v1.json",
     "data/quality/reliability-budget-v1.json",
     "data/quality/accepted-risks-v1.json",
@@ -41,6 +42,7 @@ CANONICAL_FILES = (
     "scripts/release/build_release_manifest.py",
     "scripts/release/validate_release_manifest.py",
     "scripts/release/validate_deployment_manifest.py",
+    "scripts/release/verify_production_authorization.py",
     "scripts/ci/validate_change_contract.py",
     "scripts/ci/validate_telemetry.py",
     "scripts/quality/validate_quality_contracts.py",
@@ -53,6 +55,9 @@ CANONICAL_FILES = (
     "scripts/operations/verify_runtime.py",
     ".github/workflows/quality-integration.yml",
     ".github/workflows/deploy-vps.yml",
+    "specs/012-delivery-control-hardening/spec.md",
+    "specs/012-delivery-control-hardening/plan.md",
+    "specs/012-delivery-control-hardening/tasks.md",
 )
 
 REFERENCE_FILES = (
@@ -74,7 +79,7 @@ REFERENCE_FILES = (
 )
 
 REPO_PATH_PATTERN = re.compile(
-    r"`((?:contracts|data|docs|scripts|deploy|api|frontend|worker|tests|schemas|\.github)/[^`\n]+)`"
+    r"`((?:contracts|data|docs|scripts|deploy|api|frontend|worker|tests|schemas|specs|\.github)/[^`\n]+)`"
 )
 
 

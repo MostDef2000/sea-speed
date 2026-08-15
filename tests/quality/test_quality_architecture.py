@@ -25,12 +25,8 @@ def load_workflow_policy():
 class QualityArchitectureTests(unittest.TestCase):
     def run_script(self, *args: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
-            [sys.executable, *args],
-            cwd=ROOT,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            check=True,
+            [sys.executable, *args], cwd=ROOT, text=True,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=True,
         )
 
     def test_contracts_properties_fuzz_and_workflow_policy(self) -> None:
@@ -56,7 +52,6 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 """
         policy.validate_workflow_source(valid, "valid.yml")
-
         invalid_sources = {
             "mutable action": valid.replace("11d5960a326750d5838078e36cf38b85af677262", "v4"),
             "write-all": valid.replace("permissions:\n  contents: read", "permissions: write-all"),
@@ -69,6 +64,25 @@ jobs:
                 with self.assertRaises(ValueError):
                     policy.validate_workflow_source(source, f"{name}.yml")
 
+    def test_quality_workflow_wires_sdd_into_aggregate_dependency(self) -> None:
+        quality = (ROOT / ".github/workflows/quality-integration.yml").read_text(encoding="utf-8")
+        self.assertIn("validate_sdd.py --event", quality)
+        static = quality[quality.index("  static-contract-security:"):quality.index("  property-fuzz-reliability:")]
+        self.assertIn("validate_sdd.py", static)
+        aggregate = quality[quality.index("  quality-integration:"):]
+        self.assertIn("static-contract-security", aggregate)
+
+    def test_deploy_workflow_has_all_admission_guards_before_ssh(self) -> None:
+        deploy = (ROOT / ".github/workflows/deploy-vps.yml").read_text(encoding="utf-8")
+        configure = deploy.index("Configure SSH")
+        for marker in (
+            "refs/heads/main", "--first-parent", "verify_quality_status.py",
+            "verify_production_authorization.py", "Build release provenance v2",
+        ):
+            self.assertLess(deploy.index(marker), configure, marker)
+        self.assertIn("environment: production", deploy)
+        self.assertNotIn("${INPUT_COMMIT,,}", deploy)
+
     def test_exact_artifacts_are_deterministic_and_valid(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             first = Path(temp_dir) / "first"
@@ -79,12 +93,10 @@ jobs:
                 filename = f"sea-speed-{component}-{COMMIT}.tar.gz"
                 self.assertEqual((first / filename).read_bytes(), (second / filename).read_bytes())
             self.assertEqual((first / "exact-artifacts.json").read_bytes(), (second / "exact-artifacts.json").read_bytes())
-
             manifest = json.loads((first / "exact-artifacts.json").read_text(encoding="utf-8"))
             vps = next(artifact for artifact in manifest["artifacts"] if artifact["component"] == "vps")
             vps_paths = {entry["path"] for entry in vps["files"]}
             self.assertIn("frontend/sea-speed/cameras/index.html", vps_paths)
-
             self.run_script("scripts/quality/validate_exact_artifacts.py", "--manifest", str(first / "exact-artifacts.json"))
 
     def test_quality_evidence_binds_artifact_digests(self) -> None:
@@ -93,14 +105,11 @@ jobs:
             evidence = Path(temp_dir) / "quality-evidence.json"
             self.run_script("scripts/quality/build_exact_artifacts.py", "--source-commit", COMMIT, "--output-dir", str(exact))
             self.run_script(
-                "scripts/quality/build_quality_evidence.py",
-                "--source-commit", COMMIT,
-                "--artifacts-manifest", str(exact / "exact-artifacts.json"),
-                "--output", str(evidence),
+                "scripts/quality/build_quality_evidence.py", "--source-commit", COMMIT,
+                "--artifacts-manifest", str(exact / "exact-artifacts.json"), "--output", str(evidence),
             )
             self.run_script(
-                "scripts/quality/validate_quality_evidence.py",
-                "--evidence", str(evidence),
+                "scripts/quality/validate_quality_evidence.py", "--evidence", str(evidence),
                 "--artifacts-manifest", str(exact / "exact-artifacts.json"),
             )
             data = json.loads(evidence.read_text(encoding="utf-8"))

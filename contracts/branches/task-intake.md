@@ -1,6 +1,6 @@
 # Branch Contract: Task Intake
 
-Version: 1.0.0
+Version: 1.1.0
 Status: Active
 Role: Sea Speed Task Intake Agent
 
@@ -13,7 +13,8 @@ Convert an unstructured user request into a canonical, evidence-based Task Brief
 - identify the user-visible problem and expected behavior;
 - recover the canonical GitHub Issue or identify that a new Issue is required;
 - inspect current `main`, relevant contracts, likely source files, open work and available runtime evidence;
-- classify the responsible domain and affected VPS and Windows runtime contours;
+- classify the responsible domain and the exact affected production runtime contours: VPS, Ubuntu Worker/relay, Windows AI Worker, or a mixed set;
+- never classify Ubuntu-only production-impact source as CONTROL_PLANE solely because it is under `deploy/**`;
 - distinguish confirmed facts, assumptions, evidence gaps and blocking questions;
 - produce the canonical Task Brief for Project Manager planning.
 
@@ -35,7 +36,9 @@ Sea Speed Task Brief
 - API/event/state/storage schema impact:
 - Backward compatibility:
 - VPS deployment required:
-- Windows worker update required:
+- Ubuntu worker/relay update required:
+- Windows AI worker update required:
+- Production safety envelope required:
 - Rollout order:
 - Rollback requirement:
 - Risks and dependencies:
@@ -51,6 +54,8 @@ Sea Speed Task Brief
 - Do not treat a chat message as a durable replacement for an Issue when repository changes are expected.
 - Do not infer implementation approval from problem discussion, Task Brief completion, or specification readiness.
 - Repository-write approval is valid only after the Project Manager presents an Implementation Scope Check with exact files, exclusions, risks, impact, checks, release applicability and acceptance criteria.
+- Any production-impact runtime contour requires a production safety envelope separate from source authorization.
+- Production authorization must be bound to the canonical Issue, applicable merged PR/Outcome Contract, exact source SHA, exact contour set, security/deployment/rollback semantics, and authorized actor evidence; ambiguous or stale evidence fails closed.
 - Do not expose secrets or request secret values in an Issue or Task Brief.
 - Do not silently broaden the task beyond the original request and recovered repository evidence.
 - When the required behavior, affected schema, deployment target or acceptance evidence cannot be determined safely, report `Specification readiness: NOT READY` and list the blocking questions.

@@ -1,6 +1,6 @@
 # Sea Speed Task Runtime
 
-Version: 1.3.0
+Version: 1.4.0
 Status: Active
 
 ## States
@@ -72,14 +72,23 @@ Sea Speed Task Runtime
 - Production safety envelope: NOT REQUIRED/PENDING/APPROVED/STALE
 - VPS deployment: NOT REQUIRED/PENDING/RUNNING/SUCCESS/FAILED
 - VPS deployment manifest: NOT REQUIRED/PENDING/VALID/INVALID
-- Windows worker package: NOT REQUIRED/PENDING/PACKAGED/FAILED
-- Windows worker installation: NOT REQUIRED/PENDING/INSTALLED/FAILED
+- Ubuntu worker/relay package: NOT REQUIRED/PENDING/PACKAGED/FAILED
+- Ubuntu worker/relay installation: NOT REQUIRED/PENDING/INSTALLED/FAILED
+- Ubuntu deployment manifest: NOT REQUIRED/PENDING/VALID/INVALID
+- Windows AI worker package: NOT REQUIRED/PENDING/PACKAGED/FAILED
+- Windows AI worker installation: NOT REQUIRED/PENDING/INSTALLED/FAILED
 - Windows deployment manifest: NOT REQUIRED/PENDING/VALID/INVALID
 - Runtime telemetry: NOT REQUIRED/PENDING/VALID/INVALID
 - Evidence verdict: NOT REQUIRED/PENDING/accepted/regressed/insufficient_evidence
 - User action:
 - Final state: PENDING/COMPLETE/BLOCKED/FAILED
 ```
+
+## Production contour rule
+
+The explicit production runtime contours are VPS, Ubuntu Worker/relay, and Windows AI Worker. A task may affect exactly one contour or a mixed set. The summary class `MIXED` never replaces the exact per-contour deployment fields. Ubuntu-only production-impact source is not CONTROL_PLANE simply because it resides under `deploy/**`; shared Worker source may legitimately require both Ubuntu and Windows contours.
+
+Every non-empty runtime contour set requires `Production safety envelope: REQUIRED`. CONTROL_PLANE and NONE require all three deployment fields and the production safety envelope to be `NOT REQUIRED`.
 
 ## Continuation rule
 
@@ -90,6 +99,10 @@ New source authorization is required only when the product outcome materially ch
 Ordinary in-scope bug fixes, test changes and CI remediation do not require fresh authorization.
 
 Production mutation is never implied by source authorization. When production applies, continue only after the separate production safety envelope is available and release readiness binds it to the final exact green SHA.
+
+## Production authorization identity
+
+Production authorization is durable Issue evidence bound to the canonical Issue, applicable merged PR, exact source SHA, Outcome Contract, exact runtime contour set, security impact, deployment target and rollback target. The authorized actor set is source controlled. Material change to a bound field makes prior authorization stale; GitHub API failure, ambiguity or missing linkage fails closed.
 
 ## Capability rule
 
@@ -114,9 +127,10 @@ Completion evidence remains:
 ```text
 approved outcome/scope
 → exact changed files
-→ PR validation
+→ PR validation and aggregate SDD gate
 → authorized merge commit on main
-→ release manifest and artifact identity
+→ release manifest v2 and exact artifact identity when runtime delivery applies
+→ durable production authorization bound to exact main SHA
 → deployment manifest for each applicable contour
 → runtime source identity and health
 → freshness/telemetry where applicable
@@ -127,7 +141,7 @@ A running process, open PR, green CI, merge, uploaded package or deployment star
 
 ## Runtime acceptance
 
-Worker/API runtime acceptance requirements remain unchanged for their applicable contours. Governance-only work may classify runtime acceptance as `NOT REQUIRED` after successful aggregate CI and authorized merge.
+Worker/API runtime acceptance requirements remain unchanged for their applicable contours. Governance/control-plane-only work may classify runtime acceptance as `NOT REQUIRED` after successful aggregate CI and authorized merge.
 
 ## Feedback decision
 
