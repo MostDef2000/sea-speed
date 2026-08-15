@@ -29,7 +29,6 @@ def validate_workflow_source(source: str, file: str) -> None:
         raise ValueError(f"{file} must not pipe downloads into a shell")
     if not re.search(r"^permissions:\s*$", source, re.MULTILINE):
         raise ValueError(f"{file} must declare explicit top-level permissions")
-
     for match in re.finditer(r"^\s*-?\s*uses:\s*([^\s#]+)", source, re.MULTILINE):
         value = match.group(1)
         if value.startswith("./"):
@@ -50,8 +49,11 @@ def main() -> int:
     deploy_path = root / ".github/workflows/deploy-vps.yml"
     quality = quality_path.read_text(encoding="utf-8-sig")
     deploy = deploy_path.read_text(encoding="utf-8-sig")
-
-    for marker in ("name: Quality integration gate", "pull_request:", "push:", "workflow_dispatch:", "contents: read", "static-contract-security:", "property-fuzz-reliability:", "exact-artifact-e2e:", "release-deployment-evidence:", "quality-integration:", "if: always()"):
+    for marker in (
+        "name: Quality integration gate", "pull_request:", "push:", "workflow_dispatch:", "contents: read",
+        "static-contract-security:", "property-fuzz-reliability:", "exact-artifact-e2e:",
+        "release-deployment-evidence:", "quality-integration:", "if: always()", "validate_sdd.py --event",
+    ):
         if marker not in quality:
             fail(f"quality workflow marker missing: {marker}")
     if re.search(r"^\s+paths(?:-ignore)?:", quality, re.MULTILINE):
@@ -66,17 +68,27 @@ def main() -> int:
         fail("VPS deployment must be manually dispatched")
     if re.search(r"^\s{2}(push|pull_request):", on_block, re.MULTILINE):
         fail("VPS production deployment must not run on push or pull request")
-    for marker in ("commit_sha:", "required: true", "environment: production", "verify_quality_status.py", "--required-name quality-integration", "Build exact deployment artifacts", "Build and validate quality evidence"):
+    for marker in (
+        "commit_sha:", "canonical_issue:", "environment: production", "issues: read", "pull-requests: read",
+        "refs/heads/main", "--first-parent", "verify_quality_status.py", "--workflow-file quality-integration.yml",
+        "verify_production_authorization.py", "production-authorization.json", "Build exact deployment artifacts",
+        "Build and validate quality evidence", "Build release provenance v2",
+    ):
         if marker not in deploy:
             fail(f"controlled deployment marker missing: {marker}")
+    if "${INPUT_COMMIT,,}" in deploy:
+        fail("deployment workflow must reject uppercase SHA rather than normalize it")
+    if deploy.index("verify_production_authorization.py") > deploy.index("Configure SSH"):
+        fail("production authorization must be verified before SSH configuration")
+    if deploy.index("verify_quality_status.py") > deploy.index("Configure SSH"):
+        fail("quality evidence must be verified before SSH configuration")
 
     for workflow_path in sorted((root / ".github/workflows").glob("*.y*ml")):
         try:
             validate_workflow_source(workflow_path.read_text(encoding="utf-8-sig"), str(workflow_path.relative_to(root)))
         except ValueError as exc:
             fail(str(exc))
-
-    print("Workflow policy valid: immutable actions, least privilege, aggregate gate, explicit deployment")
+    print("Workflow policy valid: immutable actions, aggregate SDD gate, exact-main admission, durable authorization")
     return 0
 
 
