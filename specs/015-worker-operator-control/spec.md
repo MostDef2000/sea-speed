@@ -64,7 +64,7 @@ Given the VPS cannot reach, authenticate to, or confirm the fixed protocol versi
 - NFR-003 | Area: OPERABILITY | Target: intentional stopped/running state survives exact update/rollback maintenance semantics | Validation: updater/rollback contract tests | Evidence: tests/test_ubuntu_worker_exact_updater.py and tests/test_ubuntu_worker_rollback.py | Status: PASS
 - NFR-004 | Area: COMPATIBILITY | Target: Camera 1 HLS URL and existing live Play/Stop controls remain unchanged | Validation: frontend contract test | Evidence: tests/test_frontend_contract.py | Status: PASS
 - NFR-005 | Area: PERFORMANCE | Target: worker-control status/action upstream timeout is bounded to <= 5 seconds by configuration clamp | Validation: API contract assertions | Evidence: tests/test_worker_operator_control.py | Status: PASS
-- NFR-006 | Area: RELEASE_PROVENANCE | Target: MIXED release quality evidence contains deterministic exact artifacts for VPS and Ubuntu Worker while preserving legacy edge evidence | Validation: deterministic build, extraction/digest/syntax validation and quality-evidence binding | Evidence: tests/quality/test_quality_architecture.py | Status: PENDING exact-head CI
+- NFR-006 | Area: RELEASE_PROVENANCE | Target: MIXED release quality evidence contains deterministic exact artifacts for VPS and Ubuntu Worker while preserving legacy edge evidence | Validation: deterministic build, extraction/digest/syntax validation and quality-evidence binding | Evidence: tests/quality/test_quality_architecture.py | Status: PASS
 
 ## Compatibility and boundaries
 
