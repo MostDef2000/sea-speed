@@ -1435,9 +1435,6 @@ def main():
                 motion_boxes=motion_boxes,
             )
 
-            draw_roi_polygon(overlay)
-            draw_speed_lines_overlay(overlay)
-
             cv2.imwrite(
                 str(latest_overlay_path),
                 overlay,
