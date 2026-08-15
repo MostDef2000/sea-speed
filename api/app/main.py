@@ -56,6 +56,7 @@ try:
     )
 except ValueError:
     WORKER_CONTROL_TIMEOUT_SEC = 3.0
+WORKER_CONTROL_PROTOCOL = "sea_speed_worker_control_v1"
 API_SCHEMA = "sea_speed_api_v1"
 WORKER_STATE_SCHEMA = "sea_speed_worker_state_v1"
 VEHICLE_EVENT_SCHEMA = "sea_speed_vehicle_event_v1"
@@ -175,6 +176,8 @@ def call_worker_control(method: str, path: str) -> Dict[str, Any]:
             raise HTTPException(status_code=503, detail="Worker control response is invalid") from exc
         if response.status != 200 or not isinstance(payload, dict) or payload.get("ok") is not True:
             raise HTTPException(status_code=503, detail="Worker control operation failed")
+        if payload.get("protocol") != WORKER_CONTROL_PROTOCOL:
+            raise HTTPException(status_code=503, detail="Worker control protocol mismatch")
         return payload
     except HTTPException:
         raise
@@ -797,7 +800,6 @@ def get_cameras() -> Dict[str, Any]:
         "active": active,
         "preview_policy": {"max_active": 1, "ttl_sec": CAMERA_PREVIEW_TTL_SEC},
     }
-
 
 @app.get("/api/cameras/{camera_id}/snapshot")
 def get_camera_snapshot(camera_id: str):

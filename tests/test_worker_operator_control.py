@@ -21,6 +21,7 @@ def load_agent():
 def test_agent_surface_is_fixed_to_one_service_and_three_paths():
     module = load_agent()
     assert module.SERVICE_NAME == "sea-speed-worker.service"
+    assert module.WORKER_CONTROL_PROTOCOL == "sea_speed_worker_control_v1"
     assert module.ALLOWED_PATHS == {"/v1/status", "/v1/start", "/v1/stop"}
     source = AGENT_PATH.read_text(encoding="utf-8")
     assert "shell=True" not in source
@@ -91,6 +92,7 @@ def test_stop_records_intent_before_fixed_service_stop(monkeypatch, tmp_path):
     status = module.stop_worker()
     assert status["active"] is False
     assert status["desired_state"] == "stopped"
+    assert status["protocol"] == module.WORKER_CONTROL_PROTOCOL
     assert observed[0] == (("stop", module.SERVICE_NAME), "stopped")
 
 
@@ -104,6 +106,17 @@ def test_vps_api_contract_is_fixed_private_proxy_with_trusted_identity():
     assert "http.client.HTTPConnection" in source
     assert "SEA_SPEED_API_TOKEN" in source
     assert "worker_control_origin" in source
+
+
+def test_worker_control_protocol_is_fixed_and_mismatch_fails_closed():
+    agent = AGENT_PATH.read_text(encoding="utf-8")
+    api = API_PATH.read_text(encoding="utf-8")
+    marker = 'WORKER_CONTROL_PROTOCOL = "sea_speed_worker_control_v1"'
+    assert marker in agent
+    assert marker in api
+    assert '"protocol": WORKER_CONTROL_PROTOCOL' in agent
+    assert 'payload.get("protocol") != WORKER_CONTROL_PROTOCOL' in api
+    assert 'detail="Worker control protocol mismatch"' in api
 
 
 def test_worker_control_never_owns_camera_hls():
