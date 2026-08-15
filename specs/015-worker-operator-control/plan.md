@@ -22,7 +22,7 @@ The Ubuntu control agent is a separate systemd service and uses the existing pro
 
 The agent persists `/opt/sea-speed-worker/shared/runtime/operator-desired-state` as `running` or `stopped`. Exact updater and rollback paths consult this marker: `running` keeps the current active-service/runtime-gate semantics; `stopped` permits intentional inactivity and installs the exact unit/control service without auto-starting the AI worker.
 
-Release provenance is separate from runtime transport. Quality tooling builds deterministic exact source archives for `vps`, `ubuntu-worker`, and the retained legacy `edge` component. A MIXED production rollout is admitted only after exact artifacts, quality evidence, release manifest v2 and a new exact-SHA production authorization all bind the same merged main commit.
+Release provenance is separate from runtime transport. Quality tooling preserves the existing quality-evidence v1 exact inventory for `vps` and legacy `edge`, and the same deterministic exact-artifacts manifest additionally carries a release-specific `ubuntu-worker` archive. The custom validator proves all three archives. Release-manifest v2 can then directly bind the Ubuntu archive digest and the SHA-256 of the complete exact-artifacts manifest. A MIXED production rollout is admitted only after these exact artifacts, valid quality evidence, release manifest v2 and a new exact-SHA production authorization all bind the same merged main commit.
 
 ## Decisions
 
@@ -61,11 +61,11 @@ Release provenance is separate from runtime transport. Quality tooling builds de
 - Reason: independently deployed VPS and Ubuntu contours must fail closed on a stale or incompatible private control agent instead of interpreting an unknown response shape as safe.
 - Alternatives rejected: implicit compatibility based only on HTTP 200/`ok=true`, semantic version negotiation, fallback to SSH or another control channel.
 
-### D-007 - First-class Ubuntu Worker exact artifact
+### D-007 - First-class Ubuntu Worker exact artifact with legacy quality-evidence compatibility
 
-- Decision: `scripts/quality/build_exact_artifacts.py` builds a deterministic `ubuntu-worker` archive containing the repository-owned Ubuntu install/update/control/runtime source needed for the exact release; validation requires `vps`, `ubuntu-worker`, and `edge` components.
-- Reason: release-manifest v2 requires at least one exact artifact for a deployable `ubuntu-worker` component in `ready_for_deployment`; the previous two-component `{vps, edge}` inventory could not admit the declared MIXED rollout.
-- Alternatives rejected: relabel legacy `edge` as Ubuntu, waive the hard artifact gate, partially deploy VPS before Ubuntu admission, or treat server-pull transport as provenance evidence without an exact artifact.
+- Decision: `scripts/quality/build_exact_artifacts.py` builds a deterministic `ubuntu-worker` archive containing the repository-owned Ubuntu install/update/control/runtime source needed for the exact release. The manifest keeps `vps` and `edge` under its existing `artifacts` inventory consumed by quality-evidence v1 and stores `ubuntu-worker` under a separate release-specific inventory; `validate_exact_artifacts.py` requires and validates all three.
+- Reason: release-manifest v2 requires at least one exact artifact for a deployable `ubuntu-worker` component in `ready_for_deployment`, while the existing quality-evidence v1 schema does not enumerate `ubuntu-worker`. Separating the release-specific inventory preserves the current quality evidence contract without mislabeling Ubuntu as `edge`; release-manifest v2 directly binds the Ubuntu archive digest plus the full exact-manifest hash.
+- Alternatives rejected: relabel legacy `edge` as Ubuntu, weaken/waive the quality schema, expand source scope into schema migration without authorization, partially deploy VPS before Ubuntu admission, or treat server-pull transport as provenance evidence without an exact artifact.
 
 ## Affected contours
 
@@ -80,7 +80,7 @@ Release provenance is separate from runtime transport. Quality tooling builds de
 
 - Unit: agent auth, fixed operation allowlist, desired-state behavior, protocol marker, API origin validation and fail-closed protocol mismatch guard.
 - Integration: existing frontend/API route contract, private nginx ingress exclusion, systemd installation/update/rollback contract tests remain authoritative.
-- Release-provenance: build exact artifacts twice; compare all three archives/manifests; validate inventory/digests/extraction/Python/shell/runtime-lock syntax; bind artifact digests into quality evidence.
+- Release-provenance: build exact artifacts twice; compare all three archives and complete manifests; validate all three inventories/digests/extraction/Python/shell/runtime-lock syntax; validate unchanged quality-evidence v1 for `vps`/`edge`; assert the separate Ubuntu release inventory has a deterministic digest available for release-manifest v2 binding.
 - End-to-end: exact PR Validation + Quality integration.
 - Runtime-manual after a new separate production approval: confirm exact VPS/Ubuntu identities, control-agent protocol, HLS playback before/during/after AI worker stop/start and exact service/control-agent state.
 
@@ -93,7 +93,7 @@ Release provenance is separate from runtime transport. Quality tooling builds de
 - RISK-003 | Category: TECH | Probability: 2 | Impact: 4 | Score: 8 | Mitigation: separate endpoints/buttons and invariant tests for HLS path plus absence of relay operations | Validation: tests/test_frontend_contract.py and tests/test_worker_operator_control.py | Residual risk: runtime HLS continuity still requires manual production evidence | Owner: PM/operator | Status: MITIGATED
 - RISK-004 | Category: PERF | Probability: 2 | Impact: 2 | Score: 4 | Mitigation: bounded <=5s upstream timeout and asynchronous UI error state | Validation: tests/test_worker_operator_control.py | Residual risk: private network outage can temporarily make control unavailable without affecting HLS | Owner: PM/operator | Status: MITIGATED
 - RISK-005 | Category: BUS | Probability: 2 | Impact: 4 | Score: 8 | Mitigation: dedicated independently enabled control systemd unit | Validation: tests/test_ubuntu_worker_systemd.py plus runtime-manual acceptance | Residual risk: control service availability must be verified during production rollout | Owner: PM/operator | Status: MITIGATED
-- RISK-006 | Category: OPS | Probability: 2 | Impact: 5 | Score: 10 | Mitigation: first-class deterministic `ubuntu-worker` exact artifact, strict three-component validator and quality-evidence digest binding | Validation: tests/quality/test_quality_architecture.py | Residual risk: a future Ubuntu release-source expansion must update the explicit artifact inventory in the same approved task | Owner: Delivery Orchestrator | Status: MITIGATED
+- RISK-006 | Category: OPS | Probability: 2 | Impact: 5 | Score: 10 | Mitigation: first-class deterministic `ubuntu-worker` exact release artifact, strict three-artifact validator, preserved quality-evidence v1 contract, and later release-manifest v2 direct artifact/full-manifest hash binding | Validation: tests/quality/test_quality_architecture.py | Residual risk: a future Ubuntu release-source expansion must update the explicit artifact inventory in the same approved task | Owner: Delivery Orchestrator | Status: MITIGATED
 - RISK-007 | Category: SEC | Probability: 2 | Impact: 4 | Score: 8 | Mitigation: fixed protocol marker required by VPS before successful upstream payload is accepted | Validation: tests/test_worker_operator_control.py | Residual risk: protocol version changes require coordinated source delivery and fresh production authorization | Owner: Delivery Orchestrator | Status: MITIGATED
 
 ## Test design
@@ -123,7 +123,7 @@ Release provenance is separate from runtime transport. Quality tooling builds de
 ## Rollout and rollback
 
 - Source rollout: merge only the exact green remediation head after fresh base/head/scope/review verification.
-- Production rollout after a new exact-SHA approval: validate three-component exact artifacts and release manifest v2 -> deploy VPS additive API/protocol guard -> prepare/install Ubuntu exact release and independent control service -> verify matching protocol/status -> perform bounded stop/start test while monitoring HLS -> record acceptance.
+- Production rollout after a new exact-SHA approval: validate the complete exact-artifacts manifest and quality evidence, build/validate release manifest v2 for both applicable components with the Ubuntu release-specific archive -> deploy VPS additive API/protocol guard -> prepare/install Ubuntu exact release and independent control service -> verify matching protocol/status -> perform bounded stop/start test while monitoring HLS -> record acceptance.
 - Rollback order: stop using UI control -> restore previous VPS release -> restore previous Ubuntu exact unit/release using existing rollback path while preserving prior desired state. Camera relay/HLS requires no rollback because it is not changed.
 - Partial rollout rule: if Ubuntu exact-artifact/release admission fails, do not deploy VPS alone; the MIXED rollout fails closed before runtime mutation.
 - Production mutation during remediation source delivery: NONE.
@@ -131,6 +131,6 @@ Release provenance is separate from runtime transport. Quality tooling builds de
 ## Runtime feedback
 
 - Actual architecture after acceptance: PENDING production evidence.
-- Difference discovered before production: release provenance did not model Ubuntu Worker as an exact-artifact component even though runtime applicability correctly declared it.
+- Difference discovered before production: release provenance did not model Ubuntu Worker as an exact release artifact even though runtime applicability correctly declared it.
 - Corrective source task: active 9-path remediation branch for protocol compatibility and Ubuntu exact-artifact provenance.
 - Deferred cleanup: NONE; runtime acceptance remains the only deferred product evidence after source merge and fresh production authorization.
