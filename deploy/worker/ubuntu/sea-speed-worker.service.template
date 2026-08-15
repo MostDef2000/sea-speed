@@ -13,6 +13,7 @@ Group=__SERVICE_USER__
 WorkingDirectory=__INSTALL_ROOT__/shared/runtime
 EnvironmentFile=__INSTALL_ROOT__/shared/config/worker.env
 Environment=PYTHONUNBUFFERED=1
+Environment=YOLO_AUTOINSTALL=false
 Environment=SEA_SPEED_SOURCE_COMMIT=__SOURCE_COMMIT__
 ExecStart=__INSTALL_ROOT__/releases/__SOURCE_COMMIT__/venv/bin/python __INSTALL_ROOT__/releases/__SOURCE_COMMIT__/source/deploy/worker/ubuntu/observed-worker-runner.py --source-commit __SOURCE_COMMIT__ --heartbeat __INSTALL_ROOT__/shared/runtime/worker-heartbeat.json --overlay __INSTALL_ROOT__/shared/runtime/output/latest/latest_overlay.jpg __INSTALL_ROOT__/releases/__SOURCE_COMMIT__/source/worker/ubuntu_worker_entrypoint.py
 Restart=on-failure
