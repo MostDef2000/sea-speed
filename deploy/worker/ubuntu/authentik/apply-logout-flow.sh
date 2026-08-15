@@ -110,6 +110,18 @@ print("SEA_SPEED_PROVIDER_FLOW=" + (flow.slug if flow else ""))
   printf '%s' "$flow"
 }
 
+query_provider_mode() {
+  local output provider_mode
+  output="$(docker exec "$worker_id" ak shell -c '
+from authentik.providers.proxy.models import ProxyProvider
+provider = ProxyProvider.objects.get(name="Provider for Sea Speed")
+print("SEA_SPEED_PROVIDER_MODE=" + provider.mode)
+')" || fail "PROVIDER_MODE_QUERY" 59
+  provider_mode="$(printf '%s\n' "$output" | sed -n 's/^SEA_SPEED_PROVIDER_MODE=//p' | tail -n 1)"
+  [[ -n "$provider_mode" ]] || fail "PROVIDER_MODE_EMPTY" 60
+  printf '%s' "$provider_mode"
+}
+
 cleanup_container_blueprint() {
   docker exec "$worker_id" rm -f "$container_blueprint" >/dev/null 2>&1 || true
 }
@@ -130,6 +142,10 @@ trap cleanup_container_blueprint EXIT
 
 apply_target="sea-speed-provider-invalidation"
 rollback_target="default-provider-invalidation-flow"
+expected_provider_mode="forward_single"
+current_mode="$(query_provider_mode)"
+[[ "$current_mode" == "$expected_provider_mode" ]] \
+  || fail "UNEXPECTED_PROVIDER_MODE_${current_mode}" 61
 current_flow="$(query_provider_flow)"
 
 case "$mode:$current_flow" in
@@ -150,10 +166,12 @@ fi
 printf 'SOURCE_REPOSITORY=MostDef2000/sea-speed\n'
 printf 'SOURCE_COMMIT=%s\n' "$source_sha"
 printf 'WORKER_HOST=%s\n' "$(hostname)"
+printf 'AUTHENTIK_PROVIDER_MODE_BEFORE=%s\n' "$current_mode"
 printf 'AUTHENTIK_PROVIDER_INVALIDATION_FLOW_BEFORE=%s\n' "$current_flow"
 printf 'AUTHENTIK_BLUEPRINT_SHA256=%s\n' "$(sha256sum "$selected_source" | awk '{print $1}')"
 
 if [[ "$current_flow" == "$target_flow" ]]; then
+  printf 'AUTHENTIK_PROVIDER_MODE_AFTER=%s\n' "$current_mode"
   printf 'AUTHENTIK_PROVIDER_INVALIDATION_FLOW_AFTER=%s\n' "$current_flow"
   printf 'AUTHENTIK_LOGOUT_OPERATION=%s\n' "$already_state"
   exit 0
@@ -164,11 +182,15 @@ if ! copy_and_apply_blueprint "$selected_source"; then
 fi
 
 after_flow="$(query_provider_flow)"
+after_mode="$(query_provider_mode)"
+[[ "$after_mode" == "$expected_provider_mode" ]] \
+  || fail "PROVIDER_MODE_DRIFT_${after_mode}" 62
 if [[ "$after_flow" != "$target_flow" ]]; then
   if [[ "$mode" == "apply" && "$current_flow" == "$rollback_target" ]]; then
     if copy_and_apply_blueprint "$rollback_source"; then
       restored_flow="$(query_provider_flow)"
-      if [[ "$restored_flow" == "$rollback_target" ]]; then
+      restored_mode="$(query_provider_mode)"
+      if [[ "$restored_flow" == "$rollback_target" && "$restored_mode" == "$expected_provider_mode" ]]; then
         printf 'AUTHENTIK_LOGOUT_AUTO_ROLLBACK=PASS\n' >&2
         fail "PROVIDER_VERIFY_ROLLED_BACK" 56
       fi
@@ -189,6 +211,7 @@ curl --fail --silent --show-error --max-time 5 \
   http://127.0.0.1:9000/-/health/ready/ >/dev/null \
   || fail "AUTHENTIK_LOOPBACK_HEALTH_AFTER" 58
 
+printf 'AUTHENTIK_PROVIDER_MODE_AFTER=%s\n' "$after_mode"
 printf 'AUTHENTIK_PROVIDER_INVALIDATION_FLOW_AFTER=%s\n' "$after_flow"
 printf 'AUTHENTIK_RUNTIME_CONTAINERS_UNCHANGED=YES\n'
 printf 'AUTHENTIK_LOOPBACK_READY=YES\n'

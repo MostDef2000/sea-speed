@@ -6,8 +6,11 @@ entries:
   # Restore the exact provider invalidation flow that was active before
   # Issue #152. This rollback is intentionally limited to the Sea Speed
   # Proxy Provider and does not modify the global default flow itself.
+  # Preserve the existing forward-auth mode explicitly for Authentik 2026.5.x
+  # partial-update validation; this is not a topology change.
   - model: authentik_providers_proxy.proxyprovider
     identifiers:
       name: Provider for Sea Speed
     attrs:
+      mode: forward_single
       invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]

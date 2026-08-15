@@ -43,8 +43,12 @@ entries:
 
   # Update only the existing Sea Speed Proxy Provider. The global
   # default-provider-invalidation-flow remains untouched for other apps.
+  # Authentik 2026.5.x validates partial ProxyProvider updates as proxy mode
+  # when mode is omitted, so preserve the existing forward-auth topology
+  # explicitly while changing only the invalidation-flow relation.
   - model: authentik_providers_proxy.proxyprovider
     identifiers:
       name: Provider for Sea Speed
     attrs:
+      mode: forward_single
       invalidation_flow: !KeyOf sea-speed-invalidation-flow
