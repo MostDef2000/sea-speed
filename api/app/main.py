@@ -1,4 +1,5 @@
 import hashlib
+import http.client
 import ipaddress
 import json
 import os
@@ -45,6 +46,16 @@ CAMERA_PREVIEW_STATE_FILE = DATA_DIR / "camera-preview-state.json"
 CAMERA_PREVIEW_FFMPEG_BIN = os.environ.get("SEA_SPEED_CAMERA_PREVIEW_FFMPEG", "/usr/bin/ffmpeg")
 
 API_TOKEN = os.environ.get("SEA_SPEED_API_TOKEN", "")
+WORKER_CONTROL_URL = os.environ.get(
+    "SEA_SPEED_WORKER_CONTROL_URL", "http://10.123.239.102:19001"
+).strip()
+try:
+    WORKER_CONTROL_TIMEOUT_SEC = max(
+        1.0,
+        min(float(os.environ.get("SEA_SPEED_WORKER_CONTROL_TIMEOUT_SEC", "3")), 5.0),
+    )
+except ValueError:
+    WORKER_CONTROL_TIMEOUT_SEC = 3.0
 API_SCHEMA = "sea_speed_api_v1"
 WORKER_STATE_SCHEMA = "sea_speed_worker_state_v1"
 VEHICLE_EVENT_SCHEMA = "sea_speed_vehicle_event_v1"
@@ -103,6 +114,74 @@ def require_auth(authorization: Optional[str]) -> None:
     expected = f"Bearer {API_TOKEN}"
     if authorization != expected:
         raise HTTPException(status_code=403, detail="Forbidden")
+
+
+def require_operator_identity(x_authentik_username: Optional[str]) -> str:
+    username = (x_authentik_username or "").strip()
+    if not username:
+        raise HTTPException(
+            status_code=503,
+            detail="Trusted Authentik identity is unavailable",
+        )
+    return username
+
+
+def worker_control_origin() -> tuple[str, int]:
+    parsed = urlsplit(WORKER_CONTROL_URL)
+    if parsed.scheme != "http" or parsed.username or parsed.password:
+        raise HTTPException(status_code=503, detail="Worker control origin is invalid")
+    if parsed.path not in {"", "/"} or parsed.query or parsed.fragment:
+        raise HTTPException(status_code=503, detail="Worker control origin is invalid")
+    if not parsed.hostname or parsed.port is None:
+        raise HTTPException(status_code=503, detail="Worker control origin is invalid")
+    try:
+        address = ipaddress.ip_address(parsed.hostname)
+    except ValueError as exc:
+        raise HTTPException(status_code=503, detail="Worker control origin is invalid") from exc
+    if (
+        address.version != 4
+        or address.is_loopback
+        or not any(address in network for network in CAMERA_PREVIEW_RFC1918)
+        or not 1024 <= parsed.port <= 65535
+    ):
+        raise HTTPException(status_code=503, detail="Worker control origin is invalid")
+    return str(address), parsed.port
+
+
+def call_worker_control(method: str, path: str) -> Dict[str, Any]:
+    allowed = {
+        ("GET", "/v1/status"),
+        ("POST", "/v1/start"),
+        ("POST", "/v1/stop"),
+    }
+    if (method, path) not in allowed:
+        raise HTTPException(status_code=500, detail="Unsupported worker control operation")
+    if not API_TOKEN:
+        raise HTTPException(status_code=503, detail="Worker control authentication is unavailable")
+    host, port = worker_control_origin()
+    connection = http.client.HTTPConnection(host, port, timeout=WORKER_CONTROL_TIMEOUT_SEC)
+    try:
+        headers = {"Authorization": f"Bearer {API_TOKEN}", "Accept": "application/json"}
+        if method == "POST":
+            headers["Content-Length"] = "0"
+        connection.request(method, path, body=None, headers=headers)
+        response = connection.getresponse()
+        body = response.read(65537)
+        if len(body) > 65536:
+            raise HTTPException(status_code=503, detail="Worker control response is too large")
+        try:
+            payload = json.loads(body.decode("utf-8")) if body else {}
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise HTTPException(status_code=503, detail="Worker control response is invalid") from exc
+        if response.status != 200 or not isinstance(payload, dict) or payload.get("ok") is not True:
+            raise HTTPException(status_code=503, detail="Worker control operation failed")
+        return payload
+    except HTTPException:
+        raise
+    except (OSError, http.client.HTTPException) as exc:
+        raise HTTPException(status_code=503, detail="Worker control agent is unavailable") from exc
+    finally:
+        connection.close()
 
 
 def read_json_file(path: Path, default: Any) -> Any:
@@ -1167,17 +1246,41 @@ def post_cam1_speed_lines(payload: Dict[str, Any]) -> Dict[str, Any]:
     return config
 
 
+@app.get("/api/worker/control")
+def get_worker_control(
+    x_authentik_username: Optional[str] = Header(None),
+) -> Dict[str, Any]:
+    username = require_operator_identity(x_authentik_username)
+    payload = call_worker_control("GET", "/v1/status")
+    payload["requested_by"] = username
+    return payload
+
+
+@app.post("/api/worker/control/start")
+def start_worker_control(
+    x_authentik_username: Optional[str] = Header(None),
+) -> Dict[str, Any]:
+    username = require_operator_identity(x_authentik_username)
+    payload = call_worker_control("POST", "/v1/start")
+    payload["requested_by"] = username
+    return payload
+
+
+@app.post("/api/worker/control/stop")
+def stop_worker_control(
+    x_authentik_username: Optional[str] = Header(None),
+) -> Dict[str, Any]:
+    username = require_operator_identity(x_authentik_username)
+    payload = call_worker_control("POST", "/v1/stop")
+    payload["requested_by"] = username
+    return payload
+
+
 @app.get("/api/session")
 def get_session_identity(
     x_authentik_username: Optional[str] = Header(None),
 ) -> Dict[str, Any]:
-    username = (x_authentik_username or "").strip()
-    if not username:
-        raise HTTPException(
-            status_code=503,
-            detail="Trusted Authentik identity is unavailable",
-        )
-    return {"ok": True, "username": username}
+    return {"ok": True, "username": require_operator_identity(x_authentik_username)}
 
 
 @app.get("/api/health")
