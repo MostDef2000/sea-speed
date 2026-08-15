@@ -5,12 +5,11 @@ usage() {
   cat <<'USAGE'
 Usage: install-manual.sh <40-character-source-commit> [install-root]
 
-Run from the root of an exact Sea Speed checkout. This script prepares a
-manual Ubuntu worker installation only. It does not install NVIDIA drivers,
-CUDA, systemd services, secrets, models, or production data.
-
-The canonical CUDA worker runtime requires the exact PyTorch CUDA 13.0 pair
-shown in NEXT_ACTION when it is absent or mismatched.
+Run from the root of an exact Sea Speed checkout. This script prepares one
+immutable source release and binds it to an immutable shared Worker runtime.
+It does not install NVIDIA drivers, systemd services, secrets, models, or
+production data. Heavy AI dependencies are reused by runtime ID whenever the
+runtime definition is unchanged.
 USAGE
 }
 
@@ -23,7 +22,7 @@ if [[ ! "$expected_commit" =~ ^[0-9a-f]{40}$ ]]; then
   exit 2
 fi
 
-for command_name in git python3 ffmpeg tar; do
+for command_name in git python3 ffmpeg tar awk; do
   if ! command -v "$command_name" >/dev/null 2>&1; then
     echo "ERROR required command missing: $command_name" >&2
     exit 3
@@ -48,10 +47,15 @@ fi
 python3 scripts/worker/check_ubuntu_compatibility.py
 bash deploy/worker/ubuntu/preflight.sh
 
-if [[ ! -f deploy/worker/ubuntu/requirements-runtime.txt ]]; then
-  echo "ERROR runtime requirements missing" >&2
-  exit 6
-fi
+for required in \
+  deploy/worker/ubuntu/requirements-runtime.txt \
+  deploy/worker/ubuntu/runtime-lock.json \
+  deploy/worker/ubuntu/prepare-runtime.sh; do
+  if [[ ! -f "$required" ]]; then
+    echo "ERROR runtime preparation component missing: $required" >&2
+    exit 6
+  fi
+done
 
 mkdir -p "$install_root/releases"
 mkdir -p "$install_root/shared/models"
@@ -61,7 +65,7 @@ mkdir -p "$install_root/shared/config"
 
 release_root="$install_root/releases/$expected_commit"
 source_root="$release_root/source"
-venv_root="$release_root/venv"
+runtime_id_file="$release_root/runtime-id"
 mkdir -p "$release_root"
 
 if [[ ! -e "$source_root" ]]; then
@@ -76,69 +80,32 @@ else
   fi
 fi
 
-if [[ ! -x "$venv_root/bin/python" ]]; then
-  python3 -m venv "$venv_root"
-  "$venv_root/bin/python" -m pip install --upgrade pip setuptools wheel
+runtime_output="$(
+  bash "$source_root/deploy/worker/ubuntu/prepare-runtime.sh" \
+    --install-root "$install_root"
+)"
+printf '%s\n' "$runtime_output"
+runtime_id="$(printf '%s\n' "$runtime_output" | awk '/^RUNTIME_ID [0-9a-f]{64}$/ {print $2}' | tail -n 1)"
+if [[ ! "$runtime_id" =~ ^[0-9a-f]{64}$ ]]; then
+  echo "ERROR shared runtime preparation did not return a valid runtime ID" >&2
+  exit 8
 fi
 
-pytorch_versions_ok=false
-if "$venv_root/bin/python" - <<'PY' >/dev/null 2>&1
-from importlib.metadata import version
-
-assert version("torch") == "2.13.0+cu130"
-assert version("torchvision") == "0.28.0+cu130"
-PY
-then
-  pytorch_versions_ok=true
+runtime_root="$install_root/runtimes/$runtime_id"
+if [[ ! -x "$runtime_root/venv/bin/python" ]] || \
+   [[ ! -f "$runtime_root/ready" ]] || \
+   [[ "$(cat "$runtime_root/ready")" != "runtime_id=$runtime_id" ]]; then
+  echo "ERROR prepared shared runtime verification failed" >&2
+  exit 8
 fi
 
-if [[ "$pytorch_versions_ok" != true ]]; then
-  cat >&2 <<NEXT
-NEXT_ACTION The prepared release requires the canonical CUDA 13.0 PyTorch pair.
-Install the exact verified wheels into this release environment with:
-  $venv_root/bin/python -m pip install --index-url https://download.pytorch.org/whl/cu130 --only-binary=:all: 'torch==2.13.0+cu130' 'torchvision==0.28.0+cu130'
-Then rerun this exact installer command. The prepared source and protected
-shared directories will be reused without overwrite.
-NEXT
-  exit 20
+if [[ -f "$runtime_id_file" ]] && [[ "$(cat "$runtime_id_file")" != "$runtime_id" ]]; then
+  echo "ERROR existing release runtime binding mismatch" >&2
+  exit 9
 fi
-
-"$venv_root/bin/python" -m pip install \
-  -r "$source_root/deploy/worker/ubuntu/requirements-runtime.txt"
-
-"$venv_root/bin/python" - <<'PY'
-from importlib.metadata import version
-
-expected = {
-    "torch": "2.13.0+cu130",
-    "torchvision": "0.28.0+cu130",
-    "ultralytics": "8.4.117",
-    "lap": "0.5.13",
-    "opencv-python": "5.0.0.93",
-    "opencv-python-headless": "5.0.0.93",
-    "numpy": "2.4.4",
-    "requests": "2.34.2",
-    "python-dotenv": "1.2.2",
-}
-actual = {name: version(name) for name in expected}
-mismatched = {
-    name: {"expected": expected[name], "actual": actual[name]}
-    for name in expected
-    if actual[name] != expected[name]
-}
-if mismatched:
-    raise SystemExit(f"runtime version mismatch: {mismatched}")
-
-import cv2  # noqa: F401
-import lap  # noqa: F401
-import numpy  # noqa: F401
-import requests  # noqa: F401
-import torch  # noqa: F401
-import torchvision  # noqa: F401
-import ultralytics  # noqa: F401
-
-print("PASS runtime_imports_and_versions")
-PY
+printf '%s\n' "$runtime_id" > "$runtime_id_file"
+chown root:root "$release_root/source-commit" "$runtime_id_file"
+chmod 0644 "$release_root/source-commit" "$runtime_id_file"
 
 if [[ ! -e "$install_root/shared/config/worker.env" ]] && \
    [[ ! -e "$install_root/shared/config/worker.env.example" ]]; then
@@ -149,6 +116,7 @@ fi
 
 printf 'PREPARED %s\n' "$release_root"
 printf 'SOURCE_COMMIT %s\n' "$expected_commit"
+printf 'RUNTIME_ID %s\n' "$runtime_id"
 printf 'PROTECTED %s\n' "$install_root/shared/config"
 printf 'PROTECTED %s\n' "$install_root/shared/models"
 printf 'PROTECTED %s\n' "$install_root/shared/datasets"
