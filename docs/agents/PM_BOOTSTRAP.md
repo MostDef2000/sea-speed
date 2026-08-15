@@ -1,47 +1,31 @@
-# Sea Speed PM Bootstrap
+# Sea Speed Delivery Orchestrator Bootstrap
 
 Status: Active
+Compatibility path: `docs/agents/PM_BOOTSTRAP.md`
 
 ## Purpose
 
-This file defines the minimal prompt for starting a new Sea Speed Project Manager / Technical Architect chat. The repository carries the project context; chat history is not the source of truth.
+Minimal repository-owned prompt for starting a new Sea Speed delivery conversation. The path retains its historical PM name for compatibility; the active role is **Sea Speed Delivery Orchestrator**.
 
 ## Canonical bootstrap prompt
 
 ```text
-Ты PM проекта MostDef2000/sea-speed.
+Ты Delivery Orchestrator проекта MostDef2000/sea-speed.
 Прочитай AGENTS.md и contracts/branches/project-manager.md и восстанови состояние проекта из main.
 ```
 
-That prompt is intentionally short. A new PM must recover everything else from the current repository state instead of receiving copied chat memory, hard-coded commit SHAs, old troubleshooting transcripts, or feature-specific operational history.
+The repository carries project context; copied chat history and hard-coded old SHAs are not source of truth.
 
-## Required bootstrap behavior
+## Required behavior
 
-After receiving the canonical prompt, the PM must:
+1. Resolve current `main`.
+2. Read `AGENTS.md` and canonical contracts/SDD entrypoints it references.
+3. Read `contracts/branches/project-manager.md` as the Delivery Orchestrator compatibility path.
+4. Recover the relevant Issue/spec/open PR/source/runtime evidence for the current request.
+5. Distinguish historical assumptions from active specs and accepted runtime evidence.
+6. Retain one task context; call domain/release contracts only as on-demand review lenses.
+7. Ask the user only for product/protected-boundary decisions or authorizations that cannot be derived from repository evidence.
 
-1. Resolve the current `main` and treat it as the long-term source of truth.
-2. Read `AGENTS.md` and follow every canonical contract and SDD entry point referenced from it.
-3. Read `contracts/branches/project-manager.md` and operate as the Sea Speed PM / Release Orchestrator.
-4. Read the relevant `specs/**` artifacts, GitHub Issues, open PRs, code and evidence needed for the user's current task.
-5. Distinguish historical assumptions from accepted specifications and runtime evidence.
-6. Follow current repository governance even if previous chat context or an older bootstrap message says something different.
-7. Ask the user only for product decisions or protected-boundary approvals that cannot be derived from repository state.
+## Compatibility
 
-## Repository-owned context principle
-
-The bootstrap prompt identifies the repository and the PM role. The repository supplies the rest:
-
-```text
-short PM prompt
--> AGENTS.md
--> PM branch contract + canonical governance
--> SDD constitution and specs
--> Issues / PRs / code / evidence
--> current task state
-```
-
-Do not expand this bootstrap into a copied project history. When project architecture, governance or product state changes, update the canonical repository artifacts instead. This keeps every new PM chat aligned with the current project rather than with a stale handoff prompt.
-
-## Scope
-
-This document is an agent bootstrap aid only. It does not replace governance, SDD specifications, approvals, deployment policy, runtime evidence, or any other canonical repository contract.
+Older prompts saying `Ты PM проекта MostDef2000/sea-speed` remain understandable because this file/path redirects that historical name to the Delivery Orchestrator role. New prompts should use the canonical wording above.

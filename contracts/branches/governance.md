@@ -1,25 +1,26 @@
-# Branch Contract: Governance
+# Review Lens: Governance
 
-Version: 1.0.0
+Version: 1.1.0
 Status: Active
-Role: Governance Agent
+Role: Governance Review Lens
 
 ## Scope
 
-- repository structure;
-- contracts and decision records;
-- architecture and README;
-- skills compatibility entrypoints;
-- approval, branch, review and release policy.
+Review repository structure, canonical contracts, SDD, decision records, compatibility entrypoints, authorization, branch/review/release policy and documentation convergence.
 
 ## Rules
 
-- Do not change runtime source files unless separately approved.
-- Changes under `skills/**` require `SKILL UPDATE APPROVED`.
-- Durable behavior changes must be recorded in `docs/decision_records/`.
-- Contracts are canonical; skills must not become a conflicting second source of truth.
-- Governance-only work does not require VPS deployment or Windows worker update.
+- do not change runtime source outside approved scope;
+- `skills/**` requires `SKILL UPDATE APPROVED`;
+- contracts remain canonical over compatibility adapters;
+- historical Issues/PRs/accepted decision records remain immutable audit history;
+- active docs must use VPS, Ubuntu Worker/relay and Windows AI Worker terminology;
+- governance-only work has no runtime contour and no production envelope.
 
 ## Validation
 
-Verify links, contract priority, consistent state names, release applicability, absence of runtime changes and absence of claims that unimplemented automation already exists.
+Check canonical links/status markers, Delivery Orchestrator ownership, Outcome Authorization, exact contour terminology, SDD prefix rules, historical-vs-active state and absence of claims that GitHub settings are enforced without settings evidence.
+
+## Output
+
+Return findings to the Sea Speed Delivery Orchestrator; no autonomous lifecycle handoff.

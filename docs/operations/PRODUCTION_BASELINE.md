@@ -1,114 +1,65 @@
 # Sea Speed production baseline evidence
 
-Status: Active operational procedure  
-Issue: #22  
-Auth security migration: Issue #115  
+Status: Active operational procedure
+Issue: #22
+Auth security migration parent: Issue #115
 Secrets: prohibited in captured output
 
 ## Purpose
 
-Record the exact source revision installed on each runtime contour before and after a release. The evidence is read-only and must not expose `.env`, tokens, camera credentials, Authentik secrets/session values, TOTP material, private keys, model contents, videos, overlays or event snapshots.
+Record exact non-secret source/runtime identity and health for each production contour before/after a protected release. A repository merge does not prove runtime state.
 
 ## Repository baseline
 
-Record:
-
 ```text
 Repository main SHA:
-PR or Issue:
+Canonical Issue / merged PR:
 Observed at UTC:
-Required CI checks:
+Exact push/main Quality integration:
 Branch protection verified: YES/NO/UNKNOWN
 ```
 
-Repository settings that cannot be read through connected automation remain `UNKNOWN`; do not infer that protection is active.
+Do not infer GitHub settings from source workflows.
 
 ## VPS baseline
 
-Run only commands that print non-secret code provenance and health:
+Known production FastAPI origin from accepted runtime evidence is `127.0.0.1:8010`.
 
 ```bash
 cat /opt/sea-speed-deploy/state/current-release
 systemctl is-active sea-speed-api
-curl --fail --silent --show-error http://127.0.0.1:8000/api/health
+curl --fail --silent --show-error http://127.0.0.1:8010/api/health
 ```
 
-After Sea Speed Auth v1 is active, the public private-health URL is an authentication-boundary check rather than the API health proof:
+After Auth v1, public `/sea-speed/**` health is an authentication-boundary smoke, not origin-health proof. Record current/previous release, API health/source commit, root/protected-route smoke and active reviewed nginx identity where applicable. Never print environment/Auth/TOTP/cookie/token material.
 
-```bash
-curl --silent --show-error --output /dev/null --write-out '%{http_code}\n' \
-  https://mostdef.ru/sea-speed/api/health
-```
+## Ubuntu Worker/relay baseline
 
-Expected after Auth v1: authentication redirect/deny (`302`, `401` or `403` according to the active Authentik/nginx flow), not anonymous application data.
-
-Record:
+Record only non-secret facts required by the current outcome, for example:
 
 ```text
-VPS installed commit:
-API process active:
-Loopback API health passed:
-Public Sea Speed auth boundary observed:
-Root frontend smoke passed:
-Previous release marker:
+Ubuntu installed source commit:
+Runtime ID / package identity when applicable:
+Service active:
+ExecStart exact source/runtime binding:
+frame/state/AI or relay freshness:
+Rollback source/runtime:
 Observed at UTC:
 ```
 
-Do not print environment files, service environment values, Authentik data or SSH configuration.
+Do not print protected worker env, camera URLs/credentials, model contents or private media.
 
-## Worker baseline
+## Windows AI Worker baseline
 
-Read the installed worker revision and process state using the runtime-appropriate worker procedure. For the existing Windows-style install this can include:
+For Windows-specific tasks record exact installed/package source identity, managed process state, freshness/telemetry and rollback version. Historical paths such as `D:\sea-speed\...` remain task/runtime-specific; do not treat them as the Ubuntu contour.
 
-```powershell
-Get-Content "D:\sea-speed\.sea-speed-worker-version"
-Get-CimInstance Win32_Process |
-  Where-Object {
-    $_.CommandLine -like '*D:\sea-speed*' -and
-    ($_.CommandLine -like '*hls_motion_yolo_worker_events.py*' -or
-     $_.CommandLine -like '*run_event_worker_forever.cmd*')
-  } |
-  Select-Object ProcessId, Name
-```
+## Auth v1 accepted boundary
 
-After Issue #115, do not query private runtime state anonymously through `https://mostdef.ru/sea-speed/api/...`. Browser-facing Sea Speed API is Authentik-protected. Worker machine-to-machine state/config traffic uses the exact private VPS listener documented in `docs/operations/SEA_SPEED_AUTH_V1.md`, restricted to the approved private worker peer. Do not print the private Bearer token or Authorization header while checking it.
+Issue #122 runtime acceptance established worker-hosted Authentik/private origin, VPS public ingress, protected `/sea-speed/**`, retired `/cams/**`, exact-peer private M2M and fail-closed dependency behavior. Parent Issue #115 remains an open audit/backlog record; do not infer that its GitHub state is closed.
 
-Record only non-secret evidence:
+## Verdicts
 
-```text
-Worker installed commit:
-Worker process present:
-Private M2M route reachable from approved worker peer:
-worker_online:
-updated_at:
-frame_no:
-Observed at UTC:
-```
-
-## Auth v1 baseline additions
-
-When Issue #115 is deployed, also record sanitized state:
-
-```text
-Authentik server healthy: YES/NO
-Authentik worker healthy: YES/NO
-Authentik PostgreSQL healthy: YES/NO
-auth.mostdef.ru HTTPS ready: YES/NO
-/cams/** exposes no camera content: YES/NO
-anonymous /sea-speed/** denied/redirected: YES/NO
-Camera 1 authenticated H264 playback accepted: YES/NO
-private worker listener bound to private VPS interface only: YES/NO
-```
-
-Never capture user passwords, invitation tokens, recovery links, TOTP seeds/codes, Authentik cookies or SMTP secrets as baseline evidence.
-
-## Evidence verdict
-
-Use exactly one:
-
-- `BASELINE_CONFIRMED` — installed revisions and required health/security fields are known;
-- `PARTIAL_EVIDENCE` — one contour or one required field is unknown;
-- `BASELINE_MISMATCH` — installed revision differs from the expected revision;
-- `EVIDENCE_FAILED` — a read-only evidence command failed.
-
-A green GitHub workflow does not prove that a runtime contour is installed, authenticated correctly or healthy.
+- `BASELINE_CONFIRMED`
+- `PARTIAL_EVIDENCE`
+- `BASELINE_MISMATCH`
+- `EVIDENCE_FAILED`
