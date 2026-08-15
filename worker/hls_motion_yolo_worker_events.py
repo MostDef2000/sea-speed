@@ -424,6 +424,11 @@ _roi_cache = {
     "signature": "",
 }
 
+# The Worker main loop is serial. Bind the effective ROI captured before
+# motion/inference so the legacy one-argument final guard cannot refetch a
+# different polygon after a slow AI inference.
+_roi_processing_points = None
+
 
 def get_roi_url():
     url = env_str("SEA_SPEED_ROI_URL", "").strip()
@@ -516,13 +521,57 @@ def parse_road_roi_polygon():
     return points
 
 
+def roi_processing_signature(enabled, points):
+    if not enabled or len(points) < 3:
+        return "full-frame"
+
+    normalized = tuple((int(x), int(y)) for x, y in points)
+    return f"roi:{normalized}"
+
+
+def mask_frame_to_roi(frame, points):
+    if len(points) < 3:
+        return frame
+
+    mask = np.zeros(frame.shape[:2], dtype=np.uint8)
+    polygon = np.array(points, dtype=np.int32)
+    cv2.fillPoly(mask, [polygon], 255)
+    return cv2.bitwise_and(frame, frame, mask=mask)
+
+
+def prepare_roi_processing_frame(frame, motion_detector):
+    global _roi_processing_points
+
+    enabled, points = fetch_remote_roi()
+    points = list(points) if enabled and len(points) >= 3 else []
+    signature = roi_processing_signature(bool(points), points)
+    previous_signature = getattr(
+        motion_detector,
+        "_roi_processing_signature",
+        None,
+    )
+
+    if previous_signature != signature:
+        motion_detector.prev = None
+        motion_detector.active_until = 0.0
+        motion_detector.last_boxes = []
+        motion_detector.last_area = 0.0
+        motion_detector._roi_processing_signature = signature
+
+    _roi_processing_points = list(points)
+    return mask_frame_to_roi(frame, points), points
+
+
 def bbox_center(det):
     x1, y1, x2, y2 = det["bbox_xyxy"]
     return ((x1 + x2) / 2.0, (y1 + y2) / 2.0)
 
 
-def detection_inside_road_roi(det):
-    points = parse_road_roi_polygon()
+def detection_inside_road_roi(det, points=None):
+    if points is None:
+        points = _roi_processing_points
+    if points is None:
+        points = parse_road_roi_polygon()
 
     if len(points) < 3:
         return True
@@ -533,10 +582,10 @@ def detection_inside_road_roi(det):
     return cv2.pointPolygonTest(polygon, (float(cx), float(cy)), False) >= 0
 
 
-def filter_detections_by_roi(detections):
+def filter_detections_by_roi(detections, points=None):
     return [
         det for det in detections
-        if detection_inside_road_roi(det)
+        if detection_inside_road_roi(det, points)
     ]
 
 
@@ -575,9 +624,6 @@ def overlay_label_opacity():
 
 def draw_overlay(frame, motion_now, motion_area, ai_active, detections, motion_boxes):
     out = frame.copy()
-
-    for x, y, w, h in motion_boxes:
-        cv2.rectangle(out, (x, y), (x + w, y + h), (0, 255, 255), 2)
 
     for det in detections:
         x1, y1, x2, y2 = det["bbox_xyxy"]
@@ -1249,6 +1295,7 @@ def update_speed_lines_estimate(det):
         track_state["line_speed_info"] = dict(info)
 
     return info
+
 def track_event_posted(track_id):
     if track_id is None:
         return False
@@ -1382,13 +1429,14 @@ def main():
 
             frame_no += 1
 
-            motion_now, motion_area, motion_boxes = motion_detector.process(frame)
+            processing_frame, roi_points = prepare_roi_processing_frame(frame, motion_detector)
+            motion_now, motion_area, motion_boxes = motion_detector.process(processing_frame)
             ai_active = motion_detector.is_ai_active()
 
             detections = []
 
             if ai_active:
-                raw_detections = detect_vehicles(model, frame)
+                raw_detections = detect_vehicles(model, processing_frame)
                 detections = filter_detections_by_motion(raw_detections, motion_boxes)
                 detections = filter_detections_by_roi(detections)
 
