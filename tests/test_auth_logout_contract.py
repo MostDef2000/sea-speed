@@ -37,7 +37,8 @@ class AuthLogoutContractTests(unittest.TestCase):
         self.assertIn("target_static: https://mostdef.ru/", source)
         self.assertIn("name: Provider for Sea Speed", source)
         self.assertIn("invalidation_flow: !KeyOf sea-speed-invalidation-flow", source)
-        self.assertNotIn("default-provider-invalidation-flow", source)
+        self.assertNotIn("slug: default-provider-invalidation-flow", source)
+        self.assertNotIn("invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]", source)
 
     def test_logout_flow_stage_order_is_user_logout_then_redirect(self) -> None:
         source = LOGOUT_BLUEPRINT.read_text(encoding="utf-8")
