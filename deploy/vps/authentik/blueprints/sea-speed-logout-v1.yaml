@@ -1,0 +1,50 @@
+version: 1
+metadata:
+  name: Sea Speed Logout v1
+  labels:
+    blueprints.goauthentik.io/instantiate: "true"
+
+entries:
+  - id: sea-speed-invalidation-flow
+    model: authentik_flows.flow
+    identifiers:
+      slug: sea-speed-provider-invalidation
+    attrs:
+      name: Sea Speed Provider Invalidation
+      title: Sign out of Sea Speed
+      designation: invalidation
+      authentication: none
+
+  - id: sea-speed-user-logout
+    model: authentik_stages_user_logout.userlogoutstage
+    identifiers:
+      name: sea-speed-user-logout
+
+  - id: sea-speed-logout-redirect
+    model: authentik_stages_redirect.redirectstage
+    identifiers:
+      name: sea-speed-logout-redirect
+    attrs:
+      keep_context: false
+      mode: static
+      target_static: https://mostdef.ru/
+
+  - model: authentik_flows.flowstagebinding
+    identifiers:
+      target: !KeyOf sea-speed-invalidation-flow
+      stage: !KeyOf sea-speed-user-logout
+      order: 10
+
+  - model: authentik_flows.flowstagebinding
+    identifiers:
+      target: !KeyOf sea-speed-invalidation-flow
+      stage: !KeyOf sea-speed-logout-redirect
+      order: 20
+
+  # Update only the existing Sea Speed Proxy Provider. The global
+  # default-provider-invalidation-flow remains untouched for other apps.
+  - model: authentik_providers_proxy.proxyprovider
+    identifiers:
+      name: Provider for Sea Speed
+    attrs:
+      invalidation_flow: !KeyOf sea-speed-invalidation-flow
