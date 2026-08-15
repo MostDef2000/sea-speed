@@ -25,6 +25,12 @@ Given [context], when [action/event], then [observable result].
 - AC-001: [measurable product result].
 - AC-002: [measurable product result].
 
+## NFR assessment
+
+Use one record per applicable non-functional requirement. `PASS` requires a measurable target; an unknown target cannot be `PASS`.
+
+- NFR-001 | Area: [RELIABILITY/SECURITY/PERFORMANCE/OPERABILITY/OTHER] | Target: [measurable target or NOT APPLICABLE] | Validation: [method] | Evidence: [test/runtime evidence] | Status: [PASS/CONCERNS/FAIL/NOT APPLICABLE]
+
 ## Compatibility and boundaries
 
 - Stable public interfaces: [URLs/APIs/state/operator flow or NONE]

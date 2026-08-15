@@ -1,6 +1,6 @@
 # Sea Speed SDD Constitution
 
-Version: 1.1.0
+Version: 1.2.0
 Status: Active
 Ratified: 2026-08-12
 Amended: 2026-08-15
@@ -37,15 +37,24 @@ The canonical feature identifier is the **full directory name**, for example `00
 ## X. Automation without hidden state
 Required product decisions live in GitHub artifacts, not only agent memory/chat.
 
+## XI. Delivery quality without parallel process
+For linked significant work, the same canonical feature directory owns the delivery-quality artifacts: NFR assessment in `spec.md`; risk profile, risk-based test design and correct-course check in `plan.md`; acceptance traceability and Definition of Done in `tasks.md`.
+
+Full risk profiling is mandatory only when the Change Contract derives a high-risk trigger. Low-risk work may explicitly use `Risk profile: NOT REQUIRED`. Historical SDD is not mass-retrofitted; it adopts the current quality format when it again becomes linked significant work.
+
+NFR `PASS` requires a measurable target and evidence method. Test design uses `unit`, `integration`, `end-to-end`, `runtime-manual` with `P0-P3`. Every acceptance criterion is traceable to a task and evidence path.
+
+The PR quality verdict may be `PASS`, `CONCERNS`, `FAIL`, or `WAIVED`. `FAIL` blocks admission. `WAIVED` requires a complete durable record and never bypasses governance hard gates.
+
 ## Standard lifecycle
 
 ```text
 Issue + Outcome Contract
 -> spec / plan / tasks
 -> OUTCOME APPROVED
--> implementation
+-> implementation + delivery-quality artifacts
 -> CI consistency + quality
 -> exact-green-head merge
 -> separately authorized runtime acceptance when applicable
--> runtime feedback written back
+-> runtime feedback / correct-course impact written back
 ```

@@ -7,6 +7,14 @@
 - Approval recorded after Implementation Scope Check: YES/NO
 - Material scope/protected-boundary change since authorization: NO/YES
 - Acceptance criteria:
+- Risk profile: REQUIRED / NOT REQUIRED
+- Quality verdict: PASS / CONCERNS / FAIL / WAIVED
+- Quality finding: NONE / [finding]
+- Waiver reason: NOT REQUIRED / [reason]
+- Waiver approved by: NOT REQUIRED / [owner]
+- Waiver review/expiry date: NOT REQUIRED / YYYY-MM-DD
+- Waiver compensating controls: NOT REQUIRED / [controls]
+- Waiver follow-up/remediation target: NOT REQUIRED / [Issue/target]
 
 ## Change
 
@@ -19,9 +27,11 @@
 
 - Production impact: NONE / CONTROL_PLANE / VPS / UBUNTU_WORKER / WINDOWS_WORKER / MIXED
 - Production-impact rationale:
-- Security impact:
-- API/event/state/storage schema impact:
+- Security impact: NONE / [impact]
+- API/event/state/storage schema impact: NONE / [impact]
 - Detection/tracking/calibration/speed formula impact:
+- Destructive/data migration impact: YES/NO
+- Other high-risk trigger: YES/NO
 - Backward compatibility:
 
 ## Delivery
@@ -44,8 +54,10 @@
 ## Completion
 
 - [ ] Exact changed-file scope verified
-- [ ] Linked SDD artifacts are current when required
+- [ ] Linked SDD artifacts and delivery-quality sections are current when required
+- [ ] Risk-profile applicability matches derived high-risk triggers
 - [ ] Secrets and runtime artifacts absent
 - [ ] Required tests passed
+- [ ] Quality verdict is not FAIL; any WAIVED verdict has a complete durable waiver record
 - [ ] Applicable release and deployment evidence identified
 - [ ] `COMPLETE` will not be claimed before applicable runtime acceptance

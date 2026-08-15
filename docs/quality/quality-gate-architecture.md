@@ -1,7 +1,7 @@
 # Sea Speed Quality Gate Architecture
 
 Status: Active
-Version: 1.1.0
+Version: 1.2.0
 
 ## Delivery flow
 
@@ -9,6 +9,7 @@ Version: 1.1.0
 feature branch
   -> pull request
   -> versioned contracts
+  -> linked SDD delivery-quality artifacts
   -> four independent quality domains
   -> aggregate quality context
   -> merge to main
@@ -68,6 +69,21 @@ Target repository rules:
 - bypass restricted.
 
 Repository settings enforcement is not inferred from source files or successful CI. It requires independent settings evidence.
+
+## Stage 6: delivery-quality artifact gate
+
+The repository does not add a second BMAD workflow engine. Instead, linked significant SDD artifacts carry compact executable quality reasoning:
+
+- `spec.md`: NFR assessment with measurable targets and evidence status;
+- `plan.md`: required/not-required risk profile, risk-based test design and correct-course impact check;
+- `tasks.md`: complete acceptance traceability and terminal Definition of Done;
+- PR Change Contract: derived risk-profile applicability plus `PASS` / `CONCERNS` / `FAIL` / `WAIVED` quality disposition.
+
+`validate_sdd.py` applies this quality layer to the feature linked by a significant PR. Historical SDD is still repository-valid without mass retrofit, but cannot be used as the linked significant feature until brought to the current quality format.
+
+`validate_change_contract.py` derives high-risk applicability. Security or schema impact, destructive/data migration, `MIXED` runtime, or another explicit high-risk trigger requires a full risk profile. `FAIL` blocks PR admission. `WAIVED` is accepted only with a complete bounded waiver record and never overrides hard gates.
+
+These checks execute inside the existing `static-contract-security` domain, so the merge-facing aggregate remains unchanged.
 
 ## Edge migration boundary
 

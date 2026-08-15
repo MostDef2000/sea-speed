@@ -32,6 +32,16 @@ For every applicable contour prove exact installed identity, valid deployment ev
 
 Record only aggregate/sanitized evidence: state/event validation counts, freshness progression, applicable operator acceptance, observed runtime errors and protected-boundary smokes. Do not claim accuracy improvement without comparable before/after evidence.
 
+When the linked significant feature contains an NFR assessment, record whether runtime evidence confirms, contradicts or leaves each applicable NFR unresolved. A production-only discovery must not be converted into a synthetic CI `PASS`.
+
+## Correct-course feedback
+
+If production acceptance reveals a material architecture difference, new protected-boundary concern, unplanned operational risk, changed NFR target, or mismatch between expected and actual runtime behavior, feed the finding back into the active feature's `spec.md`, `plan.md` and `tasks.md` through the next approved repository scope.
+
+Use the plan's correct-course trigger vocabulary: `PRODUCTION_LEARNING`, `ARCHITECTURE_PIVOT`, or `MATERIAL_SCOPE_CHANGE`. Record Issue/spec/plan/tasks/authorization impact and follow-up. A material Outcome Contract, repository-scope or protected-boundary change requires fresh source authorization before source writes.
+
+A runtime finding may produce `CONCERNS`, `regressed`, or `insufficient_evidence`; it is not automatically waivable. Any waiver must remain bounded, durable and must not bypass runtime acceptance or rollback requirements.
+
 ## Verdicts
 
 ### `accepted`
