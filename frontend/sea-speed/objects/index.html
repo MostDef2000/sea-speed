@@ -54,16 +54,18 @@
 <div id="toast" class="toast" role="status"></div>
 <script>
 const SESSION_URL="/sea-speed/api/session";
+const SESSION_WATCHDOG_MS=15000;
 const OBJECTS_URL="/sea-speed/api/cam1/objects";
 const PAGE_SIZE=24;
 const $=id=>document.getElementById(id);
 const sessionUser=$("sessionUser"),filters=$("filters"),objectsGrid=$("objectsGrid"),summary=$("summary"),prevBtn=$("prevBtn"),nextBtn=$("nextBtn"),pageInfo=$("pageInfo"),modalBackdrop=$("modalBackdrop"),closeBtn=$("closeBtn"),editForm=$("editForm"),deleteBtn=$("deleteBtn"),toast=$("toast");
-let offset=0,total=0,currentObject=null,toastTimer=null;
+let offset=0,total=0,currentObject=null,toastTimer=null,sessionIdentityEstablished=false,sessionRedirecting=false;
 const escapeHtml=value=>String(value??"").replace(/[&<>"']/g,char=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[char]);
 const formatDate=value=>{if(!value)return "—";let date=new Date(value);return Number.isNaN(date.getTime())?value:date.toLocaleString()};
 const formatSpeed=value=>value==null?"—":`${Number(value).toFixed(1)} km/h`;
 const statusLabel=value=>({new:"Новый",reviewed:"Проверен",ignored:"Игнорировать"})[value]||value||"—";
-async function loadSessionIdentity(){try{let response=await fetch(SESSION_URL,{cache:"no-store",credentials:"same-origin"}),body={};try{body=await response.json()}catch(_error){}let username=String(body.username||"").trim();if(!response.ok||!username)throw Error("trusted identity unavailable");sessionUser.textContent=username;sessionUser.classList.remove("bad")}catch(_error){sessionUser.textContent="недоступно";sessionUser.classList.add("bad")}}
+function redirectForReauthentication(){if(sessionRedirecting)return;sessionRedirecting=true;const protectedUrl=window.location.pathname+window.location.search+window.location.hash;window.top.location.replace(protectedUrl)}
+async function loadSessionIdentity(){try{let response=await fetch(SESSION_URL,{cache:"no-store",credentials:"same-origin"}),body={};try{body=await response.json()}catch(_error){}let username=String(body.username||"").trim();if(!response.ok||!username)throw Error("trusted identity unavailable");sessionIdentityEstablished=true;sessionUser.textContent=username;sessionUser.classList.remove("bad")}catch(_error){if(sessionIdentityEstablished){redirectForReauthentication();return}sessionUser.textContent="недоступно";sessionUser.classList.add("bad")}}
 function showToast(message,bad=false){clearTimeout(toastTimer);toast.textContent=message;toast.className=`toast show${bad?" bad":""}`;toastTimer=setTimeout(()=>toast.className="toast",2600)}
 function filterParams(){let data=new FormData(filters),params=new URLSearchParams({limit:String(PAGE_SIZE),offset:String(offset)});for(let [key,value] of data.entries()){value=String(value).trim();if(!value)continue;if((key==="date_from"||key==="date_to")&&value){let date=new Date(value);if(!Number.isNaN(date.getTime()))value=date.toISOString()}params.set(key,value)}return params}
 async function request(url,options={}){let response=await fetch(url,{cache:"no-store",credentials:"same-origin",...options});if(!response.ok){let body=await response.text();try{body=JSON.parse(body).detail||body}catch(_error){}throw Error(`${response.status}: ${body}`)}return response.json()}
@@ -82,6 +84,7 @@ editForm.addEventListener("submit",async event=>{event.preventDefault();if(!curr
 deleteBtn.addEventListener("click",async()=>{if(!currentObject||!confirm("Удалить запись из рабочего реестра? Фотография останется на сервере."))return;try{await request(`${OBJECTS_URL}/${encodeURIComponent(currentObject.object_id)}`,{method:"DELETE"});showToast("Запись удалена");closeModal();if(offset>=Math.max(0,total-1)&&offset>0)offset=Math.max(0,offset-PAGE_SIZE);loadObjects()}catch(error){showToast(error.message,true)}});
 loadSessionIdentity();
 loadObjects();
+setInterval(()=>void loadSessionIdentity(),SESSION_WATCHDOG_MS);
 </script>
 </body>
 </html>
