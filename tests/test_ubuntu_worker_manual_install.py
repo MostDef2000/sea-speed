@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import unittest
 from pathlib import Path
@@ -7,6 +8,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 INSTALLER = ROOT / "deploy/worker/ubuntu/install-manual.sh"
+PREPARE_RUNTIME = ROOT / "deploy/worker/ubuntu/prepare-runtime.sh"
+RUNTIME_LOCK = ROOT / "deploy/worker/ubuntu/runtime-lock.json"
 ENV_EXAMPLE = ROOT / "deploy/worker/ubuntu/worker.env.example"
 REQUIREMENTS = ROOT / "deploy/worker/ubuntu/requirements-runtime.txt"
 SERVICE_TEMPLATE = ROOT / "deploy/worker/ubuntu/sea-speed-worker.service.template"
@@ -28,6 +31,15 @@ class UbuntuWorkerManualInstallTests(unittest.TestCase):
         self.assertNotIn('rm -rf "$install_root/shared', source)
         self.assertIn('Do not remove `shared/`', DOC.read_text(encoding="utf-8"))
 
+    def test_source_release_binds_shared_runtime_instead_of_own_venv(self) -> None:
+        installer = INSTALLER.read_text(encoding="utf-8")
+        self.assertIn("prepare-runtime.sh", installer)
+        self.assertIn('runtime_id_file="$release_root/runtime-id"', installer)
+        self.assertIn('runtime_root="$install_root/runtimes/$runtime_id"', installer)
+        self.assertNotIn('venv_root="$release_root/venv"', installer)
+        self.assertNotIn("-m pip install", installer)
+        self.assertIn("RUNTIME_ID %s", installer)
+
     def test_cuda_pair_and_critical_runtime_versions_are_exact(self) -> None:
         requirements = REQUIREMENTS.read_text(encoding="utf-8")
         self.assertNotRegex(requirements, re.compile(r"^torch(?:[=<>]|$)", re.MULTILINE))
@@ -44,14 +56,18 @@ class UbuntuWorkerManualInstallTests(unittest.TestCase):
         ):
             self.assertIn(requirement, requirements)
 
-        installer = INSTALLER.read_text(encoding="utf-8")
-        self.assertIn("torch==2.13.0+cu130", installer)
-        self.assertIn("torchvision==0.28.0+cu130", installer)
-        self.assertIn("https://download.pytorch.org/whl/cu130", installer)
-        self.assertIn('"lap": "0.5.13"', installer)
-        self.assertIn("import lap", installer)
-        self.assertIn("runtime version mismatch", installer)
-        self.assertNotIn("import av", installer)
+        lock = json.loads(RUNTIME_LOCK.read_text(encoding="utf-8"))
+        self.assertEqual(lock["pytorch"]["packages"]["torch"], "2.13.0+cu130")
+        self.assertEqual(
+            lock["pytorch"]["packages"]["torchvision"], "0.28.0+cu130"
+        )
+        self.assertEqual(
+            lock["pytorch"]["index_url"], "https://download.pytorch.org/whl/cu130"
+        )
+        prepare = PREPARE_RUNTIME.read_text(encoding="utf-8")
+        self.assertIn("runtime version mismatch", prepare)
+        self.assertIn("importlib.import_module", prepare)
+        self.assertNotIn("import av", prepare)
 
     def test_service_disables_ultralytics_runtime_autoinstall(self) -> None:
         source = SERVICE_TEMPLATE.read_text(encoding="utf-8")
