@@ -67,6 +67,7 @@ Current diff-derived runtime applicability is VPS only. The parent Outcome still
 - EVID-008 | Type: release-provenance | Priority: P0 | Covers: AC-014 | Source: deterministic `vps`/`edge` quality artifacts plus release-specific `ubuntu-worker` artifact in the exact-artifacts manifest; release-manifest v2 binds the Ubuntu archive digest and exact-manifest SHA-256 | Status: GREEN on merged PR #180; aggregate CI will revalidate
 - EVID-009 | Type: integration | Priority: P0 | Covers: AC-015 | Source: tests/test_vps_deploy_origin_health.py and tests/test_camera_preview_gallery.py | Status: PENDING CURRENT REMEDIATION CI
 - EVID-010 | Type: runtime-manual | Priority: P0 | Covers: AC-015 | Source: Deploy VPS retry plus `127.0.0.1:8010/api/health` exact source identity / rollback evidence | Status: PENDING NEW VPS AUTHORIZATION
+- EVID-011 | Type: ci-metadata | Priority: P0 | Covers: AC-011 | Source: PR #181 runs #321/#271 on head `af849bb3a3247d19362d34a9102c90c23c146990` | Status: SUPERSEDED — source diff was 7 paths but the synchronize webhook captured the pre-sync 5-file PR body; Change Contract failed before behavioral execution, while exact-artifact/release/property domains passed. PR body was synchronized to the authorized 7-file contract before this successor head.
 
 ## Definition of Done
 
