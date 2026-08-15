@@ -244,7 +244,7 @@ class CameraPreviewGalleryTests(unittest.TestCase):
             'frontend/sea-speed/cameras/index.html', 'frontend/sea-speed/cameras/.absent',
             'ensure_current_release_has_cameras_frontend',
             'verify_public_url "Cameras frontend" "$CAMERAS_FRONTEND_URL"',
-            'ORIGIN_HEALTH_URL="${SEA_SPEED_ORIGIN_HEALTH_URL:-http://127.0.0.1:8000/api/health}"',
+            'ORIGIN_HEALTH_URL="${SEA_SPEED_ORIGIN_HEALTH_URL:-http://127.0.0.1:8010/api/health}"',
             'PUBLIC_HEALTH_URL="${SEA_SPEED_HEALTH_URL:-https://mostdef.ru/sea-speed/api/health}"',
             '"cameras_frontend_release_state"',
         ):
