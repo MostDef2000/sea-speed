@@ -62,14 +62,19 @@
       }
     },
     {
-      "name": "release manifest valid",
+      "name": "release manifest provenance valid",
       "contract": "sea_speed_release_manifest_v2",
       "valid": true,
       "payload": {
         "schema": "sea_speed_release_manifest_v2",
-        "component": "edge",
+        "component": "ubuntu-worker",
         "source_commit": "0123456789abcdef0123456789abcdef01234567",
         "artifact_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "canonical_issue": 172,
+        "pull_request": 173,
+        "outcome_contract_hash": "1111111111111111111111111111111111111111111111111111111111111111",
+        "change_contract_hash": "2222222222222222222222222222222222222222222222222222222222222222",
+        "approved_scope_hash": "3333333333333333333333333333333333333333333333333333333333333333",
         "state": "ready_for_deployment"
       }
     },
