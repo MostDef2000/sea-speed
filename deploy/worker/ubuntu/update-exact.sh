@@ -12,10 +12,10 @@ Options:
                         (default: /etc/sea-speed/github-read-token)
   --activate            Install, restart, and runtime-gate the exact release
 
-Without --activate, the updater only verifies and prepares the exact release.
-With --activate, success requires exact-SHA frame and state progression. If a
-previous active release exists, any activation or runtime-gate failure restores
-its unit and service automatically before this command returns failure.
+Without --activate, the updater verifies and prepares the exact source release
+and its immutable shared runtime. With --activate, success requires exact-SHA
+frame/state progression. If a previous active release exists, any activation
+or runtime-gate failure restores its exact unit and service before returning.
 USAGE
 }
 
@@ -174,10 +174,23 @@ unset github_token
 )
 
 release_root="$install_root/releases/$source_commit"
-if [[ ! -x "$release_root/venv/bin/python" ]] || \
-   [[ ! -f "$release_root/source-commit" ]] || \
-   [[ "$(cat "$release_root/source-commit")" != "$source_commit" ]]; then
+runtime_id_file="$release_root/runtime-id"
+if [[ ! -f "$release_root/source-commit" ]] || \
+   [[ "$(cat "$release_root/source-commit")" != "$source_commit" ]] || \
+   [[ ! -f "$runtime_id_file" ]]; then
   echo "ERROR prepared release verification failed" >&2
+  exit 9
+fi
+runtime_id="$(cat "$runtime_id_file")"
+if [[ ! "$runtime_id" =~ ^[0-9a-f]{64}$ ]]; then
+  echo "ERROR prepared release runtime ID is invalid" >&2
+  exit 9
+fi
+runtime_root="$install_root/runtimes/$runtime_id"
+if [[ ! -x "$runtime_root/venv/bin/python" ]] || \
+   [[ ! -f "$runtime_root/ready" ]] || \
+   [[ "$(cat "$runtime_root/ready")" != "runtime_id=$runtime_id" ]]; then
+  echo "ERROR prepared shared runtime verification failed" >&2
   exit 9
 fi
 
@@ -188,6 +201,7 @@ chown root:root "$quality_marker"
 chmod 0644 "$quality_marker"
 
 printf 'PREPARED source_commit=%s\n' "$source_commit"
+printf 'RUNTIME_BOUND source_commit=%s runtime_id=%s\n' "$source_commit" "$runtime_id"
 printf 'QUALITY_APPROVED source_commit=%s check=quality-integration\n' "$source_commit"
 printf 'PRESERVED shared_config_models_datasets_output=true\n'
 
@@ -201,6 +215,7 @@ unit_target="/etc/systemd/system/$service_name"
 active_marker="$install_root/shared/runtime/active-source-commit"
 heartbeat="$install_root/shared/runtime/worker-heartbeat.json"
 previous_commit=""
+previous_runtime_id=""
 previous_runtime_ready=false
 
 if [[ -f "$active_marker" ]]; then
@@ -221,6 +236,15 @@ if [[ -f "$active_marker" ]]; then
   if [[ "$previous_exec" != *"$previous_commit"* ]]; then
     echo "ERROR running service and active source marker disagree" >&2
     exit 20
+  fi
+  previous_runtime_file="$install_root/releases/$previous_commit/runtime-id"
+  if [[ -f "$previous_runtime_file" ]]; then
+    previous_runtime_id="$(cat "$previous_runtime_file")"
+    if [[ ! "$previous_runtime_id" =~ ^[0-9a-f]{64}$ ]] || \
+       [[ "$previous_exec" != *"/runtimes/$previous_runtime_id/venv/bin/python"* ]]; then
+      echo "ERROR running service and active runtime binding disagree" >&2
+      exit 20
+    fi
   fi
 
   unit_backup="$(mktemp "$updater_root/unit-backup.XXXXXX")"
@@ -251,11 +275,16 @@ restore_previous() {
   if [[ "$restored_exec" != *"$previous_commit"* ]]; then
     return 1
   fi
+  if [[ -n "$previous_runtime_id" ]] && \
+     [[ "$restored_exec" != *"/runtimes/$previous_runtime_id/venv/bin/python"* ]]; then
+    return 1
+  fi
   if [[ "$(cat "$active_marker")" != "$previous_commit" ]]; then
     return 1
   fi
 
-  printf 'RESTORED previous_source_commit=%s\n' "$previous_commit" >&2
+  printf 'RESTORED previous_source_commit=%s runtime_id=%s\n' \
+    "$previous_commit" "${previous_runtime_id:-legacy-per-release}"
   return 0
 }
 
@@ -283,6 +312,7 @@ if ! (
 fi
 
 rm -f "$heartbeat"
+systemctl reset-failed "$service_name" || abort_activation "failed to clear systemd start limit"
 if ! systemctl restart "$service_name"; then
   abort_activation "service restart failed"
 fi
@@ -293,6 +323,9 @@ fi
 exec_start="$(systemctl show -p ExecStart --value "$service_name")"
 if [[ "$exec_start" != *"$source_commit"* ]]; then
   abort_activation "active unit does not reference requested commit"
+fi
+if [[ "$exec_start" != *"/runtimes/$runtime_id/venv/bin/python"* ]]; then
+  abort_activation "active unit does not reference requested runtime ID"
 fi
 
 runtime_gate="$release_root/source/deploy/worker/ubuntu/verify-runtime-progression.py"
@@ -315,7 +348,7 @@ chmod 0644 "$marker_tmp"
 mv -f "$marker_tmp" "$active_marker"
 marker_tmp=""
 
-printf 'ACTIVATED source_commit=%s\n' "$source_commit"
+printf 'ACTIVATED source_commit=%s runtime_id=%s\n' "$source_commit" "$runtime_id"
 printf 'SERVICE_ACTIVE %s\n' "$service_name"
 printf 'RUNTIME_GATE frame_and_state_progression=PASS\n'
 printf 'ROLLBACK automatic_on_activation_failure=true explicit_command=rollback-exact.sh\n'
