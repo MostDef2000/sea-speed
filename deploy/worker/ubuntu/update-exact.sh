@@ -314,5 +314,5 @@ marker_tmp=""
 
 printf 'ACTIVATED source_commit=%s\n' "$source_commit"
 printf 'SERVICE_ACTIVE %s\n' "$service_name"
-printf 'RUNTIME_GATE ai_frame_and_state_progression=PASS\n'
+printf 'RUNTIME_GATE frame_and_state_progression=PASS\n'
 printf 'ROLLBACK automatic_on_activation_failure=true explicit_command=rollback-exact.sh\n'
