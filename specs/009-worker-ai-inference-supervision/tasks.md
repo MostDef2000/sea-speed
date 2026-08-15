@@ -16,7 +16,7 @@ Specification: `specs/009-worker-ai-inference-supervision/spec.md`
 - [x] Clear systemd failed/start-limit state before automatic restore restarts the previous exact Worker.
 - [x] Preserve `model.track(... persist=True ...)`, ByteTrack selection, detection shape, vehicle allow-list, ROI filtering, speed semantics, API schemas, and frontend behavior.
 - [x] Add focused source-contract coverage for dependency closure, immutable runtime, and reset-before-restart rollback ordering.
-- [ ] Open correction PR with exact Change Contract.
+- [x] Open correction PR with exact Change Contract.
 - [ ] Pass PR Validation, Quality integration, and Worker package gates.
 - [ ] Merge exact green head and pass post-merge gates.
 - [ ] Obtain fresh exact-SHA production authorization.
