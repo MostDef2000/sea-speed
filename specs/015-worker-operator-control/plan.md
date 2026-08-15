@@ -2,7 +2,7 @@
 
 - Specification: specs/015-worker-operator-control/spec.md
 - Issue: #178
-- Status: Implementation
+- Status: Implementation validation
 
 ## Architecture
 
@@ -72,11 +72,11 @@ The agent persists `/opt/sea-speed-worker/shared/runtime/operator-desired-state`
 
 - Risk profile: REQUIRED
 
-- RISK-001 | Category: SEC | Probability: 2 | Impact: 5 | Score: 10 | Finding: a root-capable private control service could become remote execution if request parameters are generalized | Mitigation: fixed paths, literal service name, bearer auth, RFC1918 listener validation, no shell=True, no arbitrary arguments | Evidence: tests/test_worker_operator_control.py
-- RISK-002 | Category: OPS | Probability: 3 | Impact: 4 | Score: 12 | Finding: maintenance code could misclassify intentional stop as worker failure and auto-start it | Mitigation: explicit desired-state marker integrated into updater/rollback contracts | Evidence: updater/rollback tests and runtime-manual acceptance
-- RISK-003 | Category: TECH | Probability: 2 | Impact: 4 | Score: 8 | Finding: UI worker stop might accidentally couple to live stream controls | Mitigation: separate endpoints/buttons and invariant tests for HLS path plus absence of relay operations | Evidence: frontend/control tests
-- RISK-004 | Category: PERF | Probability: 2 | Impact: 2 | Score: 4 | Finding: unreachable Ubuntu agent could stall operator UI/API | Mitigation: bounded <=5s upstream timeout and asynchronous UI error state | Evidence: API tests
-- RISK-005 | Category: BUS | Probability: 2 | Impact: 4 | Score: 8 | Finding: operator cannot restart worker if the control service is tied to AI worker lifecycle | Mitigation: dedicated independently enabled control systemd unit | Evidence: systemd contract and runtime-manual acceptance
+- RISK-001 | Category: SEC | Probability: 2 | Impact: 5 | Score: 10 | Mitigation: fixed paths, literal service name, bearer auth, RFC1918 listener validation, no shell=True, no arbitrary arguments | Validation: tests/test_worker_operator_control.py | Residual risk: root control agent remains privileged but exposes only the fixed worker action surface | Owner: PM/operator | Status: MITIGATED
+- RISK-002 | Category: OPS | Probability: 3 | Impact: 4 | Score: 12 | Mitigation: explicit desired-state marker integrated into updater/rollback contracts | Validation: tests/test_ubuntu_worker_exact_updater.py and tests/test_ubuntu_worker_rollback.py | Residual risk: production maintenance must still verify marker/service agreement before mutation | Owner: PM/operator | Status: MITIGATED
+- RISK-003 | Category: TECH | Probability: 2 | Impact: 4 | Score: 8 | Mitigation: separate endpoints/buttons and invariant tests for HLS path plus absence of relay operations | Validation: tests/test_frontend_contract.py and tests/test_worker_operator_control.py | Residual risk: runtime HLS continuity still requires manual production evidence | Owner: PM/operator | Status: MITIGATED
+- RISK-004 | Category: PERF | Probability: 2 | Impact: 2 | Score: 4 | Mitigation: bounded <=5s upstream timeout and asynchronous UI error state | Validation: tests/test_worker_operator_control.py | Residual risk: private network outage can temporarily make control unavailable without affecting HLS | Owner: PM/operator | Status: MITIGATED
+- RISK-005 | Category: BUS | Probability: 2 | Impact: 4 | Score: 8 | Mitigation: dedicated independently enabled control systemd unit | Validation: tests/test_ubuntu_worker_systemd.py plus runtime-manual acceptance | Residual risk: control service availability must be verified during production rollout | Owner: PM/operator | Status: MITIGATED
 
 ## Test design
 
@@ -90,7 +90,7 @@ The agent persists `/opt/sea-speed-worker/shared/runtime/operator-desired-state`
 
 ## Correct-course check
 
-- Trigger: ARCHITECTURE PIVOT
+- Trigger: ARCHITECTURE_PIVOT
 - Issue impact: clarified that the existing private nginx worker ingress is Ubuntu->VPS, so reverse worker control uses a dedicated Ubuntu private agent instead of reusing that ingress direction.
 - Specification impact: direct private agent and fixed browser/API routes are explicitly defined.
 - Plan impact: architecture diagram and D-001 record the corrected direction.
