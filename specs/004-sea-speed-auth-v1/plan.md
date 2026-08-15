@@ -3,6 +3,7 @@
 - Specification: specs/004-sea-speed-auth-v1/spec.md
 - Issue: #115
 - Runtime topology revision: #122
+- Cutover split-layout remediation: #140
 - Status: Accepted core runtime/security architecture; parent backlog remains open
 
 ## Architecture
@@ -37,13 +38,13 @@ Production VPS resource preflight caused Issue #122 relocation; public ingress r
 Loss of private Authentik dependency never makes `/sea-speed/**` anonymous.
 
 ### D-004 - Browser and provider timers are separate
-12h User Login Stage target vs 96h Proxy Provider token validity.
+12 hours User Login Stage target vs 96 hours Proxy Provider token validity.
 
 ### D-005 - Private M2M is separate
-Worker API traffic is exact-peer/method/path scoped and not browser Authentik.
+Worker machine-to-machine traffic is exact-peer/method/path scoped and not browser Authentik.
 
 ### D-006 - Reproducible nginx boundary
-Candidate rendering/materialization is source-controlled, SHA-guarded and fail-closed.
+Issue #140 established split-layout materialization while retaining source-controlled, SHA-guarded and fail-closed candidate rendering.
 
 ### D-007 - Runtime scope mappings
 Production diagnostics proved missing managed scope mappings caused empty username headers; applying system OAuth/proxy scope blueprints and provider defaults restored trusted identity propagation.

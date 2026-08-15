@@ -4,13 +4,14 @@
 - Plan: specs/004-sea-speed-auth-v1/plan.md
 - Issue: #115
 - Runtime topology Issue: #122
+- Cutover split-layout remediation: #140
 
 ## Delivery tasks
 
 - [x] Define invite-only Authentik security outcome and protected `/sea-speed/**` namespace.
 - [x] Relocate production Authentik/PostgreSQL to Ubuntu Worker under Issue #122.
 - [x] Implement/review private Authentik origin and exact-peer Worker M2M boundary.
-- [x] Implement reproducible nginx split-layout/canonical-host/outpost cutover corrections.
+- [x] Implement reproducible nginx split-layout/canonical-host/outpost cutover corrections including Issue #140.
 - [x] Deploy accepted application/header identity corrections under separate exact-SHA authorization.
 - [x] Diagnose and remediate missing Authentik system scope mappings without weakening nginx/private boundaries.
 - [x] Complete authenticated browser acceptance for trusted username and Camera 1.

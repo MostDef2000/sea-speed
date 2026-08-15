@@ -10,7 +10,7 @@
 
 ## Product outcome
 
-`https://mostdef.ru/` remains public while `/sea-speed/**` UI/API/media is Authentik-protected and fails closed. `/cams/**` exposes no camera content. Authentik/PostgreSQL run on the Ubuntu worker; the VPS remains public nginx/TLS ingress and reaches the exact private worker Authentik origin over ZeroTier/private networking. Worker M2M remains a separate exact-peer/private VPS listener.
+`https://mostdef.ru/` remains public while `/sea-speed/**` UI/API/media is Authentik-protected and fails closed. `/cams/**` exposes no camera content. Authentik/PostgreSQL run on the Ubuntu worker; the VPS remains public nginx/TLS ingress and reaches the exact private worker Authentik origin over ZeroTier/private networking. The worker machine-to-machine path remains a separate exact-peer/private VPS listener.
 
 ## User scenarios
 
@@ -18,7 +18,7 @@
 2. Admin/Operator/Viewer use password authentication; Owner additionally requires TOTP.
 3. Protected UI/API/media requires authentication; failure of Authentik/private path fails closed while `/` stays public.
 4. Camera 1 is available only under protected `/sea-speed/media/cam1/index.m3u8`.
-5. Worker infrastructure traffic remains private M2M, not an interactive Authentik browser session.
+5. Worker infrastructure traffic remains private machine-to-machine traffic, not an interactive Authentik browser session.
 6. Protected pages receive trusted session identity and preserve provider logout/home navigation behavior.
 
 ## Requirements
@@ -26,12 +26,13 @@
 - Authentik owns identity/session/enrollment/recovery; Sea Speed does not add a native password/session store.
 - public registration/access request disabled; invitation is single-use/expiring/fixed-role.
 - Owner TOTP is mandatory; normal roles remain password-only in v1.
-- HTTPS secure/revocable browser sessions; 12h browser-login target and 96h proxy-provider token remain distinct timers.
+- HTTPS secure/revocable browser sessions; the User Login Stage target is **12 hours** and the Proxy Provider access-token validity is **96 hours**; these are distinct timers.
 - `/sea-speed/**` is authenticated; `/cams/**` retired; forged `X-authentik-*` headers cannot bypass nginx.
 - Authentik Docker HTTP is worker-loopback-only; PostgreSQL has no public host port; worker Authentik has no Docker-socket requirement.
 - private Authentik proxy is bound to exact worker private IP and exact VPS peer.
-- private Worker M2M listener is exact VPS private address / exact Worker peer / exact methods+paths and retains existing Bearer-token writes.
+- private Worker machine-to-machine listener is exact VPS private address / exact Worker peer / exact methods+paths and retains existing Bearer-token writes.
 - production cutover/rendering is reproducible and fail-closed.
+- every production mutation remains separately exact-SHA authorized using `PRODUCTION APPROVED <full-sha>` under the current production-authorization contract.
 - secrets, passwords, cookies, TOTP, SMTP and tokens remain outside Git/evidence.
 
 ## Acceptance criteria
@@ -39,7 +40,7 @@
 - anonymous `/` = public; anonymous protected surfaces redirect/deny; `/cams/**` exposes no camera content.
 - Owner TOTP and role/invitation behavior accepted for the implemented v1 contour.
 - authenticated Camera 1 H.264 playback works under the protected path.
-- exact private Worker M2M remains functional and restricted.
+- exact private Worker machine-to-machine path remains functional and restricted.
 - worker-hosted Authentik/private origin remains healthy and source restricted.
 - controlled loss of `sea-speed-auth-private-proxy.service` leaves `/` available and makes protected Sea Speed fail closed; restoration returns normal authentication gating.
 - trusted username rendering/browser acceptance passed after scope-mapping remediation.

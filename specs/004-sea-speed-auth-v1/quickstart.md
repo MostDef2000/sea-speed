@@ -3,6 +3,7 @@
 - Specification: `specs/004-sea-speed-auth-v1/spec.md`
 - Parent Issue: #115
 - Runtime topology: #122
+- Cutover split-layout remediation: #140
 - Status: Accepted runtime-security reference
 
 This guide is validation guidance, never production authorization.
@@ -20,7 +21,7 @@ Worker M2M -> exact Worker peer -> VPS private listener -> FastAPI
 
 ## Source checks
 
-Run focused Auth/frontend/nginx tests plus `python scripts/ci/validate_sdd.py` and repository quality gates.
+Run focused Auth/frontend/nginx tests plus `python scripts/ci/validate_sdd.py` and repository quality gates. Issue #140 remains the durable split-layout materialization/cutover remediation reference.
 
 ## Runtime checks
 
