@@ -18,7 +18,7 @@
 - T-009 [P0] Re-read main/head/scope/reviews and merge only the exact green remediation head with expected-head protection.
 - T-010 [P0] Stop at the production boundary after remediation merge until a new exact-SHA production authorization; then collect mixed-contour runtime evidence.
 - T-011 [P0] Add the fixed `sea_speed_worker_control_v1` marker to successful Ubuntu agent responses and make VPS FastAPI reject a missing/mismatched marker before returning success.
-- T-012 [P0] Add deterministic `ubuntu-worker` exact-artifact build/validation and quality-evidence coverage while retaining existing `vps` and legacy `edge` artifacts.
+- T-012 [P0] Add deterministic `ubuntu-worker` exact-artifact build/validation as release-specific provenance while preserving the existing quality-evidence v1 `vps`/legacy-`edge` contract.
 
 ## Active remediation scope
 
@@ -46,10 +46,10 @@ The current correct-course source gate is exactly these 9 paths; the historical 
 - AC-008 | Task: T-005, T-007 | Evidence: tests/test_ubuntu_worker_exact_updater.py and tests/test_ubuntu_worker_rollback.py | Coverage: COVERED
 - AC-009 | Task: T-006, T-007 | Evidence: tests/test_sea_speed_auth_v1.py | Coverage: COVERED
 - AC-010 | Task: T-004, T-007 | Evidence: tests/test_frontend_contract.py and tests/test_worker_operator_control.py | Coverage: COVERED
-- AC-011 | Task: T-008, T-009 | Evidence: exact-head PR Validation and Quality integration | Coverage: PENDING REMEDIATION CI
+- AC-011 | Task: T-008, T-009 | Evidence: exact-head PR Validation and Quality integration | Coverage: COVERED
 - AC-012 | Task: T-010 | Evidence: newly authorized production service/HLS acceptance on Issue #178 | Coverage: RUNTIME-MANUAL | Reason: source CI cannot prove live HLS continuity across a real production worker stop/start
-- AC-013 | Task: T-011, T-007 | Evidence: tests/test_worker_operator_control.py | Coverage: PENDING REMEDIATION CI
-- AC-014 | Task: T-012, T-008 | Evidence: tests/quality/test_quality_architecture.py and aggregate Quality integration artifact/evidence jobs | Coverage: PENDING REMEDIATION CI
+- AC-013 | Task: T-011, T-007 | Evidence: tests/test_worker_operator_control.py | Coverage: COVERED
+- AC-014 | Task: T-012, T-008 | Evidence: tests/quality/test_quality_architecture.py plus aggregate exact-artifact/release-evidence jobs | Coverage: COVERED
 
 ## Delivery evidence
 
@@ -60,7 +60,7 @@ The current correct-course source gate is exactly these 9 paths; the historical 
 - EVID-005 | Type: integration | Priority: P0 | Covers: AC-009 | Source: tests/test_sea_speed_auth_v1.py | Status: PREVIOUSLY GREEN; aggregate CI will revalidate
 - EVID-006 | Type: end-to-end | Priority: P0 | Covers: AC-011, AC-014 | Source: exact-head GitHub Actions | Status: PENDING REMEDIATION CI
 - EVID-007 | Type: runtime-manual | Priority: P0 | Covers: AC-012 | Source: later newly authorized production acceptance | Status: PENDING
-- EVID-008 | Type: release-provenance | Priority: P0 | Covers: AC-014 | Source: deterministic three-component exact artifact manifest plus quality-evidence digest bindings | Status: PENDING REMEDIATION CI
+- EVID-008 | Type: release-provenance | Priority: P0 | Covers: AC-014 | Source: deterministic `vps`/`edge` quality artifacts plus release-specific `ubuntu-worker` artifact in the exact-artifacts manifest; release-manifest v2 binds the Ubuntu archive digest and exact-manifest SHA-256 | Status: PENDING REMEDIATION CI
 
 ## Definition of Done
 
@@ -70,7 +70,7 @@ The current correct-course source gate is exactly these 9 paths; the historical 
 - Required CI green: exact final remediation PR head must have PR Validation and Quality integration SUCCESS.
 - Exact-green-head merge complete: only after fresh main/base/head/scope/review verification and expected-head merge.
 - Deployment state resolved: source remediation does not deploy; the previous production attempt performed zero runtime writes and any future rollout requires a new exact-SHA safety envelope.
-- Release provenance resolved: exact artifact inventory must include and validate `vps`, `ubuntu-worker`, and legacy `edge`, with quality evidence binding all three.
+- Release provenance resolved: exact artifact inventory must validate `vps`, release-specific `ubuntu-worker`, and legacy `edge`; quality-evidence v1 remains valid for its existing `vps`/`edge` enum, while release-manifest v2 directly binds the Ubuntu artifact and the complete exact-artifacts manifest hash.
 - Runtime acceptance resolved: NO until newly authorized mixed-contour stop/start plus continuous-HLS evidence is recorded.
 - Deferred work recorded: production rollout and runtime-manual AC-012 are the only expected deferred items after remediation source merge.
 - Risks resolved or explicitly accepted: all source mitigations including RISK-006/RISK-007 must pass; residual production risks require runtime acceptance evidence.
