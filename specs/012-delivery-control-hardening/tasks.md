@@ -2,28 +2,28 @@
 
 Specification: specs/012-delivery-control-hardening/spec.md
 Issue: #172
-Status: Active
+Status: Accepted / completed
 
 ## Delivery tasks
 
-- [x] T001 Model VPS, Ubuntu Worker/relay, and Windows AI Worker as explicit production runtime contours with exact mixed deployment flags.
-- [x] T002 Harden exact-main production SHA and aggregate main-push quality proof before SSH.
-- [x] T003 Add canonical Issue/PR/Outcome-bound durable production authorization with fail-closed fingerprint validation.
-- [x] T004 Introduce release provenance v2 with separate approved/actual scope and artifact/evidence SHA-256 bindings while preserving v1 readers.
-- [x] T005 Add explicit Ubuntu deployment-manifest target without invalidating persisted VPS/Windows v1 manifests.
-- [x] T006 Wire SDD PR linkage validation into aggregate quality integration.
-- [x] T007 Add focused tests for contours, authorization, quality provenance, release provenance, deployment compatibility, and workflow architecture.
-- [x] T008 Synchronize canonical governance/runtime contracts and templates with executable controls.
-- [ ] T009 Open PR with exact 34-path Change Contract and verify PR Validation + Quality integration on exact final head.
-- [ ] T010 Merge exact green head, re-read `main`, and record source integration evidence on Issue #172.
+- [x] T001 Model VPS, Ubuntu Worker/relay and Windows AI Worker as exact production contours.
+- [x] T002 Harden exact-main SHA and aggregate main-push quality proof before SSH.
+- [x] T003 Add canonical Issue/PR/Outcome-bound durable production authorization fingerprint.
+- [x] T004 Introduce release provenance v2 with approved/actual scope and exact artifact/evidence bindings.
+- [x] T005 Add explicit Ubuntu deployment target while preserving persisted v1 readability.
+- [x] T006 Wire SDD linkage validation into aggregate quality.
+- [x] T007 Add focused contour/authorization/provenance/deployment/workflow tests.
+- [x] T008 Synchronize canonical governance/runtime contracts and templates.
+- [x] T009 Open PR #173 with exact 34-path scope and obtain exact-head PR Validation + Quality integration success.
+- [x] T010 Merge exact green head, re-read main, persist post-merge exact-main quality evidence and close Issue #172 completed.
 
 ## Completion gate
 
-- [x] Exact changed-file set equals the 34 paths authorized on Issue #172.
-- [x] No runtime payload or GitHub settings changes are present.
-- [ ] PR Validation succeeds on exact final head.
-- [ ] Quality integration succeeds on exact final head and includes SDD validation.
-- [ ] No unresolved review thread blocks merge.
-- [ ] Merge uses the exact verified head SHA.
-- [ ] Post-merge `main` is re-read and source evidence is persisted on Issue #172.
-- [x] No production workflow has been dispatched.
+- [x] Exact changed-file set was the approved 34 paths.
+- [x] No runtime payload or GitHub settings change occurred.
+- [x] PR Validation and Quality integration succeeded on exact final PR head.
+- [x] No unresolved review thread blocked merge.
+- [x] Expected-head merge succeeded.
+- [x] Post-merge main `9178bd13c6236b396e6931605fe4257319241c71` was re-read and exact-main PR Validation + Quality integration succeeded.
+- [x] Issue #172 records terminal source evidence and is closed completed.
+- [x] No production workflow was dispatched.
