@@ -46,7 +46,7 @@ Specification: `specs/005-auth-ux-logout/spec.md`
 - [x] Make the repo-owned worker operation fail closed unless the current provider mode is exactly `forward_single` and verify it remains unchanged after apply/rollback.
 - [x] Extend focused tests and implementation-plan evidence for the Authentik 2026.5.6 compatibility regression.
 - [x] Verify the exact six-file remediation diff/scope and branch freshness against current `main`.
-- [ ] Open one bounded compatibility PR linked to Issue #152 and this specification.
+- [x] Open bounded compatibility PR #156 linked to Issue #152 and this specification.
 - [ ] Require PR Validation and Quality integration on the exact final compatibility-remediation head.
 - [ ] Merge the exact green compatibility-remediation head after fresh base/diff/review-thread verification.
 - [ ] Record the new exact merged `main` SHA and mark `PRODUCTION APPROVED be98b94b7d8c7f37f94c067dfa4fca3c961f474e` superseded for worker continuation.
