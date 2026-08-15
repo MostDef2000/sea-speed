@@ -60,7 +60,13 @@ jobs:
           fi
           git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
           git cat-file -e "${DEPLOY_SHA}^{commit}" 2>/dev/null || git fetch --no-tags origin "$DEPLOY_SHA"
-          git rev-list --first-parent origin/main | grep -Fxq "$DEPLOY_SHA" || {
+          FIRST_PARENT_MATCH=0
+          while IFS= read -r commit; do
+            if [[ "$commit" == "$DEPLOY_SHA" ]]; then
+              FIRST_PARENT_MATCH=1
+            fi
+          done < <(git rev-list --first-parent origin/main)
+          [[ "$FIRST_PARENT_MATCH" == "1" ]] || {
             echo "Deployment commit is not on the first-parent history of current origin/main" >&2
             exit 1
           }
