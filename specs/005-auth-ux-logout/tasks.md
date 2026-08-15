@@ -9,8 +9,8 @@ Specification: `specs/005-auth-ux-logout/spec.md`
 - [x] Define a Sea Speed-specific Authentik invalidation flow with User Logout then static root Redirect.
 - [x] Bind only `Provider for Sea Speed` to that invalidation flow in source configuration.
 - [x] Add focused source-contract tests.
-- [ ] Verify exact diff/scope from current `main`.
-- [ ] Open one bounded PR linked to Issue #152 and this specification.
+- [x] Verify exact diff/scope from current `main`.
+- [x] Open one bounded PR linked to Issue #152 and this specification.
 - [ ] Require PR Validation and Quality integration on the exact PR head.
 - [ ] Merge exact green head.
 - [ ] Obtain separate exact merged-SHA production authorization before runtime mutation.
