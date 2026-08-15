@@ -41,9 +41,9 @@ def outcome_contract(issue_body: str) -> str:
     return match.group(1).strip()
 
 
-def authorization_fingerprint(issue_number: int, pr_number: int, source_commit: str, issue_body: str, pr_body: str) -> str:
+def authorization_payload(issue_number: int, pr_number: int, source_commit: str, issue_body: str, pr_body: str) -> dict[str, object]:
     fields = {name: value.strip() for name, value in FIELD_RE.findall(pr_body)}
-    payload = {
+    payload: dict[str, object] = {
         "canonicalIssue": issue_number,
         "pullRequest": pr_number,
         "sourceCommit": source_commit,
@@ -60,10 +60,14 @@ def authorization_fingerprint(issue_number: int, pr_number: int, source_commit: 
     }
     if any(value == "" for value in (payload["securityImpact"], payload["deploymentTarget"], payload["rollbackTarget"])):
         raise ValueError("PR Change Contract is missing authorization-bound fields")
-    return canonical_json_sha256(payload)
+    return payload
 
 
-def verify(repository: str, source_commit: str, issue_number: int, token: str) -> tuple[int, str]:
+def authorization_fingerprint(issue_number: int, pr_number: int, source_commit: str, issue_body: str, pr_body: str) -> str:
+    return canonical_json_sha256(authorization_payload(issue_number, pr_number, source_commit, issue_body, pr_body))
+
+
+def verify(repository: str, source_commit: str, issue_number: int, token: str) -> tuple[int, str, str]:
     if source_commit != source_commit.lower() or not SHA40_RE.fullmatch(source_commit):
         raise ValueError("source commit must be an exact lowercase full SHA")
     policy = json.loads(POLICY_PATH.read_text(encoding="utf-8"))
@@ -85,6 +89,7 @@ def verify(repository: str, source_commit: str, issue_number: int, token: str) -
     if not isinstance(issue, dict) or issue.get("pull_request"):
         raise ValueError("canonical Issue is missing or resolves to a pull request")
     issue_body = issue.get("body") or ""
+    outcome_hash = hashlib.sha256(outcome_contract(issue_body).encode("utf-8")).hexdigest()
     fingerprint = authorization_fingerprint(issue_number, pr_number, source_commit, issue_body, pr_body)
     comments = github_json(f"https://api.github.com/repos/{repository}/issues/{issue_number}/comments?per_page=100", token)
     if not isinstance(comments, list):
@@ -105,7 +110,7 @@ def verify(repository: str, source_commit: str, issue_number: int, token: str) -
             "durable production authorization not found; required exact lines: "
             f"{exact_first_line!r} and {fp_line!r} from an authorized actor"
         )
-    return pr_number, fingerprint
+    return pr_number, fingerprint, outcome_hash
 
 
 def main() -> int:
@@ -113,16 +118,22 @@ def main() -> int:
     parser.add_argument("--repository", required=True)
     parser.add_argument("--commit", required=True)
     parser.add_argument("--issue", required=True, type=int)
+    parser.add_argument("--github-output", type=Path)
     args = parser.parse_args()
     token = os.environ.get("GITHUB_TOKEN", "").strip()
     if not token:
         print("ERROR: GITHUB_TOKEN is required", file=sys.stderr)
         return 1
     try:
-        pr, fingerprint = verify(args.repository, args.commit, args.issue, token)
+        pr, fingerprint, outcome_hash = verify(args.repository, args.commit, args.issue, token)
     except (ValueError, OSError, json.JSONDecodeError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
+    if args.github_output:
+        with args.github_output.open("a", encoding="utf-8") as handle:
+            handle.write(f"pr_number={pr}\n")
+            handle.write(f"authorization_fingerprint={fingerprint}\n")
+            handle.write(f"outcome_contract_hash={outcome_hash}\n")
     print(f"Production authorization verified: issue=#{args.issue} pr=#{pr} commit={args.commit} fingerprint={fingerprint}")
     return 0
 
