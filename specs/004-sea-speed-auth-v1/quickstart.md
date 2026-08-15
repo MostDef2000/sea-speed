@@ -1,226 +1,43 @@
 # Quickstart: Validate Sea Speed Auth v1
 
 - Specification: `specs/004-sea-speed-auth-v1/spec.md`
-- Original Issue: #115
-- Runtime topology revision: #122
-- Cutover split-layout remediation: #140
+- Parent Issue: #115
+- Runtime topology: #122
+- Status: Accepted runtime-security reference
 
-This is an acceptance guide, not production authorization. After Issue #140 source merges, do not perform the remaining nginx/M2M production mutation until that new exact merged `main` SHA has a fresh separate `PRODUCTION APPROVED` envelope.
+This guide is validation guidance, never production authorization.
+
+## Canonical topology
+
+```text
+Internet -> VPS nginx/TLS
+  / -> public
+  /sea-speed/** -> forward auth -> Ubuntu Worker private Authentik origin
+  auth.mostdef.ru -> same private Authentik origin
+Ubuntu Worker -> Authentik loopback + PostgreSQL + exact-peer private proxy
+Worker M2M -> exact Worker peer -> VPS private listener -> FastAPI
+```
 
 ## Source checks
 
-```bash
-python -m unittest tests.test_sea_speed_auth_v1
-python -m unittest tests.test_frontend_contract
-python -m unittest tests.test_camera1_direct_h264_cutover
-python -m unittest tests.test_camera1_live_replacement
-python scripts/ci/validate_sdd.py
-python scripts/ci/validate_repo.py
-```
+Run focused Auth/frontend/nginx tests plus `python scripts/ci/validate_sdd.py` and repository quality gates.
 
-The full PR must also pass the repository aggregate quality gate.
+## Runtime checks
 
-## Canonical runtime topology after Issue #122
+- production API origin health: `http://127.0.0.1:8010/api/health` on VPS;
+- `/` remains public;
+- `/cams/**` exposes no camera content;
+- anonymous `/sea-speed/**` redirects/denies;
+- forged identity headers cannot bypass;
+- authenticated `/sea-speed/api/session` returns the trusted current username;
+- protected Camera 1 HLS advances;
+- Worker private M2M remains exact-peer/method/path scoped;
+- Authentik private proxy is reachable only from approved VPS peer.
 
-```text
-Public Internet
-  -> VPS nginx/TLS
-       -> public /
-       -> protected /sea-speed/**
-       -> auth.mostdef.ru
-            -> worker private Authentik origin over ZeroTier
+## Fail-closed reference
 
-Ubuntu worker
-  -> Authentik Docker HTTP on 127.0.0.1:9000 only
-  -> PostgreSQL with no host port
-  -> Authentik worker with no Docker socket
-  -> source-restricted private proxy on worker ZeroTier IP:19000
-       -> accepts only exact VPS private peer
-```
+Issue #122 final acceptance already demonstrated a bounded outage of only `sea-speed-auth-private-proxy.service`: public `/` stayed available, protected Sea Speed failed closed including forged-header requests, the proxy recovered, and normal authentication gating returned. Repeating production failure tests requires a separate current protected authorization; historical PASS evidence is not blanket permission to rerun them.
 
-The original VPS-local Authentik Compose placement is superseded for production. Public ingress remains only the VPS.
+## Secrets
 
-## Current staged identity acceptance
-
-The worker Authentik runtime, VPS-to-worker private health, public `auth.mostdef.ru`, Owner TOTP login, Sea Speed provider/application/policy, Viewer single-use enrollment, password-only Viewer login, disabled-session revocation, SMTP test delivery and real invitation-email delivery have been proven.
-
-Deep password-recovery acceptance is currently deferred/non-blocking by operator decision. It can be verified later if operationally required; the underlying product requirement is not removed.
-
-The browser User Login Stage remains targeted at **12 hours**. The Proxy Provider access-token validity is intentionally **96 hours**. These are separate timers; 96 hours does not redefine the 12 hours browser session.
-
-## Fastest-safe worker stage
-
-The normal operator launcher should collect secrets locally and invoke the worker stage once. Repository helper shape:
-
-```bash
-sudo deploy/worker/ubuntu/authentik/stage.sh stage \
-  --bind-ip <worker-zerotier-ip> \
-  --vps-peer <vps-zerotier-ip> \
-  --env-file <protected-env-file>
-```
-
-The protected env file must be mode `0600` and contain the required Authentik/PostgreSQL/bootstrap/SMTP values. Do not place secrets in argv, chat, Issue comments or logs.
-
-The stage helper owns deterministic work:
-
-```text
-expected worker identity/resources
--> Docker Engine + Compose install if absent
--> exact runtime staging
--> PostgreSQL/Auth server/Auth worker start
--> worker-loopback health
--> exact-source private proxy
--> exposure/security checks
-```
-
-Success includes:
-
-```text
-AUTHENTIK_LOOPBACK_READY=YES
-AUTHENTIK_PRIVATE_PROXY=PASS
-AUTHENTIK_POSTGRESQL_PUBLIC_PORT=NO
-AUTHENTIK_DOCKER_SOCKET_MOUNT=NO
-AUTHENTIK_WORKER_STAGE=PASS
-AUTHENTIK_PRIVATE_ORIGIN=http://<worker-private-ip>:19000
-```
-
-## VPS private Authentik acceptance
-
-Before nginx security cutover, from the VPS prove the exact private worker origin is healthy. The production cutover requires:
-
-```text
---authentik-upstream http://<worker-private-ip>:19000
-```
-
-The renderer/cutover must reject public, wildcard, loopback, credential-bearing or path-bearing production origins. The VPS must not silently fall back to `127.0.0.1:9000`.
-
-`auth.mostdef.ru` remains an HTTPS VPS vhost which proxies to the same private worker origin. The worker private origin itself is not a public URL.
-
-## Split nginx source acceptance after Issue #140
-
-The production root TLS site may contain direct includes such as:
-
-```text
-include /etc/nginx/snippets/sea-speed-api.conf;
-include /etc/nginx/snippets/sea-speed-page.conf;
-```
-
-`sea-speed-auth-cutover.sh prepare` must discover the exact TLS `mostdef.ru` root site even when `/sea-speed/**` locations are not literal in that file. It materializes only direct regular `/etc/nginx/snippets/sea-speed-*.conf` files into temporary candidate input before running the existing Camera 1 and Auth renderers.
-
-The operation must fail closed for wildcard Sea Speed includes, nested includes inside a Sea Speed snippet, symlink/out-of-root Sea Speed snippets, or an ambiguous target TLS site. Non-Sea-Speed includes remain literal and unchanged. `prepare` must not edit the active root site, edit/delete snippet files or reload nginx.
-
-`activate` repeats materialization and rendering. If the root site or any materialized Sea Speed snippet changed since `prepare`, the candidate SHA-256 changes and `--expected-sha256` must block activation.
-
-## Anonymous acceptance
-
-Expected externally after cutover:
-
-```text
-GET /                                      -> 200
-GET /cams                                  -> 404/410
-GET /cams/                                 -> 404/410
-GET /cams/hls/cam1/index.m3u8              -> 404/410
-GET /sea-speed/                             -> authentication redirect/deny
-GET /sea-speed/api/health                   -> authentication redirect/deny
-GET /sea-speed/cameras/                     -> authentication redirect/deny
-GET /sea-speed/objects/                     -> authentication redirect/deny
-GET /sea-speed/media/cam1/index.m3u8        -> authentication redirect/deny
-GET /outpost.goauthentik.io/...             -> Authentik outpost, no recursive auth
-```
-
-A request supplying forged `X-authentik-username`, `X-authentik-email`, `X-authentik-groups` or related headers must not gain access or control upstream identity.
-
-## Identity acceptance
-
-The integration-critical identity contour requires:
-
-1. a role-specific invitation with fixed `username=email`, `email=email`, fixed role and single-use semantics;
-2. successful password enrollment and inability to reuse the invitation;
-3. Admin/Operator/Viewer password-only login behavior;
-4. Owner password-only rejection and password + valid TOTP success;
-5. disabling a user plus session revocation stopping continued access;
-6. SMTP and real invitation email delivery.
-
-Password recovery remains available for later focused acceptance if required and must not remove Owner TOTP when verified.
-
-## Media acceptance
-
-After authenticated login:
-
-```text
-/sea-speed/media/cam1/index.m3u8
-```
-
-must show advancing Camera 1 H.264 video. The private camera source, Ubuntu relay, VPS H.264 compatibility process and AI-independent live behavior must remain unchanged.
-
-## Worker M2M acceptance
-
-The worker-hosted Authentik private origin does not replace the existing worker M2M route. Discover the exact VPS and worker private/ZeroTier IPv4 addresses at rollout. The nginx candidate must bind the M2M listener only to the VPS private address and `allow` only the exact worker peer.
-
-Change only Sea Speed worker runtime API URLs to the VPS private listener:
-
-```text
-SEA_SPEED_API_URL=http://<vps-private-ip>:<port>/api/cam1/state
-SEA_SPEED_EVENT_API_URL=http://<vps-private-ip>:<port>/api/cam1/events
-SEA_SPEED_ROI_URL=http://<vps-private-ip>:<port>/api/cam1/roi
-SEA_SPEED_SPEED_CONFIG_URL=http://<vps-private-ip>:<port>/api/cam1/speed-config
-SEA_SPEED_SPEED_LINES_URL=http://<vps-private-ip>:<port>/api/cam1/speed-lines
-```
-
-Keep the existing `SEA_SPEED_API_TOKEN` private and unchanged unless a separate credential-rotation decision is made.
-
-From the approved worker peer prove:
-
-```text
-POST /api/cam1/state         -> succeeds with existing Bearer token
-POST /api/cam1/events        -> succeeds with existing Bearer token
-GET  /api/cam1/roi           -> succeeds
-GET  /api/cam1/speed-config  -> succeeds
-GET  /api/cam1/speed-lines   -> succeeds
-```
-
-Also prove an unrelated path, wrong method and non-approved peer do not gain access. There must be no generic private `/api/**` proxy.
-
-## Deployment health acceptance
-
-After `sea-speed-api` restart, application health is proven locally on VPS:
-
-```text
-http://127.0.0.1:8000/api/health -> healthy
-```
-
-Identity health is separately proven:
-
-```text
-VPS -> http://<worker-private-ip>:19000/-/health/ready/ -> healthy
-Internet -> https://auth.mostdef.ru/-/health/ready/     -> healthy through VPS TLS
-```
-
-The public `https://mostdef.ru/sea-speed/api/health` URL is an authentication-boundary smoke check after Auth v1, not the service health proof.
-
-## Final cutover sequence
-
-After #140 exact-head CI is green and merged, identify the new exact `main` SHA and obtain a fresh `PRODUCTION APPROVED <sha>`. Then:
-
-```text
-prepare split-layout-aware candidate
--> review candidate SHA/diff
--> prepare worker private M2M URL switch
--> activate exact candidate with expected SHA
--> apply worker M2M URLs
--> primary anonymous/authenticated/media/M2M acceptance
--> controlled fail-closed dependency test
--> restore dependency and record evidence
-```
-
-Do not reuse a production approval tied to any SHA before the #140 merge.
-
-## Network acceptance
-
-From an untrusted Internet host verify no direct access to FastAPI origin ports, MediaMTX, Camera 1 loopback HLS origin, Authentik PostgreSQL, worker Authentik loopback HTTP, worker private Authentik proxy or Ubuntu private camera relay. Public ingress remains VPS nginx HTTPS for `mostdef.ru` and `auth.mostdef.ru`.
-
-From an unapproved ZeroTier/private peer, the worker Authentik private proxy must reject the connection. From the exact VPS peer, it must work.
-
-## Failure posture
-
-Interrupt the worker private Authentik path in a controlled final test and prove `/sea-speed/**` fails closed rather than becoming anonymous. The public `/` page should remain available. Restore the Authentik path and prove authenticated Sea Speed recovers. Do not automatically restore the retired `/cams/**` camera route or move Authentik back to the undersized VPS. Any rollback requires an explicit production rollback decision.
+Never record passwords, cookies, OAuth state/code, TOTP material, tokens, SMTP credentials, populated `.env` values or DB backup contents.

@@ -6,24 +6,21 @@
 
 ## Delivery tasks
 
-- [x] T001 Create canonical Issue #99 and record the approved SDD adoption scope.
-- [x] T002 Add Sea Speed Spec Kit constitution and project-local spec/plan/tasks template overrides.
-- [x] T003 Add `specs/README.md` with source-of-truth hierarchy and workflow.
-- [x] T004 Retrofit Issue #87 into `specs/001-camera-live-pipeline/` with accepted production architecture and learning.
-- [x] T005 Self-document SDD adoption under `specs/002-sdd-adoption/`.
-- [x] T006 Add `scripts/ci/validate_sdd.py` and focused unit tests.
-- [x] T007 Update agent/governance/PR/CI entry points to require linked SDD artifacts for significant work.
-- [x] T008 Obtain green required CI for the implementation head; final-head CI remains required after this bookkeeping update.
-- [ ] T009 Obtain separate merge approval for the exact PR head.
-- [ ] T010 Merge to main and record repository completion evidence; no deployment follows.
+- [x] T001 Create canonical Issue and approved SDD scope.
+- [x] T002 Add constitution/template overrides.
+- [x] T003 Add `specs/README.md` hierarchy/workflow.
+- [x] T004 Retrofit Camera Live production learning.
+- [x] T005 Self-document SDD adoption.
+- [x] T006 Add SDD validator/tests.
+- [x] T007 Wire significant PR linkage.
+- [x] T008 Complete required PR/quality validation and merge.
+- [x] T009 Persist completion evidence and close Issue #99.
 
 ## Completion gate
 
-- [x] Required SDD baseline files exist.
-- [x] Camera Live production learning is captured.
-- [x] Significant PR linkage is machine-validated.
-- [x] Spec-only work remains lightweight.
-- [x] PR Validation and Quality integration gate succeeded on the implementation head; final-head rerun is required before merge approval.
-- [ ] Separate merge approval is present.
-- [ ] Main contains the merged SDD baseline.
-- [x] VPS deployment and Windows worker update are NOT REQUIRED.
+- [x] SDD baseline exists and is machine-validated.
+- [x] Significant PR linkage is enforced.
+- [x] Docs/spec-only work remains lightweight.
+- [x] Main contains accepted SDD baseline.
+- [x] Runtime deployment is NOT REQUIRED.
+- [x] Issue #99 is closed `completed`.
