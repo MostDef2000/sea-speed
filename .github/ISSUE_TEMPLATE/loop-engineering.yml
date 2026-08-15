@@ -29,8 +29,9 @@ body:
       multiple: true
       options:
         - VPS API or frontend
-        - Windows worker
-        - Mixed VPS and worker
+        - Ubuntu worker or relay
+        - Windows AI worker
+        - Mixed runtime contours
         - Governance or documentation only
     validations:
       required: true
