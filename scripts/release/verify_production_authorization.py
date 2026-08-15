@@ -16,6 +16,7 @@ POLICY_PATH = ROOT / "data/contracts/production-authorization-policy-v1.json"
 SHA40_RE = re.compile(r"^[0-9a-f]{40}$")
 ISSUE_FIELD_RE = re.compile(r"^- Issue:\s*#(\d+)\s*$", re.MULTILINE)
 FIELD_RE = re.compile(r"^- ([A-Za-z][A-Za-z0-9 /_-]*):\s*(.*?)\s*$", re.MULTILINE)
+DECLARED_PATH_RE = re.compile(r"^\s{2}- `([^`]+)`\s*$", re.MULTILINE)
 
 
 def github_json(url: str, token: str) -> object:
@@ -41,6 +42,20 @@ def outcome_contract(issue_body: str) -> str:
     return match.group(1).strip()
 
 
+def declared_changed_files(pr_body: str) -> list[str]:
+    change = re.search(r"^## Change\s*$([\s\S]*?)(?=^## |\Z)", pr_body, re.MULTILINE)
+    if not change:
+        raise ValueError("PR is missing Change section")
+    marker = re.search(r"^- Changed files:\s*$", change.group(1), re.MULTILINE)
+    boundary = re.search(r"^- Out of scope:", change.group(1), re.MULTILINE)
+    if not marker or not boundary or boundary.start() <= marker.end():
+        raise ValueError("PR Changed files declaration is invalid")
+    paths = sorted(set(DECLARED_PATH_RE.findall(change.group(1)[marker.end():boundary.start()])))
+    if not paths:
+        raise ValueError("PR approved file scope is empty")
+    return paths
+
+
 def authorization_payload(issue_number: int, pr_number: int, source_commit: str, issue_body: str, pr_body: str) -> dict[str, object]:
     fields = {name: value.strip() for name, value in FIELD_RE.findall(pr_body)}
     payload: dict[str, object] = {
@@ -63,11 +78,7 @@ def authorization_payload(issue_number: int, pr_number: int, source_commit: str,
     return payload
 
 
-def authorization_fingerprint(issue_number: int, pr_number: int, source_commit: str, issue_body: str, pr_body: str) -> str:
-    return canonical_json_sha256(authorization_payload(issue_number, pr_number, source_commit, issue_body, pr_body))
-
-
-def verify(repository: str, source_commit: str, issue_number: int, token: str) -> tuple[int, str, str]:
+def verify(repository: str, source_commit: str, issue_number: int, token: str) -> dict[str, object]:
     if source_commit != source_commit.lower() or not SHA40_RE.fullmatch(source_commit):
         raise ValueError("source commit must be an exact lowercase full SHA")
     policy = json.loads(POLICY_PATH.read_text(encoding="utf-8"))
@@ -89,8 +100,9 @@ def verify(repository: str, source_commit: str, issue_number: int, token: str) -
     if not isinstance(issue, dict) or issue.get("pull_request"):
         raise ValueError("canonical Issue is missing or resolves to a pull request")
     issue_body = issue.get("body") or ""
-    outcome_hash = hashlib.sha256(outcome_contract(issue_body).encode("utf-8")).hexdigest()
-    fingerprint = authorization_fingerprint(issue_number, pr_number, source_commit, issue_body, pr_body)
+    outcome_text = outcome_contract(issue_body)
+    payload = authorization_payload(issue_number, pr_number, source_commit, issue_body, pr_body)
+    fingerprint = canonical_json_sha256(payload)
     comments = github_json(f"https://api.github.com/repos/{repository}/issues/{issue_number}/comments?per_page=100", token)
     if not isinstance(comments, list):
         raise ValueError("unexpected Issue comments response")
@@ -98,19 +110,31 @@ def verify(repository: str, source_commit: str, issue_number: int, token: str) -
     approved_actors = set(policy.get("authorizedActors") or [])
     exact_first_line = f"{prefix} {source_commit}"
     fp_line = f"Authorization-Fingerprint: {fingerprint}"
-    matches = []
+    matching_actor = None
     for comment in comments:
         actor = ((comment.get("user") or {}).get("login") or "").strip()
         body = (comment.get("body") or "").strip()
         lines = [line.strip() for line in body.splitlines() if line.strip()]
         if actor in approved_actors and lines and lines[0] == exact_first_line and fp_line in lines[1:]:
-            matches.append(comment)
-    if not matches:
+            matching_actor = actor
+            break
+    if not matching_actor:
         raise ValueError(
             "durable production authorization not found; required exact lines: "
             f"{exact_first_line!r} and {fp_line!r} from an authorized actor"
         )
-    return pr_number, fingerprint, outcome_hash
+    return {
+        "schema": "sea_speed_production_authorization_evidence_v1",
+        "repository": repository,
+        "canonicalIssue": issue_number,
+        "pullRequest": pr_number,
+        "sourceCommit": source_commit,
+        "outcomeContractHash": hashlib.sha256(outcome_text.encode("utf-8")).hexdigest(),
+        "changeContractHash": hashlib.sha256(pr_body.encode("utf-8")).hexdigest(),
+        "approvedFiles": declared_changed_files(pr_body),
+        "authorizationFingerprint": fingerprint,
+        "authorizedBy": matching_actor,
+    }
 
 
 def main() -> int:
@@ -119,22 +143,31 @@ def main() -> int:
     parser.add_argument("--commit", required=True)
     parser.add_argument("--issue", required=True, type=int)
     parser.add_argument("--github-output", type=Path)
+    parser.add_argument("--evidence-output", type=Path)
     args = parser.parse_args()
     token = os.environ.get("GITHUB_TOKEN", "").strip()
     if not token:
         print("ERROR: GITHUB_TOKEN is required", file=sys.stderr)
         return 1
     try:
-        pr, fingerprint, outcome_hash = verify(args.repository, args.commit, args.issue, token)
+        evidence = verify(args.repository, args.commit, args.issue, token)
     except (ValueError, OSError, json.JSONDecodeError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
+    if args.evidence_output:
+        args.evidence_output.parent.mkdir(parents=True, exist_ok=True)
+        args.evidence_output.write_text(json.dumps(evidence, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     if args.github_output:
         with args.github_output.open("a", encoding="utf-8") as handle:
-            handle.write(f"pr_number={pr}\n")
-            handle.write(f"authorization_fingerprint={fingerprint}\n")
-            handle.write(f"outcome_contract_hash={outcome_hash}\n")
-    print(f"Production authorization verified: issue=#{args.issue} pr=#{pr} commit={args.commit} fingerprint={fingerprint}")
+            handle.write(f"pr_number={evidence['pullRequest']}\n")
+            handle.write(f"authorization_fingerprint={evidence['authorizationFingerprint']}\n")
+            handle.write(f"outcome_contract_hash={evidence['outcomeContractHash']}\n")
+            handle.write(f"change_contract_hash={evidence['changeContractHash']}\n")
+    print(
+        "Production authorization verified: "
+        f"issue=#{evidence['canonicalIssue']} pr=#{evidence['pullRequest']} "
+        f"commit={evidence['sourceCommit']} fingerprint={evidence['authorizationFingerprint']}"
+    )
     return 0
 
 
