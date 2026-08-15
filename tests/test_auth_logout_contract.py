@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -11,6 +12,8 @@ FRONTENDS = (
     ROOT / "frontend/sea-speed/objects/index.html",
 )
 LOGOUT_BLUEPRINT = ROOT / "deploy/vps/authentik/blueprints/sea-speed-logout-v1.yaml"
+ROLLBACK_BLUEPRINT = ROOT / "deploy/vps/authentik/blueprints/sea-speed-logout-rollback-v1.yaml"
+WORKER_OPERATION = ROOT / "deploy/worker/ubuntu/authentik/apply-logout-flow.sh"
 
 
 class AuthLogoutContractTests(unittest.TestCase):
@@ -38,7 +41,10 @@ class AuthLogoutContractTests(unittest.TestCase):
         self.assertIn("name: Provider for Sea Speed", source)
         self.assertIn("invalidation_flow: !KeyOf sea-speed-invalidation-flow", source)
         self.assertNotIn("slug: default-provider-invalidation-flow", source)
-        self.assertNotIn("invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]", source)
+        self.assertNotIn(
+            "invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]",
+            source,
+        )
 
     def test_logout_flow_stage_order_is_user_logout_then_redirect(self) -> None:
         source = LOGOUT_BLUEPRINT.read_text(encoding="utf-8")
@@ -47,6 +53,47 @@ class AuthLogoutContractTests(unittest.TestCase):
         self.assertLess(logout_binding, redirect_binding)
         self.assertIn("order: 10", source[logout_binding : logout_binding + 100])
         self.assertIn("order: 20", source[redirect_binding : redirect_binding + 100])
+
+    def test_rollback_blueprint_restores_only_sea_speed_provider_to_default(self) -> None:
+        source = ROLLBACK_BLUEPRINT.read_text(encoding="utf-8")
+        self.assertIn("name: Provider for Sea Speed", source)
+        self.assertIn(
+            "invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]",
+            source,
+        )
+        self.assertNotIn("model: authentik_stages_user_logout.userlogoutstage", source)
+        self.assertNotIn("model: authentik_stages_redirect.redirectstage", source)
+        self.assertNotIn("target_static:", source)
+
+    def test_worker_operation_shell_syntax(self) -> None:
+        subprocess.run(
+            ["bash", "-n", str(WORKER_OPERATION)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+    def test_worker_operation_is_repo_owned_idempotent_apply_and_rollback(self) -> None:
+        source = WORKER_OPERATION.read_text(encoding="utf-8")
+        self.assertIn("apply|rollback", source)
+        self.assertIn("--source-sha", source)
+        self.assertIn("SOURCE_REPOSITORY=MostDef2000/sea-speed", source)
+        self.assertIn("sea-speed-logout-v1.yaml", source)
+        self.assertIn("sea-speed-logout-rollback-v1.yaml", source)
+        self.assertIn("/blueprints/.sea-speed-logout-operation", source)
+        self.assertIn("docker cp", source)
+        self.assertIn('ak apply_blueprint "$container_blueprint"', source)
+        self.assertIn("from authentik.providers.proxy.models import ProxyProvider", source)
+        self.assertIn('ProxyProvider.objects.get(name="Provider for Sea Speed")', source)
+        self.assertIn("sea-speed-provider-invalidation", source)
+        self.assertIn("default-provider-invalidation-flow", source)
+        self.assertIn("UNEXPECTED_CURRENT_FLOW_", source)
+        self.assertIn("AUTHENTIK_LOGOUT_AUTO_ROLLBACK=PASS", source)
+        self.assertIn("AUTHENTIK_RUNTIME_CONTAINERS_UNCHANGED=YES", source)
+        self.assertIn("AUTHENTIK_LOGOUT_OPERATION=PASS", source)
+        self.assertNotIn("PG_PASS", source)
+        self.assertNotIn("AUTHENTIK_SECRET_KEY", source)
+        self.assertNotIn("AUTHENTIK_BOOTSTRAP_PASSWORD", source)
 
 
 if __name__ == "__main__":
