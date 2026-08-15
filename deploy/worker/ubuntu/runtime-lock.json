@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "python": {
+    "implementation": "CPython",
+    "major": 3,
+    "minor": 14
+  },
+  "pytorch": {
+    "index_url": "https://download.pytorch.org/whl/cu130",
+    "packages": {
+      "torch": "2.13.0+cu130",
+      "torchvision": "0.28.0+cu130"
+    }
+  },
+  "runtime_requirements": "requirements-runtime.txt",
+  "verification_imports": [
+    "cv2",
+    "lap",
+    "numpy",
+    "requests",
+    "torch",
+    "torchvision",
+    "ultralytics"
+  ]
+}

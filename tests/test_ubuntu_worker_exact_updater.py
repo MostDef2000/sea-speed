@@ -42,7 +42,15 @@ class UbuntuWorkerExactUpdaterTests(unittest.TestCase):
         self.assertIn('cd "$staging_root"', self.source)
         self.assertIn("install-manual.sh", self.source)
 
-    def test_activation_requires_exact_runtime_progression(self) -> None:
+    def test_updater_binds_prepared_shared_runtime_without_installing_packages(self) -> None:
+        self.assertIn('runtime_id_file="$release_root/runtime-id"', self.source)
+        self.assertIn('runtime_root="$install_root/runtimes/$runtime_id"', self.source)
+        self.assertIn("RUNTIME_BOUND source_commit=", self.source)
+        self.assertIn("runtime_id=%s", self.source)
+        self.assertNotIn("-m pip install", self.source)
+        self.assertNotIn("download.pytorch.org", self.source)
+
+    def test_activation_requires_exact_runtime_progression_and_dual_binding(self) -> None:
         self.assertIn("--activate", self.source)
         self.assertIn("NOT_ACTIVATED explicit_flag_required=--activate", self.source)
         self.assertIn("verify-runtime-progression.py", self.source)
@@ -51,12 +59,15 @@ class UbuntuWorkerExactUpdaterTests(unittest.TestCase):
         self.assertIn("frame/state progression gate failed", self.source)
         self.assertIn("RUNTIME_GATE frame_and_state_progression=PASS", self.source)
         self.assertIn("active-source-commit", self.source)
+        self.assertIn('/runtimes/$runtime_id/venv/bin/python', self.source)
+        self.assertIn("active unit does not reference requested runtime ID", self.source)
 
-    def test_failed_activation_restores_previous_release(self) -> None:
+    def test_failed_activation_restores_previous_release_and_runtime_binding(self) -> None:
         self.assertIn("unit-backup.XXXXXX", self.source)
         self.assertIn("restore_previous()", self.source)
         self.assertIn("RESTORE previous_source_commit=", self.source)
         self.assertIn("RESTORED previous_source_commit=", self.source)
+        self.assertIn("previous_runtime_id", self.source)
         self.assertIn("ACTIVATION_ABORTED target=", self.source)
         self.assertIn("ACTIVE_MARKER_UNCHANGED", self.source)
         self.assertIn("automatic_on_activation_failure=true", self.source)
@@ -70,10 +81,11 @@ class UbuntuWorkerExactUpdaterTests(unittest.TestCase):
         self.assertIn(restart, restore)
         self.assertLess(restore.index(reset), restore.index(restart))
 
-    def test_shared_state_and_previous_releases_are_preserved(self) -> None:
+    def test_shared_state_releases_and_runtimes_are_preserved(self) -> None:
         self.assertIn("PRESERVED shared_config_models_datasets_output=true", self.source)
         self.assertNotIn('rm -rf "$install_root/shared', self.source)
         self.assertNotIn('rm -rf "$install_root/releases', self.source)
+        self.assertNotIn('rm -rf "$install_root/runtimes', self.source)
         self.assertNotIn("git pull", self.source)
 
     def test_prepared_release_is_marked_for_explicit_rollback(self) -> None:
