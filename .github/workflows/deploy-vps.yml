@@ -4,14 +4,20 @@ on:
   workflow_dispatch:
     inputs:
       commit_sha:
-        description: "Exact 40-character commit SHA with a successful aggregate quality gate"
+        description: "Exact lowercase 40-character main commit SHA"
         required: true
         type: string
+      canonical_issue:
+        description: "Canonical GitHub Issue number carrying durable production authorization"
+        required: true
+        type: number
 
 permissions:
   contents: read
   actions: read
   checks: read
+  issues: read
+  pull-requests: read
 
 concurrency:
   group: sea-speed-vps-production
@@ -19,16 +25,21 @@ concurrency:
 
 jobs:
   deploy:
-    name: Deploy exact quality-approved commit
+    name: Deploy exact main quality-approved commit
     runs-on: ubuntu-latest
     environment: production
     timeout-minutes: 20
 
     steps:
-      - name: Check out selected source
+      - name: Require dispatch from main workflow definition
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == "refs/heads/main" ]] || { echo "Deploy VPS must be dispatched from main" >&2; exit 1; }
+
+      - name: Check out repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          fetch-depth: 2
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Set up Python
@@ -36,23 +47,28 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Resolve exact deployment commit
+      - name: Resolve exact main deployment commit
         id: release
         env:
           INPUT_COMMIT: ${{ inputs.commit_sha }}
         run: |
           set -euo pipefail
-          DEPLOY_SHA="${INPUT_COMMIT,,}"
+          DEPLOY_SHA="$INPUT_COMMIT"
           if [[ ! "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "Deployment commit must be a full lowercase 40-character SHA" >&2
+            echo "Deployment commit must already be a full lowercase 40-character SHA" >&2
             exit 1
           fi
-          git fetch origin "$DEPLOY_SHA" --depth=2
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          git cat-file -e "${DEPLOY_SHA}^{commit}" 2>/dev/null || git fetch --no-tags origin "$DEPLOY_SHA"
+          git rev-list --first-parent origin/main | grep -Fxq "$DEPLOY_SHA" || {
+            echo "Deployment commit is not on the first-parent history of current origin/main" >&2
+            exit 1
+          }
           git checkout --detach "$DEPLOY_SHA"
           [[ "$(git rev-parse HEAD)" == "$DEPLOY_SHA" ]]
           echo "sha=$DEPLOY_SHA" >> "$GITHUB_OUTPUT"
 
-      - name: Verify aggregate quality status
+      - name: Verify aggregate quality push run
         env:
           GITHUB_TOKEN: ${{ github.token }}
           DEPLOY_SHA: ${{ steps.release.outputs.sha }}
@@ -60,17 +76,29 @@ jobs:
           python scripts/quality/verify_quality_status.py \
             --repository "$GITHUB_REPOSITORY" \
             --commit "$DEPLOY_SHA" \
-            --required-name quality-integration
+            --workflow-file quality-integration.yml
+
+      - name: Verify durable production authorization
+        id: authorization
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          DEPLOY_SHA: ${{ steps.release.outputs.sha }}
+          CANONICAL_ISSUE: ${{ inputs.canonical_issue }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          python scripts/release/verify_production_authorization.py \
+            --repository "$GITHUB_REPOSITORY" \
+            --commit "$DEPLOY_SHA" \
+            --issue "$CANONICAL_ISSUE" \
+            --github-output "$GITHUB_OUTPUT" \
+            --evidence-output dist/production-authorization.json
 
       - name: Validate deployment and provenance tooling
         run: |
           set -euo pipefail
           bash -n deploy/vps/deploy.sh
-          python -m py_compile \
-            scripts/release/build_release_manifest.py \
-            scripts/release/validate_release_manifest.py \
-            scripts/release/validate_deployment_manifest.py \
-            scripts/quality/*.py
+          python -m py_compile scripts/release/*.py scripts/quality/*.py
           python scripts/quality/validate_quality_contracts.py
           python scripts/quality/validate_workflow_policy.py
 
@@ -84,26 +112,6 @@ jobs:
           python scripts/quality/validate_exact_artifacts.py \
             --manifest dist/exact/exact-artifacts.json
 
-      - name: Build release provenance
-        env:
-          DEPLOY_SHA: ${{ steps.release.outputs.sha }}
-        run: |
-          set -euo pipefail
-          mkdir -p dist
-          BASE_SHA="$(git rev-parse "${DEPLOY_SHA}^")"
-          mapfile -t CHANGED_FILES < <(git diff --name-only "$BASE_SHA" "$DEPLOY_SHA" | sed '/^$/d')
-          ARGS=(
-            scripts/release/build_release_manifest.py
-            --component vps
-            --source-commit "$DEPLOY_SHA"
-            --base-commit "$BASE_SHA"
-            --state ready_for_deployment
-            --output dist/release-manifest-vps.json
-          )
-          for file in "${CHANGED_FILES[@]}"; do ARGS+=(--file "$file"); done
-          python "${ARGS[@]}"
-          python scripts/release/validate_release_manifest.py dist/release-manifest-vps.json
-
       - name: Build and validate quality evidence
         env:
           DEPLOY_SHA: ${{ steps.release.outputs.sha }}
@@ -115,6 +123,24 @@ jobs:
           python scripts/quality/validate_quality_evidence.py \
             --evidence dist/quality-evidence.json \
             --artifacts-manifest dist/exact/exact-artifacts.json
+
+      - name: Build release provenance v2
+        env:
+          DEPLOY_SHA: ${{ steps.release.outputs.sha }}
+        run: |
+          set -euo pipefail
+          BASE_SHA="$(git rev-parse "${DEPLOY_SHA}^")"
+          python scripts/release/build_release_manifest.py \
+            --component vps \
+            --source-commit "$DEPLOY_SHA" \
+            --base-commit "$BASE_SHA" \
+            --authorization-evidence dist/production-authorization.json \
+            --artifact "dist/exact/sea-speed-vps-${DEPLOY_SHA}.tar.gz" \
+            --exact-artifacts-manifest dist/exact/exact-artifacts.json \
+            --quality-evidence dist/quality-evidence.json \
+            --state ready_for_deployment \
+            --output dist/release-manifest-vps.json
+          python scripts/release/validate_release_manifest.py dist/release-manifest-vps.json
 
       - name: Configure SSH
         env:
@@ -159,6 +185,7 @@ jobs:
         with:
           name: sea-speed-vps-deployment-${{ steps.release.outputs.sha }}
           path: |
+            dist/production-authorization.json
             dist/release-manifest-vps.json
             dist/quality-evidence.json
             dist/exact/exact-artifacts.json
@@ -169,10 +196,14 @@ jobs:
       - name: Deployment summary
         env:
           DEPLOY_SHA: ${{ steps.release.outputs.sha }}
+          CANONICAL_ISSUE: ${{ inputs.canonical_issue }}
+          PR_NUMBER: ${{ steps.authorization.outputs.pr_number }}
         run: |
           echo "### Sea Speed VPS deployment" >> "$GITHUB_STEP_SUMMARY"
           echo "- Commit: \`$DEPLOY_SHA\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Aggregate quality gate: verified" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Canonical Issue: #$CANONICAL_ISSUE" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Merged PR: #$PR_NUMBER" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Aggregate quality gate: exact main push run verified" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Durable production authorization: verified" >> "$GITHUB_STEP_SUMMARY"
           echo "- Deployment approval: production environment" >> "$GITHUB_STEP_SUMMARY"
           echo "- Runtime state: verified by deployment manifest" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Rollback: previous runtime-verified commit" >> "$GITHUB_STEP_SUMMARY"
