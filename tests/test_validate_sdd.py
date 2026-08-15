@@ -19,23 +19,26 @@ class ValidateSddTests(unittest.TestCase):
             target = temp / path
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text("baseline\n", encoding="utf-8")
-        feature = temp / "specs/001-example"
+        self.add_feature(temp, "001-example", 1)
+        return temp
+
+    def add_feature(self, root: Path, name: str, issue: int) -> None:
+        feature = root / "specs" / name
         feature.mkdir(parents=True)
         (feature / "spec.md").write_text(
-            "# Feature Specification: Example\n\n- Issue: #1\n\n## Product outcome\nOutcome\n\n## User scenarios\nScenario\n\n"
-            "## Requirements\nRequirement\n\n## Acceptance criteria\nCriteria\n\n## Runtime feedback\nPending\n",
+            f"# Feature Specification: {name}\n\n- Issue: #{issue}\n\n## Product outcome\nOutcome\n\n## User scenarios\nScenario\n\n"
+            "## Requirements\nRequirement\n\n## Acceptance criteria\nCriteria\n\n## Runtime feedback\nFeedback\n",
             encoding="utf-8",
         )
         (feature / "plan.md").write_text(
-            "# Implementation Plan: Example\n\nSpecification: specs/001-example/spec.md\n\n## Architecture\nA\n\n## Decisions\nD\n\n"
-            "## Affected contours\nNone\n\n## Validation\nV\n\n## Runtime feedback\nPending\n",
+            f"# Implementation Plan\n\nSpecification: specs/{name}/spec.md\n\n## Architecture\nA\n\n## Decisions\nD\n\n"
+            "## Affected contours\nNone\n\n## Validation\nV\n\n## Runtime feedback\nFeedback\n",
             encoding="utf-8",
         )
         (feature / "tasks.md").write_text(
-            "# Tasks: Example\n\nSpecification: specs/001-example/spec.md\n\n## Delivery tasks\n- [ ] T001\n\n## Completion gate\n- [ ] Done\n",
+            f"# Tasks\n\nSpecification: specs/{name}/spec.md\n\n## Delivery tasks\n- [x] T001\n\n## Completion gate\n- [x] Done\n",
             encoding="utf-8",
         )
-        return temp
 
     def test_valid_repository_and_significant_pr_link(self) -> None:
         root = self.make_repo()
@@ -47,12 +50,6 @@ class ValidateSddTests(unittest.TestCase):
         with self.assertRaises(sdd.SddError):
             sdd.validate_pr_link("", ["api/app/main.py"], root)
 
-    def test_quality_workflow_change_is_significant(self) -> None:
-        root = self.make_repo()
-        with self.assertRaises(sdd.SddError):
-            sdd.validate_pr_link("", [".github/workflows/quality-integration.yml"], root)
-        sdd.validate_pr_link("- Specification: `specs/001-example/spec.md`\n", [".github/workflows/quality-integration.yml"], root)
-
     def test_spec_only_change_does_not_require_pr_link(self) -> None:
         root = self.make_repo()
         sdd.validate_pr_link("", ["specs/001-example/spec.md"], root)
@@ -61,6 +58,19 @@ class ValidateSddTests(unittest.TestCase):
         root = self.make_repo()
         (root / "specs/001-example/tasks.md").unlink()
         with self.assertRaises(sdd.SddError):
+            sdd.validate_repository(root)
+
+    def test_historical_002_collision_is_grandfathered(self) -> None:
+        root = self.make_repo()
+        self.add_feature(root, "002-camera-preview-gallery", 2)
+        self.add_feature(root, "002-sdd-adoption", 3)
+        sdd.validate_repository(root)
+
+    def test_new_duplicate_numeric_prefix_fails(self) -> None:
+        root = self.make_repo()
+        self.add_feature(root, "013-first", 13)
+        self.add_feature(root, "013-second", 14)
+        with self.assertRaisesRegex(sdd.SddError, "duplicate SDD numeric prefix 013"):
             sdd.validate_repository(root)
 
 

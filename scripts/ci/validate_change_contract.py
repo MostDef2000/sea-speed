@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 """Validate a pull request Change Contract against its exact Git diff."""
-
 from __future__ import annotations
 
 import argparse
@@ -18,17 +17,13 @@ POLICY_PATH = ROOT / "data/contracts/change-control-policy-v1.json"
 FIELD_PATTERN = re.compile(r"^- ([A-Za-z][A-Za-z0-9 /_-]*):\s*(.*?)\s*$", re.MULTILINE)
 HEADING_PATTERN = re.compile(r"^##\s+(.+?)\s*$", re.MULTILINE)
 DECLARED_PATH_PATTERN = re.compile(r"^\s{2}- `([^`]+)`\s*$", re.MULTILINE)
-PLACEHOLDERS = {
-    "", "TBD", "TODO", "TBC", "YES/NO", "NO/YES", "REQUIRED / NOT REQUIRED",
-    "OUTCOME APPROVED / LEGACY COMMIT APPROVED",
-    "NONE / CONTROL_PLANE / VPS / UBUNTU_WORKER / WINDOWS_WORKER / MIXED",
-}
-SOURCE_AUTHORIZATIONS = {"OUTCOME APPROVED", "LEGACY COMMIT APPROVED"}
+PLACEHOLDERS = {"", "TBD", "TODO", "TBC", "YES/NO", "NO/YES", "REQUIRED / NOT REQUIRED", "NONE / CONTROL_PLANE / VPS / UBUNTU_WORKER / WINDOWS_WORKER / MIXED"}
+SOURCE_AUTHORIZATIONS = {"OUTCOME APPROVED"}
 RUNTIME_IMPACTS = {"VPS", "UBUNTU_WORKER", "WINDOWS_WORKER"}
 
 
 class ContractError(ValueError):
-    """Raised when a Change Contract is incomplete or inconsistent."""
+    pass
 
 
 def load_policy(path: Path = POLICY_PATH) -> dict:
@@ -104,7 +99,7 @@ def require_value(fields: dict[str, str], name: str) -> str:
 def validate_authorization(fields: dict[str, str]) -> str:
     authorization = require_value(fields, "Source authorization")
     if authorization not in SOURCE_AUTHORIZATIONS:
-        raise ContractError("Source authorization must be OUTCOME APPROVED or LEGACY COMMIT APPROVED")
+        raise ContractError("new Change Contracts require Source authorization: OUTCOME APPROVED")
     if fields.get("Approval recorded after Implementation Scope Check") != "YES":
         raise ContractError("Implementation Scope Check approval must be YES")
     if fields.get("Material scope/protected-boundary change since authorization", "").strip() != "NO":
@@ -114,52 +109,38 @@ def validate_authorization(fields: dict[str, str]) -> str:
 
 def validate_deployment_fields(expected_contours: set[str], fields: dict[str, str]) -> None:
     allowed = {"REQUIRED", "NOT REQUIRED"}
-    values = {
-        "VPS": fields.get("VPS deployment", ""),
-        "UBUNTU_WORKER": fields.get("Ubuntu worker/relay update", ""),
-        "WINDOWS_WORKER": fields.get("Windows worker update", ""),
-    }
+    values = {"VPS": fields.get("VPS deployment", ""), "UBUNTU_WORKER": fields.get("Ubuntu worker/relay update", ""), "WINDOWS_WORKER": fields.get("Windows worker update", "")}
     if any(value not in allowed for value in values.values()):
         raise ContractError("all deployment contour fields must be REQUIRED or NOT REQUIRED")
     declared = {name for name, value in values.items() if value == "REQUIRED"}
     if declared != expected_contours:
-        raise ContractError(
-            f"deployment contour declaration {sorted(declared)} does not match exact derived contours {sorted(expected_contours)}"
-        )
-    production_envelope = fields.get("Production safety envelope", "")
-    if production_envelope not in allowed:
+        raise ContractError(f"deployment contour declaration {sorted(declared)} does not match exact derived contours {sorted(expected_contours)}")
+    envelope = fields.get("Production safety envelope", "")
+    if envelope not in allowed:
         raise ContractError("Production safety envelope must be REQUIRED or NOT REQUIRED")
-    if expected_contours and production_envelope != "REQUIRED":
+    if expected_contours and envelope != "REQUIRED":
         raise ContractError("runtime production impact requires a Production safety envelope")
-    if not expected_contours and production_envelope != "NOT REQUIRED":
+    if not expected_contours and envelope != "NOT REQUIRED":
         raise ContractError("non-runtime impact must declare Production safety envelope NOT REQUIRED")
 
 
 def validate_contract(body: str, changed_files: Iterable[str], policy: dict | None = None) -> str:
     policy = policy or load_policy()
     headings = set(HEADING_PATTERN.findall(body))
-    missing_sections = [name for name in policy["required_sections"] if name not in headings]
-    if missing_sections:
-        raise ContractError("missing PR sections: " + ", ".join(missing_sections))
+    missing = [name for name in policy["required_sections"] if name not in headings]
+    if missing:
+        raise ContractError("missing PR sections: " + ", ".join(missing))
     fields = field_values(body)
     issue = require_value(fields, "Issue")
     if not re.fullmatch(r"#\d+", issue):
-        raise ContractError("Issue must be a canonical GitHub issue reference such as #172")
+        raise ContractError("Issue must be a canonical GitHub issue reference such as #174")
     validate_authorization(fields)
-    for name in (
-        "Approved scope", "Acceptance criteria", "Intended behavior", "Out of scope",
-        "Production-impact rationale", "Security impact", "API/event/state/storage schema impact",
-        "Detection/tracking/calibration/speed formula impact", "Backward compatibility", "Rollout order",
-        "Release manifest", "Rollback target", "Local checks", "PR checks", "Runtime acceptance plan",
-        "Telemetry/evidence plan",
-    ):
+    for name in ("Approved scope", "Acceptance criteria", "Intended behavior", "Out of scope", "Production-impact rationale", "Security impact", "API/event/state/storage schema impact", "Detection/tracking/calibration/speed formula impact", "Backward compatibility", "Rollout order", "Release manifest", "Rollback target", "Local checks", "PR checks", "Runtime acceptance plan", "Telemetry/evidence plan"):
         require_value(fields, name)
     actual = set(changed_files)
     declared = declared_changed_files(body)
     if declared != actual:
-        missing = sorted(actual - declared)
-        extra = sorted(declared - actual)
-        raise ContractError(f"declared changed files do not match Git diff; missing={missing}; extra={extra}")
+        raise ContractError(f"declared changed files do not match Git diff; missing={sorted(actual-declared)}; extra={sorted(declared-actual)}")
     impact = derive_impact(actual, policy)
     contours = derive_runtime_contours(actual, policy)
     declared_impact = fields.get("Production impact", "")
