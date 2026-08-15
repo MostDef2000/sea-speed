@@ -238,6 +238,9 @@ restore_previous() {
   systemctl daemon-reload
   rm -f "$heartbeat"
 
+  if ! systemctl reset-failed "$service_name"; then
+    return 1
+  fi
   if ! systemctl restart "$service_name"; then
     return 1
   fi
