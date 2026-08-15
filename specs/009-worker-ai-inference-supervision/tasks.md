@@ -5,14 +5,17 @@ Specification: `specs/009-worker-ai-inference-supervision/spec.md`
 ## Delivery tasks
 
 - [x] Confirm failed production evidence for `c73c6e048399ff5985918348c028d3f9a6a2ca89` and successful automatic restore.
-- [x] Keep the remediation inside the already approved AI-inference-supervision outcome.
+- [x] Confirm failed production evidence for `e5d4d25b731328951c7a2178c244b99c5ad64372`, including zero AI successes and systemd start-limit blocking the first restore attempt.
+- [x] Recover the previous exact Worker unit with `systemctl reset-failed` and verify exact old marker/unit/service identity.
+- [x] Keep the remediation inside the already approved AI-inference-supervision and deployment-safety outcome.
 - [x] Create correction branch from exact current `main`.
-- [x] Bound AI child request writes with the same absolute deadline used for response reads.
-- [x] Preserve the self-tested persistent child for production frames instead of replacing it after readiness is declared.
-- [x] Give replacement AI children one bounded warm-call budget before normal inference deadlines resume.
-- [x] Expand the exact activation observation window so the deployment gate cannot expire before the allowed startup sequence can complete.
-- [x] Preserve `model.track(... persist=True ...)`, tracker selection, detection shape, vehicle allow-list, ROI filtering, speed semantics, API schemas, and frontend behavior.
-- [x] Add focused source-contract coverage for bounded writes, same-child startup validation, warm-child timeout selection, and activation budget.
+- [x] Preserve bounded AI child request writes, same-child startup validation, and replacement-child warm timeout semantics.
+- [x] Pin the ByteTrack linear-assignment runtime dependency required by Ultralytics for the production Python interpreter.
+- [x] Verify the tracker dependency version and import during canonical Worker preparation.
+- [x] Disable Ultralytics service-time auto-install in the systemd unit.
+- [x] Clear systemd failed/start-limit state before automatic restore restarts the previous exact Worker.
+- [x] Preserve `model.track(... persist=True ...)`, ByteTrack selection, detection shape, vehicle allow-list, ROI filtering, speed semantics, API schemas, and frontend behavior.
+- [x] Add focused source-contract coverage for dependency closure, immutable runtime, and reset-before-restart rollback ordering.
 - [ ] Open correction PR with exact Change Contract.
 - [ ] Pass PR Validation, Quality integration, and Worker package gates.
 - [ ] Merge exact green head and pass post-merge gates.
