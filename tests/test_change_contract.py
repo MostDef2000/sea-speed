@@ -17,21 +17,31 @@ def load_module():
     return module
 
 
-def body(files: list[str], *, impact="CONTROL_PLANE", vps="NOT REQUIRED", ubuntu="NOT REQUIRED", worker="NOT REQUIRED", authorization="OUTCOME APPROVED", approval="YES", boundary_change="NO", production_envelope="NOT REQUIRED") -> str:
+def body(files: list[str], *, impact="CONTROL_PLANE", vps="NOT REQUIRED", ubuntu="NOT REQUIRED", worker="NOT REQUIRED", authorization="OUTCOME APPROVED", approval="YES", boundary_change="NO", production_envelope="NOT REQUIRED", security="NONE", schema="NONE", destructive="NO", other_high_risk="NO", risk_profile=None, quality_verdict="PASS", quality_finding="NONE", waiver_reason="NOT REQUIRED", waiver_approved_by="NOT REQUIRED", waiver_date="NOT REQUIRED", waiver_controls="NOT REQUIRED", waiver_followup="NOT REQUIRED") -> str:
     listed = "\n".join(f"  - `{path}`" for path in files)
+    if risk_profile is None:
+        risk_profile = "REQUIRED" if impact == "MIXED" or security != "NONE" or schema != "NONE" or destructive == "YES" or other_high_risk == "YES" else "NOT REQUIRED"
     return f"""## Canonical task
 
-- Issue: #174
-- Specification: `specs/013-delivery-orchestrator-convergence/spec.md`
-- Approved scope: Bounded convergence.
+- Issue: #176
+- Specification: `specs/014-bmad-derived-quality-layer/spec.md`
+- Approved scope: Bounded delivery quality layer.
 - Source authorization: {authorization}
 - Approval recorded after Implementation Scope Check: {approval}
 - Material scope/protected-boundary change since authorization: {boundary_change}
-- Acceptance criteria: Exact governance and contour gates.
+- Acceptance criteria: Exact quality and delivery gates.
+- Risk profile: {risk_profile}
+- Quality verdict: {quality_verdict}
+- Quality finding: {quality_finding}
+- Waiver reason: {waiver_reason}
+- Waiver approved by: {waiver_approved_by}
+- Waiver review/expiry date: {waiver_date}
+- Waiver compensating controls: {waiver_controls}
+- Waiver follow-up/remediation target: {waiver_followup}
 
 ## Change
 
-- Intended behavior: Validate exact diff and current authorization model.
+- Intended behavior: Validate exact diff and delivery quality layer.
 - Changed files:
 {listed}
 - Out of scope: Production mutation.
@@ -40,9 +50,11 @@ def body(files: list[str], *, impact="CONTROL_PLANE", vps="NOT REQUIRED", ubuntu
 
 - Production impact: {impact}
 - Production-impact rationale: Exact contour classification.
-- Security impact: Control-plane only.
-- API/event/state/storage schema impact: None.
-- Detection/tracking/calibration/speed formula impact: None.
+- Security impact: {security}
+- API/event/state/storage schema impact: {schema}
+- Detection/tracking/calibration/speed formula impact: NONE
+- Destructive/data migration impact: {destructive}
+- Other high-risk trigger: {other_high_risk}
 - Backward compatibility: Historical evidence remains readable.
 
 ## Delivery
@@ -100,14 +112,30 @@ class ChangeContractTests(unittest.TestCase):
         files = ["worker/update_worker.ps1"]
         self.assertEqual(self.validator.validate_contract(body(files, impact="WINDOWS_WORKER", worker="REQUIRED", production_envelope="REQUIRED"), files, self.policy), "WINDOWS_WORKER")
 
-    def test_shared_worker_python_is_mixed(self):
+    def test_shared_worker_python_is_mixed_and_requires_risk_profile(self):
         files = ["worker/camera_worker.py"]
         self.assertEqual(self.validator.validate_contract(body(files, impact="MIXED", ubuntu="REQUIRED", worker="REQUIRED", production_envelope="REQUIRED"), files, self.policy), "MIXED")
+        with self.assertRaisesRegex(self.validator.ContractError, "Risk profile must be REQUIRED"):
+            self.validator.validate_contract(body(files, impact="MIXED", ubuntu="REQUIRED", worker="REQUIRED", production_envelope="REQUIRED", risk_profile="NOT REQUIRED"), files, self.policy)
 
-    def test_all_three_runtime_contours(self):
-        files = ["api/app/main.py", "worker/camera_worker.py"]
-        self.assertEqual(self.validator.derive_runtime_contours(files, self.policy), {"VPS", "UBUNTU_WORKER", "WINDOWS_WORKER"})
-        self.assertEqual(self.validator.validate_contract(body(files, impact="MIXED", vps="REQUIRED", ubuntu="REQUIRED", worker="REQUIRED", production_envelope="REQUIRED"), files, self.policy), "MIXED")
+    def test_security_schema_destructive_and_other_triggers_require_risk(self):
+        files = ["scripts/ci/validate_change_contract.py"]
+        for kwargs in ({"security":"authentication boundary"}, {"schema":"event schema v2"}, {"destructive":"YES"}, {"other_high_risk":"YES"}):
+            with self.subTest(kwargs=kwargs):
+                with self.assertRaisesRegex(self.validator.ContractError, "Risk profile must be REQUIRED"):
+                    self.validator.validate_contract(body(files, risk_profile="NOT REQUIRED", **kwargs), files, self.policy)
+
+    def test_quality_fail_blocks(self):
+        files = ["scripts/ci/validate_change_contract.py"]
+        with self.assertRaisesRegex(self.validator.ContractError, "FAIL blocks"):
+            self.validator.validate_contract(body(files, quality_verdict="FAIL", quality_finding="NFR target missed"), files, self.policy)
+
+    def test_waiver_requires_complete_record(self):
+        files = ["scripts/ci/validate_change_contract.py"]
+        with self.assertRaisesRegex(self.validator.ContractError, "requires Waiver reason"):
+            self.validator.validate_contract(body(files, quality_verdict="WAIVED", quality_finding="Known temporary concern"), files, self.policy)
+        accepted = body(files, quality_verdict="WAIVED", quality_finding="Known temporary concern", waiver_reason="Bounded temporary exception", waiver_approved_by="project owner", waiver_date="2026-10-01", waiver_controls="aggregate CI and runtime gate", waiver_followup="Issue #999")
+        self.assertEqual(self.validator.validate_contract(accepted, files, self.policy), "CONTROL_PLANE")
 
     def test_rejects_boundary_change(self):
         files = ["scripts/ci/validate_change_contract.py"]

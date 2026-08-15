@@ -9,6 +9,7 @@ import os
 import re
 import subprocess
 import sys
+from datetime import date
 from pathlib import Path
 from typing import Iterable
 
@@ -17,9 +18,12 @@ POLICY_PATH = ROOT / "data/contracts/change-control-policy-v1.json"
 FIELD_PATTERN = re.compile(r"^- ([A-Za-z][A-Za-z0-9 /_-]*):\s*(.*?)\s*$", re.MULTILINE)
 HEADING_PATTERN = re.compile(r"^##\s+(.+?)\s*$", re.MULTILINE)
 DECLARED_PATH_PATTERN = re.compile(r"^\s{2}- `([^`]+)`\s*$", re.MULTILINE)
-PLACEHOLDERS = {"", "TBD", "TODO", "TBC", "YES/NO", "NO/YES", "REQUIRED / NOT REQUIRED", "NONE / CONTROL_PLANE / VPS / UBUNTU_WORKER / WINDOWS_WORKER / MIXED"}
+PLACEHOLDERS = {"", "TBD", "TODO", "TBC", "YES/NO", "NO/YES", "REQUIRED / NOT REQUIRED", "NONE / CONTROL_PLANE / VPS / UBUNTU_WORKER / WINDOWS_WORKER / MIXED", "PASS / CONCERNS / FAIL / WAIVED"}
 SOURCE_AUTHORIZATIONS = {"OUTCOME APPROVED"}
 RUNTIME_IMPACTS = {"VPS", "UBUNTU_WORKER", "WINDOWS_WORKER"}
+RISK_PROFILE_VALUES = {"REQUIRED", "NOT REQUIRED"}
+QUALITY_VERDICTS = {"PASS", "CONCERNS", "FAIL", "WAIVED"}
+NONE_LIKE = {"NONE", "NO", "N/A", "NOT APPLICABLE", "NOT REQUIRED"}
 
 
 class ContractError(ValueError):
@@ -96,6 +100,21 @@ def require_value(fields: dict[str, str], name: str) -> str:
     return value
 
 
+def _normalized(value: str) -> str:
+    return value.strip().upper().rstrip(".")
+
+
+def _none_like(value: str) -> bool:
+    return _normalized(value) in NONE_LIKE
+
+
+def _require_yes_no(fields: dict[str, str], name: str) -> str:
+    value = require_value(fields, name).upper()
+    if value not in {"YES", "NO"}:
+        raise ContractError(f"{name} must be YES or NO")
+    return value
+
+
 def validate_authorization(fields: dict[str, str]) -> str:
     authorization = require_value(fields, "Source authorization")
     if authorization not in SOURCE_AUTHORIZATIONS:
@@ -124,6 +143,50 @@ def validate_deployment_fields(expected_contours: set[str], fields: dict[str, st
         raise ContractError("non-runtime impact must declare Production safety envelope NOT REQUIRED")
 
 
+def requires_full_risk_profile(fields: dict[str, str], impact: str) -> bool:
+    security = require_value(fields, "Security impact")
+    schema = require_value(fields, "API/event/state/storage schema impact")
+    destructive = _require_yes_no(fields, "Destructive/data migration impact")
+    other = _require_yes_no(fields, "Other high-risk trigger")
+    return impact == "MIXED" or not _none_like(security) or not _none_like(schema) or destructive == "YES" or other == "YES"
+
+
+def validate_quality_fields(fields: dict[str, str], impact: str) -> None:
+    expected = "REQUIRED" if requires_full_risk_profile(fields, impact) else "NOT REQUIRED"
+    declared = require_value(fields, "Risk profile")
+    if declared not in RISK_PROFILE_VALUES:
+        raise ContractError("Risk profile must be REQUIRED or NOT REQUIRED")
+    if declared != expected:
+        raise ContractError(f"Risk profile must be {expected} for the declared/derived impact")
+
+    verdict = require_value(fields, "Quality verdict")
+    if verdict not in QUALITY_VERDICTS:
+        raise ContractError("Quality verdict must be PASS, CONCERNS, FAIL, or WAIVED")
+    finding = require_value(fields, "Quality finding")
+    if verdict == "FAIL":
+        raise ContractError("Quality verdict FAIL blocks PR admission")
+    if verdict in {"CONCERNS", "WAIVED"} and _none_like(finding):
+        raise ContractError(f"Quality verdict {verdict} requires a concrete Quality finding")
+
+    waiver_fields = (
+        "Waiver reason",
+        "Waiver approved by",
+        "Waiver review/expiry date",
+        "Waiver compensating controls",
+        "Waiver follow-up/remediation target",
+    )
+    waiver_values = {name: require_value(fields, name) for name in waiver_fields}
+    if verdict != "WAIVED":
+        return
+    for name, value in waiver_values.items():
+        if _none_like(value):
+            raise ContractError(f"Quality verdict WAIVED requires {name}")
+    try:
+        date.fromisoformat(waiver_values["Waiver review/expiry date"])
+    except ValueError as exc:
+        raise ContractError("Waiver review/expiry date must be ISO YYYY-MM-DD") from exc
+
+
 def validate_contract(body: str, changed_files: Iterable[str], policy: dict | None = None) -> str:
     policy = policy or load_policy()
     headings = set(HEADING_PATTERN.findall(body))
@@ -133,9 +196,9 @@ def validate_contract(body: str, changed_files: Iterable[str], policy: dict | No
     fields = field_values(body)
     issue = require_value(fields, "Issue")
     if not re.fullmatch(r"#\d+", issue):
-        raise ContractError("Issue must be a canonical GitHub issue reference such as #174")
+        raise ContractError("Issue must be a canonical GitHub issue reference such as #176")
     validate_authorization(fields)
-    for name in ("Approved scope", "Acceptance criteria", "Intended behavior", "Out of scope", "Production-impact rationale", "Security impact", "API/event/state/storage schema impact", "Detection/tracking/calibration/speed formula impact", "Backward compatibility", "Rollout order", "Release manifest", "Rollback target", "Local checks", "PR checks", "Runtime acceptance plan", "Telemetry/evidence plan"):
+    for name in ("Approved scope", "Acceptance criteria", "Intended behavior", "Out of scope", "Production-impact rationale", "Security impact", "API/event/state/storage schema impact", "Detection/tracking/calibration/speed formula impact", "Backward compatibility", "Destructive/data migration impact", "Other high-risk trigger", "Rollout order", "Release manifest", "Rollback target", "Local checks", "PR checks", "Runtime acceptance plan", "Telemetry/evidence plan", "Risk profile", "Quality verdict", "Quality finding", "Waiver reason", "Waiver approved by", "Waiver review/expiry date", "Waiver compensating controls", "Waiver follow-up/remediation target"):
         require_value(fields, name)
     actual = set(changed_files)
     declared = declared_changed_files(body)
@@ -149,6 +212,7 @@ def validate_contract(body: str, changed_files: Iterable[str], policy: dict | No
     if declared_impact != impact:
         raise ContractError(f"declared Production impact {declared_impact} does not match derived {impact}")
     validate_deployment_fields(contours, fields)
+    validate_quality_fields(fields, impact)
     return impact
 
 
