@@ -471,6 +471,16 @@ class WorkerTrackingOverlayTests(unittest.TestCase):
         self.assertEqual(event["track_id"], 31)
         self.assertEqual(event["speed_kmh"], 10.0)
 
+    def test_worker_jpeg_overlay_does_not_embed_calibration_geometry(self) -> None:
+        source = SOURCE.read_text(encoding="utf-8-sig")
+        main_source = source[source.index("def main():"):]
+        self.assertNotIn("draw_roi_polygon(overlay)", main_source)
+        self.assertNotIn("draw_speed_lines_overlay(overlay)", main_source)
+        self.assertIn("detections = filter_detections_by_roi(detections)", main_source)
+        self.assertIn("line_speed_info = update_speed_lines_estimate(det)", main_source)
+        self.assertIn("cv2.imwrite(\n                str(latest_overlay_path),\n                overlay,", main_source)
+        self.assertIn("cv2.imwrite(\n                        str(event_snapshot_path),\n                        overlay,", main_source)
+
     def test_source_reports_unique_visible_track_count(self) -> None:
         source = SOURCE.read_text(encoding="utf-8-sig")
         self.assertEqual(source.count("def detection_center_px"), 1)
