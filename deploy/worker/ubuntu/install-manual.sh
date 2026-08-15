@@ -113,6 +113,7 @@ expected = {
     "torch": "2.13.0+cu130",
     "torchvision": "0.28.0+cu130",
     "ultralytics": "8.4.117",
+    "lap": "0.5.13",
     "opencv-python": "5.0.0.93",
     "opencv-python-headless": "5.0.0.93",
     "numpy": "2.4.4",
@@ -129,6 +130,7 @@ if mismatched:
     raise SystemExit(f"runtime version mismatch: {mismatched}")
 
 import cv2  # noqa: F401
+import lap  # noqa: F401
 import numpy  # noqa: F401
 import requests  # noqa: F401
 import torch  # noqa: F401
