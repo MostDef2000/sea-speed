@@ -187,7 +187,6 @@ def call_worker_control(method: str, path: str) -> Dict[str, Any]:
 def read_json_file(path: Path, default: Any) -> Any:
     if not path.exists():
         return default
-
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except Exception:
@@ -285,7 +284,6 @@ def persist_object_event(event: Dict[str, Any]) -> bool:
     detected_at = str(event.get("created_at") or event.get("detected_at") or now_iso())
     created_at = str(event.get("created_at") or now_iso())
     original_event_json = json.dumps(event, ensure_ascii=False, sort_keys=True)
-
     with open_objects_db() as connection:
         cursor = connection.execute(
             """
@@ -428,7 +426,6 @@ def load_camera_preview_catalog() -> List[Dict[str, str]]:
         raise HTTPException(status_code=500, detail="Camera preview catalog is invalid") from exc
     if payload.get("schema") != CAMERA_PREVIEW_CATALOG_SCHEMA or not isinstance(payload.get("cameras"), list):
         raise HTTPException(status_code=500, detail="Camera preview catalog is invalid")
-
     cameras: List[Dict[str, str]] = []
     seen = set()
     try:
@@ -557,7 +554,6 @@ def commit_camera_snapshot_locked(state: Dict[str, Any]) -> Dict[str, Any]:
     playlist = output_dir / "index.m3u8"
     if Path(str(state.get("output_dir") or "")) != output_dir or not playlist.is_file():
         raise HTTPException(status_code=409, detail="Camera preview session is not eligible for snapshot commit")
-
     final_path = camera_snapshot_path(camera_id)
     temp_path = CAMERA_SNAPSHOT_DIR / f".{camera_id}.{uuid.uuid4().hex}.jpg"
     try:
@@ -727,7 +723,6 @@ def start_camera_preview_locked(camera: Dict[str, str]) -> Dict[str, Any]:
     ffmpeg_path = Path(CAMERA_PREVIEW_FFMPEG_BIN)
     if not ffmpeg_path.is_file() or not os.access(ffmpeg_path, os.X_OK):
         raise HTTPException(status_code=503, detail="Camera preview transcoder is unavailable")
-
     session_id = uuid.uuid4().hex[:12]
     output_dir = CAMERA_PREVIEW_DIR / session_id
     output_dir.mkdir(mode=0o755, parents=False, exist_ok=False)
@@ -738,7 +733,6 @@ def start_camera_preview_locked(camera: Dict[str, str]) -> Dict[str, Any]:
     expires_at = datetime.fromtimestamp(expires_epoch, timezone.utc).isoformat()
     hls_url = f"/sea-speed/media/camera-preview/{session_id}/index.m3u8"
     args = build_camera_preview_ffmpeg_args(camera["source"], output_dir)
-
     try:
         process = subprocess.Popen(
             args,
@@ -750,7 +744,6 @@ def start_camera_preview_locked(camera: Dict[str, str]) -> Dict[str, Any]:
     except OSError as exc:
         cleanup_camera_preview_media({"session_id": session_id})
         raise HTTPException(status_code=503, detail="Camera preview transcoder failed to start") from exc
-
     state: Dict[str, Any] = {
         "camera_id": camera["camera_id"],
         "display_name": camera["display_name"],
@@ -764,7 +757,6 @@ def start_camera_preview_locked(camera: Dict[str, str]) -> Dict[str, Any]:
         "ttl_sec": CAMERA_PREVIEW_TTL_SEC,
     }
     write_json_file(CAMERA_PREVIEW_STATE_FILE, state)
-
     deadline = time.monotonic() + CAMERA_PREVIEW_START_TIMEOUT_SEC
     while time.monotonic() < deadline:
         if process.poll() is not None:
@@ -775,7 +767,6 @@ def start_camera_preview_locked(camera: Dict[str, str]) -> Dict[str, Any]:
         except OSError:
             pass
         time.sleep(0.2)
-
     terminate_camera_preview_locked()
     raise HTTPException(status_code=502, detail="Camera preview did not become ready")
 
@@ -874,19 +865,16 @@ def get_cam1_state() -> Dict[str, Any]:
     state.setdefault("telemetry_schema", TELEMETRY_SCHEMA)
     state.setdefault("worker_source_commit", None)
     state.setdefault("frame_no", 0)
-
     updated_at = state.get("updated_at")
     if not updated_at:
         state["worker_online"] = False
         return state
-
     try:
         dt = datetime.fromisoformat(updated_at.replace("Z", "+00:00"))
         age = time.time() - dt.timestamp()
         state["worker_online"] = age <= 30
     except Exception:
         state["worker_online"] = False
-
     return state
 
 
@@ -897,19 +885,16 @@ async def post_cam1_state(
     authorization: Optional[str] = Header(None),
 ) -> Dict[str, Any]:
     require_auth(authorization)
-
     try:
         data = json.loads(metadata)
     except Exception:
         raise HTTPException(status_code=400, detail="metadata must be valid JSON")
-
     data["camera_id"] = "cam1"
     data.setdefault("state_schema", WORKER_STATE_SCHEMA)
     data.setdefault("telemetry_schema", TELEMETRY_SCHEMA)
     data.setdefault("worker_source_commit", None)
     data["updated_at"] = now_iso()
     data["worker_online"] = True
-
     if overlay is not None:
         overlay_path = OVERLAY_DIR / "cam1_latest_overlay.jpg"
         content = await overlay.read()
@@ -918,9 +903,7 @@ async def post_cam1_state(
     else:
         old_state = read_json_file(STATE_FILE, default_state())
         data["last_overlay_url"] = old_state.get("last_overlay_url")
-
     write_json_file(STATE_FILE, data)
-
     return {"ok": True, "state": data}
 
 
@@ -938,12 +921,10 @@ async def post_cam1_event(
     authorization: Optional[str] = Header(None),
 ) -> Dict[str, Any]:
     require_auth(authorization)
-
     try:
         event = json.loads(metadata)
     except Exception:
         raise HTTPException(status_code=400, detail="metadata must be valid JSON")
-
     event_id = str(event.get("event_id") or uuid.uuid4())
     event["event_id"] = event_id
     event["camera_id"] = "cam1"
@@ -952,21 +933,17 @@ async def post_cam1_event(
     event.setdefault("worker_source_commit", None)
     event.setdefault("calibration_version", None)
     event["created_at"] = event.get("created_at") or now_iso()
-
     if snapshot is not None:
         filename = f"{event_id}.jpg"
         snapshot_path = EVENTS_MEDIA_DIR / filename
         content = await snapshot.read()
         snapshot_path.write_bytes(content)
         event["snapshot_url"] = f"/sea-speed/media/events/{filename}"
-
     persist_object_event(event)
-
     events: List[Dict[str, Any]] = read_json_file(EVENTS_FILE, [])
     events.insert(0, event)
     events = events[:500]
     write_json_file(EVENTS_FILE, events)
-
     return {"ok": True, "event": event}
 
 
@@ -991,7 +968,6 @@ def get_cam1_objects(
         raise HTTPException(status_code=400, detail="speed_max must be >= 0")
     if speed_min is not None and speed_max is not None and speed_min > speed_max:
         raise HTTPException(status_code=400, detail="speed_min must be <= speed_max")
-
     where_sql, values = build_objects_where(
         date_from, date_to, class_name, status, speed_min, speed_max, search, include_deleted
     )
@@ -1063,7 +1039,6 @@ def patch_cam1_object(object_id: str, payload: Dict[str, Any]) -> Dict[str, Any]
         updates["status"] = object_status
     if not updates:
         raise HTTPException(status_code=400, detail="No editable fields supplied")
-
     updates["updated_at"] = now_iso()
     set_sql = ", ".join(f"{name} = ?" for name in updates)
     values = [*updates.values(), object_id, "cam1"]
@@ -1114,7 +1089,6 @@ def get_cam1_roi() -> Dict[str, Any]:
 def post_cam1_roi(payload: Dict[str, Any]) -> Dict[str, Any]:
     polygon = payload.get("polygon", [])
     enabled = bool(payload.get("enabled", True))
-
     clean_polygon = []
     if isinstance(polygon, list):
         for point in polygon:
@@ -1126,10 +1100,8 @@ def post_cam1_roi(payload: Dict[str, Any]) -> Dict[str, Any]:
             except Exception:
                 continue
             clean_polygon.append({"x": x, "y": y})
-
     if enabled and len(clean_polygon) < 3:
         raise HTTPException(status_code=400, detail="ROI polygon must contain at least 3 points")
-
     roi = {
         "ok": True,
         "camera_id": "cam1",
@@ -1168,7 +1140,6 @@ def post_cam1_speed_config(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise HTTPException(status_code=400, detail="kmh_per_px_s must be a number")
     if kmh_per_px_s < 0:
         raise HTTPException(status_code=400, detail="kmh_per_px_s must be >= 0")
-
     config = {
         "ok": True,
         "camera_id": "cam1",
@@ -1226,13 +1197,11 @@ def post_cam1_speed_lines(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise HTTPException(status_code=400, detail="distance_m must be a number")
     if distance_m <= 0:
         raise HTTPException(status_code=400, detail="distance_m must be > 0")
-
     line_a = clean_points_list(payload.get("line_a"), max_points=2)
     line_b = clean_points_list(payload.get("line_b"), max_points=2)
     enabled = bool(payload.get("enabled", True))
     if enabled and (len(line_a) != 2 or len(line_b) != 2):
         raise HTTPException(status_code=400, detail="line_a and line_b must contain exactly 2 points each")
-
     config = {
         "ok": True,
         "camera_id": "cam1",
@@ -1280,7 +1249,13 @@ def stop_worker_control(
 def get_session_identity(
     x_authentik_username: Optional[str] = Header(None),
 ) -> Dict[str, Any]:
-    return {"ok": True, "username": require_operator_identity(x_authentik_username)}
+    username = (x_authentik_username or "").strip()
+    if not username:
+        raise HTTPException(
+            status_code=503,
+            detail="Trusted Authentik identity is unavailable",
+        )
+    return {"ok": True, "username": username}
 
 
 @app.get("/api/health")
