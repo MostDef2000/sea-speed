@@ -12,7 +12,14 @@ The Worker currently detects motion across the full camera frame and can activat
 
 Make the saved operator ROI the actual processing boundary for motion and AI while preserving the original camera coordinate system and the existing detection/tracking/speed/event semantics for accepted objects. Real AI detections inside ROI remain visibly boxed and labeled. Technical motion rectangles are not part of the operator display.
 
-## Functional requirements
+## User scenarios
+
+1. The operator saves an ROI around the water area of interest. Motion elsewhere in the camera image must not activate the AI pipeline or contribute motion area/boxes.
+2. A vessel or other allowed object moves inside the ROI. Motion activates the existing AI-active window, and a recognized accepted object remains visibly boxed and labeled with the existing track/class/confidence/speed presentation.
+3. The operator edits or replaces the ROI. The first frame under the new effective mask seeds a new motion baseline instead of treating the mask transition itself as movement.
+4. The operator disables or clears the ROI. The Worker returns to its existing full-frame motion and AI processing behavior, while technical yellow motion rectangles remain hidden from the operator image.
+
+## Requirements
 
 1. The Worker obtains one effective ROI snapshot for each processed frame.
 2. An ROI is effective only when the remote ROI is enabled and contains at least three valid points.
@@ -46,6 +53,10 @@ This feature must not change:
 - ROI fetch failures continue to use the existing cached ROI behavior.
 - Disabled/invalid ROI fails open to the existing full-frame processing mode rather than stopping the Worker.
 - ROI changes fail safe by resetting only motion baseline/AI-active timing; they do not mutate persisted calibration or model state.
+
+## Runtime feedback
+
+Production acceptance for Issue #159 established a stable exact Ubuntu Worker release (`6bf909c13d48df1d44b87a62d0686b61d8c3af45`) with advancing frame, state-post and supervised AI-inference counters. The accepted operator image also exposed yellow motion rectangles originating from the Worker's full-frame motion detector even though ROI was already used later as a detection filter. This feature addresses that observed processing/visual-ownership gap; it does not reopen the previously accepted RTSP, AI-supervision or calibration-overlay runtime architecture.
 
 ## Acceptance criteria
 
