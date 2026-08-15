@@ -65,6 +65,12 @@ def main() -> int:
         "state_post_failure_count": 0,
         "last_event_post_at": None,
         "event_post_success_count": 0,
+        "ai_inference_ready": False,
+        "last_ai_inference_at": None,
+        "last_ai_inference_ok": None,
+        "ai_inference_success_count": 0,
+        "ai_inference_failure_count": 0,
+        "ai_inference_restart_count": 0,
         "exit_code": None,
     }
 
@@ -100,6 +106,18 @@ def main() -> int:
             elif line.startswith("POST event ok"):
                 state["last_event_post_at"] = now
                 state["event_post_success_count"] += 1
+            elif line.startswith(("AI inference self-test ok", "AI inference ok")):
+                state["last_ai_inference_at"] = now
+                state["last_ai_inference_ok"] = True
+                state["ai_inference_success_count"] += 1
+            elif line.startswith("AI inference ready"):
+                state["ai_inference_ready"] = True
+            elif line.startswith("AI inference degraded"):
+                state["last_ai_inference_at"] = now
+                state["last_ai_inference_ok"] = False
+                state["ai_inference_failure_count"] += 1
+            elif line.startswith("AI inference child restart"):
+                state["ai_inference_restart_count"] += 1
 
     def forward(pipe: IO[str] | None, target: IO[str]) -> None:
         if pipe is None:
