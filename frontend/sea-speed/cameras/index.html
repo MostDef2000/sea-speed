@@ -98,6 +98,7 @@
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
   <script>
     const SESSION_URL="/sea-speed/api/session";
+    const SESSION_WATCHDOG_MS=15000;
     const CAMERAS_URL="/sea-speed/api/cameras";
     const PREVIEW_STATUS_URL="/sea-speed/api/cameras/preview";
     const PREVIEW_STOP_URL="/sea-speed/api/cameras/preview/stop";
@@ -120,11 +121,20 @@
     let batchRunning=false;
     let batchGeneration=0;
     let batchIndex=0;
+    let sessionIdentityEstablished=false;
+    let sessionRedirecting=false;
     const snapshotMeta=new Map();
     let lastCommittedSessionId=null;
     const cameraErrors=new Map();
 
     const esc=value=>String(value??"").replace(/[&<>"']/g,char=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[char]));
+
+    function redirectForReauthentication(){
+      if(sessionRedirecting)return;
+      sessionRedirecting=true;
+      const protectedUrl=window.location.pathname+window.location.search+window.location.hash;
+      window.top.location.replace(protectedUrl);
+    }
 
     async function loadSessionIdentity(){
       try{
@@ -133,9 +143,11 @@
         try{body=await response.json()}catch(_error){}
         const username=String(body.username||"").trim();
         if(!response.ok||!username)throw new Error("trusted identity unavailable");
+        sessionIdentityEstablished=true;
         sessionUser.textContent=username;
         sessionUser.classList.remove("bad");
       }catch(_error){
+        if(sessionIdentityEstablished){redirectForReauthentication();return}
         sessionUser.textContent="недоступно";
         sessionUser.classList.add("bad");
       }
@@ -478,6 +490,7 @@
 
     loadSessionIdentity();
     loadCatalog();
+    setInterval(()=>void loadSessionIdentity(),SESSION_WATCHDOG_MS);
     setInterval(refreshPreviewStatus,3000);
   </script>
 </body>
