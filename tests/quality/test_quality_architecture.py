@@ -83,6 +83,13 @@ jobs:
         self.assertIn("environment: production", deploy)
         self.assertNotIn("${INPUT_COMMIT,,}", deploy)
 
+    def test_deploy_first_parent_guard_is_pipefail_safe(self) -> None:
+        deploy = (ROOT / ".github/workflows/deploy-vps.yml").read_text(encoding="utf-8")
+        self.assertNotIn('git rev-list --first-parent origin/main | grep -Fxq "$DEPLOY_SHA"', deploy)
+        self.assertIn("FIRST_PARENT_MATCH=0", deploy)
+        self.assertIn("done < <(git rev-list --first-parent origin/main)", deploy)
+        self.assertIn('[[ "$FIRST_PARENT_MATCH" == "1" ]] || {', deploy)
+
     def test_exact_artifacts_are_deterministic_and_valid(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             first = Path(temp_dir) / "first"
