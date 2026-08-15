@@ -2,7 +2,7 @@
 
 - Specification: specs/015-worker-operator-control/spec.md
 - Issue: #178
-- Status: Implementation validation
+- Status: Correct-course remediation validation
 
 ## Architecture
 
@@ -14,12 +14,15 @@ Authenticated browser
   -> VPS FastAPI fixed worker-control routes
   -> RFC1918 Ubuntu control-agent origin over ZeroTier
   -> bearer token validation
+  -> fixed protocol marker sea_speed_worker_control_v1
   -> fixed systemctl operation for sea-speed-worker.service only
 ```
 
 The Ubuntu control agent is a separate systemd service and uses the existing protected `worker.env` only for the shared bearer token and optional private listener configuration. The AI worker remains the only controlled service. Camera relay/MediaMTX are not referenced by the control operation.
 
 The agent persists `/opt/sea-speed-worker/shared/runtime/operator-desired-state` as `running` or `stopped`. Exact updater and rollback paths consult this marker: `running` keeps the current active-service/runtime-gate semantics; `stopped` permits intentional inactivity and installs the exact unit/control service without auto-starting the AI worker.
+
+Release provenance is separate from runtime transport. Quality tooling builds deterministic exact source archives for `vps`, `ubuntu-worker`, and the retained legacy `edge` component. A MIXED production rollout is admitted only after exact artifacts, quality evidence, release manifest v2 and a new exact-SHA production authorization all bind the same merged main commit.
 
 ## Decisions
 
@@ -52,21 +55,34 @@ The agent persists `/opt/sea-speed-worker/shared/runtime/operator-desired-state`
 - Decision: worker-control source never invokes or reconfigures MediaMTX, camera relay, HLS routes or live-camera browser controls.
 - Reason: the requested product invariant is continuous live viewing while AI is stopped.
 
+### D-006 - Fixed private worker-control protocol marker
+
+- Decision: successful agent responses include `sea_speed_worker_control_v1`; VPS FastAPI requires the same marker before accepting a successful upstream response.
+- Reason: independently deployed VPS and Ubuntu contours must fail closed on a stale or incompatible private control agent instead of interpreting an unknown response shape as safe.
+- Alternatives rejected: implicit compatibility based only on HTTP 200/`ok=true`, semantic version negotiation, fallback to SSH or another control channel.
+
+### D-007 - First-class Ubuntu Worker exact artifact
+
+- Decision: `scripts/quality/build_exact_artifacts.py` builds a deterministic `ubuntu-worker` archive containing the repository-owned Ubuntu install/update/control/runtime source needed for the exact release; validation requires `vps`, `ubuntu-worker`, and `edge` components.
+- Reason: release-manifest v2 requires at least one exact artifact for a deployable `ubuntu-worker` component in `ready_for_deployment`; the previous two-component `{vps, edge}` inventory could not admit the declared MIXED rollout.
+- Alternatives rejected: relabel legacy `edge` as Ubuntu, waive the hard artifact gate, partially deploy VPS before Ubuntu admission, or treat server-pull transport as provenance evidence without an exact artifact.
+
 ## Affected contours
 
-- VPS: YES — frontend and FastAPI additive worker-control routes.
-- Ubuntu worker/relay: YES — dedicated control agent/systemd unit plus maintenance semantics.
+- VPS: YES — FastAPI private-control compatibility guard.
+- Ubuntu worker/relay: YES — control-agent protocol marker and exact Ubuntu Worker artifact provenance.
 - Windows AI Worker: NO.
 - Summary impact: MIXED.
-- API compatibility: additive only.
-- Security impact: YES; bounded authenticated runtime-control capability.
+- API compatibility: additive private response marker; browser API existing fields remain compatible.
+- Security impact: YES; existing bounded authenticated runtime-control capability is tightened with fail-closed compatibility checking, not expanded.
 
 ## Validation
 
-- Unit: agent auth, fixed operation allowlist, desired-state behavior, API origin validation and proxy errors.
-- Integration: frontend/API route contract, private nginx ingress exclusion, systemd installation/update/rollback contract tests.
+- Unit: agent auth, fixed operation allowlist, desired-state behavior, protocol marker, API origin validation and fail-closed protocol mismatch guard.
+- Integration: existing frontend/API route contract, private nginx ingress exclusion, systemd installation/update/rollback contract tests remain authoritative.
+- Release-provenance: build exact artifacts twice; compare all three archives/manifests; validate inventory/digests/extraction/Python/shell/runtime-lock syntax; bind artifact digests into quality evidence.
 - End-to-end: exact PR Validation + Quality integration.
-- Runtime-manual after separate production approval: confirm HLS playback before/during/after AI worker stop/start and exact service/control-agent state.
+- Runtime-manual after a new separate production approval: confirm exact VPS/Ubuntu identities, control-agent protocol, HLS playback before/during/after AI worker stop/start and exact service/control-agent state.
 
 ## Risk profile
 
@@ -77,6 +93,8 @@ The agent persists `/opt/sea-speed-worker/shared/runtime/operator-desired-state`
 - RISK-003 | Category: TECH | Probability: 2 | Impact: 4 | Score: 8 | Mitigation: separate endpoints/buttons and invariant tests for HLS path plus absence of relay operations | Validation: tests/test_frontend_contract.py and tests/test_worker_operator_control.py | Residual risk: runtime HLS continuity still requires manual production evidence | Owner: PM/operator | Status: MITIGATED
 - RISK-004 | Category: PERF | Probability: 2 | Impact: 2 | Score: 4 | Mitigation: bounded <=5s upstream timeout and asynchronous UI error state | Validation: tests/test_worker_operator_control.py | Residual risk: private network outage can temporarily make control unavailable without affecting HLS | Owner: PM/operator | Status: MITIGATED
 - RISK-005 | Category: BUS | Probability: 2 | Impact: 4 | Score: 8 | Mitigation: dedicated independently enabled control systemd unit | Validation: tests/test_ubuntu_worker_systemd.py plus runtime-manual acceptance | Residual risk: control service availability must be verified during production rollout | Owner: PM/operator | Status: MITIGATED
+- RISK-006 | Category: OPS | Probability: 2 | Impact: 5 | Score: 10 | Mitigation: first-class deterministic `ubuntu-worker` exact artifact, strict three-component validator and quality-evidence digest binding | Validation: tests/quality/test_quality_architecture.py | Residual risk: a future Ubuntu release-source expansion must update the explicit artifact inventory in the same approved task | Owner: Delivery Orchestrator | Status: MITIGATED
+- RISK-007 | Category: SEC | Probability: 2 | Impact: 4 | Score: 8 | Mitigation: fixed protocol marker required by VPS before successful upstream payload is accepted | Validation: tests/test_worker_operator_control.py | Residual risk: protocol version changes require coordinated source delivery and fresh production authorization | Owner: Delivery Orchestrator | Status: MITIGATED
 
 ## Test design
 
@@ -87,25 +105,32 @@ The agent persists `/opt/sea-speed-worker/shared/runtime/operator-desired-state`
 - TEST-005 | Covers: AC-009 | Level: integration | Priority: P0 | Evidence: tests/test_sea_speed_auth_v1.py
 - TEST-006 | Covers: AC-011 | Level: end-to-end | Priority: P0 | Evidence: exact-head PR Validation + Quality integration
 - TEST-007 | Covers: AC-012 | Level: runtime-manual | Priority: P0 | Evidence: production service status plus continuous Camera 1 HLS playback before/during/after stop/start, recorded on Issue #178
+- TEST-008 | Covers: AC-013 | Level: unit | Priority: P0 | Evidence: tests/test_worker_operator_control.py
+- TEST-009 | Covers: AC-014 | Level: end-to-end | Priority: P0 | Evidence: tests/quality/test_quality_architecture.py plus Quality integration exact-artifact and release-evidence jobs
 
 ## Correct-course check
 
-- Trigger: ARCHITECTURE_PIVOT
-- Issue impact: clarified that the existing private nginx worker ingress is Ubuntu->VPS, so reverse worker control uses a dedicated Ubuntu private agent instead of reusing that ingress direction.
-- Specification impact: direct private agent and fixed browser/API routes are explicitly defined.
-- Plan impact: architecture diagram and D-001 record the corrected direction.
-- Tasks impact: includes private-agent installation and private-ingress exclusion validation.
-- Authorization impact: NONE — no file-scope expansion, outcome change, credential redesign, media-boundary change or protected behavior expansion beyond the approved bounded worker-control capability.
-- Follow-up: keep runtime listener/peer details inside the later exact-SHA production envelope and protected host configuration.
+- Trigger: PRODUCTION_LEARNING
+- Observed evidence: release admission for merged PR #179 / `dc0fd44dbea5ba38f8e18a4ba6ed3eeb93db3d11` stopped before the first runtime write because exact-artifact tooling produced only `vps` and legacy `edge`, while release-manifest v2 requires an exact artifact for `ubuntu-worker` in the declared MIXED rollout.
+- Issue impact: Issue #178 now carries a separate durable 9-path remediation Implementation Scope Check while preserving the original 17-path implementation history.
+- Specification impact: adds fixed private protocol compatibility and Ubuntu exact-artifact provenance requirements/acceptance criteria.
+- Plan impact: adds D-006/D-007, provenance risk/test design and explicit fail-closed mixed-contour admission.
+- Tasks impact: adds bounded remediation tasks and changes the active source gate from the historical 17 paths to exactly the approved 9 remediation paths.
+- Authorization impact: FRESH `OUTCOME APPROVED` obtained after the exact remediation scope check on 2026-08-16; the prior production approval is stale for any new merge SHA.
+- Protected boundaries: unchanged — no media ownership, credential, arbitrary-service, Windows Worker or AI-semantic expansion.
+- Follow-up: after exact-green-head merge, obtain a new `PRODUCTION APPROVED <new-full-sha>` and only then restart the MIXED release-readiness/production flow.
 
 ## Rollout and rollback
 
-- Rollout order after separate production approval: deploy VPS additive API/frontend -> prepare/install Ubuntu exact release and independent control service -> verify control status -> perform bounded stop/start test while monitoring HLS -> record acceptance.
+- Source rollout: merge only the exact green remediation head after fresh base/head/scope/review verification.
+- Production rollout after a new exact-SHA approval: validate three-component exact artifacts and release manifest v2 -> deploy VPS additive API/protocol guard -> prepare/install Ubuntu exact release and independent control service -> verify matching protocol/status -> perform bounded stop/start test while monitoring HLS -> record acceptance.
 - Rollback order: stop using UI control -> restore previous VPS release -> restore previous Ubuntu exact unit/release using existing rollback path while preserving prior desired state. Camera relay/HLS requires no rollback because it is not changed.
-- Production mutation during source delivery: NONE.
+- Partial rollout rule: if Ubuntu exact-artifact/release admission fails, do not deploy VPS alone; the MIXED rollout fails closed before runtime mutation.
+- Production mutation during remediation source delivery: NONE.
 
 ## Runtime feedback
 
 - Actual architecture after acceptance: PENDING production evidence.
-- Differences from plan: NONE YET beyond the pre-write D-001 direction clarification recorded above.
-- Deferred cleanup: NONE YET.
+- Difference discovered before production: release provenance did not model Ubuntu Worker as an exact-artifact component even though runtime applicability correctly declared it.
+- Corrective source task: active 9-path remediation branch for protocol compatibility and Ubuntu exact-artifact provenance.
+- Deferred cleanup: NONE; runtime acceptance remains the only deferred product evidence after source merge and fresh production authorization.
