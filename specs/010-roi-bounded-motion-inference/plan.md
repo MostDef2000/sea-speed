@@ -4,9 +4,15 @@ Status: Active
 Issue: #168
 Specification: `specs/010-roi-bounded-motion-inference/spec.md`
 
-## Architecture decision
+## Decisions
 
-The Worker will preserve the original frame dimensions and coordinate system and use a polygon mask rather than cropping the ROI. This avoids coordinate translation in detection boxes, ByteTrack state, speed-line geometry, snapshots and API payloads.
+- Preserve the original frame dimensions and coordinate system and use a polygon mask rather than cropping the ROI. This avoids coordinate translation in detection boxes, ByteTrack state, speed-line geometry, snapshots and API payloads.
+- Capture one effective ROI snapshot per processed frame and reuse it for both the processing mask and the final ROI detection guard.
+- Treat disabled/invalid ROI as full-frame processing for backward compatibility.
+- Reset only the motion detector baseline, technical motion state and AI-active deadline when the effective ROI signature changes. Do not reset ByteTrack/model state or mutate persisted calibration.
+- Keep the original unmasked camera frame as the visual base for the operator overlay; use the masked same-size frame only for motion and AI processing.
+- Remove yellow technical motion rectangles from the operator overlay while retaining existing AI detection boxes/labels.
+- Keep the existing Ubuntu AI supervisor/protocol unchanged; it already receives whichever frame the core Worker passes to `detect_vehicles`.
 
 For every frame:
 
@@ -50,12 +56,17 @@ Create `tests/test_worker_roi_pipeline.py` with dependency-light contract tests 
 
 Run repository CI as the authoritative integration test: PR Validation and Quality integration must both succeed on the exact head.
 
-## Release applicability
+## Affected contours
 
-- Worker update: REQUIRED.
+- Ubuntu Worker runtime: REQUIRED after separate exact-SHA production authorization.
+- Repository policy impact class: `WINDOWS_WORKER` because the changed runtime path is `worker/**`; the commissioned production target remains Ubuntu.
 - VPS deployment: NOT REQUIRED by this diff.
-- Production mutation requires a fresh exact merged SHA `PRODUCTION APPROVED` after post-merge quality gates.
+- API/frontend/auth/network contours: unchanged.
 - Production rollout uses the existing repo-owned Ubuntu Worker exact updater and one largest-safe operator step.
+
+## Runtime feedback
+
+The accepted production Worker release `6bf909c13d48df1d44b87a62d0686b61d8c3af45` established stable RTSP ingestion, bounded supervised AI inference and advancing frame/state counters. The subsequent operator view demonstrated that yellow technical motion rectangles still came from full-frame motion processing even though detections were later ROI-filtered. This plan intentionally changes only that processing boundary and overlay ownership; it relies on the already accepted media and AI-supervision architecture.
 
 ## Rollback
 
