@@ -2,7 +2,7 @@
 
 - Feature: 015-worker-operator-control
 - Issue: #178
-- Status: Approved for implementation
+- Status: Implementation validation
 - Owner outcome: Allow an authenticated Sea Speed operator to start and stop only the Ubuntu AI worker while Camera 1 live HLS remains independent and uninterrupted.
 
 ## Product outcome
