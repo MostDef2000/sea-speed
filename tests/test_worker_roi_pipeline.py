@@ -106,7 +106,7 @@ class RoiBoundedWorkerTests(unittest.TestCase):
         self.assertEqual(FakeCv2.bitwise_calls[0][0], frame)
         self.assertEqual(FakeCv2.bitwise_calls[0][1], frame)
 
-    def test_roi_change_resets_motion_baseline_and_active_window_once(self) -> None:
+    def test_roi_change_resets_motion_baseline_and_binds_snapshot_once(self) -> None:
         points = [(10, 10), (500, 10), (500, 400), (10, 400)]
         detector = FakeDetector()
         fetches = [(True, points), (True, points)]
@@ -117,12 +117,14 @@ class RoiBoundedWorkerTests(unittest.TestCase):
         ns: dict[str, Any] = {
             "fetch_remote_roi": fetch_remote_roi,
             "mask_frame_to_roi": lambda frame, roi_points: ("masked", frame, tuple(roi_points)),
+            "_roi_processing_points": None,
         }
         load_nodes({"roi_processing_signature", "prepare_roi_processing_frame"}, ns)
 
         first_frame, first_points = ns["prepare_roi_processing_frame"]("frame-a", detector)
         self.assertEqual(first_points, points)
         self.assertEqual(first_frame[0], "masked")
+        self.assertEqual(ns["_roi_processing_points"], points)
         self.assertIsNone(detector.prev)
         self.assertEqual(detector.active_until, 0.0)
         self.assertEqual(detector.last_boxes, [])
@@ -133,6 +135,7 @@ class RoiBoundedWorkerTests(unittest.TestCase):
         second_frame, second_points = ns["prepare_roi_processing_frame"]("frame-b", detector)
         self.assertEqual(second_points, points)
         self.assertEqual(second_frame[0], "masked")
+        self.assertEqual(ns["_roi_processing_points"], points)
         self.assertEqual(detector.prev, "new-baseline")
         self.assertEqual(detector.active_until, 7.0)
 
@@ -144,7 +147,7 @@ class RoiBoundedWorkerTests(unittest.TestCase):
         prepare = "processing_frame, roi_points = prepare_roi_processing_frame(frame, motion_detector)"
         motion = "motion_detector.process(processing_frame)"
         inference = "detect_vehicles(model, processing_frame)"
-        final_guard = "filter_detections_by_roi(detections, roi_points)"
+        final_guard = "filter_detections_by_roi(detections)"
 
         self.assertIn(prepare, main_source)
         self.assertIn(motion, main_source)
@@ -153,6 +156,24 @@ class RoiBoundedWorkerTests(unittest.TestCase):
         self.assertLess(main_source.index(prepare), main_source.index(motion))
         self.assertLess(main_source.index(motion), main_source.index(inference))
         self.assertNotIn("detect_vehicles(model, frame)", main_source)
+
+    def test_final_roi_guard_uses_bound_frame_snapshot_before_remote_fallback(self) -> None:
+        source = SOURCE.read_text(encoding="utf-8-sig")
+        prepare_start = source.index("def prepare_roi_processing_frame(")
+        prepare_end = source.index("def bbox_center(", prepare_start)
+        prepare_source = source[prepare_start:prepare_end]
+        filter_start = source.index("def detection_inside_road_roi(")
+        filter_end = source.index("def filter_detections_by_roi(", filter_start)
+        filter_source = source[filter_start:filter_end]
+
+        self.assertIn("global _roi_processing_points", prepare_source)
+        self.assertIn("_roi_processing_points = list(points)", prepare_source)
+        self.assertIn("points = _roi_processing_points", filter_source)
+        self.assertIn("points = parse_road_roi_polygon()", filter_source)
+        self.assertLess(
+            filter_source.index("points = _roi_processing_points"),
+            filter_source.index("points = parse_road_roi_polygon()"),
+        )
 
     def test_operator_overlay_keeps_ai_boxes_but_not_motion_boxes(self) -> None:
         source = SOURCE.read_text(encoding="utf-8-sig")
@@ -170,7 +191,7 @@ class RoiBoundedWorkerTests(unittest.TestCase):
         source = SOURCE.read_text(encoding="utf-8-sig")
         self.assertIn("def detection_inside_road_roi(det, points=None):", source)
         self.assertIn("def filter_detections_by_roi(detections, points=None):", source)
-        self.assertIn("if points is None:\n        points = parse_road_roi_polygon()", source)
+        self.assertIn("if points is None:\n        points = _roi_processing_points", source)
 
 
 if __name__ == "__main__":
