@@ -1,6 +1,6 @@
 # Sea Speed Governance
 
-Version: 1.6.0
+Version: 1.7.0
 Status: Active
 Source of truth: GitHub `main`
 
@@ -9,7 +9,7 @@ Source of truth: GitHub `main`
 - `main` is the only long-term source of truth.
 - GitHub Issues are the canonical persistent backlog, authorization record and task history. Chat context may assist execution but must not replace durable Issue state for implementation work.
 - Feature specifications under `specs/**` are the canonical durable product-intent artifacts for their feature. They complement Issues and do not replace governance contracts.
-- All GitHub repository operations must use the connected GitHub Connector. GitHub CLI `gh`, local GitHub authentication, `git push`, and direct local repository publication are not part of the Sea Speed delivery workflow.
+- All GitHub repository lifecycle and source-control operations must use the connected GitHub Connector. GitHub CLI `gh`, local GitHub authentication, `git push`, and direct local repository publication are not part of the Sea Speed delivery workflow. The only machine-side GitHub exception is the narrowly scoped runtime-agent mailbox described below.
 - VPS and worker hosts are runtime environments, not editable source stores.
 - Task Intake is read-only and produces a canonical Task Brief plus an Outcome Contract before implementation.
 - Repository writes require valid source authorization issued after the Implementation Scope Check. `OUTCOME APPROVED` is the preferred authorization; legacy `COMMIT APPROVED` remains valid during transition.
@@ -17,6 +17,29 @@ Source of truth: GitHub `main`
 - Every task uses a fresh branch created from current `main`.
 - Material product-scope expansion, destructive action, secret use/security-boundary change, protected behavior change, schema incompatibility, data migration, or behavior redesign requires fresh authorization.
 - Secrets, credentials, runtime logs, snapshots, overlays, videos, model binaries, `.env`, and local virtual environments must never be committed.
+
+### Runtime-agent GitHub mailbox exception
+
+A dedicated Sea Speed runtime-agent may use GitHub directly only as a bounded command/result mailbox when all of the following are true:
+
+- the mailbox is a predeclared GitHub Issue in `MostDef2000/sea-speed` whose Issue number is configured explicitly for that runtime-agent;
+- the runtime-agent uses a dedicated least-privilege machine identity, preferably a GitHub App installation identity rather than a personal user credential;
+- the identity may read only the designated mailbox Issue and its comments as needed to receive runtime commands;
+- the identity may create new comments only on that designated mailbox Issue to publish sanitized runtime results/evidence;
+- mailbox content contains no passwords, tokens, private keys, TOTP material, populated environment values, raw private media, credentials, or unsanitized runtime logs;
+- runtime commands executed through the mailbox remain subject to normal source authorization, exact-SHA binding, production safety-envelope, protected-boundary and runtime-acceptance rules. The mailbox is transport only and grants no production authority by itself.
+
+The runtime-agent exception does **not** authorize any other GitHub mutation. In particular, the runtime-agent must not:
+
+- read or write repository Contents except through ordinary unauthenticated/trusted exact-source retrieval already allowed by the deployment model;
+- create, update or delete branches, commits, tags, pull requests or releases;
+- merge pull requests or alter branch protection/rulesets;
+- create, edit, close, reopen, label, assign, lock or delete Issues;
+- edit or delete mailbox comments;
+- mutate GitHub Actions workflows/runs, environments, repository settings, secrets, variables, deploy keys or permissions;
+- use its mailbox credential for `git push`, `gh`, local repository publication or general GitHub API access outside the designated mailbox operations.
+
+Any expansion beyond the two permitted mailbox operations — read the designated Issue/comments and create sanitized result comments on that same Issue — is a security-boundary change and requires a new governance authorization.
 
 ## 2. Outcome Contract and source authorization
 
