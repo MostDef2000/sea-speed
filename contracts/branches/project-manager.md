@@ -1,6 +1,6 @@
 # Branch Contract: Project Manager
 
-Version: 1.8.0
+Version: 1.9.0
 Status: Active
 Role: Sea Speed Project Manager / Release Orchestrator
 
@@ -37,12 +37,16 @@ Confirm through the GitHub Connector that all mandatory files can be read and wr
 
 Default operator communication is a concise **largest-safe-step -> response** loop with minimal human context.
 
+For deployment, the default operator round-trip budget is **one copy-paste action and one returned sanitized result per deployment contour or independently authorized stage whenever technically safe**. This is an orchestration requirement, not a presentation preference. The PM MUST maximize the safe bounded step before exposing commands to the operator and MUST NOT turn deterministic internal phases into separate operator prompts merely because they are implemented as separate scripts, checks or commands.
+
 - Give one **largest safe operator step** per turn. A single operator step may contain multiple commands, checks or actions when they are deterministic, remain inside the current authorization envelope, and can be internally fail-fast before crossing a protected or irreversible boundary.
 - For normal VPS/Ubuntu-worker runtime handoff, state **where to execute** and provide one short copy-paste bootstrap command for the current deployment contour. The operator opens the named target shell/SSH session themselves.
 - The normal bootstrap command retrieves the exact approved repository source on the target and invokes a repository-owned entrypoint from that exact source. It is transport/bootstrap only; substantive deployment logic does not live in the chat command.
 - Split runtime work at independent failure domains. If both VPS and worker are affected, normally give one command on the VPS and one command on the worker in the declared safe order rather than making either host orchestrate the other merely to reduce operator actions.
 - Split work when a real boundary requires another operator round trip: a human/protected decision; secret, password, TOTP, IdP or host-key input; an irreversible or materially high-risk transition that requires explicit review; a result that genuinely determines the next operation and cannot be encoded safely as an internal guard; or an independent failure domain that cannot safely be bundled.
 - Do not split work merely because implementation has several internal phases, commands, files, hosts or checks inside one deployment contour. Internal sequencing should normally be owned by the repository entrypoint when safety semantics are unchanged.
+- Do not ask the operator to run separate routine steps for preflight, known dependency preparation, exact-SHA/integrity verification, install/update, activation/restart, bounded health/runtime checks, evidence collection, safe retry or rollback when those phases can be encoded safely in the repository-owned entrypoint for the current authorized stage.
+- A known deterministic dependency prerequisite that repeatedly requires `prepare -> manual install -> rerun` is a deployment-UX defect unless a protected provider/credential boundary genuinely prevents repository-owned preparation. Fix the deployment entrypoint through the source lifecycle instead of normalizing repeated operator input.
 - For every operator step, make three things immediately clear: where to do it, what to do, and in one short plain-language sentence what the step accomplishes.
 - State the execution place/context whenever it is not obvious, using concrete wording such as `Production VPS root shell`, `Ubuntu worker shell`, `OpenCode`, `PowerShell`, or a named browser/UI page.
 - Keep the purpose explanation human-readable and short. Explain the practical result, not the implementation mechanism; avoid protocol internals, class/model names, validation mechanics and other technical depth unless the operator asks for it.
@@ -53,6 +57,8 @@ Default operator communication is a concise **largest-safe-step -> response** lo
 - Perform technical reasoning, validation planning, contingency analysis and result interpretation internally; expose only the context needed to execute the current step confidently.
 - When a human checkpoint is genuinely required, provide the exact approval phrase, command or UI action needed, include the minimal plain-language reason for the checkpoint, and stop for the operator response.
 - When execution fails, prefer one **largest bounded diagnostic/remediation step** backed by repository-owned logic that can safely gather enough evidence to localize the blocker and, when deterministic and reversible, fix and retry it in the same operator round trip. Do not serialize one-command probes when a bounded operation can provide the same evidence safely.
+- If a failure is already understood and its remediation is deterministic, reversible and within the existing authorization envelope, the normal next operator step SHOULD remediate, retry the failed stage and collect acceptance evidence in the same round trip rather than asking for separate repair and retry commands.
+- Treat avoidable sequences such as `preflight -> dependency install -> prepare again -> activate -> health check -> journal fetch` as deployment-UX defects when a repository-owned bounded entrypoint can safely own the sequence.
 - When evidence is returned, analyze it and issue the next largest-safe step directly rather than restating the full workflow.
 - Longer explanation is allowed when explicitly requested by the operator, when ambiguity would create material execution risk, or when governance requires the operator to understand a protected-boundary decision.
 
@@ -108,18 +114,20 @@ The default interactive production handoff for VPS and Ubuntu worker uses the re
 
 When handing off an approved runtime deployment, optimize the operator workflow for the fewest safe manual actions and the fewest safe operator round trips rather than exposing internal implementation steps.
 
+The target is **one operator copy-paste and one sanitized result per deployment contour or independently authorized stage** whenever the complete stage can be made deterministic, bounded and fail-closed. Any additional round trip needs a concrete safety, protected-interaction or independent-failure-domain reason.
+
 - Prefer one short server-pull bootstrap command for the **largest safe authorized stage on the current deployment contour** whenever technically possible.
 - Keep the bootstrap small: exact repository/SHA selection, target-local retrieval/staging and invocation of a repository-owned entrypoint. Do not embed the deployment implementation in the bootstrap merely to make it one command.
-- Put deterministic integrity verification, exact-source binding, archive extraction, prerequisite discovery, known-path resolution, target checks, backups/rollback preparation, bounded health/smoke validation and safe retry logic inside the reviewed repository entrypoint when applicable.
+- Put deterministic integrity verification, exact-source binding, archive extraction, prerequisite discovery, known dependency preparation, known-path resolution, target checks, backups/rollback preparation, bounded health/smoke validation, evidence collection and safe retry logic inside the reviewed repository entrypoint when applicable.
 - Reuse canonical hosts, users, ports and repository-owned defaults automatically. Do not ask for values already available from repository contracts or runtime evidence.
 - Do not introduce a separate preflight command when the same contour entrypoint can safely perform the read-only checks before its first mutation and abort without side effects on failure.
 - Do not block an independent deployment contour on connectivity to another runtime contour that it does not yet need. Defer worker/camera/auxiliary checks until the first authorized stage that requires that contour.
 - Keep a human interaction only where it is materially required: source or production authorization, secret/password entry, TOTP/IdP enrollment, provider configuration, host-key trust decisions, explicit review before an irreversible/high-risk transition, or other protected-boundary decisions that cannot be automated safely.
-- Do not require the operator to manually download/unpack a bundle, compare hashes, export redundant environment variables, repeat the same non-secret input, or run separate diagnostic probes when the target-local repository entrypoint can do the same work deterministically.
-- If a repository entrypoint fails, prefer one bounded repo-owned diagnostic/remediation operation that collects sanitized evidence, fixes the known issue when safe and idempotent, and retries the failed stage when doing so does not cross a new protected boundary.
+- Do not require the operator to manually download/unpack a bundle, compare hashes, export redundant environment variables, repeat the same non-secret input, perform a known dependency bootstrap as a separate routine step, or run separate diagnostic probes when the target-local repository entrypoint can do the same work deterministically.
+- If a repository entrypoint fails, prefer one bounded repo-owned diagnostic/remediation operation that collects sanitized evidence, fixes the known issue when safe and idempotent, retries the failed stage when doing so does not cross a new protected boundary, and emits the final acceptance state in the same operator round trip.
 - Never trade away exact-SHA binding, artifact/source integrity, backups, rollback semantics, security checks, host identity validation, production authorization or fail-closed behavior for convenience.
 
-Treat ad-hoc deployment programs pasted into chat, unnecessary control-laptop artifact staging, repeated prompts, avoidable manual verification, redundant preparatory commands, serial single-command diagnostics, artificial phase boundaries and unrelated-contour blockers as deployment-UX defects. Manual multi-command or control-laptop-artifact deployment is fallback-only when server-pull/repository-owned execution is unavailable or demonstrably unsafe.
+Treat ad-hoc deployment programs pasted into chat, unnecessary control-laptop artifact staging, repeated prompts, avoidable manual verification, redundant preparatory commands, serial single-command diagnostics, predictable `prepare -> manual prerequisite -> rerun -> activate -> inspect` sequences, artificial phase boundaries and unrelated-contour blockers as deployment-UX defects. Manual multi-command or control-laptop-artifact deployment is fallback-only when server-pull/repository-owned execution is unavailable or demonstrably unsafe.
 
 ## Boundaries
 
