@@ -2,49 +2,82 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://mostdef.ru/sea-speed/schemas/release-manifest.schema.json",
   "title": "Sea Speed release manifest",
-  "type": "object",
-  "additionalProperties": false,
-  "required": [
-    "schema",
-    "deliveryId",
-    "component",
-    "issue",
-    "sourceCommit",
-    "baseCommit",
-    "approvedScopeHash",
-    "approvedFiles",
-    "artifacts",
-    "createdAt",
-    "state"
+  "oneOf": [
+    {"$ref": "#/$defs/v1"},
+    {"$ref": "#/$defs/v2"}
   ],
-  "properties": {
-    "schema": {"const": "sea_speed_release_manifest_v1"},
-    "deliveryId": {"type": "string", "minLength": 8},
-    "component": {"enum": ["vps", "windows-worker", "mixed", "governance"]},
-    "issue": {"type": "integer", "minimum": 0},
-    "sourceCommit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
-    "baseCommit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
-    "approvedScopeHash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-    "approvedFiles": {
-      "type": "array",
-      "minItems": 1,
-      "uniqueItems": true,
-      "items": {"type": "string", "minLength": 1}
-    },
-    "artifacts": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["path", "sha256", "sizeBytes"],
-        "properties": {
-          "path": {"type": "string", "minLength": 1},
-          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-          "sizeBytes": {"type": "integer", "minimum": 0}
-        }
+  "$defs": {
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "sizeBytes"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "sizeBytes": {"type": "integer", "minimum": 0}
       }
     },
-    "createdAt": {"type": "string", "format": "date-time"},
-    "state": {"enum": ["validated", "packaged", "ready_for_deployment"]}
+    "v1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "deliveryId", "component", "issue", "sourceCommit", "baseCommit", "approvedScopeHash", "approvedFiles", "artifacts", "createdAt", "state"],
+      "properties": {
+        "schema": {"const": "sea_speed_release_manifest_v1"},
+        "deliveryId": {"type": "string", "minLength": 8},
+        "component": {"enum": ["vps", "windows-worker", "mixed", "governance"]},
+        "issue": {"type": "integer", "minimum": 0},
+        "sourceCommit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "baseCommit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "approvedScopeHash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "approvedFiles": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "artifacts": {"type": "array", "items": {"$ref": "#/$defs/artifact"}},
+        "createdAt": {"type": "string", "format": "date-time"},
+        "state": {"enum": ["validated", "packaged", "ready_for_deployment"]}
+      }
+    },
+    "v2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema", "deliveryId", "component", "canonicalIssue", "pullRequest", "sourceCommit", "baseCommit",
+        "outcomeContractHash", "changeContractHash", "authorizationFingerprint", "approvedScopeHash",
+        "approvedFiles", "actualFiles", "artifacts", "evidence", "createdAt", "state"
+      ],
+      "properties": {
+        "schema": {"const": "sea_speed_release_manifest_v2"},
+        "deliveryId": {"type": "string", "minLength": 8},
+        "component": {"enum": ["vps", "ubuntu-worker", "windows-worker", "mixed", "governance"]},
+        "canonicalIssue": {"type": "integer", "minimum": 1},
+        "pullRequest": {"type": "integer", "minimum": 1},
+        "sourceCommit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "baseCommit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "outcomeContractHash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "changeContractHash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "authorizationFingerprint": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "approvedScopeHash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "approvedFiles": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "actualFiles": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "artifacts": {"type": "array", "items": {"$ref": "#/$defs/artifact"}},
+        "evidence": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        },
+        "createdAt": {"type": "string", "format": "date-time"},
+        "state": {"enum": ["validated", "packaged", "ready_for_deployment"]}
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "state": {"const": "ready_for_deployment"},
+              "component": {"not": {"const": "governance"}}
+            },
+            "required": ["state", "component"]
+          },
+          "then": {"properties": {"artifacts": {"minItems": 1}}}
+        }
+      ]
+    }
   }
 }
