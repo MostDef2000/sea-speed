@@ -179,7 +179,7 @@ class SeaSpeedAuthV1Tests(unittest.TestCase):
             root = Path(raw); source = root / "site.conf"; candidate = root / "candidate.conf"; source.write_text(BASE, encoding="utf-8")
             rendered = subprocess.run(["python3", str(RENDERER), "render", "--config", str(source), "--output", str(candidate), "--authentik-upstream", AUTHENTIK_UPSTREAM, "--worker-private-listen", PRIVATE_LISTEN, "--worker-private-peer", PRIVATE_PEER], check=True, text=True, capture_output=True)
             self.assertIn("SEA_SPEED_AUTH_RENDER=PASS", rendered.stdout)
-            verified = subprocess.run(["python3", str(RENDERER), "verify", "--config", str(candidate), "--authentik-upstream", AUTHENTIK_UPSTREAM, "--worker-private-listen", PRIVATE_LISTEN, "--worker-private-peer", PRIVATE_PEER], check=True, text=True, capture_output=True)
+            verified = subprocess.run(["python3", str(RENDERER), "verify", "--config", str(candidate), "--output", str(candidate), "--authentik-upstream", AUTHENTIK_UPSTREAM, "--worker-private-listen", PRIVATE_LISTEN, "--worker-private-peer", PRIVATE_PEER], check=True, text=True, capture_output=True)
             self.assertIn("SEA_SPEED_AUTH_CONFIG=PASS", verified.stdout)
 
     def test_split_layout_materializes_direct_snippets_and_runs_full_render_pipeline(self) -> None:
@@ -236,7 +236,7 @@ class SeaSpeedAuthV1Tests(unittest.TestCase):
 
     def test_vps_deploy_uses_origin_health_and_public_auth_smoke(self) -> None:
         subprocess.run(["bash", "-n", str(VPS_DEPLOY)], check=True); source = VPS_DEPLOY.read_text(encoding="utf-8")
-        self.assertIn('ORIGIN_HEALTH_URL="${SEA_SPEED_ORIGIN_HEALTH_URL:-http://127.0.0.1:8000/api/health}"', source); self.assertIn('PUBLIC_HEALTH_URL="${SEA_SPEED_HEALTH_URL:-https://mostdef.ru/sea-speed/api/health}"', source); self.assertIn('curl --fail --silent --show-error --max-time 10 "$ORIGIN_HEALTH_URL"', source); self.assertIn('verify_public_url "Public private-health boundary" "$PUBLIC_HEALTH_URL"', source); self.assertIn("200|301|302|307|308|401|403", source); self.assertIn('"api_origin_health"', source); self.assertIn('"public_private_health_smoke"', source); self.assertNotIn('curl --fail --silent --show-error --max-time 10 "$PUBLIC_HEALTH_URL"', source)
+        self.assertIn('ORIGIN_HEALTH_URL="${SEA_SPEED_ORIGIN_HEALTH_URL:-http://127.0.0.1:8010/api/health}"', source); self.assertIn('PUBLIC_HEALTH_URL="${SEA_SPEED_HEALTH_URL:-https://mostdef.ru/sea-speed/api/health}"', source); self.assertIn('curl --fail --silent --show-error --max-time 10 "$ORIGIN_HEALTH_URL"', source); self.assertIn('verify_public_url "Public private-health boundary" "$PUBLIC_HEALTH_URL"', source); self.assertIn("200|301|302|307|308|401|403", source); self.assertIn('"api_origin_health"', source); self.assertIn('"public_private_health_smoke"', source); self.assertNotIn('curl --fail --silent --show-error --max-time 10 "$PUBLIC_HEALTH_URL"', source)
 
     def test_sdd_and_runtime_docs_record_issue_122_and_keep_production_separate(self) -> None:
         for path in (SPEC, PLAN, TASKS, QUICKSTART, AUTH_DOC, OPS_DOC): source = path.read_text(encoding="utf-8"); self.assertIn("#115", source); self.assertIn("#122", source)
