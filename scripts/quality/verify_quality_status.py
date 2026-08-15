@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Verify that an exact commit has a successful aggregate quality check run."""
+"""Verify that an exact main commit has a successful aggregate quality push run."""
 from __future__ import annotations
 
 import argparse
 import json
 import os
+import re
 import sys
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -15,19 +17,7 @@ if __package__ in (None, ""):
 from scripts.quality.common import SHA40_RE
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--repository", required=True)
-    parser.add_argument("--commit", required=True)
-    parser.add_argument("--required-name", default="quality-integration")
-    args = parser.parse_args()
-    commit = args.commit.lower()
-    if not SHA40_RE.fullmatch(commit):
-        raise SystemExit("commit must be a full lowercase 40-character SHA")
-    token = os.environ.get("GITHUB_TOKEN", "").strip()
-    if not token:
-        raise SystemExit("GITHUB_TOKEN is required")
-    url = f"https://api.github.com/repos/{args.repository}/commits/{commit}/check-runs?per_page=100"
+def github_json(url: str, token: str) -> dict:
     request = urllib.request.Request(
         url,
         headers={
@@ -38,14 +28,49 @@ def main() -> int:
         },
     )
     with urllib.request.urlopen(request, timeout=30) as response:
-        payload = json.load(response)
-    matches = [run for run in payload.get("check_runs", []) if run.get("name") == args.required_name]
+        return json.load(response)
+
+
+def verify(repository: str, commit: str, token: str, workflow_file: str = "quality-integration.yml") -> dict:
+    if commit != commit.lower() or not SHA40_RE.fullmatch(commit):
+        raise ValueError("commit must be an exact lowercase full 40-character SHA")
+    query = urllib.parse.urlencode({
+        "head_sha": commit,
+        "branch": "main",
+        "event": "push",
+        "status": "completed",
+        "per_page": 100,
+    })
+    url = f"https://api.github.com/repos/{repository}/actions/workflows/{workflow_file}/runs?{query}"
+    payload = github_json(url, token)
+    matches = [
+        run for run in payload.get("workflow_runs", [])
+        if run.get("head_sha") == commit
+        and run.get("head_branch") == "main"
+        and run.get("event") == "push"
+        and run.get("status") == "completed"
+        and run.get("conclusion") == "success"
+    ]
     if not matches:
-        raise SystemExit(f"required quality check not found: {args.required_name}")
-    latest = max(matches, key=lambda run: run.get("completed_at") or run.get("started_at") or "")
-    if latest.get("status") != "completed" or latest.get("conclusion") != "success":
-        raise SystemExit(f"quality check is not successful: status={latest.get('status')} conclusion={latest.get('conclusion')}")
-    print(f"Quality check verified for {commit}: {args.required_name}=success")
+        raise ValueError("no successful quality-integration push run on main exists for the exact SHA")
+    return max(matches, key=lambda run: run.get("run_number") or 0)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--repository", required=True)
+    parser.add_argument("--commit", required=True)
+    parser.add_argument("--workflow-file", default="quality-integration.yml")
+    args = parser.parse_args()
+    token = os.environ.get("GITHUB_TOKEN", "").strip()
+    if not token:
+        raise SystemExit("GITHUB_TOKEN is required")
+    try:
+        run = verify(args.repository, args.commit, token, args.workflow_file)
+    except (ValueError, OSError, json.JSONDecodeError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    print(f"Quality push run verified for {args.commit}: run_id={run.get('id')} run_number={run.get('run_number')}")
     return 0
 
 
