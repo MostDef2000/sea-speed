@@ -15,6 +15,17 @@ Specification: `specs/011-worker-immutable-shared-runtime/spec.md`
 - Preserve legacy per-release venvs so rollback remains safe across the migration boundary.
 - Continue to use the existing source quality check and runtime progression gate; this change optimizes runtime preparation, not release safety.
 
+## Architecture
+
+The Worker deployment layer is split into two independently immutable identities:
+
+- **source release**: exact Git source SHA under `releases/<SOURCE_SHA>/source` with source/quality provenance and a recorded `runtime-id`;
+- **shared runtime**: exact runtime fingerprint under `runtimes/<RUNTIME_ID>` with its Python environment, canonical definition, installed manifest and ready marker.
+
+`update-exact.sh` remains the orchestration boundary. It verifies exact source provenance and quality, delegates source/runtime preparation, renders the systemd unit with both identities, restarts the service, and advances the active marker only after the existing runtime progression gate passes. `prepare-runtime.sh` is the only component allowed to create a shared runtime and is structured as reuse -> local legacy adoption -> protected failure or new-runtime creation. `install-systemd.sh` consumes an already-prepared source/runtime pair and does not perform package installation. `rollback-exact.sh` resolves the target release's runtime binding and preserves compatibility with legacy per-release venv targets during migration.
+
+This keeps the large dependency layer stable across ordinary source changes while preserving exact source rollout and rollback semantics.
+
 ## Target layout
 
 ```text
@@ -86,6 +97,20 @@ Focused tests cover:
 - runtime-aware plus legacy-compatible rollback.
 
 Repository CI remains authoritative. PR Validation and Quality integration must pass on the exact final head before merge, followed by fresh post-merge gates.
+
+## Affected contours
+
+- Repository change-control classification: `CONTROL_PLANE` for this source diff.
+- Ubuntu Worker deployment/runtime layout: affected when a separately authorized exact merged SHA is rolled out.
+- Worker application detection/motion/ROI/tracking/speed/event logic: unchanged.
+- Protected Worker config/models/datasets/output: unchanged and preserved.
+- Camera/RTSP/media relay: unchanged.
+- VPS/API/frontend/auth/network topology: unchanged; no VPS deployment required.
+- Production mutation: not part of source integration and requires separate exact-SHA authorization.
+
+## Runtime feedback
+
+The previous production rollout demonstrated that exact source deployment itself was healthy but preparation was inefficient: the new source SHA received a new per-release venv and the same large CUDA/PyTorch stack was installed again before the Worker passed its sustained runtime gate. That evidence is the reason for the migration-first guard in this plan. The first shared-runtime production rollout must use the accepted existing venv as a verified local seed (or reuse an already-ready shared runtime); if that cannot be proven, it must stop instead of repeating the heavyweight network download. The existing successful frame/state/AI progression behavior remains the activation acceptance gate after the runtime-layout change.
 
 ## Production rollout
 
