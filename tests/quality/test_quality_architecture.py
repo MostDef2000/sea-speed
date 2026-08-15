@@ -89,14 +89,25 @@ jobs:
             second = Path(temp_dir) / "second"
             self.run_script("scripts/quality/build_exact_artifacts.py", "--source-commit", COMMIT, "--output-dir", str(first))
             self.run_script("scripts/quality/build_exact_artifacts.py", "--source-commit", COMMIT, "--output-dir", str(second))
-            for component in ("vps", "edge"):
+            for component in ("vps", "ubuntu-worker", "edge"):
                 filename = f"sea-speed-{component}-{COMMIT}.tar.gz"
                 self.assertEqual((first / filename).read_bytes(), (second / filename).read_bytes())
             self.assertEqual((first / "exact-artifacts.json").read_bytes(), (second / "exact-artifacts.json").read_bytes())
             manifest = json.loads((first / "exact-artifacts.json").read_text(encoding="utf-8"))
+            self.assertEqual(
+                {artifact["component"] for artifact in manifest["artifacts"]},
+                {"vps", "ubuntu-worker", "edge"},
+            )
             vps = next(artifact for artifact in manifest["artifacts"] if artifact["component"] == "vps")
             vps_paths = {entry["path"] for entry in vps["files"]}
             self.assertIn("frontend/sea-speed/cameras/index.html", vps_paths)
+            ubuntu = next(
+                artifact for artifact in manifest["artifacts"] if artifact["component"] == "ubuntu-worker"
+            )
+            ubuntu_paths = {entry["path"] for entry in ubuntu["files"]}
+            self.assertIn("deploy/worker/ubuntu/worker-control-agent.py", ubuntu_paths)
+            self.assertIn("deploy/worker/ubuntu/update-exact.sh", ubuntu_paths)
+            self.assertIn("worker/hls_motion_yolo_worker_events.py", ubuntu_paths)
             self.run_script("scripts/quality/validate_exact_artifacts.py", "--manifest", str(first / "exact-artifacts.json"))
 
     def test_quality_evidence_binds_artifact_digests(self) -> None:
@@ -114,6 +125,10 @@ jobs:
             )
             data = json.loads(evidence.read_text(encoding="utf-8"))
             self.assertEqual(data["source_commit"], COMMIT)
+            self.assertEqual(
+                {artifact["component"] for artifact in data["artifacts"]},
+                {"vps", "ubuntu-worker", "edge"},
+            )
             self.assertFalse(data["deployment"]["automatic_from_main"])
             self.assertEqual(data["contracts"]["target_media_mode"], "edge_v2")
 
