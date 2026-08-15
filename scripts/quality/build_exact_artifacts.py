@@ -137,14 +137,23 @@ def main() -> int:
     if not output_dir.is_absolute():
         output_dir = root / output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Preserve the quality-evidence v1 component contract (`vps` + legacy `edge`)
+    # while adding a first-class Ubuntu release artifact. The whole manifest is
+    # hash-bound by release-manifest v2, and the Ubuntu archive is also directly
+    # digest-bound there as the `ubuntu-worker` deployment artifact.
     artifacts = [
         build_component(root, output_dir, component, source_commit)
-        for component in ("vps", "ubuntu-worker", "edge")
+        for component in ("vps", "edge")
+    ]
+    release_artifacts = [
+        build_component(root, output_dir, "ubuntu-worker", source_commit)
     ]
     manifest = {
         "schema": "sea_speed_exact_artifacts_v1",
         "source_commit": source_commit,
         "artifacts": artifacts,
+        "release_artifacts": release_artifacts,
     }
     write_json_atomic(output_dir / "exact-artifacts.json", manifest)
     print(json.dumps(manifest, indent=2))
