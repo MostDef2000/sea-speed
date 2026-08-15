@@ -46,7 +46,7 @@ The populated `.env` is a runtime secret file. Keep it mode `0600` and never pri
 The initial runtime stage is owned by `stage.sh`. Run it only from an exact reviewed repository source inside an approved production envelope:
 
 ```text
-sudo deploy/worker/ubuntu/authentik/stage.sh stage \
+sudo bash deploy/worker/ubuntu/authentik/stage.sh stage \
   --bind-ip <worker-zerotier-ip> \
   --vps-peer <vps-zerotier-ip> \
   --env-file <protected-runtime-env-file>
@@ -73,13 +73,13 @@ The script does not configure Owner/TOTP enrollment, SMTP acceptance, the Forwar
 Issue #152 changes only the invalidation flow assigned to the existing `Provider for Sea Speed`. The repo-owned operation is:
 
 ```text
-sudo deploy/worker/ubuntu/authentik/apply-logout-flow.sh apply --source-sha <exact-approved-40-char-sha>
+sudo bash deploy/worker/ubuntu/authentik/apply-logout-flow.sh apply --source-sha <exact-approved-40-char-sha>
 ```
 
 The corresponding bounded rollback is:
 
 ```text
-sudo deploy/worker/ubuntu/authentik/apply-logout-flow.sh rollback --source-sha <same-approved-40-char-sha>
+sudo bash deploy/worker/ubuntu/authentik/apply-logout-flow.sh rollback --source-sha <same-approved-40-char-sha>
 ```
 
 Normal operator handoff does not require downloading this script to the control laptop. The server-pull bootstrap retrieves the exact approved repository SHA on the Ubuntu worker and invokes this entrypoint from that target-local source.
@@ -90,7 +90,7 @@ Normal operator handoff does not require downloading this script to the control 
 - verifies Authentik loopback readiness before mutation;
 - reads only the current non-secret provider invalidation-flow slug through Authentik's own Django shell;
 - fails closed if the provider is bound to anything other than the known previous `default-provider-invalidation-flow` or Issue #152 target `sea-speed-provider-invalidation`;
-- copies the exact repository-owned apply or rollback blueprint into a temporary path inside the already-running Authentik worker container;
+- copies the exact repository-owned apply or rollback blueprint into a temporary hidden path inside Authentik's configured `/blueprints` directory;
 - invokes Authentik's native `ak apply_blueprint` command synchronously;
 - verifies the actual provider assignment after apply;
 - automatically attempts the repository-owned rollback blueprint if apply reports success but the target assignment is not observable;
