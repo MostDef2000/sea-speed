@@ -11,6 +11,7 @@ Specification: `specs/005-auth-ux-logout/spec.md`
 - [x] Add focused source-contract tests.
 - [x] Verify exact diff/scope from current `main`.
 - [x] Open one bounded PR linked to Issue #152 and this specification.
+- [x] Align the PR Change Contract with the repository validator schema.
 - [ ] Require PR Validation and Quality integration on the exact PR head.
 - [ ] Merge exact green head.
 - [ ] Obtain separate exact merged-SHA production authorization before runtime mutation.
