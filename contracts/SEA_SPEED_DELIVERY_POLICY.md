@@ -1,6 +1,6 @@
 # Sea Speed Delivery Policy
 
-Version: 1.8.0
+Version: 1.9.0
 Status: Active
 
 ## 1. Purpose
@@ -171,15 +171,21 @@ Requirements:
 
 Production rollout must default to the fastest and simplest operator path that still satisfies every applicable safety boundary.
 
+The default operator-round-trip budget is **one copy-paste action and one returned sanitized result per deployment contour or independently authorized stage whenever technically safe**. This is a delivery requirement, not a stylistic preference. A second operator round trip needs a concrete protected-interaction, safety-decision or independent-failure-domain reason that cannot be encoded safely as a bounded internal guard.
+
+- The operator-facing action MUST represent the **largest safe authorized stage** that can be executed deterministically and fail-closed on the current contour. Do not expose internal implementation phases as separate operator steps merely because they are separate scripts or commands.
 - Prefer one short target-local server-pull bootstrap command per deployment contour whenever technically possible.
 - Keep substantive implementation inside the reviewed repository entrypoint. One-command UX is not permission to paste a large shell program into chat.
-- Move deterministic integrity/exact-SHA checks, archive handling, prerequisite checks, known-path resolution, host validation, backups/rollback preparation and health/smoke checks inside the approved repository entrypoint instead of making the operator run them manually.
+- Move deterministic integrity/exact-SHA checks, archive handling, prerequisite checks, known dependency preparation, known-path resolution, host validation, backups/rollback preparation, mutation, restart/reload, health/runtime checks, evidence collection and safe retry logic inside the approved repository entrypoint instead of making the operator run them manually.
 - Do not ask the operator to repeat canonical host/user/path values, export redundant environment variables or perform a manual hash check when the repo-owned entrypoint can derive and validate the same information safely.
 - Do not make a later or independent runtime contour a prerequisite for the current stage. An unavailable worker, camera or auxiliary route must not block an independent VPS-only stage unless that contour is required for the stage's safety or acceptance result.
-- Keep human checkpoints only where a person is genuinely required, including production authorization, local secret/password entry, TOTP or IdP enrollment, provider setup, host-key trust decisions, or equivalent protected-boundary actions that cannot be automated safely.
+- Keep human checkpoints only where a person is genuinely required, including production authorization, local secret/password entry, TOTP or IdP enrollment, provider setup, host-key trust decisions, explicit review before an irreversible/high-risk transition, or equivalent protected-boundary actions that cannot be automated safely.
+- A predictable sequence such as `prepare -> install known dependency -> prepare again -> activate -> health check -> collect logs` MUST NOT be the normal operator path when the repository-owned entrypoint can perform the same sequence safely. Treat that pattern as a deployment-UX defect and improve the source tooling before the next normal rollout.
+- Do not require the operator to manually download/unpack a bundle, compare hashes, export redundant environment variables, repeat the same non-secret input, run a known dependency bootstrap as a separate routine step, or run separate diagnostic probes when the target-local repository entrypoint can do the same work deterministically.
+- On a known failure mode, prefer one bounded repository-owned diagnostic/remediation operation that gathers sanitized evidence, applies a deterministic reversible/idempotent repair, retries the failed stage and emits the final acceptance state in the same round trip when this remains inside the current production envelope.
+- On an unknown or materially risky failure, stop fail-closed at the smallest real boundary; do not invent a chain of serial probes if one bounded diagnostic operation can gather the needed evidence safely.
 - Preserve exact-SHA binding, artifact/source integrity, security checks, backups, rollback semantics, host identity validation and fail-closed behavior even when the operator flow is compressed.
-- Repeated entry of the same non-secret deployment data, unnecessary control-laptop downloads/unpacking, manual preflight/hash steps and manual diagnostics that repository automation can perform are deployment-UX defects and should be removed from the normal path.
-- On failure, stop fail-closed and report the smallest concrete next action. Prefer repository-owned diagnostics and remediation evidence over a long sequence of operator-run troubleshooting commands.
+- Repeated entry of the same non-secret deployment data, unnecessary control-laptop downloads/unpacking, manual preflight/hash steps, redundant preparatory commands and manual diagnostics that repository automation can perform are deployment-UX defects and should be removed from the normal path.
 
 A manual multi-command or control-laptop-artifact workflow is acceptable only as an explicit fallback when the bounded repository-owned server-pull path is unavailable or unsafe. Simplicity never authorizes skipping a required safety or evidence gate.
 
