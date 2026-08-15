@@ -14,6 +14,8 @@ Specification: `specs/010-roi-bounded-motion-inference/spec.md`
 - Remove yellow technical motion rectangles from the operator overlay while retaining existing AI detection boxes/labels.
 - Keep the existing Ubuntu AI supervisor/protocol unchanged; it already receives whichever frame the core Worker passes to `detect_vehicles`.
 
+## Architecture
+
 For every frame:
 
 1. Fetch the existing cached remote ROI once.
@@ -27,6 +29,8 @@ For every frame:
 9. Apply final ROI filtering using the same effective ROI point list captured at step 1.
 10. Run unchanged tracking/speed/event processing on accepted detections.
 11. Draw the operator overlay from the original camera frame and accepted AI detections only; do not draw technical `motion_boxes`.
+
+The core Worker owns ROI masking because it already owns motion filtering and final ROI filtering. The Ubuntu entrypoint continues to supervise the AI subprocess without understanding ROI semantics, so the same processing frame crosses the existing inference boundary without protocol or coordinate changes.
 
 ## Implementation
 
