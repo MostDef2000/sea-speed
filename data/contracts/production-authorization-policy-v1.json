@@ -1,0 +1,19 @@
+{
+  "schema": "sea-speed-production-authorization-policy/v1",
+  "version": "1.0.0",
+  "authorizedActors": [
+    "MostDef2000"
+  ],
+  "approvalPrefix": "PRODUCTION APPROVED",
+  "fingerprintFields": [
+    "canonicalIssue",
+    "pullRequest",
+    "sourceCommit",
+    "outcomeContract",
+    "runtimeContours",
+    "securityImpact",
+    "deploymentTarget",
+    "rollbackTarget"
+  ],
+  "failClosed": true
+}
