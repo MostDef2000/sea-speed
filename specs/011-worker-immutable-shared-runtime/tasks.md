@@ -17,8 +17,8 @@ Specification: `specs/011-worker-immutable-shared-runtime/spec.md`
 - [x] Make explicit rollback runtime-aware while retaining legacy per-release rollback safety.
 - [x] Add focused shared-runtime, installer, updater, systemd and rollback contract tests.
 - [x] Add SDD specification, plan and task tracking.
-- [ ] Confirm the exact branch diff is limited to the approved 15 paths.
-- [ ] Open a PR with valid Change Contract and `Specification: specs/011-worker-immutable-shared-runtime/spec.md`.
+- [x] Confirm the exact branch diff is limited to the approved 15 paths.
+- [x] Open PR #171 with valid Change Contract and `Specification: specs/011-worker-immutable-shared-runtime/spec.md`.
 - [ ] Obtain PR Validation and Quality integration success on the exact PR head.
 - [ ] Resolve any CI/review findings without expanding scope.
 - [ ] Revalidate main/head/scope/reviews and merge with expected-head protection.
