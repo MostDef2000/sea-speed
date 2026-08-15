@@ -1,7 +1,7 @@
 # Sea Speed Testing Policy
 
 Status: Active
-Version: 1.0.0
+Version: 1.1.0
 
 ## Required layers
 
@@ -49,6 +49,21 @@ Merge, release, deployment and runtime acceptance are separate operations.
 
 Production deployment is manual, requires an exact full commit SHA, a successful aggregate quality check for that commit, production-environment approval, validated evidence and an available rollback target.
 
+## Delivery quality artifacts
+
+Risk-based test design lives in the active feature `plan.md`, not a parallel QA document. Each test-design record states the covered acceptance criteria/risks, evidence level and priority:
+
+- levels: `unit`, `integration`, `end-to-end`, `runtime-manual`;
+- priorities: `P0`, `P1`, `P2`, `P3`.
+
+Every `AC-*` in a linked significant specification is mapped in `tasks.md` to an implementation task plus test/evidence. A physical-runtime criterion may use `RUNTIME-MANUAL` only with an explicit reason and observable evidence path.
+
+The NFR assessment in `spec.md` uses `PASS`, `CONCERNS`, `FAIL`, `NOT APPLICABLE`; `PASS` requires a measurable target and evidence method. Unknown targets cannot be promoted to `PASS`.
+
+A full risk profile is mandatory for high-risk triggers defined by the delivery policy. Risk categories are `TECH`, `SEC`, `PERF`, `DATA`, `BUS`, `OPS`, with 1-5 probability and impact scoring. The test plan should prioritize the highest residual-risk paths without replacing the repository's always-running aggregate quality domains.
+
 ## Risk acceptance
 
 Ideal governance requires independent review. When the repository operates under a single-maintainer model, owner approval is not described as independent review. The exception and compensating automated gates must be represented in the accepted-risk register.
+
+A PR-level `WAIVED` quality verdict is narrower than the accepted-risk register: it records one bounded delivery concern with an owner, review/expiry date, compensating controls and remediation target. It cannot waive hard authorization, scope, CI, production or rollback requirements. Long-lived architectural risk should still be represented in `data/quality/accepted-risks-v1.json` when applicable.

@@ -1,6 +1,6 @@
 # Sea Speed Delivery Policy
 
-Version: 1.11.0
+Version: 1.12.0
 Status: Active
 
 ## 1. Purpose
@@ -125,3 +125,11 @@ The active media mode remains `mvp_v1`; `edge_v2` is a separate protected migrat
 ## 14. Completion
 
 Merge is not release. Release is not deployment. Deployment is not acceptance. `COMPLETE` requires evidence for every applicable contour and the product verdict rules in `docs/evidence/POST_RELEASE_REVIEW.md`.
+
+## 15. Delivery quality admission
+
+A linked significant PR is quality-enabled only when its canonical SDD includes the current NFR, risk/test-design, correct-course, traceability and Definition-of-Done sections and the Change Contract declares the derived `Risk profile` applicability plus a quality verdict.
+
+Full risk profiling is required for security impact, API/event/state/storage schema impact, destructive/data migration, `MIXED` runtime impact, or an explicit other high-risk trigger. Risk records use categories `TECH`, `SEC`, `PERF`, `DATA`, `BUS`, `OPS`; probability and impact are scored 1-5 and the score is their product. Test design identifies `unit`, `integration`, `end-to-end`, or `runtime-manual` evidence with priority `P0` through `P3`.
+
+The quality verdict is advisory with respect to product confidence but machine-enforced for admission: `FAIL` blocks; `PASS` and `CONCERNS` proceed subject to all hard gates; `WAIVED` proceeds only with a complete durable waiver record. A waiver never changes runtime applicability or production authorization and never converts missing mandatory evidence into success.

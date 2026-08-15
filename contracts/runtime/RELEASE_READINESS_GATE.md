@@ -1,6 +1,6 @@
 # Sea Speed Release Readiness Gate
 
-Version: 1.5.0
+Version: 1.6.0
 Status: Active
 
 ## Gate
@@ -17,6 +17,9 @@ Release Readiness Gate
 - Changed files match approved scope: YES/NO
 - Aggregate quality push run on main successful for exact commit: YES/NO
 - SDD linkage valid for significant change: YES/NO/NOT APPLICABLE
+- Delivery quality layer valid: YES/NO/NOT APPLICABLE
+- Risk profile applicability correct: YES/NO/NOT APPLICABLE
+- Quality verdict: PASS/CONCERNS/WAIVED/NOT APPLICABLE
 - Secrets/runtime artifacts absent: YES/NO
 - Exact artifact inventory and SHA-256 valid: YES/NO/NOT APPLICABLE
 - Quality evidence valid: YES/NO/NOT APPLICABLE
@@ -43,6 +46,14 @@ Before implementation begins, verify the complete approved file set and delivery
 The merge-facing context remains `Quality integration gate / quality-integration`. It succeeds only when all required independent domains succeed. The static/contract domain executes `scripts/ci/validate_sdd.py` for PR events, so a significant PR without valid linked SDD cannot produce aggregate success. The existing docs/spec lightweight exception remains in the validator. A skipped, cancelled or failed dependency is not success.
 
 This workflow is the canonical repository gate; it does not imply that GitHub branch-protection settings are enabled.
+
+## Delivery quality gate
+
+For a significant PR, `scripts/ci/validate_sdd.py` validates the current linked feature's NFR assessment, risk profile/test design/correct-course sections, acceptance traceability and Definition of Done. Historical feature directories remain repository-valid without retrofit until they become the active linked significant work.
+
+`scripts/ci/validate_change_contract.py` derives whether a full risk profile is required from security impact, API/event/state/storage schema impact, destructive/data migration, `MIXED` runtime impact, and an explicit other high-risk trigger. It rejects a mismatched declaration, rejects quality verdict `FAIL`, and admits `WAIVED` only with a complete durable waiver record.
+
+A quality waiver is never a hard gate bypass. It never bypasses source authorization, exact diff, runtime-contour derivation, protected-boundary reauthorization, secrets checks, aggregate CI, production authorization, release provenance, rollback or runtime acceptance.
 
 ## Release provenance gate
 
