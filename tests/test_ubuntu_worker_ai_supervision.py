@@ -64,8 +64,10 @@ class UbuntuWorkerAiSupervisionTests(unittest.TestCase):
     def test_ai_request_write_is_inside_same_absolute_deadline(self) -> None:
         source = ENTRYPOINT.read_text(encoding="utf-8")
         self.assertIn("def _write_all_bounded", source)
+        self.assertIn("os.set_blocking(self.proc.stdin.fileno(), False)", source)
         self.assertIn("select.select([], [fd], [], remaining)", source)
         self.assertIn("written = os.write(fd, view[offset:])", source)
+        self.assertIn("except BlockingIOError", source)
         self.assertIn("deadline = time.monotonic() + timeout_sec", source)
         self.assertIn("self._write_all_bounded(_LENGTH.pack(len(header)), deadline)", source)
         self.assertIn("self._write_all_bounded(raw, deadline)", source)

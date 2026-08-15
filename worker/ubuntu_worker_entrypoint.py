@@ -234,6 +234,10 @@ class BoundedYoloSupervisor:
             bufsize=0,
             close_fds=True,
         )
+        if self.proc.stdin is None:
+            self.close()
+            raise RuntimeError("AI inference stdin unavailable")
+        os.set_blocking(self.proc.stdin.fileno(), False)
         self.child_warmed = False
         print(f"AI inference child restart reason={reason} device={self.device}")
 
@@ -269,7 +273,10 @@ class BoundedYoloSupervisor:
             _, writable, _ = select.select([], [fd], [], remaining)
             if not writable:
                 raise TimeoutError("AI inference timeout")
-            written = os.write(fd, view[offset:])
+            try:
+                written = os.write(fd, view[offset:])
+            except BlockingIOError:
+                continue
             if written <= 0:
                 raise EOFError("AI inference protocol ended")
             offset += written
