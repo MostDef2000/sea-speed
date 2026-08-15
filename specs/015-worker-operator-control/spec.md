@@ -38,7 +38,7 @@ Given the VPS cannot reach, authenticate to, or confirm the fixed protocol versi
 - FR-011: Detection, tracking, speed, calibration and event semantics MUST remain unchanged; no `worker/**` source is modified by the operator-control feature implementation or its provenance remediation.
 - FR-012: Source integration MUST NOT mutate production. VPS and Ubuntu runtime changes require a later exact-SHA production safety envelope.
 - FR-013: Every successful Ubuntu worker-control response MUST carry the fixed protocol marker `sea_speed_worker_control_v1`, and VPS FastAPI MUST reject a missing or different marker as an unavailable/incompatible control agent.
-- FR-014: Exact-artifact quality tooling MUST build and validate a deterministic `ubuntu-worker` source artifact in addition to the existing `vps` and legacy `edge` artifacts so a MIXED release can satisfy release-manifest v2 exact-artifact admission for both deployable contours.
+- FR-014: Exact-artifact tooling MUST build and validate a deterministic `ubuntu-worker` source artifact as release-specific provenance while preserving the existing quality-evidence v1 `vps` and legacy `edge` component contract. Release-manifest v2 MUST be able to bind the Ubuntu archive digest directly plus the SHA-256 of the complete exact-artifacts manifest.
 
 ## Acceptance criteria
 
@@ -55,7 +55,7 @@ Given the VPS cannot reach, authenticate to, or confirm the fixed protocol versi
 - AC-011: PR Validation and aggregate Quality integration succeed on the exact final PR head with exact approved scope and no unresolved review threads.
 - AC-012: After separate production authorization, runtime-manual evidence proves stop/start changes AI worker state while Camera 1 HLS remains playable throughout.
 - AC-013: Source tests prove the Ubuntu agent emits `sea_speed_worker_control_v1` and the VPS proxy has an explicit fail-closed protocol mismatch guard before returning successful control payloads.
-- AC-014: Two independent exact-artifact builds produce byte-identical `vps`, `ubuntu-worker`, and `edge` archives/manifests; the validator accepts all three and the quality evidence binds the Ubuntu artifact digest.
+- AC-014: Two independent exact-artifact builds produce byte-identical `vps`, `ubuntu-worker`, and `edge` archives/manifests; the validator accepts all three, quality-evidence v1 remains valid for its existing `vps`/`edge` inventory, and the exact-artifacts manifest separately records the Ubuntu artifact digest for later release-manifest v2 binding.
 
 ## NFR assessment
 
@@ -64,7 +64,7 @@ Given the VPS cannot reach, authenticate to, or confirm the fixed protocol versi
 - NFR-003 | Area: OPERABILITY | Target: intentional stopped/running state survives exact update/rollback maintenance semantics | Validation: updater/rollback contract tests | Evidence: tests/test_ubuntu_worker_exact_updater.py and tests/test_ubuntu_worker_rollback.py | Status: PASS
 - NFR-004 | Area: COMPATIBILITY | Target: Camera 1 HLS URL and existing live Play/Stop controls remain unchanged | Validation: frontend contract test | Evidence: tests/test_frontend_contract.py | Status: PASS
 - NFR-005 | Area: PERFORMANCE | Target: worker-control status/action upstream timeout is bounded to <= 5 seconds by configuration clamp | Validation: API contract assertions | Evidence: tests/test_worker_operator_control.py | Status: PASS
-- NFR-006 | Area: RELEASE_PROVENANCE | Target: MIXED release quality evidence contains deterministic exact artifacts for VPS and Ubuntu Worker while preserving legacy edge evidence | Validation: deterministic build, extraction/digest/syntax validation and quality-evidence binding | Evidence: tests/quality/test_quality_architecture.py | Status: PASS
+- NFR-006 | Area: RELEASE_PROVENANCE | Target: MIXED release provenance contains deterministic exact artifacts for VPS and Ubuntu Worker while preserving the existing quality-evidence v1 `vps`/legacy-`edge` contract | Validation: deterministic build, extraction/digest/syntax validation, quality-evidence validation, and exact-manifest/release-artifact binding | Evidence: tests/quality/test_quality_architecture.py | Status: PASS
 
 ## Compatibility and boundaries
 
@@ -73,7 +73,7 @@ Given the VPS cannot reach, authenticate to, or confirm the fixed protocol versi
 - Additive browser API: `/sea-speed/api/worker/control`, `/start`, `/stop`.
 - Private Ubuntu agent: fixed status/start/stop HTTP surface on a configured RFC1918 listener.
 - Private worker-control compatibility identity: `sea_speed_worker_control_v1`; mismatches fail closed rather than falling back.
-- Release evidence: deterministic `ubuntu-worker` artifact is additive to the existing `vps` and legacy `edge` exact artifacts; it does not activate `edge_v2` or change media ownership.
+- Release evidence: the exact-artifacts manifest retains `vps` and legacy `edge` in its quality-evidence-compatible inventory and adds `ubuntu-worker` as release-specific exact provenance. Release-manifest v2 directly binds the Ubuntu archive and the complete exact-manifest hash; this does not activate `edge_v2` or change media ownership.
 - Out of scope: MediaMTX/relay lifecycle, Camera 2, Windows Worker, browser SSH, arbitrary systemd control, new credentials, secret migration, AI algorithm changes.
 
 ## Runtime feedback
