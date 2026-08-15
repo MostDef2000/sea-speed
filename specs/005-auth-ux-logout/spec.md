@@ -6,11 +6,25 @@
 - Source authorization: OUTCOME APPROVED
 - Status: source implementation in progress
 
-## Outcome
+## Product outcome
 
-Sea Speed logout must end both the Proxy Provider/outpost session and the user's Authentik browser session, then finish at exactly `https://mostdef.ru/`. A later request to `/sea-speed/` must therefore require fresh authentication and return the user to the protected URL after login.
+Sea Speed logout ends both the Proxy Provider/outpost session and the user's Authentik browser session, then finishes at exactly `https://mostdef.ru/`. A later request to `/sea-speed/` therefore requires fresh authentication and returns the user to the requested protected URL after login.
 
-An already-open Operator, Cameras, or Objects page must detect loss of the trusted Authentik session on a bounded check and navigate the top-level browser through the current protected URL so nginx Forward Auth can re-enter the Authentik login contour. Sea Speed must not add local authentication state.
+An already-open Operator, Cameras, or Objects page detects loss of the trusted Authentik session on a bounded check and navigates the top-level browser through the current protected URL so nginx Forward Auth can re-enter the Authentik login contour. Sea Speed does not add local authentication state.
+
+## User scenarios
+
+### Scenario 1 - User explicitly logs out
+
+Given an authenticated Sea Speed browser session, when the user clicks `Выйти`, then the request enters the existing Proxy Provider sign-out endpoint, the Sea Speed provider/outpost session and Authentik browser session end, and the browser finishes at `https://mostdef.ru/`.
+
+### Scenario 2 - User returns after logout
+
+Given the user has completed logout, when the user opens `/sea-speed/` again, then a fresh Authentik login is required and successful authentication returns the user to the requested protected Sea Speed URL.
+
+### Scenario 3 - Session expires in an open tab
+
+Given Operator, Cameras, or Objects previously established a trusted identity, when the Authentik session expires or is revoked, then the next bounded session probe causes a top-level navigation through the current protected URL so existing nginx Forward Auth presents authentication again instead of leaving the page permanently in a degraded `недоступно` state.
 
 ## Requirements
 
@@ -24,7 +38,7 @@ An already-open Operator, Cameras, or Objects page must detect loss of the trust
 - FR-008: nginx topology, forged-header protection, Camera 1 media path, role/TOTP/invitation policy, worker M2M and camera/AI semantics remain unchanged.
 - FR-009: source merge MUST NOT authorize production mutation; production requires fresh exact-SHA authorization.
 
-## Acceptance
+## Acceptance criteria
 
 - AC-001: logout from each protected page enters the provider sign-out endpoint, ends the Authentik browser session, and lands at `https://mostdef.ru/`.
 - AC-002: reopening `/sea-speed/` after logout requires a fresh Authentik login; successful authentication returns to Sea Speed.
@@ -33,3 +47,10 @@ An already-open Operator, Cameras, or Objects page must detect loss of the trust
 - AC-005: anonymous and forged-header requests remain fail-closed.
 - AC-006: automated tests cover the provider invalidation-flow contract and all three frontend session-loss contracts.
 - AC-007: PR Validation and Quality integration pass on the exact PR head.
+
+## Runtime feedback
+
+- Current production remains on the previously accepted `main` release until a separate exact-SHA production authorization is granted.
+- The corrective source design preserves the existing `/outpost.goauthentik.io/sign_out` entry point and assigns a dedicated invalidation flow only to `Provider for Sea Speed`; the global provider invalidation behavior remains unchanged.
+- The frontend session watchdog uses the existing protected same-origin `/sea-speed/api/session` endpoint and creates no Sea Speed-native or browser-local authentication state.
+- Production/browser acceptance is pending source merge and fresh `PRODUCTION APPROVED <merged-sha>` authorization.
