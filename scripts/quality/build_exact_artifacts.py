@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build deterministic VPS and edge source artifacts from exact repository bytes."""
+"""Build deterministic VPS, Ubuntu Worker, and edge source artifacts from exact repository bytes."""
 from __future__ import annotations
 
 import argparse
@@ -30,6 +30,31 @@ COMPONENT_FILES = {
             "schemas/release-manifest.schema.json",
             "schemas/deployment-manifest.schema.json",
         ],
+    },
+    "ubuntu-worker": {
+        "required": [
+            "scripts/worker/check_ubuntu_compatibility.py",
+            "worker/hls_motion_yolo_worker_events.py",
+            "worker/hls_motion_yolo_runtime.py",
+            "worker/ubuntu_worker_entrypoint.py",
+            "worker/ubuntu_ai_inference_worker.py",
+            "deploy/worker/ubuntu/install-manual.sh",
+            "deploy/worker/ubuntu/install-systemd.sh",
+            "deploy/worker/ubuntu/update-exact.sh",
+            "deploy/worker/ubuntu/rollback-exact.sh",
+            "deploy/worker/ubuntu/preflight.sh",
+            "deploy/worker/ubuntu/prepare-runtime.sh",
+            "deploy/worker/ubuntu/requirements-runtime.txt",
+            "deploy/worker/ubuntu/runtime-lock.json",
+            "deploy/worker/ubuntu/worker.env.example",
+            "deploy/worker/ubuntu/sea-speed-worker.service.template",
+            "deploy/worker/ubuntu/sea-speed-worker-control.service.template",
+            "deploy/worker/ubuntu/worker-control-agent.py",
+            "deploy/worker/ubuntu/observed-worker-runner.py",
+            "deploy/worker/ubuntu/verify-runtime-progression.py",
+            "deploy/worker/ubuntu/check-worker-health.py",
+        ],
+        "optional": [],
     },
     "edge": {
         "required": [
@@ -112,7 +137,10 @@ def main() -> int:
     if not output_dir.is_absolute():
         output_dir = root / output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
-    artifacts = [build_component(root, output_dir, component, source_commit) for component in ("vps", "edge")]
+    artifacts = [
+        build_component(root, output_dir, component, source_commit)
+        for component in ("vps", "ubuntu-worker", "edge")
+    ]
     manifest = {
         "schema": "sea_speed_exact_artifacts_v1",
         "source_commit": source_commit,
