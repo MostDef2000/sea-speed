@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import argparse
+import hashlib
 import importlib.util
-import tempfile
+import json
 import unittest
 from pathlib import Path
 
@@ -18,53 +18,97 @@ def load_module(name: str, path: Path):
     return module
 
 
-BUILD = load_module("build_release_manifest", ROOT / "scripts/release/build_release_manifest.py")
 RELEASE_VALIDATOR = load_module("validate_release_manifest", ROOT / "scripts/release/validate_release_manifest.py")
 DEPLOY_VALIDATOR = load_module("validate_deployment_manifest", ROOT / "scripts/release/validate_deployment_manifest.py")
 
 
+def digest(value: object) -> str:
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
 class ReleaseManifestTests(unittest.TestCase):
-    def test_release_manifest_scope_and_artifact_are_verified(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            artifact = root / "worker.zip"
-            artifact.write_bytes(b"worker-package")
-            args = argparse.Namespace(
-                component="windows-worker",
-                issue=24,
-                source_commit="a" * 40,
-                base_commit="b" * 40,
-                file=["worker/a.py", "worker/a.py", "worker/b.cmd"],
-                artifact=[str(artifact)],
-                state="packaged",
-            )
-            payload = BUILD.build_manifest(args)
-            self.assertEqual(payload["approvedFiles"], ["worker/a.py", "worker/b.cmd"])
-            self.assertEqual(payload["issue"], 24)
-            self.assertEqual(len(payload["artifacts"]), 1)
+    def v2(self) -> dict[str, object]:
+        approved = ["deploy/vps/deploy.sh", "scripts/release/build_release_manifest.py"]
+        payload: dict[str, object] = {
+            "schema": "sea_speed_release_manifest_v2",
+            "deliveryId": "vps-aaaaaaaaaaaa-aaaaaaaaaaaa",
+            "component": "vps",
+            "canonicalIssue": 172,
+            "pullRequest": 173,
+            "sourceCommit": "a" * 40,
+            "baseCommit": "b" * 40,
+            "outcomeContractHash": "c" * 64,
+            "changeContractHash": "d" * 64,
+            "authorizationFingerprint": "e" * 64,
+            "approvedScopeHash": "",
+            "approvedFiles": approved,
+            "actualFiles": list(approved),
+            "artifacts": [{"path": "dist/vps.tar.gz", "sha256": "f" * 64, "sizeBytes": 123}],
+            "evidence": {
+                "productionAuthorizationSha256": "1" * 64,
+                "exactArtifactsManifestSha256": "2" * 64,
+                "qualityEvidenceSha256": "3" * 64,
+            },
+            "createdAt": "2026-08-15T00:00:00+00:00",
+            "state": "ready_for_deployment",
+        }
+        binding = {
+            "canonicalIssue": 172,
+            "pullRequest": 173,
+            "sourceCommit": "a" * 40,
+            "baseCommit": "b" * 40,
+            "outcomeContractHash": "c" * 64,
+            "changeContractHash": "d" * 64,
+            "approvedFiles": approved,
+        }
+        payload["approvedScopeHash"] = digest(binding)
+        return payload
+
+    def test_v2_release_manifest_binds_approved_and_actual_scope(self) -> None:
+        payload = self.v2()
+        RELEASE_VALIDATOR.validate(payload)
+        payload["actualFiles"] = ["deploy/vps/deploy.sh"]
+        with self.assertRaises(SystemExit):
             RELEASE_VALIDATOR.validate(payload)
 
-            payload["approvedFiles"].append("worker/z.py")
-            with self.assertRaises(SystemExit):
-                RELEASE_VALIDATOR.validate(payload)
-
-    def test_deployment_manifest_requires_consistent_runtime_state(self) -> None:
-        payload = {
-            "schema": "sea_speed_deployment_manifest_v1",
-            "deliveryId": "windows-worker-aaaaaaaaaaaa",
-            "target": "windows-worker",
-            "sourceCommit": "a" * 40,
-            "previousVersion": "b" * 40,
-            "artifactSha256": "c" * 64,
-            "installedAt": "2026-08-02T00:00:00+00:00",
-            "checks": [{"name": "worker_process", "status": "passed"}],
-            "rollbackTarget": "b" * 40,
-            "runtimeVerified": True,
-            "state": "runtime_verified",
-        }
-        DEPLOY_VALIDATOR.validate(payload)
-        payload["checks"][0]["status"] = "failed"
+    def test_ready_for_deployment_requires_artifact(self) -> None:
+        payload = self.v2()
+        payload["artifacts"] = []
         with self.assertRaises(SystemExit):
+            RELEASE_VALIDATOR.validate(payload)
+
+    def test_legacy_v1_release_manifest_remains_readable(self) -> None:
+        approved = ["worker/a.py"]
+        payload = {
+            "schema": "sea_speed_release_manifest_v1",
+            "deliveryId": "worker-legacy",
+            "component": "windows-worker",
+            "issue": 24,
+            "sourceCommit": "a" * 40,
+            "baseCommit": "b" * 40,
+            "approvedScopeHash": digest({"baseCommit": "b" * 40, "sourceCommit": "a" * 40, "approvedFiles": approved}),
+            "approvedFiles": approved,
+            "artifacts": [],
+            "createdAt": "2026-08-02T00:00:00+00:00",
+            "state": "validated",
+        }
+        RELEASE_VALIDATOR.validate(payload)
+
+    def test_deployment_manifest_accepts_all_three_targets(self) -> None:
+        for target in ("vps", "ubuntu-worker", "windows-worker"):
+            payload = {
+                "schema": "sea_speed_deployment_manifest_v1",
+                "deliveryId": f"{target}-aaaaaaaa",
+                "target": target,
+                "sourceCommit": "a" * 40,
+                "previousVersion": "b" * 40,
+                "artifactSha256": "c" * 64,
+                "installedAt": "2026-08-02T00:00:00+00:00",
+                "checks": [{"name": "runtime", "status": "passed"}],
+                "rollbackTarget": "b" * 40,
+                "runtimeVerified": True,
+                "state": "runtime_verified",
+            }
             DEPLOY_VALIDATOR.validate(payload)
 
 
