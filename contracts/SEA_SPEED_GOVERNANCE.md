@@ -1,6 +1,6 @@
 # Sea Speed Governance
 
-Version: 1.8.0
+Version: 1.9.0
 Status: Active
 Source of truth: GitHub `main`
 
@@ -147,3 +147,20 @@ The source-controlled authorized actor set and exact approval/fingerprint format
 For VPS production, `.github/workflows/deploy-vps.yml` remains manual and keeps the `production` environment. Before SSH configuration it must require an already-lowercase full SHA on current `main` first-parent history, require successful `quality-integration.yml` evidence from `push/main` on that exact SHA, resolve exactly one applicable merged PR and canonical Issue, validate the current production-authorization fingerprint, and validate exact artifacts/release/quality evidence.
 
 Repository rulesets, branch protection, required approvals and protected environments are GitHub settings, not facts proved by source installation. They may be reported as enforced only after independent settings verification.
+
+## 13. Delivery quality layer
+
+For a linked significant PR, the active SDD carries the delivery-quality model in the same canonical feature directory rather than a separate BMAD or quality document tree:
+
+- `spec.md`: measurable NFR assessment and evidence status;
+- `plan.md`: compact risk profile when required, risk-based test design, and correct-course impact check;
+- `tasks.md`: acceptance-criterion traceability and terminal Definition of Done;
+- PR Change Contract: derived risk-profile applicability and advisory quality verdict/waiver record.
+
+A full risk profile is mandatory when any of the following applies: non-`NONE` security impact; non-`NONE` API/event/state/storage schema impact; destructive/data migration; `MIXED` runtime impact; or an explicitly declared other high-risk trigger. Otherwise the Change Contract may declare `Risk profile: NOT REQUIRED`.
+
+NFR results use only `PASS`, `CONCERNS`, `FAIL`, or `NOT APPLICABLE`; an unknown/unmeasurable target cannot be represented as `PASS`. Test design classifies evidence as `unit`, `integration`, `end-to-end`, or `runtime-manual`, prioritized `P0` through `P3`. Every `AC-*` in the linked spec must map to a delivery task and test/evidence record or a justified runtime-manual evidence path.
+
+PR quality verdicts use `PASS`, `CONCERNS`, `FAIL`, or `WAIVED`. `FAIL` blocks admission. `WAIVED` requires durable reason, owner, review/expiry date, compensating controls and follow-up/remediation target. No quality waiver can override Outcome Authorization, exact scope, protected-boundary reauthorization, deployment contour derivation, secrets rules, required CI, production authorization, rollback requirements, or other hard gates.
+
+Historical SDD remains readable without mass retrofit. When historical feature work becomes an active significant PR again, the quality layer is added to that linked feature inside the newly approved scope. Production learning, architecture pivot or material scope change invokes the correct-course check; any resulting material outcome/scope/protected-boundary change still follows normal reauthorization rules.

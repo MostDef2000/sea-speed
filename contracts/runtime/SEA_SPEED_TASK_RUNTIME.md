@@ -1,6 +1,6 @@
 # Sea Speed Task Runtime
 
-Version: 1.5.0
+Version: 1.6.0
 Status: Active
 
 ## Active states
@@ -63,6 +63,8 @@ Sea Speed Task Runtime
 - Branch:
 - Approved outcome/scope:
 - Changed files:
+- Risk profile: REQUIRED/NOT REQUIRED
+- Quality verdict: PENDING/PASS/CONCERNS/WAIVED/FAIL
 - main updated: YES/NO
 - Release manifest: NOT REQUIRED/PENDING/VALID/INVALID
 - Production safety envelope: NOT REQUIRED/PENDING/APPROVED/STALE
@@ -94,11 +96,20 @@ Production remains separate. Continue runtime mutation only after the exact prod
 
 After writes validate complete files, syntax/structure, exact diff, scope, branch freshness and secret/runtime-artifact absence. Before merge re-read `main`, verify exact head/scope, successful required checks and zero unresolved review threads, then merge with expected-head protection when supported.
 
+## Delivery quality rule
+
+For linked significant work, `IMPLEMENTING` includes keeping NFR assessment, risk/test design, correct-course check, acceptance traceability and Definition of Done aligned with the exact implementation. The Change Contract's `Risk profile` declaration must match the derived high-risk triggers.
+
+A quality verdict of `FAIL` cannot advance to source integration. `WAIVED` requires the complete waiver record defined by the delivery policy and does not alter any hard gate. `CONCERNS` remains visible as delivery evidence and may advance only while mandatory authorization, scope, CI and runtime gates are independently satisfied.
+
+When production learning, an architecture pivot or a material scope change changes the accepted design, execute the correct-course check before continuing. If it changes the Outcome Contract, protected boundary or approved repository scope, return to the normal reauthorization boundary.
+
 ## Evidence hierarchy
 
 ```text
 approved outcome/scope
 -> exact changed files
+-> linked SDD quality layer and Change Contract quality verdict
 -> PR Validation + aggregate SDD gate
 -> exact-green-head merge on main
 -> release manifest v2/exact artifacts when applicable

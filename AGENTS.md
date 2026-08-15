@@ -49,4 +49,14 @@ New deployable provenance uses release manifest v2. It distinguishes the approve
 
 The aggregate `quality-integration` workflow executes SDD validation for significant PRs. This is a repository delivery gate; do not infer GitHub branch-protection settings from the workflow itself.
 
+## Delivery quality layer
+
+For every linked significant PR, the active SDD also carries the bounded delivery-quality artifacts enforced by `scripts/ci/validate_sdd.py`: NFR assessment in `spec.md`; risk profile, risk-based test design and correct-course check in `plan.md`; requirements traceability and Definition of Done in `tasks.md`.
+
+The PR Change Contract declares `Risk profile: REQUIRED|NOT REQUIRED` and a quality verdict. Full risk profiling is required when the change has a security-boundary impact, API/event/state/storage schema impact, destructive/data-migration impact, `MIXED` runtime impact, or an explicitly declared other high-risk trigger. Low-risk work may explicitly declare `NOT REQUIRED`.
+
+Quality verdicts are `PASS`, `CONCERNS`, `FAIL`, and `WAIVED`. `FAIL` blocks PR admission. `WAIVED` requires a durable finding, owner, expiry/review date, compensating controls and remediation target. A waiver is advisory quality disposition only: it never bypasses source authorization, exact scope, runtime-contour, secret, CI, production-authorization, rollback or other hard gates.
+
+Historical SDD directories are not mass-rewritten solely to adopt this layer. When an older feature becomes active significant work again, its linked SDD must be brought to the current quality format inside that task's approved scope.
+
 Valid terminal execution states are `COMPLETE`, `BLOCKED`, and `FAILED`. `PLAN READY` may be used before repository writes when an implementation plan awaits authorization.
