@@ -1,7 +1,7 @@
 # Specification: ROI-bounded motion and AI inference
 
 Status: Active
-Issue: #168
+- Issue: #168
 Runtime contour: Ubuntu Worker
 
 ## Problem
