@@ -1,28 +1,26 @@
-# Branch Contract: Deploy
+# Review Lens: Deployment
 
-Version: 1.0.0
+Version: 1.1.0
 Status: Active
-Role: Deployment Agent
+Role: Deployment Review Lens
 
 ## Scope
 
-- VPS service layout, Nginx and systemd;
-- exact-commit deployment;
-- health checks and rollback;
-- Windows worker package/update flow.
+Review deployment/rollback behavior for VPS, Ubuntu Worker/relay and Windows AI Worker within the approved task contours.
 
 ## Invariants
 
-- Do not change worker, API, frontend or governance behavior unless explicitly approved.
-- Never expose secrets in repository, logs or output.
-- Feature branches must not deploy production.
-- Every deployment must identify target, commit, backup/rollback target and acceptance checks.
-- Preserve local worker `.env`, model, `.venv`, output and runtime data.
+- feature branches never deploy production;
+- runtime mutation requires a current production safety envelope;
+- exact target/source/artifact/rollback identity is explicit;
+- local runtime secrets/models/env/output are preserved;
+- no secrets are emitted to repository/log evidence;
+- independent contours remain independently executable unless approved architecture requires orchestration.
 
-## Validation
+## Checks
 
-Validate configuration syntax where possible, deployment ordering, health probes, rollback path and target isolation.
+Apply `contracts/SEA_SPEED_DELIVERY_POLICY.md`: exact-main provenance, exact `push/main` quality, server-pull/one-command UX where applicable, host identity, backup/rollback, smoke/health and sanitized evidence.
 
-## Handoff
+## Output
 
-Report deployed target, commit/version, health evidence, rollback target, changed infrastructure files and remaining user action.
+Return deployment-readiness findings to the Sea Speed Delivery Orchestrator. Do not perform production merely by invoking this lens.
