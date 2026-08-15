@@ -12,7 +12,9 @@ Options:
   --expected-current SHA    Fail unless this exact commit is currently active
 
 The target must already be prepared and quality-approved by update-exact.sh.
-The command preserves all shared state and release directories.
+New-format releases bind an exact source SHA to an immutable runtime ID. Legacy
+per-release venv targets remain supported during migration. Shared state and all
+release/runtime directories are preserved.
 EOF
 }
 
@@ -133,6 +135,16 @@ if [[ "$current_exec" != *"$current_commit"* ]]; then
   echo "ERROR running service and active source marker disagree" >&2
   exit 8
 fi
+current_runtime_id=""
+current_runtime_file="$install_root/releases/$current_commit/runtime-id"
+if [[ -f "$current_runtime_file" ]]; then
+  current_runtime_id="$(cat "$current_runtime_file")"
+  if [[ ! "$current_runtime_id" =~ ^[0-9a-f]{64}$ ]] || \
+     [[ "$current_exec" != *"/runtimes/$current_runtime_id/venv/bin/python"* ]]; then
+    echo "ERROR running service and active runtime binding disagree" >&2
+    exit 8
+  fi
+fi
 if [[ ! -f "$env_file" ]] || [[ "$(stat -c '%a' "$env_file")" != "600" ]]; then
   echo "ERROR protected worker environment file is missing or not mode 600" >&2
   exit 9
@@ -140,15 +152,16 @@ fi
 
 target_root="$install_root/releases/$target_commit"
 target_source="$target_root/source"
-target_python="$target_root/venv/bin/python"
 target_provenance="$target_root/source-commit"
 target_quality="$target_root/quality-approved"
 target_worker="$target_source/worker/hls_motion_yolo_worker_events.py"
 target_installer="$target_source/deploy/worker/ubuntu/install-systemd.sh"
+target_runtime_file="$target_root/runtime-id"
+target_runtime_id=""
+target_python=""
 
 for required in \
   "$target_source" \
-  "$target_python" \
   "$target_provenance" \
   "$target_quality" \
   "$target_worker" \
@@ -174,6 +187,28 @@ if [[ "$quality_content" != "$expected_quality" ]]; then
   exit 11
 fi
 
+if [[ -f "$target_runtime_file" ]]; then
+  target_runtime_id="$(cat "$target_runtime_file")"
+  if [[ ! "$target_runtime_id" =~ ^[0-9a-f]{64}$ ]]; then
+    echo "ERROR rollback target runtime ID is invalid" >&2
+    exit 12
+  fi
+  target_runtime_root="$install_root/runtimes/$target_runtime_id"
+  target_python="$target_runtime_root/venv/bin/python"
+  if [[ ! -x "$target_python" ]] || \
+     [[ ! -f "$target_runtime_root/ready" ]] || \
+     [[ "$(cat "$target_runtime_root/ready")" != "runtime_id=$target_runtime_id" ]]; then
+    echo "ERROR rollback target shared runtime is not ready" >&2
+    exit 12
+  fi
+else
+  target_python="$target_root/venv/bin/python"
+  if [[ ! -x "$target_python" ]]; then
+    echo "ERROR rollback target legacy runtime is missing" >&2
+    exit 12
+  fi
+fi
+
 unit_backup="$(mktemp "$updater_root/unit-backup.XXXXXX")"
 marker_tmp=""
 cleanup() {
@@ -189,6 +224,9 @@ restore_previous() {
   echo "RESTORE previous_source_commit=$current_commit" >&2
   install -o root -g root -m 0644 "$unit_backup" "$unit_target"
   systemctl daemon-reload
+  if ! systemctl reset-failed "$service_name"; then
+    return 1
+  fi
   if ! systemctl restart "$service_name"; then
     return 1
   fi
@@ -196,7 +234,14 @@ restore_previous() {
     return 1
   fi
   restored_exec="$(systemctl show -p ExecStart --value "$service_name")"
-  [[ "$restored_exec" == *"$current_commit"* ]]
+  if [[ "$restored_exec" != *"$current_commit"* ]]; then
+    return 1
+  fi
+  if [[ -n "$current_runtime_id" ]] && \
+     [[ "$restored_exec" != *"/runtimes/$current_runtime_id/venv/bin/python"* ]]; then
+    return 1
+  fi
+  return 0
 }
 
 activate_target() {
@@ -209,6 +254,9 @@ activate_target() {
   ); then
     return 1
   fi
+  if ! systemctl reset-failed "$service_name"; then
+    return 1
+  fi
   if ! systemctl restart "$service_name"; then
     return 1
   fi
@@ -216,7 +264,14 @@ activate_target() {
     return 1
   fi
   target_exec="$(systemctl show -p ExecStart --value "$service_name")"
-  [[ "$target_exec" == *"$target_commit"* ]]
+  if [[ "$target_exec" != *"$target_commit"* ]]; then
+    return 1
+  fi
+  if [[ -n "$target_runtime_id" ]] && \
+     [[ "$target_exec" != *"/runtimes/$target_runtime_id/venv/bin/python"* ]]; then
+    return 1
+  fi
+  return 0
 }
 
 if ! activate_target; then
@@ -239,6 +294,7 @@ mv -f "$marker_tmp" "$active_marker"
 marker_tmp=""
 
 printf 'ROLLED_BACK from=%s to=%s\n' "$current_commit" "$target_commit"
+printf 'TARGET_RUNTIME_ID %s\n' "${target_runtime_id:-legacy-per-release}"
 printf 'SERVICE_ACTIVE %s\n' "$service_name"
 printf 'ACTIVE_SOURCE_COMMIT %s\n' "$target_commit"
-printf 'PRESERVED shared_config_models_datasets_output_releases=true\n'
+printf 'PRESERVED shared_config_models_datasets_output_releases_runtimes=true\n'
