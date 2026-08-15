@@ -40,6 +40,10 @@ class AuthLogoutContractTests(unittest.TestCase):
         self.assertIn("target_static: https://mostdef.ru/", source)
         self.assertIn("name: Provider for Sea Speed", source)
         self.assertIn("invalidation_flow: !KeyOf sea-speed-invalidation-flow", source)
+        provider_block = source[source.index("name: Provider for Sea Speed") :]
+        self.assertIn("mode: forward_single", provider_block)
+        self.assertNotIn("internal_host:", provider_block)
+        self.assertNotIn("external_host:", provider_block)
         self.assertNotIn("slug: default-provider-invalidation-flow", source)
         self.assertNotIn(
             "invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]",
@@ -57,10 +61,14 @@ class AuthLogoutContractTests(unittest.TestCase):
     def test_rollback_blueprint_restores_only_sea_speed_provider_to_default(self) -> None:
         source = ROLLBACK_BLUEPRINT.read_text(encoding="utf-8")
         self.assertIn("name: Provider for Sea Speed", source)
+        provider_block = source[source.index("name: Provider for Sea Speed") :]
+        self.assertIn("mode: forward_single", provider_block)
         self.assertIn(
             "invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]",
             source,
         )
+        self.assertNotIn("internal_host:", provider_block)
+        self.assertNotIn("external_host:", provider_block)
         self.assertNotIn("model: authentik_stages_user_logout.userlogoutstage", source)
         self.assertNotIn("model: authentik_stages_redirect.redirectstage", source)
         self.assertNotIn("target_static:", source)
@@ -85,12 +93,21 @@ class AuthLogoutContractTests(unittest.TestCase):
         self.assertIn('ak apply_blueprint "$container_blueprint"', source)
         self.assertIn("from authentik.providers.proxy.models import ProxyProvider", source)
         self.assertIn('ProxyProvider.objects.get(name="Provider for Sea Speed")', source)
+        self.assertIn('expected_provider_mode="forward_single"', source)
+        self.assertIn("SEA_SPEED_PROVIDER_MODE=", source)
+        self.assertIn("UNEXPECTED_PROVIDER_MODE_", source)
+        self.assertIn("PROVIDER_MODE_DRIFT_", source)
+        self.assertIn("AUTHENTIK_PROVIDER_MODE_BEFORE=", source)
+        self.assertIn("AUTHENTIK_PROVIDER_MODE_AFTER=", source)
         self.assertIn("sea-speed-provider-invalidation", source)
         self.assertIn("default-provider-invalidation-flow", source)
         self.assertIn("UNEXPECTED_CURRENT_FLOW_", source)
         self.assertIn("AUTHENTIK_LOGOUT_AUTO_ROLLBACK=PASS", source)
         self.assertIn("AUTHENTIK_RUNTIME_CONTAINERS_UNCHANGED=YES", source)
         self.assertIn("AUTHENTIK_LOGOUT_OPERATION=PASS", source)
+        mode_guard = source.index('[[ "$current_mode" == "$expected_provider_mode" ]]')
+        first_apply = source.index('if ! copy_and_apply_blueprint "$selected_source"')
+        self.assertLess(mode_guard, first_apply)
         self.assertNotIn("PG_PASS", source)
         self.assertNotIn("AUTHENTIK_SECRET_KEY", source)
         self.assertNotIn("AUTHENTIK_BOOTSTRAP_PASSWORD", source)
