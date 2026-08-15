@@ -38,13 +38,25 @@ class UbuntuWorkerRollbackTests(unittest.TestCase):
         for marker in (
             'target_provenance="$target_root/source-commit"',
             'target_quality="$target_root/quality-approved"',
-            'target_python="$target_root/venv/bin/python"',
             "quality_check=quality-integration",
             "rollback target provenance mismatch",
             "rollback target is not exact quality-approved",
         ):
             self.assertIn(marker, self.rollback)
         self.assertIn("target quality marker ownership or mode is invalid", self.rollback)
+
+    def test_new_target_requires_recorded_ready_runtime(self) -> None:
+        self.assertIn('target_runtime_file="$target_root/runtime-id"', self.rollback)
+        self.assertIn('target_runtime_root="$install_root/runtimes/$target_runtime_id"', self.rollback)
+        self.assertIn('target_python="$target_runtime_root/venv/bin/python"', self.rollback)
+        self.assertIn("rollback target runtime ID is invalid", self.rollback)
+        self.assertIn("rollback target shared runtime is not ready", self.rollback)
+        self.assertIn('/runtimes/$target_runtime_id/venv/bin/python', self.rollback)
+
+    def test_legacy_per_release_target_remains_supported_during_migration(self) -> None:
+        self.assertIn('target_python="$target_root/venv/bin/python"', self.rollback)
+        self.assertIn("rollback target legacy runtime is missing", self.rollback)
+        self.assertIn("legacy-per-release", self.rollback)
 
     def test_update_and_rollback_share_root_only_lock(self) -> None:
         for source in (self.updater, self.rollback):
@@ -60,11 +72,13 @@ class UbuntuWorkerRollbackTests(unittest.TestCase):
         self.assertIn("unit-backup", self.rollback)
         self.assertIn("systemctl daemon-reload", self.rollback)
 
-    def test_failed_target_restores_previous_exact_service(self) -> None:
+    def test_failed_target_restores_previous_exact_source_and_runtime(self) -> None:
         self.assertIn("restore_previous()", self.rollback)
         self.assertIn('install -o root -g root -m 0644 "$unit_backup" "$unit_target"', self.rollback)
+        self.assertIn('systemctl reset-failed "$service_name"', self.rollback)
         self.assertIn('systemctl restart "$service_name"', self.rollback)
-        self.assertIn('restored_exec" == *"$current_commit"*', self.rollback)
+        self.assertIn('restored_exec" != *"$current_commit"*', self.rollback)
+        self.assertIn("current_runtime_id", self.rollback)
         self.assertIn("ROLLBACK_ABORTED", self.rollback)
         self.assertIn("CRITICAL previous service restoration failed", self.rollback)
 
@@ -74,11 +88,16 @@ class UbuntuWorkerRollbackTests(unittest.TestCase):
         self.assertLess(acceptance, marker_write)
         self.assertIn('mv -f "$marker_tmp" "$active_marker"', self.rollback)
         self.assertIn("ACTIVE_SOURCE_COMMIT", self.rollback)
+        self.assertIn("TARGET_RUNTIME_ID", self.rollback)
 
-    def test_shared_state_and_releases_are_preserved(self) -> None:
+    def test_shared_state_releases_and_runtimes_are_preserved(self) -> None:
         self.assertNotIn('rm -rf "$install_root/shared', self.rollback)
         self.assertNotIn('rm -rf "$install_root/releases', self.rollback)
-        self.assertIn("PRESERVED shared_config_models_datasets_output_releases=true", self.rollback)
+        self.assertNotIn('rm -rf "$install_root/runtimes', self.rollback)
+        self.assertIn(
+            "PRESERVED shared_config_models_datasets_output_releases_runtimes=true",
+            self.rollback,
+        )
         doc = DOC.read_text(encoding="utf-8")
         self.assertIn("Runtime remains `UNKNOWN`", doc)
         self.assertIn("Stage 7", doc)
