@@ -205,6 +205,7 @@ class BoundedYoloSupervisor:
         self.backoff_sec = max(0.0, worker.env_float("AI_INFERENCE_BACKOFF_SEC", 5.0))
         self.child_path = Path(__file__).with_name("ubuntu_ai_inference_worker.py")
         self.proc: subprocess.Popen | None = None
+        self.child_warmed = False
         self.degraded_until = 0.0
         self._spawn("startup")
 
@@ -233,11 +234,13 @@ class BoundedYoloSupervisor:
             bufsize=0,
             close_fds=True,
         )
+        self.child_warmed = False
         print(f"AI inference child restart reason={reason} device={self.device}")
 
     def close(self) -> None:
         proc = self.proc
         self.proc = None
+        self.child_warmed = False
         if proc is None:
             return
         try:
@@ -249,6 +252,27 @@ class BoundedYoloSupervisor:
             proc.wait(timeout=3.0)
         except Exception:
             pass
+
+    def _write_all_bounded(self, data: bytes, deadline: float) -> None:
+        proc = self.proc
+        if proc is None or proc.stdin is None:
+            raise EOFError("AI inference stdin unavailable")
+        fd = proc.stdin.fileno()
+        view = memoryview(data)
+        offset = 0
+        while offset < len(view):
+            if proc.poll() is not None:
+                raise EOFError("AI inference child exited")
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("AI inference timeout")
+            _, writable, _ = select.select([], [fd], [], remaining)
+            if not writable:
+                raise TimeoutError("AI inference timeout")
+            written = os.write(fd, view[offset:])
+            if written <= 0:
+                raise EOFError("AI inference protocol ended")
+            offset += written
 
     def _read_exact_bounded(self, size: int, deadline: float) -> bytes:
         proc = self.proc
@@ -272,9 +296,6 @@ class BoundedYoloSupervisor:
         return bytes(data)
 
     def _roundtrip(self, frame: np.ndarray, timeout_sec: float) -> list[dict[str, object]]:
-        proc = self.proc
-        if proc is None or proc.stdin is None:
-            raise EOFError("AI inference stdin unavailable")
         if frame.ndim != 3 or frame.shape[2] != 3 or frame.dtype != np.uint8:
             raise ValueError("AI inference frame must be uint8 HxWx3")
 
@@ -289,12 +310,11 @@ class BoundedYoloSupervisor:
             },
             separators=(",", ":"),
         ).encode("utf-8")
-        proc.stdin.write(_LENGTH.pack(len(header)))
-        proc.stdin.write(header)
-        proc.stdin.write(raw)
-        proc.stdin.flush()
-
         deadline = time.monotonic() + timeout_sec
+        self._write_all_bounded(_LENGTH.pack(len(header)), deadline)
+        self._write_all_bounded(header, deadline)
+        self._write_all_bounded(raw, deadline)
+
         response_size = _LENGTH.unpack(
             self._read_exact_bounded(_LENGTH.size, deadline)
         )[0]
@@ -314,29 +334,29 @@ class BoundedYoloSupervisor:
     def startup_self_test(self) -> None:
         height = worker.env_int("FRAME_HEIGHT", 576)
         width = worker.env_int("FRAME_WIDTH", 704)
-        first = np.zeros((height, width, 3), dtype=np.uint8)
-        second = first.copy()
-        y1 = max(0, height // 3)
-        y2 = min(height, y1 + max(8, height // 10))
-        x1 = max(0, width // 3)
-        x2 = min(width, x1 + max(8, width // 10))
-        second[y1:y2, x1:x2] = 255
+        frames = (
+            np.zeros((height, width, 3), dtype=np.uint8),
+            np.zeros((height, width, 3), dtype=np.uint8),
+        )
 
-        for sequence, frame in enumerate((first, second), start=1):
-            detections = self._roundtrip(frame, self.startup_timeout_sec)
+        for sequence, frame in enumerate(frames, start=1):
+            timeout_sec = self.startup_timeout_sec if sequence == 1 else self.timeout_sec
+            detections = self._roundtrip(frame, timeout_sec)
+            self.child_warmed = True
             print(
                 f"AI inference self-test ok sequence={sequence}/2 "
                 f"detections={len(detections)} device={self.device}"
             )
 
-        self._spawn("post_self_test_tracker_reset")
-        print("AI inference ready self_test_sequence=2")
+        print("AI inference ready self_test_sequence=2 child_reused=true")
 
     def detect(self, frame: np.ndarray) -> list[dict[str, object]]:
         if time.monotonic() < self.degraded_until:
             return []
         try:
-            detections = self._roundtrip(frame, self.timeout_sec)
+            timeout_sec = self.timeout_sec if self.child_warmed else self.startup_timeout_sec
+            detections = self._roundtrip(frame, timeout_sec)
+            self.child_warmed = True
             print(f"AI inference ok detections={len(detections)}")
             return detections
         except (TimeoutError, EOFError, OSError, RuntimeError, ValueError) as exc:

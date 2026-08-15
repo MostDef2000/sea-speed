@@ -15,6 +15,7 @@ ENTRYPOINT = ROOT / "worker/ubuntu_worker_entrypoint.py"
 AI_CHILD = ROOT / "worker/ubuntu_ai_inference_worker.py"
 RUNNER = ROOT / "deploy/worker/ubuntu/observed-worker-runner.py"
 GATE = ROOT / "deploy/worker/ubuntu/verify-runtime-progression.py"
+UPDATER = ROOT / "deploy/worker/ubuntu/update-exact.sh"
 COMMIT = "b" * 40
 
 
@@ -46,7 +47,8 @@ class UbuntuWorkerAiSupervisionTests(unittest.TestCase):
         self.assertIn("proc.kill()", source)
         self.assertIn("AI inference degraded", source)
         self.assertIn("AI inference self-test ok sequence=", source)
-        self.assertIn('self._spawn("post_self_test_tracker_reset")', source)
+        self.assertIn("AI inference ready self_test_sequence=2 child_reused=true", source)
+        self.assertNotIn('self._spawn("post_self_test_tracker_reset")', source)
         self.assertIn("worker.detect_vehicles = supervised_detect_vehicles", source)
         self.assertIn("worker.YOLO = _ModelSentinel", source)
 
@@ -58,6 +60,32 @@ class UbuntuWorkerAiSupervisionTests(unittest.TestCase):
         self.assertIn("track_id", child)
         self.assertNotIn("HLS_URL", child)
         self.assertNotIn("SEA_SPEED_API_TOKEN", child)
+
+    def test_ai_request_write_is_inside_same_absolute_deadline(self) -> None:
+        source = ENTRYPOINT.read_text(encoding="utf-8")
+        self.assertIn("def _write_all_bounded", source)
+        self.assertIn("select.select([], [fd], [], remaining)", source)
+        self.assertIn("written = os.write(fd, view[offset:])", source)
+        self.assertIn("deadline = time.monotonic() + timeout_sec", source)
+        self.assertIn("self._write_all_bounded(_LENGTH.pack(len(header)), deadline)", source)
+        self.assertIn("self._write_all_bounded(raw, deadline)", source)
+        self.assertNotIn("proc.stdin.write(raw)", source)
+        self.assertNotIn("proc.stdin.flush()", source)
+
+    def test_validated_startup_child_is_reused_for_live_tracking(self) -> None:
+        source = ENTRYPOINT.read_text(encoding="utf-8")
+        self.assertIn("self.child_warmed = False", source)
+        self.assertIn("self.child_warmed = True", source)
+        self.assertIn("child_reused=true", source)
+        self.assertNotIn("post_self_test_tracker_reset", source)
+        self.assertIn(
+            "timeout_sec = self.timeout_sec if self.child_warmed else self.startup_timeout_sec",
+            source,
+        )
+
+    def test_activation_budget_covers_two_step_ai_startup(self) -> None:
+        source = UPDATER.read_text(encoding="utf-8")
+        self.assertIn("--timeout-sec 90", source)
 
     def test_media_and_ai_failures_are_separate_boundaries(self) -> None:
         source = ENTRYPOINT.read_text(encoding="utf-8")
