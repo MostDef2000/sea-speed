@@ -65,21 +65,24 @@ class FrontendContractTests(unittest.TestCase):
         self.assertNotIn('id="video"', body)
         self.assertIn('width:min(100%,720px)', self.source)
 
-    def test_primary_camera_hides_calibration_geometry_outside_edit_mode(self) -> None:
+    def test_primary_camera_keeps_saved_calibration_visible_outside_edit_mode(self) -> None:
         self.assertIn(
-            '#roiCanvas,#speedLinesCanvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;opacity:0}',
+            '#roiCanvas,#speedLinesCanvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;opacity:1}',
             self.source,
         )
         self.assertIn(
-            '.roi-editor-wrap.editing #roiCanvas,.roi-editor-wrap.speed-lines-editing #speedLinesCanvas{opacity:1;pointer-events:auto;cursor:crosshair}',
+            '.roi-editor-wrap.editing #roiCanvas,.roi-editor-wrap.speed-lines-editing #speedLinesCanvas{pointer-events:auto;cursor:crosshair}',
             self.source,
         )
         self.assertIn(
-            'Разметка ROI и линий скорости отображается только в режиме редактирования.',
+            'Сохранённая ROI и линии скорости отображаются поверх AI-кадра; режим редактирования включает точки управления.',
             self.source,
         )
+        self.assertIn('if(roiEditing)p.forEach', self.source)
+        self.assertIn('if(speedLineEditing===k)p.forEach', self.source)
         self.assertIn('roiEditorWrap.classList.toggle("editing",v)', self.source)
         self.assertIn('roiEditorWrap.classList.toggle("speed-lines-editing",!!v)', self.source)
+        self.assertIn('setSpeedLineEditing(null);drawSpeedLines()', self.source)
 
     def test_clean_live_and_detection_history_share_right_rail(self) -> None:
         right = re.search(r'<aside\s+class="right-sidebar"[^>]*>(?P<body>.*?)</aside>', self.source, re.S)
