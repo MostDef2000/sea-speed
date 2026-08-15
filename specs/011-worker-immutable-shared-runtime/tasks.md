@@ -19,6 +19,7 @@ Specification: `specs/011-worker-immutable-shared-runtime/spec.md`
 - [x] Add SDD specification, plan and task tracking.
 - [x] Confirm the exact branch diff is limited to the approved 15 paths.
 - [x] Open PR #171 with valid Change Contract and `Specification: specs/011-worker-immutable-shared-runtime/spec.md`.
+- [x] Align the PR Change Contract with the repository-derived `CONTROL_PLANE` classifier without changing runtime scope or authorization boundaries.
 - [ ] Obtain PR Validation and Quality integration success on the exact PR head.
 - [ ] Resolve any CI/review findings without expanding scope.
 - [ ] Revalidate main/head/scope/reviews and merge with expected-head protection.
