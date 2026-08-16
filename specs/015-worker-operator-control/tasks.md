@@ -45,6 +45,7 @@
 - T-036 [P0] Preserve the existing HLS connect/disconnect/retry/recovery/autoconnect lifecycle while routing manual action through the single contextual button.
 - T-037 [P0] Extend `tests/test_frontend_contract.py` to prove one Stream action ID, no legacy second Stream button, dynamic action rendering/accessibility and no Live camera controls.
 - T-038 [P0] Merge only exact-green five-path remediation, obtain fresh exact-release VPS production authorization/execution intent, deploy VPS only, and repeat browser smoke before closing #178.
+- T-039 [P0] Correct PR #194 Change Contract to the canonical machine-readable fields after the initial pre-test admission failure and force a fresh exact-head CI event without changing authorized scope. COMPLETE.
 
 ## Active remediation scope
 
