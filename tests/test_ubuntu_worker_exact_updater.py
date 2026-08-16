@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import subprocess
+import sys
 import unittest
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
 UPDATER = ROOT / "deploy/worker/ubuntu/update-exact.sh"
+QUALITY_VERIFIER = ROOT / "scripts/quality/verify_quality_status.py"
 DOC = ROOT / "docs/operations/UBUNTU_WORKER_EXACT_UPDATE.md"
 
 
@@ -24,9 +26,17 @@ class UbuntuWorkerExactUpdaterTests(unittest.TestCase):
         self.assertIn("refs/remotes/origin/main", self.source)
         self.assertIn("staged checkout commit mismatch", self.source)
 
-    def test_quality_gate_fails_closed_with_protected_token(self) -> None:
+    def test_quality_gate_cli_matches_real_verifier(self) -> None:
+        help_result = subprocess.run(
+            [sys.executable, str(QUALITY_VERIFIER), "--help"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        self.assertIn("--workflow-file WORKFLOW_FILE", help_result.stdout)
         self.assertIn("verify_quality_status.py", self.source)
-        self.assertIn("--required-name quality-integration", self.source)
+        self.assertIn("--workflow-file quality-integration.yml", self.source)
+        self.assertNotIn("--required-name", self.source)
         self.assertIn("GitHub token file mode must be 600", self.source)
         self.assertIn("GitHub token file must be owned by root", self.source)
         self.assertIn('IFS= read -r github_token < "$token_file"', self.source)
@@ -50,9 +60,12 @@ class UbuntuWorkerExactUpdaterTests(unittest.TestCase):
         self.assertNotIn("-m pip install", self.source)
         self.assertNotIn("download.pytorch.org", self.source)
 
-    def test_running_activation_requires_exact_runtime_progression_and_dual_binding(self) -> None:
+    def test_running_activation_requires_complete_control_target_and_runtime_progression(self) -> None:
         self.assertIn("--activate", self.source)
         self.assertIn("NOT_ACTIVATED explicit_flag_required=--activate", self.source)
+        self.assertIn('target_control_template="$release_root/source/deploy/worker/ubuntu/sea-speed-worker-control.service.template"', self.source)
+        self.assertIn('target_control_agent="$release_root/source/deploy/worker/ubuntu/worker-control-agent.py"', self.source)
+        self.assertIn("activation target lacks complete worker-control components", self.source)
         self.assertIn("verify-runtime-progression.py", self.source)
         self.assertIn("--heartbeat", self.source)
         self.assertIn("--expected-commit", self.source)
@@ -88,6 +101,27 @@ class UbuntuWorkerExactUpdaterTests(unittest.TestCase):
         self.assertIn('systemctl restart "$service_name"', restore)
         self.assertIn('systemctl stop "$service_name"', restore)
 
+    def test_failed_activation_restores_legacy_absent_control_topology(self) -> None:
+        self.assertIn("previous_control_present=false", self.source)
+        self.assertIn("previous_control_enabled=false", self.source)
+        self.assertIn("previous_control_active=false", self.source)
+        self.assertIn("restore_previous_control()", self.source)
+        control_restore = self.source.split("restore_previous_control() {", 1)[1].split("restore_previous() {", 1)[0]
+        self.assertIn('systemctl stop "$control_service_name"', control_restore)
+        self.assertIn('systemctl disable "$control_service_name"', control_restore)
+        self.assertIn('rm -f "$control_unit_target"', control_restore)
+        self.assertIn('[[ ! -e "$control_unit_target" ]]', control_restore)
+        self.assertIn('! systemctl is-enabled --quiet "$control_service_name"', control_restore)
+        self.assertIn('! systemctl is-active --quiet "$control_service_name"', control_restore)
+        self.assertIn("control_present=%s", self.source)
+
+    def test_existing_control_topology_is_exact_source_checked_before_mutation(self) -> None:
+        self.assertIn("installed control unit and active source marker disagree", self.source)
+        self.assertIn("running control service and active source marker disagree", self.source)
+        self.assertIn("worker control service state exists without an installed control unit", self.source)
+        self.assertIn('systemctl is-enabled --quiet "$control_service_name"', self.source)
+        self.assertIn('systemctl is-active --quiet "$control_service_name"', self.source)
+
     def test_shared_state_releases_and_runtimes_are_preserved(self) -> None:
         self.assertIn("PRESERVED shared_config_models_datasets_output=true", self.source)
         self.assertNotIn('rm -rf "$install_root/shared', self.source)
@@ -102,6 +136,8 @@ class UbuntuWorkerExactUpdaterTests(unittest.TestCase):
         doc = DOC.read_text(encoding="utf-8")
         self.assertIn("UBUNTU_WORKER_ROLLBACK.md", doc)
         self.assertIn("Runtime remains `UNKNOWN`", doc)
+        self.assertIn("--workflow-file quality-integration.yml", doc)
+        self.assertIn("legacy baseline", doc)
 
 
 if __name__ == "__main__":
