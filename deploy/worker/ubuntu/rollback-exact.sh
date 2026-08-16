@@ -2,7 +2,7 @@
 set -euo pipefail
 
 usage() {
-  cat <<'EOF'
+  cat <<'EOF_USAGE'
 Usage: rollback-exact.sh <40-character-target-commit> [options]
 
 Options:
@@ -13,8 +13,10 @@ Options:
 
 The target must already be prepared and quality-approved by update-exact.sh.
 The rollback preserves the operator desired worker state (`running` or
-`stopped`) while switching the exact worker/control units and source identity.
-EOF
+`stopped`) while switching the exact worker source/runtime identity. Modern
+targets restore the exact worker-control unit; legacy targets that predate the
+control service restore its intentional absence.
+EOF_USAGE
 }
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then usage; exit 0; fi
@@ -86,6 +88,23 @@ if [[ -f "$current_runtime_file" ]]; then
 fi
 [[ -f "$env_file" && "$(stat -c '%a' "$env_file")" == "600" ]] || { echo "ERROR protected worker environment file is missing or not mode 600" >&2; exit 9; }
 
+current_control_present=false
+current_control_enabled=false
+current_control_active=false
+if [[ -f "$control_unit_target" ]]; then
+  current_control_present=true
+  grep -Fq "$current_commit" "$control_unit_target" || { echo "ERROR installed control unit and active source marker disagree" >&2; exit 8; }
+  if systemctl is-enabled --quiet "$control_service_name"; then current_control_enabled=true; fi
+  if systemctl is-active --quiet "$control_service_name"; then
+    current_control_active=true
+    current_control_exec="$(systemctl show -p ExecStart --value "$control_service_name")"
+    [[ "$current_control_exec" == *"$current_commit"* ]] || { echo "ERROR running control service and active source marker disagree" >&2; exit 8; }
+  fi
+elif systemctl is-active --quiet "$control_service_name" || systemctl is-enabled --quiet "$control_service_name"; then
+  echo "ERROR worker control service state exists without an installed control unit" >&2
+  exit 8
+fi
+
 target_root="$install_root/releases/$target_commit"
 target_source="$target_root/source"
 target_provenance="$target_root/source-commit"
@@ -93,6 +112,8 @@ target_quality="$target_root/quality-approved"
 target_worker="$target_source/worker/hls_motion_yolo_worker_events.py"
 target_installer="$target_source/deploy/worker/ubuntu/install-systemd.sh"
 target_runtime_file="$target_root/runtime-id"
+target_control_template="$target_source/deploy/worker/ubuntu/sea-speed-worker-control.service.template"
+target_control_agent="$target_source/deploy/worker/ubuntu/worker-control-agent.py"
 for required in "$target_source" "$target_provenance" "$target_quality" "$target_worker" "$target_installer"; do
   [[ -e "$required" ]] || { echo "ERROR rollback target component missing: $required" >&2; exit 10; }
 done
@@ -101,6 +122,19 @@ done
 quality_content="$(cat "$target_quality")"
 expected_quality="$(printf 'source_commit=%s\nquality_check=quality-integration\n' "$target_commit")"
 [[ "$quality_content" == "$expected_quality" ]] || { echo "ERROR rollback target is not exact quality-approved" >&2; exit 11; }
+
+target_has_control=false
+if [[ -e "$target_control_template" || -e "$target_control_agent" ]]; then
+  if [[ ! -f "$target_control_template" || ! -f "$target_control_agent" ]]; then
+    echo "ERROR rollback target has incomplete worker-control components" >&2
+    exit 10
+  fi
+  if ! grep -Fq "$control_service_name" "$target_installer"; then
+    echo "ERROR rollback target installer does not manage its worker-control unit" >&2
+    exit 10
+  fi
+  target_has_control=true
+fi
 
 target_runtime_id=""
 if [[ -f "$target_runtime_file" ]]; then
@@ -116,7 +150,7 @@ unit_backup="$(mktemp "$updater_root/unit-backup.XXXXXX")"
 control_unit_backup=""
 marker_tmp=""
 install -o root -g root -m 0600 "$unit_target" "$unit_backup"
-if [[ -f "$control_unit_target" ]]; then
+if [[ "$current_control_present" == true ]]; then
   control_unit_backup="$(mktemp "$updater_root/control-unit-backup.XXXXXX")"
   install -o root -g root -m 0600 "$control_unit_target" "$control_unit_backup"
 fi
@@ -138,32 +172,73 @@ apply_desired_state() {
   fi
 }
 
+restore_current_control() {
+  if [[ "$current_control_present" == true ]]; then
+    [[ -n "$control_unit_backup" ]] || return 1
+    install -o root -g root -m 0644 "$control_unit_backup" "$control_unit_target" || return 1
+    systemctl daemon-reload || return 1
+    if [[ "$current_control_enabled" == true ]]; then
+      systemctl enable "$control_service_name" >/dev/null || return 1
+    else
+      systemctl disable "$control_service_name" >/dev/null || return 1
+    fi
+    if [[ "$current_control_active" == true ]]; then
+      systemctl restart "$control_service_name" || return 1
+      systemctl is-active --quiet "$control_service_name" || return 1
+      restored_control_exec="$(systemctl show -p ExecStart --value "$control_service_name")"
+      [[ "$restored_control_exec" == *"$current_commit"* ]] || return 1
+    else
+      systemctl stop "$control_service_name" || return 1
+      ! systemctl is-active --quiet "$control_service_name" || return 1
+    fi
+    return 0
+  fi
+
+  systemctl stop "$control_service_name" >/dev/null 2>&1 || true
+  systemctl disable "$control_service_name" >/dev/null 2>&1 || true
+  rm -f "$control_unit_target" || return 1
+  systemctl daemon-reload || return 1
+  [[ ! -e "$control_unit_target" ]] || return 1
+  ! systemctl is-enabled --quiet "$control_service_name" || return 1
+  ! systemctl is-active --quiet "$control_service_name" || return 1
+  return 0
+}
+
 restore_previous() {
   echo "RESTORE previous_source_commit=$current_commit desired_state=$desired_state" >&2
-  install -o root -g root -m 0644 "$unit_backup" "$unit_target"
-  if [[ -n "$control_unit_backup" ]]; then install -o root -g root -m 0644 "$control_unit_backup" "$control_unit_target"; fi
-  systemctl daemon-reload || return 1
+  install -o root -g root -m 0644 "$unit_backup" "$unit_target" || return 1
+  restore_current_control || return 1
   apply_desired_state || return 1
-  if [[ -f "$control_unit_target" ]]; then
-    systemctl restart "$control_service_name" || return 1
-    systemctl is-active --quiet "$control_service_name" || return 1
-  fi
   restored_exec="$(systemctl show -p ExecStart --value "$service_name")"
   [[ "$restored_exec" == *"$current_commit"* ]] || return 1
   if [[ -n "$current_runtime_id" ]] && [[ "$restored_exec" != *"/runtimes/$current_runtime_id/venv/bin/python"* ]]; then return 1; fi
   return 0
 }
 
+remove_control_for_legacy_target() {
+  systemctl stop "$control_service_name" >/dev/null 2>&1 || true
+  systemctl disable "$control_service_name" >/dev/null 2>&1 || true
+  rm -f "$control_unit_target" || return 1
+  systemctl daemon-reload || return 1
+  [[ ! -e "$control_unit_target" ]] || return 1
+  ! systemctl is-enabled --quiet "$control_service_name" || return 1
+  ! systemctl is-active --quiet "$control_service_name" || return 1
+}
+
 activate_target() {
   (cd "$target_source" && bash deploy/worker/ubuntu/install-systemd.sh "$target_commit" "$install_root" "$service_user") || return 1
-  systemctl restart "$control_service_name" || return 1
-  systemctl is-active --quiet "$control_service_name" || return 1
+  if [[ "$target_has_control" == true ]]; then
+    systemctl restart "$control_service_name" || return 1
+    systemctl is-active --quiet "$control_service_name" || return 1
+    control_exec="$(systemctl show -p ExecStart --value "$control_service_name")"
+    [[ "$control_exec" == *"$target_commit"* ]] || return 1
+  else
+    remove_control_for_legacy_target || return 1
+  fi
   apply_desired_state || return 1
   target_exec="$(systemctl show -p ExecStart --value "$service_name")"
   [[ "$target_exec" == *"$target_commit"* ]] || return 1
   if [[ -n "$target_runtime_id" ]] && [[ "$target_exec" != *"/runtimes/$target_runtime_id/venv/bin/python"* ]]; then return 1; fi
-  control_exec="$(systemctl show -p ExecStart --value "$control_service_name")"
-  [[ "$control_exec" == *"$target_commit"* ]] || return 1
   return 0
 }
 
@@ -187,7 +262,11 @@ marker_tmp=""
 
 printf 'ROLLED_BACK from=%s to=%s desired_state=%s\n' "$current_commit" "$target_commit" "$desired_state"
 printf 'TARGET_RUNTIME_ID %s\n' "${target_runtime_id:-legacy-per-release}"
-printf 'CONTROL_SERVICE_ACTIVE %s\n' "$control_service_name"
+if [[ "$target_has_control" == true ]]; then
+  printf 'CONTROL_SERVICE_ACTIVE %s\n' "$control_service_name"
+else
+  printf 'CONTROL_SERVICE_ABSENT %s\n' "$control_service_name"
+fi
 if [[ "$desired_state" == "running" ]]; then printf 'SERVICE_ACTIVE %s\n' "$service_name"; else printf 'SERVICE_STOPPED %s\n' "$service_name"; fi
 printf 'ACTIVE_SOURCE_COMMIT %s\n' "$target_commit"
 printf 'PRESERVED shared_config_models_datasets_output_releases_runtimes=true\n'
