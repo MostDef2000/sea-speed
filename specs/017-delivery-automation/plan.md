@@ -83,7 +83,7 @@ The source admission rule is also not a new user decision. It is a protocol inva
 - Windows AI Worker: unchanged.
 - Public application/API/media behavior: unchanged.
 - Credentials/privilege: no credential material, sudoers, root SSH policy, GitHub environment secret or runner provisioning is changed.
-- Production impact for this remediation: NONE / CONTROL_PLANE.
+- Change Contract production class: CONTROL_PLANE; VPS/Ubuntu/Windows runtime deployment: NOT REQUIRED.
 
 ## Validation
 
@@ -96,9 +96,13 @@ The source admission rule is also not a new user decision. It is a protocol inva
 
 ## Risk profile
 
-- Risk profile: REQUIRED
+- Risk profile: NOT REQUIRED
 
-The linked active feature 017 retains `Risk profile: REQUIRED` because this plan still carries the broader delivery/runtime risk model and its historical risk rows. The current seven-path remediation adds no new runtime deployment or security boundary, but it adds `RISK-008` as the process-reliability mitigation for the newly explicit fail-closed source-admission state.
+The current seven-path remediation is CONTROL_PLANE-only with security impact `NONE`, no API/event/state/storage schema impact, no destructive/data migration, no MIXED runtime impact and no other high-risk trigger. The broader feature 017 historical risk records are retained separately below as audit context and are not active risk rows for this Change Contract.
+
+## Historical feature risk record
+
+These records document the broader delivery/runtime automation work already delivered under feature 017. They are retained for audit continuity but are outside the current Change Contract's active `Risk profile` section.
 
 - RISK-001 | Category: SEC | Probability: 2 | Impact: 5 | Score: 10 | Mitigation: strict three-line parser, authorized actor/open Issue guard, independent durable authorization verification, request router contains no SSH/runtime mutation | Validation: parser and workflow architecture tests | Residual risk: LOW | Owner: Delivery Orchestrator | Status: MITIGATED
 - RISK-002 | Category: OPS | Probability: 3 | Impact: 4 | Score: 12 | Mitigation: Change Contract requires executable capability for every required contour and exact fallback action count | Validation: Change Contract unit tests | Residual risk: LOW | Owner: Delivery Orchestrator | Status: MITIGATED
