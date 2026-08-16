@@ -123,7 +123,7 @@ jobs:
         for marker in (
             "workflow_dispatch:", "workflow_call:", "environment: production", "refs/heads/main",
             "--first-parent", "verify_quality_status.py", "verify_production_authorization.py",
-            "build_exact_artifacts.py", "Build release provenance", "deploy/worker/ubuntu/deploy-authorized.sh",
+            "build_exact_artifacts.py", "Build exact artifacts and Ubuntu release provenance", "deploy/worker/ubuntu/deploy-authorized.sh",
         ):
             self.assertLess(deploy.index(marker), capability, marker)
         self.assertIn("UBUNTU_DEPLOY_SSH_PRIVATE_KEY", deploy)
