@@ -35,7 +35,7 @@ The active orchestration role is **Sea Speed Delivery Orchestrator**. It retains
 8. Keep the PR Change Contract synchronized with the exact Git diff and the derived production-impact class. Significant PRs must also link the active specification with `- Specification: specs/<feature>/spec.md`.
 9. Merge requires successful required CI, a fresh head/base check, exact changed-file scope, no unresolved review threads, and an expected-head guard when supported. A still-valid `OUTCOME APPROVED` is sufficient merge authorization.
 10. Do not treat merge, packaging, deployment, installation, or runtime acceptance as equivalent states.
-11. Feed production acceptance, regressions and architectural learning back into linked feature artifacts when they change accepted behavior or design. Historical Issues/PRs/decision records remain immutable audit evidence.
+11. Feed production acceptance, regressions and architectural learning back into linked feature artifacts when they change accepted behavior or design. After a production failure, audit the full deployment transaction and adjacent stages before the next source fix/retry; do not stop analysis at the last visible failing line.
 12. Never commit secrets, local runtime data, private media, model binaries, `.env`, virtual environments, snapshots, overlays, logs, or generated output.
 13. Production deployment and worker installation are separate protected operations. They require the evidence defined by the delivery policy and a separate production safety-envelope authorization; source Outcome Authorization alone never authorizes production mutation.
 
@@ -43,7 +43,9 @@ The active orchestration role is **Sea Speed Delivery Orchestrator**. It retains
 
 Sea Speed has three explicit production runtime contours: **VPS**, **Ubuntu Worker/relay**, and **Windows AI Worker**. A source change may affect one contour or a mixed set. Ubuntu production-impact paths must never be reduced to CONTROL_PLANE merely because they live below `deploy/**`; shared Worker source that affects more than one runtime must declare the exact applicable deployment fields.
 
-Every runtime-impacting change requires a production safety envelope. VPS production dispatch remains manual and protected by the `production` environment. Before SSH configuration it must reject anything except an already-lowercase full SHA on current `main` first-parent history, require a successful aggregate quality workflow run produced by `push` on `main` for that exact SHA, resolve the canonical Issue through the applicable merged PR, and verify durable exact-SHA production authorization from an authorized actor. Production authorization is stale when its bound Outcome Contract, runtime contours, security impact, deployment target, rollback target, Issue, PR, or source SHA changes.
+Every runtime-impacting change requires a production safety envelope. For VPS, the normal Delivery Orchestrator execution request is a connected-GitHub-Connector comment `DEPLOY VPS <exact-lowercase-sha>` on the open canonical Issue after the durable production authorization is current. The request workflow delegates to the same protected reusable `Deploy VPS` implementation; manual `workflow_dispatch` remains an emergency/operator fallback, not the normal orchestration path. The request comment never replaces production authorization.
+
+Before SSH configuration the protected VPS workflow must reject anything except an already-lowercase full SHA on current `main` first-parent history, require a successful aggregate quality workflow run produced by `push` on `main` for that exact SHA, resolve the canonical Issue through the applicable merged PR, and verify durable exact-SHA production authorization from an authorized actor. Production authorization is stale when its bound Outcome Contract, runtime contours, security impact, deployment target, rollback target, Issue, PR, or source SHA changes.
 
 New deployable provenance uses release manifest v2. It distinguishes the approved Change Contract file set from the actual Git diff and binds canonical Issue/PR, Outcome and Change Contract hashes, artifacts, and quality/exact-artifact evidence. Persisted v1 release/deployment evidence remains readable for rollback compatibility.
 
@@ -52,6 +54,8 @@ The aggregate `quality-integration` workflow executes SDD validation for signifi
 ## Delivery quality layer
 
 For every linked significant PR, the active SDD also carries the bounded delivery-quality artifacts enforced by `scripts/ci/validate_sdd.py`: NFR assessment in `spec.md`; risk profile, risk-based test design and correct-course check in `plan.md`; requirements traceability and Definition of Done in `tasks.md`.
+
+Deployment/release changes, deployment workflow changes, Change Contracts with any runtime deployment `REQUIRED`, and `PRODUCTION_LEARNING` additionally require a machine-valid `Deployment transaction audit` in the linked plan. It covers admission, pre-mutation, mutation, verification, state commit, housekeeping, evidence and rollback. A production learning also requires a completed adjacent-stage review, concrete root cause and concrete neighboring-stage findings. Minimal source diff does not mean minimal analysis.
 
 The PR Change Contract declares `Risk profile: REQUIRED|NOT REQUIRED` and a quality verdict. Full risk profiling is required when the change has a security-boundary impact, API/event/state/storage schema impact, destructive/data-migration impact, `MIXED` runtime impact, or an explicitly declared other high-risk trigger. Low-risk work may explicitly declare `NOT REQUIRED`.
 

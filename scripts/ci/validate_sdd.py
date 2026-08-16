@@ -14,9 +14,10 @@ from typing import Iterable
 ROOT = Path(__file__).resolve().parents[2]
 FEATURE_DIR_RE = re.compile(r"^(\d{3,})-[a-z0-9][a-z0-9-]*$")
 SPEC_LINK_RE = re.compile(r"(?m)^- Specification:\s*`?(specs/[0-9]{3,}-[a-z0-9][a-z0-9-]*/spec\.md)`?\s*$")
-ISSUE_RE = re.compile(r"(?m)^- Issue:\s*#\d+\s*$")
+ISSUE_RE = re.compile(r"(?m)^- Issue:\s*#(\d+)\s*$")
 RISK_DECLARATION_RE = re.compile(r"(?m)^- Risk profile:\s*(REQUIRED|NOT REQUIRED)\s*$")
 AC_RE = re.compile(r"(?m)^- (AC-\d+):\s*.+$")
+PR_FIELD_RE = re.compile(r"(?m)^- ([A-Za-z][A-Za-z0-9 /_-]*):\s*(.*?)\s*$")
 
 BASELINE_FILES = (
     ".specify/memory/constitution.md",
@@ -52,6 +53,13 @@ TEST_PRIORITIES = {"P0", "P1", "P2", "P3"}
 TRACE_COVERAGE = {"COVERED", "RUNTIME-MANUAL"}
 CORRECT_COURSE_TRIGGERS = {"NONE", "PRODUCTION_LEARNING", "ARCHITECTURE_PIVOT", "MATERIAL_SCOPE_CHANGE"}
 UNKNOWN_TARGETS = {"UNKNOWN", "TBD", "TODO", "UNDEFINED", "NOT DEFINED"}
+TRANSACTION_STAGES = {
+    "ADMISSION", "PRE-MUTATION", "MUTATION", "VERIFICATION",
+    "STATE-COMMIT", "HOUSEKEEPING", "EVIDENCE", "ROLLBACK",
+}
+TRANSACTION_MUTATION = {"YES", "NO", "POSSIBLE"}
+TRANSACTION_FAILURE = {"FATAL", "BEST-EFFORT", "CONDITIONAL"}
+RUNTIME_DEPLOYMENT_FIELDS = ("VPS deployment", "Ubuntu worker/relay update", "Windows worker update")
 DOD_MARKERS = (
     "Issue/spec/plan/tasks current",
     "Exact changed-file scope verified",
@@ -110,6 +118,15 @@ def _records(section_text: str, prefix: str) -> list[tuple[str, dict[str, str]]]
             fields[name.strip()] = value.strip()
         rows.append((record_id, fields))
     return rows
+
+
+def _bullet_values(section_text: str) -> dict[str, str]:
+    values: dict[str, str] = {}
+    for raw in section_text.splitlines():
+        match = re.match(r"^- ([A-Za-z][A-Za-z0-9 /-]+):\s*(.+?)\s*$", raw.strip())
+        if match:
+            values[match.group(1)] = match.group(2)
+    return values
 
 
 def _require_record_fields(record_id: str, fields: dict[str, str], required: Iterable[str]) -> None:
@@ -180,7 +197,7 @@ def _validate_nfr(spec_path: Path) -> None:
             raise SddError(f"{record_id} cannot be PASS with an unknown target")
 
 
-def _validate_risk_and_test_design(plan_path: Path, declared_risk: str) -> None:
+def _validate_risk_and_test_design(plan_path: Path, declared_risk: str) -> str:
     text = _read(plan_path)
     _require_markers(plan_path, QUALITY_PLAN_MARKERS)
     risk_section = _section(text, "Risk profile")
@@ -223,11 +240,7 @@ def _validate_risk_and_test_design(plan_path: Path, declared_risk: str) -> None:
             raise SddError(f"{record_id} has invalid test priority: {fields['Priority']}")
 
     course = _section(text, "Correct-course check")
-    values: dict[str, str] = {}
-    for raw in course.splitlines():
-        match = re.match(r"^- ([A-Za-z][A-Za-z /-]+):\s*(.+?)\s*$", raw.strip())
-        if match:
-            values[match.group(1)] = match.group(2)
+    values = _bullet_values(course)
     required_course = ("Trigger", "Issue impact", "Specification impact", "Plan impact", "Tasks impact", "Authorization impact", "Follow-up")
     missing = [name for name in required_course if not values.get(name)]
     if missing:
@@ -239,6 +252,63 @@ def _validate_risk_and_test_design(plan_path: Path, declared_risk: str) -> None:
         impacts = [values[name].strip().upper() for name in required_course[1:-1]]
         if all(value == "NONE" for value in impacts) or values["Follow-up"].strip().upper() == "NONE":
             raise SddError(f"{plan_path} non-NONE correct-course trigger requires impact and follow-up")
+    return trigger
+
+
+def _pr_fields(pr_body: str) -> dict[str, str]:
+    return {name: value.strip() for name, value in PR_FIELD_RE.findall(pr_body or "")}
+
+
+def requires_deployment_transaction_audit(changed_files: Iterable[str], pr_body: str, trigger: str) -> bool:
+    if trigger == "PRODUCTION_LEARNING":
+        return True
+    for path in changed_files:
+        normalized = path.replace("\\", "/")
+        if normalized.startswith("deploy/") or normalized.startswith("scripts/release/"):
+            return True
+        if normalized.startswith(".github/workflows/deploy") and normalized.endswith((".yml", ".yaml")):
+            return True
+    fields = _pr_fields(pr_body)
+    return any(fields.get(name, "").upper() == "REQUIRED" for name in RUNTIME_DEPLOYMENT_FIELDS)
+
+
+def _validate_deployment_transaction_audit(plan_path: Path, trigger: str) -> None:
+    text = _read(plan_path)
+    audit = _section(text, "Deployment transaction audit")
+    rows = _records(audit, "TX-")
+    if not rows:
+        raise SddError(f"{plan_path} requires deployment transaction audit records")
+    stages: set[str] = set()
+    for record_id, fields in rows:
+        required = ("Stage", "Mutation", "Failure disposition", "State after failure", "Retry", "Rollback", "Evidence")
+        _require_record_fields(record_id, fields, required)
+        stage = fields["Stage"].upper()
+        if stage not in TRANSACTION_STAGES:
+            raise SddError(f"{record_id} has invalid transaction stage: {fields['Stage']}")
+        if stage in stages:
+            raise SddError(f"duplicate deployment transaction stage: {stage}")
+        stages.add(stage)
+        if fields["Mutation"].upper() not in TRANSACTION_MUTATION:
+            raise SddError(f"{record_id} has invalid Mutation value: {fields['Mutation']}")
+        if fields["Failure disposition"].upper() not in TRANSACTION_FAILURE:
+            raise SddError(f"{record_id} has invalid Failure disposition: {fields['Failure disposition']}")
+        for name in ("State after failure", "Retry", "Rollback", "Evidence"):
+            if fields[name].strip().upper() in UNKNOWN_TARGETS:
+                raise SddError(f"{record_id} cannot use unknown {name}: {fields[name]}")
+    if stages != TRANSACTION_STAGES:
+        raise SddError(
+            "deployment transaction audit stage mismatch; "
+            f"missing={sorted(TRANSACTION_STAGES - stages)}; extra={sorted(stages - TRANSACTION_STAGES)}"
+        )
+
+    if trigger == "PRODUCTION_LEARNING":
+        values = _bullet_values(audit)
+        if values.get("Adjacent-stage review", "").upper() != "COMPLETE":
+            raise SddError(f"{plan_path} production learning requires '- Adjacent-stage review: COMPLETE'")
+        for name in ("Production-learning root cause", "Production-learning adjacent-stage findings"):
+            value = values.get(name, "").strip()
+            if not value or value.upper() in UNKNOWN_TARGETS | {"NONE", "NOT APPLICABLE"}:
+                raise SddError(f"{plan_path} production learning requires concrete {name}")
 
 
 def _validate_traceability_and_dod(spec_path: Path, tasks_path: Path) -> None:
@@ -271,7 +341,7 @@ def _validate_traceability_and_dod(spec_path: Path, tasks_path: Path) -> None:
         raise SddError(f"{tasks_path} Definition of Done missing: {', '.join(missing_dod)}")
 
 
-def validate_feature_quality(feature_dir: Path, pr_body: str) -> None:
+def validate_feature_quality(feature_dir: Path, pr_body: str, changed_files: Iterable[str] = ()) -> None:
     match = RISK_DECLARATION_RE.search(pr_body or "")
     if not match:
         raise SddError("significant PR must declare '- Risk profile: REQUIRED|NOT REQUIRED'")
@@ -280,7 +350,9 @@ def validate_feature_quality(feature_dir: Path, pr_body: str) -> None:
     plan = feature_dir / "plan.md"
     tasks = feature_dir / "tasks.md"
     _validate_nfr(spec)
-    _validate_risk_and_test_design(plan, declared_risk)
+    trigger = _validate_risk_and_test_design(plan, declared_risk)
+    if requires_deployment_transaction_audit(changed_files, pr_body, trigger):
+        _validate_deployment_transaction_audit(plan, trigger)
     _validate_traceability_and_dod(spec, tasks)
 
 
@@ -308,7 +380,7 @@ def validate_pr_link(body: str, changed_files: Iterable[str], root: Path = ROOT)
     if not target.is_file():
         raise SddError(f"linked specification does not exist: {spec_path}")
     validate_feature_dir(target.parent)
-    validate_feature_quality(target.parent, body)
+    validate_feature_quality(target.parent, body, changed)
 
 
 def git_changed_files(base_sha: str, head_sha: str, root: Path = ROOT) -> list[str]:

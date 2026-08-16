@@ -76,8 +76,8 @@ jobs:
         deploy = (ROOT / ".github/workflows/deploy-vps.yml").read_text(encoding="utf-8")
         configure = deploy.index("Configure SSH")
         for marker in (
-            "refs/heads/main", "--first-parent", "verify_quality_status.py",
-            "verify_production_authorization.py", "Build release provenance v2",
+            "workflow_dispatch:", "workflow_call:", "refs/heads/main", "--first-parent",
+            "verify_quality_status.py", "verify_production_authorization.py", "Build release provenance v2",
         ):
             self.assertLess(deploy.index(marker), configure, marker)
         self.assertIn("environment: production", deploy)
@@ -89,6 +89,31 @@ jobs:
         self.assertIn("FIRST_PARENT_MATCH=0", deploy)
         self.assertIn("done < <(git rev-list --first-parent origin/main)", deploy)
         self.assertIn('[[ "$FIRST_PARENT_MATCH" == "1" ]] || {', deploy)
+
+    def test_issue_request_delegates_to_reusable_deploy_without_runtime_mutation(self) -> None:
+        request = (ROOT / ".github/workflows/deploy-vps-request.yml").read_text(encoding="utf-8")
+        self.assertIn("issue_comment:", request)
+        self.assertIn("types: [created]", request)
+        self.assertIn("!github.event.issue.pull_request", request)
+        self.assertIn("startsWith(github.event.comment.body, 'DEPLOY VPS ')", request)
+        self.assertIn("scripts/release/parse_deployment_request.py", request)
+        self.assertIn("uses: ./.github/workflows/deploy-vps.yml", request)
+        self.assertIn("secrets: inherit", request)
+        self.assertNotIn("environment: production", request)
+        self.assertNotIn("VPS_SSH_PRIVATE_KEY", request)
+        self.assertNotIn("ssh -i", request)
+
+    def test_windows_worker_package_is_pre_release_and_worker_scoped(self) -> None:
+        package = (ROOT / ".github/workflows/package-worker.yml").read_text(encoding="utf-8")
+        self.assertIn('- "worker/**"', package)
+        self.assertIn('- ".github/workflows/package-worker.yml"', package)
+        self.assertNotIn('"scripts/release/**"', package)
+        self.assertNotIn('"schemas/**"', package)
+        self.assertNotIn("build_release_manifest.py", package)
+        self.assertNotIn("release-manifest-windows-worker.json", package)
+        self.assertIn("commit-sha.txt", package)
+        self.assertIn("sea-speed-worker.zip.sha256", package)
+        self.assertIn("Production release manifest: `NOT BUILT`", package)
 
     def test_exact_artifacts_are_deterministic_and_valid(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
