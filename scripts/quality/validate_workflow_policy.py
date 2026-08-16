@@ -13,6 +13,7 @@ from scripts.quality.common import repository_root
 
 ALLOWED_ACTIONS = {"actions/checkout", "actions/setup-python", "actions/setup-node", "actions/upload-artifact"}
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$", re.IGNORECASE)
+HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Z_][A-Z0-9_]*)\1")
 
 
 def fail(message: str) -> None:
@@ -20,7 +21,42 @@ def fail(message: str) -> None:
     raise SystemExit(1)
 
 
+def _indent_width(line: str) -> int:
+    return len(line) - len(line.lstrip(" "))
+
+
+def _validate_yaml_sensitive_shell_source(source: str, file: str) -> None:
+    lines = source.splitlines()
+    for line_no, line in enumerate(lines, 1):
+        match = re.match(r"^\s*if:\s*(.+)$", line)
+        if match:
+            value = match.group(1).strip()
+            if value and not value.startswith(("'", '"', "|", ">")) and ": " in value:
+                raise ValueError(
+                    f"{file}:{line_no} has an unquoted if expression containing ': '; quote the whole YAML scalar"
+                )
+
+    for line_index, line in enumerate(lines):
+        for match in HEREDOC.finditer(line):
+            delimiter = match.group(2)
+            opener_indent = _indent_width(line)
+            closing_index = None
+            for candidate_index in range(line_index + 1, len(lines)):
+                if lines[candidate_index].strip() == delimiter:
+                    closing_index = candidate_index
+                    break
+            if closing_index is None:
+                raise ValueError(f"{file}:{line_index + 1} has unterminated shell heredoc {delimiter}")
+            for candidate_index in range(line_index + 1, closing_index + 1):
+                candidate = lines[candidate_index]
+                if candidate.strip() and _indent_width(candidate) < opener_indent:
+                    raise ValueError(
+                        f"{file}:{candidate_index + 1} shell heredoc content escapes its YAML run block indentation"
+                    )
+
+
 def validate_workflow_source(source: str, file: str) -> None:
+    _validate_yaml_sensitive_shell_source(source, file)
     if re.search(r"^\s*permissions:\s*write-all\s*$", source, re.MULTILINE):
         raise ValueError(f"{file} must not use write-all permissions")
     if re.search(r"^\s*pull_request_target\s*:", source, re.MULTILINE):
@@ -123,7 +159,7 @@ def main() -> int:
         "deploy-runtime-request.yml",
         (
             "startsWith(github.event.comment.body, 'PRODUCTION APPROVED ')",
-            "Execution-Intent: EXECUTE", "!github.event.issue.pull_request",
+            "Execution-Intent: EXECUTE", "github.event.issue.pull_request == null",
             "parse_runtime_execution_request.py", "verify_production_authorization.py",
             "--require-execution-intent", "uses: ./.github/workflows/deploy-vps.yml",
             "uses: ./.github/workflows/deploy-ubuntu-worker.yml", "windows-worker-fallback:", "secrets: inherit",
