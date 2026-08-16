@@ -56,11 +56,14 @@
 - [x] Scope-before-approval rule merged previously: contracts require visible exact Scope before every approval request.
 - [x] Active risk-profile applicability aligned: this CONTROL_PLANE Change Contract is `NOT REQUIRED`; historical feature risks are preserved outside the active Risk profile section.
 - [ ] Fail-closed source admission implemented: contracts require `VISIBLE_SCOPE_PRESENTED=YES`, `SCOPE_IMMEDIATELY_PRECEDES_APPROVAL=YES`, blocked source writes on invalid sequence, and fresh Scope+token recovery.
-- [ ] Exact changed-file scope verified for this remediation: seven approved CONTROL_PLANE paths only; no frontend/API/deployment/runtime file changes.
-- [ ] Required tests/evidence complete: exact contract content review, SDD validation and repository quality checks prove AC-016.
+- [ ] Exact changed-file scope verified: seven approved CONTROL_PLANE paths only; no frontend/API/deployment/runtime file changes.
+- [ ] Required tests and evidence complete: exact contract content review, SDD validation and repository quality checks prove AC-016.
 - [ ] Required CI green: PR Validation and aggregate Quality integration succeed on the same exact final head.
 - [ ] Exact-green-head merge complete: fresh main/head/scope/review gate passes and merge uses expected-head protection.
+- [x] Deployment state resolved: NOT REQUIRED for this CONTROL_PLANE-only remediation.
+- [x] Runtime acceptance resolved: NOT REQUIRED for this CONTROL_PLANE-only remediation.
 - [x] Deferred work recorded: provisioning restricted zero-touch Ubuntu transport and Windows production automation remain separate future capabilities.
+- [x] Risks resolved or explicitly accepted: active Risk profile is NOT REQUIRED; historical broader-feature risk rows remain audit-only outside the active section.
 - [x] Waivers resolved or current: no quality waiver is requested; all hard gates remain mandatory.
 
 ## Completion gate
