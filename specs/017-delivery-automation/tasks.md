@@ -54,6 +54,7 @@
 - [x] Issue/spec/plan/tasks current: Issue #178 carries the approved automation history and feature 017 captures the accepted architecture.
 - [x] Original hardening release deployed/accepted: exact Ubuntu target `8dc74762a344dbf763d3ce1e7ecb1bac6872affb` was deployed through the one-command fallback and worker Stop/Start was confirmed independent from continuously available Camera 1 HLS.
 - [x] Scope-before-approval rule merged previously: contracts require visible exact Scope before every approval request.
+- [x] Active risk-profile applicability aligned: this CONTROL_PLANE Change Contract is `NOT REQUIRED`; historical feature risks are preserved outside the active Risk profile section.
 - [ ] Fail-closed source admission implemented: contracts require `VISIBLE_SCOPE_PRESENTED=YES`, `SCOPE_IMMEDIATELY_PRECEDES_APPROVAL=YES`, blocked source writes on invalid sequence, and fresh Scope+token recovery.
 - [ ] Exact changed-file scope verified for this remediation: seven approved CONTROL_PLANE paths only; no frontend/API/deployment/runtime file changes.
 - [ ] Required tests/evidence complete: exact contract content review, SDD validation and repository quality checks prove AC-016.
