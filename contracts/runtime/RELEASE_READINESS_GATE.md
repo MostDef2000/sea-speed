@@ -1,6 +1,6 @@
 # Sea Speed Release Readiness Gate
 
-Version: 1.7.0
+Version: 1.8.0
 Status: Active
 
 ## Gate
@@ -27,12 +27,17 @@ Release Readiness Gate
 - Quality evidence valid: YES/NO/NOT APPLICABLE
 - Release manifest v2 valid: YES/NO/NOT APPLICABLE
 - VPS deployment required: YES/NO
+- VPS execution capability: CONNECTOR/ONE_COMMAND_FALLBACK/NOT APPLICABLE
 - Ubuntu worker/relay update required: YES/NO
+- Ubuntu execution capability: CONNECTOR/ONE_COMMAND_FALLBACK/NOT APPLICABLE
 - Windows AI worker update required: YES/NO
+- Windows execution capability: CONNECTOR/ONE_COMMAND_FALLBACK/NOT APPLICABLE
+- Operator actions expected: <non-negative integer>
 - Mixed-contour compatibility declared: YES/NO/NOT APPLICABLE
 - Rollout and rollback order declared: YES/NO/NOT APPLICABLE
 - Production safety envelope available: YES/NO/NOT APPLICABLE
 - Durable production authorization matches current fingerprint: YES/NO/NOT APPLICABLE
+- Production execution intent: EXECUTE/AUTHORIZE_ONLY/NOT APPLICABLE
 - Final exact lowercase 40-character source SHA bound to envelope: YES/NO/NOT APPLICABLE
 - Acceptance evidence plan available: YES/NO
 - Rollback target available: YES/NO/NOT APPLICABLE
@@ -43,7 +48,11 @@ Release Readiness Gate
 
 Before implementation begins, verify the complete approved file set and delivery lifecycle. Do not accept partial delivery as a substitute for a blocked mandatory path.
 
-For a VPS runtime contour, the normal GitHub execution capability is a connected-Connector write of the exact `DEPLOY VPS <sha>` command to the open canonical Issue after the durable production authorization is current. The Issue-comment request workflow must exist on `main` before this path can be used. Manual `workflow_dispatch` is fallback-only. If neither path is available, stop before runtime mutation instead of asking for ad hoc GitHub writes or bypassing the protected workflow.
+The exact Change Contract must declare one runtime execution capability per contour. A required contour with `MISSING` or `NOT APPLICABLE` fails admission. A non-required contour must be `NOT APPLICABLE`. `Operator actions expected` must equal the number of required `ONE_COMMAND_FALLBACK` contours.
+
+For VPS, the repository already has Connector-addressable protected execution. For Ubuntu, `.github/workflows/deploy-ubuntu-worker.yml` plus `deploy/worker/ubuntu/deploy-authorized.sh` provide the protected workflow/target transaction. Zero-touch Ubuntu transport is `CONNECTOR` only when a restricted production transport/privilege boundary is independently provisioned and reachable; otherwise the truthful capability is `ONE_COMMAND_FALLBACK`. Do not infer a secret, route, sudo policy or runner from source alone.
+
+If a mandatory runtime contour has neither Connector execution nor one repository-owned exact fallback action, stop `BLOCKED` before partial delivery.
 
 ## Aggregate quality gate
 
@@ -57,7 +66,7 @@ For a significant PR, `scripts/ci/validate_sdd.py` validates the current linked 
 
 When a significant PR affects deployment/release execution, a deployment workflow, declares a runtime deployment `REQUIRED`, or carries `PRODUCTION_LEARNING`, the same validator also requires the full Deployment Transaction Audit. A production learning must record the root cause and a completed adjacent-stage review before the next production retry is proposed.
 
-`scripts/ci/validate_change_contract.py` derives whether a full risk profile is required from security impact, API/event/state/storage schema impact, destructive/data migration, `MIXED` runtime impact, and an explicit other high-risk trigger. It rejects a mismatched declaration, rejects quality verdict `FAIL`, and admits `WAIVED` only with a complete durable waiver record.
+`scripts/ci/validate_change_contract.py` derives whether a full risk profile is required from security impact, API/event/state/storage schema impact, destructive/data migration, `MIXED` runtime impact, and an explicit other high-risk trigger. It also enforces runtime execution capability and operator-action budget, rejects quality verdict `FAIL`, and admits `WAIVED` only with a complete durable waiver record.
 
 A quality waiver is never a hard gate bypass. It never bypasses source authorization, exact diff, runtime-contour derivation, protected-boundary reauthorization, secrets checks, aggregate CI, production authorization, release provenance, rollback or runtime acceptance.
 
@@ -65,58 +74,70 @@ A quality waiver is never a hard gate bypass. It never bypasses source authoriza
 
 When runtime delivery applies, new release provenance uses `sea_speed_release_manifest_v2`. Validate canonical Issue, applicable PR, current Outcome Contract hash, Change Contract hash, exact base/source commits, approved changed-file set, actual Git diff, approved-scope hash, deployable artifact inventory, SHA-256/size, component classification, exact-artifact evidence and quality evidence.
 
-Approved scope and actual diff are separate facts and must match at admission. A merge-message PR number is never a canonical Issue fallback. `ready_for_deployment` for a runtime component requires at least one exact artifact. Persisted v1 release/deployment evidence remains readable for rollback compatibility.
+Approved scope and actual diff are separate facts and must match at admission. A merge-message PR number is never a canonical Issue fallback. `ready_for_deployment` for a runtime component requires at least one exact artifact. The Ubuntu exact artifact must contain the repository-owned `deploy/worker/ubuntu/deploy-authorized.sh` transaction entrypoint. Persisted v1 release/deployment evidence remains readable for rollback compatibility.
 
 Package creation is not deployment evidence.
 
-## Production authorization gate
+## Production authorization and execution-intent gate
 
-Production must not run because of a pull request, push, merge, source Outcome Authorization, or deployment-request comment alone.
+Production must not run because of a pull request, push, merge or source Outcome Authorization.
 
-A production safety envelope must be separately recorded. Durable authorization is canonical Issue evidence from a source-controlled authorized actor. It must bind the canonical Issue, applicable merged PR, exact source SHA, Outcome Contract, exact runtime contour set, security impact, deployment target and rollback target. Material change to any bound semantic makes the previous authorization stale.
+Durable authorization is canonical Issue evidence from a source-controlled authorized actor:
+
+```text
+PRODUCTION APPROVED <exact-sha>
+Authorization-Fingerprint: <current-fingerprint>
+```
+
+That two-line record is authorize-only. Normal authorize-and-execute adds the exact third line:
+
+```text
+Execution-Intent: EXECUTE
+```
 
 Before each production execution, verify all of the following before SSH or other runtime mutation:
 
 - the input is already a lowercase full 40-character SHA; normalization is not admission;
-- the source SHA is on current `main` **first-parent** history, so a merged feature-head or synthetic/non-main commit is rejected;
-- the exact `quality-integration.yml` workflow has a successful completed run with event `push`, branch `main`, and the same head SHA; a PR check-run name is insufficient;
+- the source SHA is on current `main` **first-parent** history;
+- the exact `quality-integration.yml` workflow has a successful completed run with event `push`, branch `main`, and the same head SHA;
 - the exact source commit resolves to exactly one applicable merged PR and its Change Contract binds the requested canonical Issue;
 - durable `PRODUCTION APPROVED <full-sha>` evidence from an authorized actor carries the current authorization fingerprint;
+- execution intent is explicit either in the exact third Issue line or in an independently protected manual dispatch/fallback action;
 - exact artifacts, release manifest and quality evidence validate;
 - product outcome, runtime contours, protected boundaries, deployment method and rollback semantics still match the approved envelope;
 - the rollback target is known.
+
+`.github/workflows/deploy-runtime-request.yml` may trigger only from a newly created exact three-line canonical-Issue record. Its parser validates comment shape/actor/Issue context, then `verify_production_authorization.py --require-execution-intent` independently validates the same durable record and emits the exact required contour set. The router contains no runtime SSH/mutation logic.
 
 GitHub/API errors, missing linkage, ambiguity or stale fingerprints fail closed. The protected `production` environment remains an additional gate, not a replacement for durable authorization.
 
 ## VPS gate
 
-When VPS deployment is required, `.github/workflows/deploy-vps.yml` remains the single protected deployment implementation and retains `environment: production`. It supports `workflow_call` for the canonical Issue-request path and `workflow_dispatch` as an emergency/operator fallback.
+When VPS deployment is required, `.github/workflows/deploy-vps.yml` remains the single protected implementation and retains `environment: production`. It supports `workflow_call` from the two-intent runtime router and legacy VPS request path, plus `workflow_dispatch` as an emergency/operator fallback.
 
-Normal Delivery Orchestrator execution is:
+Legacy `DEPLOY VPS <exact-sha>` remains a compatible execution request after separate durable authorization, but new normal delivery should use the combined production authorization plus `Execution-Intent: EXECUTE` record to avoid a third user decision.
 
-```text
-connected GitHub Connector writes `DEPLOY VPS <exact-sha>` on the open canonical Issue
--> deploy-vps-request.yml handles only the created Issue comment
--> repository-owned parser verifies exact command, Issue context and authorized actor
--> reusable deploy-vps.yml re-verifies exact-main quality, durable production authorization and provenance
--> SSH/runtime mutation begins only after all gates pass
-```
-
-The request comment is not production authorization. Verify the called workflow ran from the default/main workflow definition, deployment identity matches the exact bound first-parent main commit, health/source identity is correct, applicable frontend/storage checks pass and rollback target remains known.
+Verify the called workflow ran from the default/main workflow definition, deployment identity matches the exact bound first-parent main commit, health/source identity is correct, applicable frontend/storage checks pass and rollback target remains known.
 
 ## Ubuntu Worker/relay gate
 
-When Ubuntu Worker/relay update is required, verify exact source/package/runtime identity, preservation of protected local state, valid deployment evidence, applicable service restart, matching source/runtime identity, freshness/frame advancement and relay/AI telemetry semantics.
+When Ubuntu Worker/relay update is required, `.github/workflows/deploy-ubuntu-worker.yml` must validate exact main, push/main quality, durable authorization, exact artifacts and release manifest before resolving runtime transport.
+
+The target mutation is owned by `deploy/worker/ubuntu/deploy-authorized.sh`. It must re-stage the exact current-main target, re-verify durable authorization and explicit execution intent, invoke the exact target updater for preparation+activation as one transaction, verify exact worker/runtime/control identities, preserve the desired worker state, write deployment-manifest evidence and restore the previously active exact release if post-activation verification fails.
+
+When restricted Connector transport is not provisioned, the workflow may produce one exact server-pull bootstrap action and must remain non-successful until that action actually executes. Do not split the fallback into preparation, inspection and activation confirmations.
+
+After mutation verify exact source/package/runtime identity, preservation of protected local state, valid deployment evidence, applicable service state, freshness/frame advancement when desired state is running and relay/AI telemetry semantics.
 
 ## Windows AI Worker gate
 
-When Windows AI Worker update is required, verify exact package/install identity, preservation of local protected state, valid deployment evidence, restart, matching worker source identity, freshness and applicable telemetry.
+When Windows AI Worker update is required, verify exact package/install identity, preservation of local protected state, valid deployment evidence, restart, matching worker source identity, freshness and applicable telemetry. Until dedicated Connector execution exists, the Change Contract must truthfully declare a repository-owned one-command fallback rather than `MISSING`.
 
 GitHub-hosted CI does not prove physical camera/GPU/runtime behavior.
 
 ## Mixed-contour gate
 
-When two or three runtime contours apply, `MIXED` is only the summary classification. The exact VPS, Ubuntu Worker/relay and Windows AI Worker deployment fields must equal the exact derived contour set. Verify declared compatibility and execute the authorized rollout/rollback order.
+When two or three runtime contours apply, `MIXED` is only the summary classification. The exact VPS, Ubuntu Worker/relay and Windows AI Worker deployment fields must equal the exact derived contour set. Verify declared compatibility and execute the authorized rollout/rollback order. Successful completion of one contour never substitutes for a required contour that remains fallback-pending or failed.
 
 ## Media-boundary gate
 
@@ -129,6 +150,8 @@ After runtime verification, return exactly one product verdict: `accepted`, `reg
 ## Deployment transaction gate
 
 Before merging deployment-affecting work, inspect the full transaction rather than the latest failure only. The linked plan must cover `ADMISSION`, `PRE-MUTATION`, `MUTATION`, `VERIFICATION`, `STATE-COMMIT`, `HOUSEKEEPING`, `EVIDENCE`, and `ROLLBACK`, including mutation possibility, fatal/best-effort/conditional failure disposition, state after failure, safe retry, rollback and evidence.
+
+Production-equivalent CI should execute the real repository-owned transaction entrypoint against isolated fake external/runtime boundaries when deterministic shell/order/rollback behavior can be modeled. Source-string assertions alone are not sufficient evidence for executable transaction semantics.
 
 After a production failure, do not issue the next retry merely because the final error line was patched. Require a concrete root cause plus adjacent-stage findings and execute deterministic fault-path tests where the repository can model the transaction without touching production. Any newly discovered source defect outside the approved scope returns to normal scope/authorization rather than being hidden in the current remediation.
 
