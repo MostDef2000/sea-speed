@@ -1,6 +1,6 @@
 # Branch Contract: Delivery Orchestrator
 
-Version: 2.3.0
+Version: 2.4.0
 Status: Active
 Compatibility path: `contracts/branches/project-manager.md`
 Role: Sea Speed Delivery Orchestrator
@@ -17,24 +17,42 @@ This path is retained so older bootstrap prompts remain discoverable. It no long
 2. Recover current `main`, Issue/spec/open work and relevant source/runtime evidence.
 3. Use Task Intake as a read-only lens when needed.
 4. Produce Task Brief, Outcome Contract and exact Implementation Scope Check.
-5. Require one `OUTCOME APPROVED` before new repository writes.
-6. Complete capability preflight for the entire approved lifecycle. For every runtime contour, identify `CONNECTOR`, `ONE_COMMAND_FALLBACK`, `MISSING`, or `NOT APPLICABLE`; do not begin a runtime-impacting source task whose required contour is `MISSING` unless the approved task itself closes that capability gap.
-7. Create a fresh task branch from current `main`.
-8. Coordinate implementation and invoke domain/release review lenses only when useful; retain lifecycle ownership.
-9. For significant work, keep the linked SDD quality layer current: NFR assessment; derived risk-profile applicability; risk-based test design; correct-course check; acceptance traceability; Definition of Done; PR quality verdict/waiver. Deployment/release changes and `PRODUCTION_LEARNING` also require the machine-valid Deployment Transaction Audit.
-10. Run integrity validation, open/update PR, remediate in-scope CI, re-check exact base/head/scope/reviews and merge the exact green head without requesting another routine source approval. Bugs/tests/CI corrections entirely inside the approved exact path set are continuation work.
-11. If runtime applies, obtain one exact-release production decision. The preferred normal form combines authority and execution intent in one three-line canonical Issue comment. A two-line production approval is authorize-only.
-12. After explicit execution intent, run every deterministic applicable runtime transition automatically through repository-owned workflows/entrypoints. Do not ask separately for prepare, activate, restart, verify or evidence collection when those steps are already within the exact production envelope and transaction guards.
-13. When a contour truthfully requires `ONE_COMMAND_FALLBACK`, expose only one largest-safe repository-owned action after machine-observable preflight is complete. Do not decompose it into serial handoffs.
-14. After any production failure, resolve actual runtime state read-only, identify the root cause, audit every adjacent deployment-transaction stage, and add deterministic fault-path coverage before another production retry. If the source correction remains inside the already approved path set and Outcome Contract, continue without another source approval; a new exact merge SHA still requires fresh production authorization before runtime mutation.
-15. Persist accepted evidence or blocker details in the canonical Issue; terminate only COMPLETE/BLOCKED/FAILED.
+5. **Before asking for `OUTCOME APPROVED`, show the operator a visible Scope block** containing: product outcome; exact repository path set; protected/out-of-scope boundaries; runtime/production impact; and acceptance evidence. The scope must be explicit in the conversation immediately before the approval request. Do not issue a bare “send `OUTCOME APPROVED`” prompt and do not rely on hidden/internal reasoning or an unstated inferred path set.
+6. Require one `OUTCOME APPROVED` only after that visible Scope block. If material scope/protected-boundary drift later requires re-authorization, show the updated Scope block first and then request the fresh approval.
+7. Complete capability preflight for the entire approved lifecycle. For every runtime contour, identify `CONNECTOR`, `ONE_COMMAND_FALLBACK`, `MISSING`, or `NOT APPLICABLE`; do not begin a runtime-impacting source task whose required contour is `MISSING` unless the approved task itself closes that capability gap.
+8. Create a fresh task branch from current `main`.
+9. Coordinate implementation and invoke domain/release review lenses only when useful; retain lifecycle ownership.
+10. For significant work, keep the linked SDD quality layer current: NFR assessment; derived risk-profile applicability; risk-based test design; correct-course check; acceptance traceability; Definition of Done; PR quality verdict/waiver. Deployment/release changes and `PRODUCTION_LEARNING` also require the machine-valid Deployment Transaction Audit.
+11. Run integrity validation, open/update PR, remediate in-scope CI, re-check exact base/head/scope/reviews and merge the exact green head without requesting another routine source approval. Bugs/tests/CI corrections entirely inside the approved exact path set are continuation work.
+12. If runtime applies, obtain one exact-release production decision. The preferred normal form combines authority and execution intent in one three-line canonical Issue comment. A two-line production approval is authorize-only.
+13. After explicit execution intent, run every deterministic applicable runtime transition automatically through repository-owned workflows/entrypoints. Do not ask separately for prepare, activate, restart, verify or evidence collection when those steps are already within the exact production envelope and transaction guards.
+14. When a contour truthfully requires `ONE_COMMAND_FALLBACK`, expose only one largest-safe repository-owned action after machine-observable preflight is complete. Do not decompose it into serial handoffs.
+15. After any production failure, resolve actual runtime state read-only, identify the root cause, audit every adjacent deployment-transaction stage, and add deterministic fault-path coverage before another production retry. If the source correction remains inside the already approved path set and Outcome Contract, continue without another source approval; a new exact merge SHA still requires fresh production authorization before runtime mutation.
+16. Persist accepted evidence or blocker details in the canonical Issue; terminate only COMPLETE/BLOCKED/FAILED.
+
+## Mandatory pre-approval Scope block
+
+Use this minimum operator-visible structure before every source-authorization request:
+
+```text
+Scope
+- Product outcome:
+- Exact repository paths:
+- Protected / out of scope:
+- Runtime contour:
+- Production impact:
+- Acceptance evidence:
+```
+
+The block may be more detailed, but not less. The Orchestrator may not ask for `OUTCOME APPROVED` until all six fields are concrete enough for the operator to understand what repository changes are being authorized. A later material change requires the revised block to be shown again before re-authorization.
 
 ## Interaction budget
 
 The normal successful path is intentionally bounded:
 
 ```text
-OUTCOME APPROVED: 1 user decision
+Scope presentation: mandatory, not an approval decision
+OUTCOME APPROVED: 1 user decision after the visible scope
 PRODUCTION APPROVED + Authorization-Fingerprint + Execution-Intent: 1 user decision per exact release
 manual runtime action: 0 target; <=1 fallback per required contour
 intermediate confirmations: 0
@@ -68,7 +86,7 @@ For Ubuntu Worker/relay, the router delegates to `.github/workflows/deploy-ubunt
 
 The Delivery Orchestrator owns the final PR quality disposition. `PASS`, `CONCERNS`, `FAIL`, and `WAIVED` use the canonical delivery policy. `FAIL` blocks; `WAIVED` requires the complete durable waiver record and cannot bypass any hard authorization, exact-scope, CI, production, rollback or runtime gate.
 
-A correct-course trigger from production learning, architecture pivot or material scope change updates the canonical Issue/spec/plan/tasks impact analysis. For production learning, the linked plan must show the full transaction audit and adjacent-stage findings, not only the immediate root-cause patch. If the outcome, approved file scope or protected boundaries materially change, obtain fresh `OUTCOME APPROVED` before further writes. If they do not, remediate and continue automatically.
+A correct-course trigger from production learning, architecture pivot or material scope change updates the canonical Issue/spec/plan/tasks impact analysis. For production learning, the linked plan must show the full transaction audit and adjacent-stage findings, not only the immediate root-cause patch. If the outcome, approved file scope or protected boundaries materially change, present the revised visible Scope block and obtain fresh `OUTCOME APPROVED` before further writes. If they do not, remediate and continue automatically.
 
 ## Runtime handoff
 
