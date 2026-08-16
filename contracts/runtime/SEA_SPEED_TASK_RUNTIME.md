@@ -1,6 +1,6 @@
 # Sea Speed Task Runtime
 
-Version: 1.8.0
+Version: 1.9.0
 Status: Active
 
 ## Active states
@@ -23,8 +23,8 @@ Historical evidence may contain `HANDOFF_VALIDATED` or `CORE_RELEASE_INTEGRATING
 
 ## Semantics
 
-- `DISCUSSION`: read-only Task Intake, repository discovery, Task Brief, Outcome Contract preparation and operator-visible Scope presentation.
-- `READY_FOR_IMPLEMENTATION`: the visible Scope block has been presented, scope locked, `OUTCOME APPROVED` valid and capability preflight passed.
+- `DISCUSSION`: read-only Task Intake, repository discovery, Task Brief, Outcome Contract preparation and operator-visible Scope presentation. Invalid or misordered source-authorization attempts remain in or return to this state.
+- `READY_FOR_IMPLEMENTATION`: the complete visible Scope block was the last substantive assistant content before the approval request, `OUTCOME APPROVED` arrived in the immediately following user turn, scope is locked, fail-closed source admission is open and capability preflight passed.
 - `IMPLEMENTING`: bounded source/SDD work and in-scope CI remediation.
 - `SOURCE_INTEGRATED`: exact approved source verified on `main`; not production evidence.
 - `ACTIONS_REQUIRED`: one explicit protected fallback action is genuinely required because a declared contour capability is `ONE_COMMAND_FALLBACK`; do not use this state for deterministic internal preparation/activation checkpoints.
@@ -63,9 +63,21 @@ Scope
 - Acceptance evidence:
 ```
 
-`DISCUSSION` cannot transition to source authorization until that visible scope has been shown. A standalone request to send `OUTCOME APPROVED` without the displayed scope is invalid. The operator is never expected to infer exact paths from internal reasoning. If a material change later makes the authorization stale, the revised Scope block must be shown before requesting a fresh approval.
+`DISCUSSION` cannot transition to source authorization until that visible scope has been shown. The complete Scope block must be the last substantive assistant block before the approval request, and the operator's `OUTCOME APPROVED` must be the immediately following user decision. A standalone request to send `OUTCOME APPROVED`, an approval before scope, an incomplete scope, or reliance on a non-adjacent older Scope block is invalid. The operator is never expected to infer exact paths from internal reasoning.
 
-New repository work requires `OUTCOME APPROVED` after the visible Implementation Scope Check. Historical legacy approvals remain audit history only.
+Source authorization admission is fail closed:
+
+```text
+VISIBLE_SCOPE_PRESENTED=YES|NO
+SCOPE_IMMEDIATELY_PRECEDES_APPROVAL=YES|NO
+SOURCE_AUTHORIZATION_ADMISSION=OPEN|BLOCKED
+```
+
+`SOURCE_AUTHORIZATION_ADMISSION=OPEN` requires both Scope fields to be `YES`, all six fields to match the current Outcome Contract, and the supplied approval to apply to that exact displayed scope. Any missing, ambiguous, stale or misordered evidence resolves to `BLOCKED`. While blocked, branch creation and source/SDD writes are prohibited. Recovery does not reuse the misplaced token: remain/return to `DISCUSSION`, render the complete current Scope again, request approval, and accept only the new immediately-following `OUTCOME APPROVED`.
+
+If a material change later makes the authorization stale, the revised Scope block must be shown under the same adjacency rule before requesting a fresh approval.
+
+New repository work requires a validly admitted `OUTCOME APPROVED` after the visible Implementation Scope Check. Historical legacy approvals remain audit history only.
 
 ## Required status block
 
@@ -76,6 +88,8 @@ Sea Speed Task Runtime
 - Responsible role: Sea Speed Delivery Orchestrator
 - Current phase:
 - Scope presented to operator: YES/NO
+- Scope immediately precedes authorization: YES/NO
+- Source authorization admission: OPEN/BLOCKED
 - Source authorization: OUTCOME APPROVED
 - Branch:
 - Approved outcome/scope:
@@ -104,7 +118,7 @@ Sea Speed Task Runtime
 - Final state: PENDING/COMPLETE/BLOCKED/FAILED
 ```
 
-`Scope presented to operator: YES` is a hard prerequisite for `Source authorization: OUTCOME APPROVED` on new work or any fresh re-authorization event.
+`Scope presented to operator: YES`, `Scope immediately precedes authorization: YES`, and `Source authorization admission: OPEN` are hard prerequisites for `Source authorization: OUTCOME APPROVED` to move new work into `READY_FOR_IMPLEMENTATION`. If any prerequisite is `NO`, `BLOCKED`, unknown or stale, the task remains `DISCUSSION` and repository writes are not permitted.
 
 ## Runtime contour rule
 
@@ -114,9 +128,9 @@ For every required contour the Change Contract declares `CONNECTOR` or `ONE_COMM
 
 ## Continuation rule
 
-After `OUTCOME APPROVED`, continue automatically through deterministic safe repository transitions: implementation, integrity checks, PR, metadata repair, CI, in-scope CI remediation and exact-green-head merge. New source authorization is required only when outcome/scope/protected boundaries materially change. A newly discovered bug inside the approved path set is not a reason to ask for `OUTCOME APPROVED` again.
+After a validly admitted `OUTCOME APPROVED`, continue automatically through deterministic safe repository transitions: implementation, integrity checks, PR, metadata repair, CI, in-scope CI remediation and exact-green-head merge. New source authorization is required only when outcome/scope/protected boundaries materially change. A newly discovered bug inside the approved path set is not a reason to ask for `OUTCOME APPROVED` again.
 
-When new source authorization really is required, return to `DISCUSSION`, present the updated visible Scope block, and only then request the fresh approval.
+When new source authorization really is required, return to `DISCUSSION`, present the updated visible Scope block as the last substantive assistant block before the approval request, and only then request the fresh approval. Misordered approval leaves admission blocked and does not authorize source writes.
 
 Production remains separate. The normal production decision may combine durable authorization and explicit execution intent in one exact three-line Issue record:
 
@@ -133,14 +147,14 @@ A two-line approval means `AUTHORIZE_ONLY`. A three-line approval may move direc
 Normal successful task:
 
 ```text
-visible Scope presentation: mandatory prerequisite, not a separate approval decision
-OUTCOME APPROVED: one user decision after scope presentation
+visible Scope presentation: mandatory immediately preceding assistant turn, not a separate approval decision
+OUTCOME APPROVED: one user decision in the next user turn
 exact release production authorization + execution intent: one user decision
 manual runtime command: zero target; at most one per required fallback contour
 prepare/activate/verify intermediate confirmations: zero
 ```
 
-Additional interaction is reserved for material reauthorization, new exact SHA, protected credential entry, irreversible/high-risk decisions, configured environment reviewers or evidence not safely automatable.
+Additional interaction is reserved for material reauthorization, new exact SHA, protected credential entry, irreversible/high-risk decisions, configured environment reviewers or evidence not safely automatable. Re-rendering Scope after an invalid presentation sequence is a protocol repair, not an additional product decision.
 
 ## Integrity / merge rule
 
@@ -152,12 +166,14 @@ For linked significant work, `IMPLEMENTING` includes keeping NFR assessment, ris
 
 A quality verdict of `FAIL` cannot advance to source integration. `WAIVED` requires the complete waiver record defined by the delivery policy and does not alter any hard gate. `CONCERNS` remains visible as delivery evidence and may advance only while mandatory authorization, scope, CI and runtime gates are independently satisfied.
 
-When production learning, an architecture pivot or a material scope change changes the accepted design, execute the correct-course check before continuing. If it changes the Outcome Contract, protected boundary or approved repository scope, return to `DISCUSSION`, show the revised Scope block, and then follow the normal reauthorization boundary. Otherwise continue automatically after in-scope remediation and exact-green-head merge; do not create a synthetic approval checkpoint.
+When production learning, an architecture pivot or a material scope change changes the accepted design, execute the correct-course check before continuing. If it changes the Outcome Contract, protected boundary or approved repository scope, return to `DISCUSSION`, show the revised Scope block, and then follow the fail-closed reauthorization boundary. Otherwise continue automatically after in-scope remediation and exact-green-head merge; do not create a synthetic approval checkpoint.
 
 ## Evidence hierarchy
 
 ```text
 operator-visible scope presentation
+-> scope immediately precedes source approval
+-> source authorization admission OPEN
 -> approved outcome/scope
 -> exact changed files
 -> linked SDD quality layer and Change Contract quality verdict
