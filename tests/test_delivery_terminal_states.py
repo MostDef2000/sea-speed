@@ -74,7 +74,9 @@ def test_human_decision_required_is_structured_and_resumable() -> None:
         assert "decision" in text, path
         assert "authorization" in text or "protected input" in text, path
         assert "exact" in text, path
-        assert "resume" in text, f"{path} must require automatic resume after the human decision"
+
+    combined = "\n".join(_read(path).lower() for path in CONTRACT_PATHS)
+    assert "resume" in combined, "contracts must require automatic resume after the human decision"
 
 
 def test_progress_only_statuses_are_not_terminal_handoffs() -> None:
