@@ -86,7 +86,7 @@ jobs:
             --commit "$DEPLOY_SHA" \
             --workflow-file quality-integration.yml
 
-      - name: Verify durable production authorization
+      - name: Verify durable production authorization and execution intent
         id: authorization
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -99,6 +99,7 @@ jobs:
             --repository "$GITHUB_REPOSITORY" \
             --commit "$DEPLOY_SHA" \
             --issue "$CANONICAL_ISSUE" \
+            --require-execution-intent \
             --github-output "$GITHUB_OUTPUT" \
             --evidence-output dist/production-authorization.json
 
