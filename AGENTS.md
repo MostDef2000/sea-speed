@@ -28,28 +28,52 @@ The active orchestration role is **Sea Speed Delivery Orchestrator**. It retains
 1. Treat GitHub `main` as the only long-term source of truth.
 2. Start implementation from a canonical Issue and an explicit Outcome Contract / Implementation Scope Check.
 3. New repository work requires `OUTCOME APPROVED` recorded after the Implementation Scope Check. Historical `COMMIT APPROVED` / `MERGE APPROVED` evidence remains audit history but is not a valid source-authorization model for a new Change Contract.
-4. `OUTCOME APPROVED` authorizes the bounded, reversible repository lifecycle for the approved outcome: branch creation, source/SDD writes, commits, integrity checks, PR creation and metadata repair, in-scope CI remediation, and merge of the exact green head when all merge gates remain satisfied. It does not authorize production mutation.
+4. `OUTCOME APPROVED` authorizes the bounded, reversible repository lifecycle for the approved outcome: branch creation, source/SDD writes, commits, integrity checks, PR creation and metadata repair, in-scope CI remediation, and merge of the exact green head when all merge gates remain satisfied. It does not authorize production mutation. Ordinary defects discovered inside the already approved path set do not consume another source-approval interaction; only material outcome/scope/protected-boundary expansion does.
 5. For significant implementation/control-plane work, create or update the linked feature specification, plan and tasks in `specs/**`; do not leave accepted product or architecture decisions only in chat, Issue comments or code.
 6. Use one fresh branch and one bounded pull request for one canonical task.
 7. Stop and obtain fresh authorization before material product-scope expansion, destructive action, secrets/security-boundary changes, protected behavior changes, schema incompatibility, data migration, behavior redesign, or edits under `skills/**`.
-8. Keep the PR Change Contract synchronized with the exact Git diff and the derived production-impact class. Significant PRs must also link the active specification with `- Specification: specs/<feature>/spec.md`.
+8. Keep the PR Change Contract synchronized with the exact Git diff and the derived production-impact class. Significant PRs must also link the active specification with `- Specification: specs/<feature>/spec.md`. Runtime-impacting Change Contracts also declare a machine-readable execution capability for every contour and an expected operator-action count; a required contour may not declare `MISSING`.
 9. Merge requires successful required CI, a fresh head/base check, exact changed-file scope, no unresolved review threads, and an expected-head guard when supported. A still-valid `OUTCOME APPROVED` is sufficient merge authorization.
 10. Do not treat merge, packaging, deployment, installation, or runtime acceptance as equivalent states.
 11. Feed production acceptance, regressions and architectural learning back into linked feature artifacts when they change accepted behavior or design. After a production failure, audit the full deployment transaction and adjacent stages before the next source fix/retry; do not stop analysis at the last visible failing line.
 12. Never commit secrets, local runtime data, private media, model binaries, `.env`, virtual environments, snapshots, overlays, logs, or generated output.
 13. Production deployment and worker installation are separate protected operations. They require the evidence defined by the delivery policy and a separate production safety-envelope authorization; source Outcome Authorization alone never authorizes production mutation.
+14. Normal successful delivery has a two-intent interaction budget: one `OUTCOME APPROVED`, then one exact-release production authorization carrying explicit execution intent. Deterministic internal transitions must not be surfaced as extra confirmation prompts when repository-owned automation can guard them safely.
 
 ## Production runtime contours and admission
 
 Sea Speed has three explicit production runtime contours: **VPS**, **Ubuntu Worker/relay**, and **Windows AI Worker**. A source change may affect one contour or a mixed set. Ubuntu production-impact paths must never be reduced to CONTROL_PLANE merely because they live below `deploy/**`; shared Worker source that affects more than one runtime must declare the exact applicable deployment fields.
 
-Every runtime-impacting change requires a production safety envelope. For VPS, the normal Delivery Orchestrator execution request is a connected-GitHub-Connector comment `DEPLOY VPS <exact-lowercase-sha>` on the open canonical Issue after the durable production authorization is current. The request workflow delegates to the same protected reusable `Deploy VPS` implementation; manual `workflow_dispatch` remains an emergency/operator fallback, not the normal orchestration path. The request comment never replaces production authorization.
+Every runtime-impacting change requires a production safety envelope. The normal authorize-and-execute record is the exact three-line canonical Issue comment:
 
-Before SSH configuration the protected VPS workflow must reject anything except an already-lowercase full SHA on current `main` first-parent history, require a successful aggregate quality workflow run produced by `push` on `main` for that exact SHA, resolve the canonical Issue through the applicable merged PR, and verify durable exact-SHA production authorization from an authorized actor. Production authorization is stale when its bound Outcome Contract, runtime contours, security impact, deployment target, rollback target, Issue, PR, or source SHA changes.
+```text
+PRODUCTION APPROVED <exact-lowercase-40-character-sha>
+Authorization-Fingerprint: <sha256>
+Execution-Intent: EXECUTE
+```
+
+The first two lines are durable production authority. The third line is explicit execution intent. Omitting the third line remains authorize-only and must not trigger runtime mutation. `.github/workflows/deploy-runtime-request.yml` parses/re-verifies this record and routes only the exact runtime contours declared by the merged Change Contract. Legacy `DEPLOY VPS <sha>` remains a compatible VPS execution-request path; it does not replace production authorization.
+
+For Ubuntu Worker/relay, `.github/workflows/deploy-ubuntu-worker.yml` is the protected reusable orchestration path and `deploy/worker/ubuntu/deploy-authorized.sh` is the repository-owned target transaction. If a separately provisioned restricted production transport is available, the workflow may execute zero-touch. If it is not available, the workflow produces one exact operator bootstrap that stages the authorized SHA and hands off to the repository entrypoint; preparation and activation must not be exposed as separate confirmations.
+
+Before any protected workflow configures SSH or otherwise crosses the runtime boundary it must reject anything except an already-lowercase full SHA on current `main` first-parent history, require a successful aggregate quality workflow run produced by `push` on `main` for that exact SHA, resolve the canonical Issue through the applicable merged PR, and verify durable exact-SHA production authorization from an authorized actor. Production authorization is stale when its bound Outcome Contract, runtime contours, security impact, deployment target, rollback target, Issue, PR, or source SHA changes.
 
 New deployable provenance uses release manifest v2. It distinguishes the approved Change Contract file set from the actual Git diff and binds canonical Issue/PR, Outcome and Change Contract hashes, artifacts, and quality/exact-artifact evidence. Persisted v1 release/deployment evidence remains readable for rollback compatibility.
 
 The aggregate `quality-integration` workflow executes SDD validation for significant PRs. This is a repository delivery gate; do not infer GitHub branch-protection settings from the workflow itself.
+
+## Interaction budget
+
+For a normal task, expose no more human checkpoints than the protected decisions actually require:
+
+```text
+Source authorization: 1
+Production authorization + execution intent: 1 per exact release
+Manual runtime commands: 0 target; <=1 fallback per required contour
+Intermediate deterministic confirmations: FORBIDDEN
+```
+
+Additional user interaction is justified only by a material scope/protected-boundary change, a new exact SHA after source remediation, secret/password/sudo/TOTP entry, irreversible/high-risk decision, configured environment reviewer, or evidence that cannot safely be collected by repository automation. A completed preparation stage is not by itself a reason to ask for permission to activate when the same authorized transaction can guard activation and rollback.
 
 ## Delivery quality layer
 
