@@ -127,10 +127,18 @@ unit_backup=""
 control_unit_backup=""
 marker_tmp=""
 cleanup() {
-  rm -rf "$staging_root"
-  [[ -n "$unit_backup" ]] && rm -f "$unit_backup"
-  [[ -n "$control_unit_backup" ]] && rm -f "$control_unit_backup"
-  [[ -n "$marker_tmp" ]] && rm -f "$marker_tmp"
+  local status=$?
+  rm -rf "$staging_root" || true
+  if [[ -n "$unit_backup" ]]; then
+    rm -f "$unit_backup" || true
+  fi
+  if [[ -n "$control_unit_backup" ]]; then
+    rm -f "$control_unit_backup" || true
+  fi
+  if [[ -n "$marker_tmp" ]]; then
+    rm -f "$marker_tmp" || true
+  fi
+  return "$status"
 }
 trap cleanup EXIT
 
