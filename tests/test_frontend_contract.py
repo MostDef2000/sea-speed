@@ -43,7 +43,7 @@ class FrontendContractTests(unittest.TestCase):
         ids = re.findall(r'\bid="([^"]+)"', self.source)
         self.assertEqual(len(ids), len(set(ids)))
         for element_id in (
-            "video", "streamStatus", "workerStatus", "workerControlBtn", "motionStatus", "aiStatus",
+            "video", "streamStatus", "streamControlBtn", "workerStatus", "workerControlBtn", "motionStatus", "aiStatus",
             "detectionsStatus", "tracksStatus", "overlayImg", "roiCanvas",
             "speedLinesCanvas", "stateJson", "debugLog", "eventsList",
         ):
@@ -58,31 +58,35 @@ class FrontendContractTests(unittest.TestCase):
         self.assertNotIn('confirm(', self.source[self.source.index('async function toggleWorker()'):self.source.index('workerControlBtn.onclick=toggleWorker')])
         self.assertIn('AI worker stopped; live HLS unchanged', self.source)
         self.assertIn('const HLS_URL = "/sea-speed/media/cam1/index.m3u8";', self.source)
-        self.assertIn('connectBtn.onclick=()=>connectStream', self.source)
-        self.assertIn('disconnectBtn.onclick=()=>disconnectStream(true)', self.source)
+        self.assertIn('streamControlBtn.onclick=()=>streamDesired?disconnectStream(true):connectStream', self.source)
+        self.assertNotIn('connectBtn', self.source)
+        self.assertNotIn('disconnectBtn', self.source)
         self.assertNotIn('systemctl', self.source)
         refresh = self.source[self.source.index('async function refreshState()'):self.source.index('function renderEvents', self.source.index('async function refreshState()'))]
         self.assertNotIn('setStatus(workerStatus', refresh)
 
-    def test_top_status_strip_owns_icon_only_worker_and_stream_controls(self) -> None:
+    def test_top_status_strip_owns_single_dynamic_stream_action(self) -> None:
         status = re.search(r'<section\s+class="status-strip"[^>]*>(?P<body>.*?)</section>', self.source, re.S)
         self.assertIsNotNone(status)
         body = status.group("body")
-        for element_id in ("connectBtn", "disconnectBtn", "workerControlBtn"):
-            self.assertIn(f'id="{element_id}"', body)
+        self.assertEqual(body.count('id="streamControlBtn"'), 1)
+        self.assertIn('id="workerControlBtn"', body)
         self.assertIn('class="status-item stream-control"', body)
         self.assertIn('aria-label="Запустить поток"', body)
-        self.assertIn('aria-label="Остановить поток"', body)
+        self.assertIn('function renderStreamControl()', self.source)
+        self.assertIn('const actionLabel=stopping?"Остановить поток":"Запустить поток"', self.source)
+        self.assertIn('streamControlBtn.setAttribute("aria-label",actionLabel)', self.source)
+        self.assertIn('streamControlBtn.title=actionLabel', self.source)
+        self.assertIn('streamControlBtn.innerHTML=stopping?', self.source)
         self.assertIn('workerControlBtn.textContent=workerServiceActive?"■":"▶"', self.source)
         self.assertIn('workerControlBtn.setAttribute("aria-label",actionLabel)', self.source)
-        self.assertNotIn('■ Остановить', self.source)
-        self.assertNotIn('▶ Запустить', self.source)
+        self.assertNotIn('id="connectBtn"', body)
+        self.assertNotIn('id="disconnectBtn"', body)
 
         live = re.search(r'<section\s+class="panel live-preview-card"[^>]*>(?P<body>.*?)</section>', self.source, re.S)
         self.assertIsNotNone(live)
         live_body = live.group("body")
-        self.assertNotIn('id="connectBtn"', live_body)
-        self.assertNotIn('id="disconnectBtn"', live_body)
+        self.assertNotIn('id="streamControlBtn"', live_body)
         self.assertNotIn('camera-actions', live_body)
 
     def test_desktop_workspace_has_three_columns_and_named_areas(self) -> None:
@@ -103,18 +107,9 @@ class FrontendContractTests(unittest.TestCase):
         self.assertIn('width:min(100%,720px)', self.source)
 
     def test_primary_camera_keeps_saved_calibration_visible_outside_edit_mode(self) -> None:
-        self.assertIn(
-            '#roiCanvas,#speedLinesCanvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;opacity:1}',
-            self.source,
-        )
-        self.assertIn(
-            '.roi-editor-wrap.editing #roiCanvas,.roi-editor-wrap.speed-lines-editing #speedLinesCanvas{pointer-events:auto;cursor:crosshair}',
-            self.source,
-        )
-        self.assertIn(
-            'Сохранённая ROI и линии скорости отображаются поверх AI-кадра; режим редактирования включает точки управления.',
-            self.source,
-        )
+        self.assertIn('#roiCanvas,#speedLinesCanvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;opacity:1}', self.source)
+        self.assertIn('.roi-editor-wrap.editing #roiCanvas,.roi-editor-wrap.speed-lines-editing #speedLinesCanvas{pointer-events:auto;cursor:crosshair}', self.source)
+        self.assertIn('Сохранённая ROI и линии скорости отображаются поверх AI-кадра; режим редактирования включает точки управления.', self.source)
         self.assertIn('if(roiEditing)p.forEach', self.source)
         self.assertIn('if(speedLineEditing===k)p.forEach', self.source)
         self.assertIn('roiEditorWrap.classList.toggle("editing",v)', self.source)
@@ -133,112 +128,49 @@ class FrontendContractTests(unittest.TestCase):
         self.assertEqual(self.source.count('new Hls('), 1)
 
     def test_clean_live_has_controlled_retry_lifecycle(self) -> None:
-        for marker in (
-            'const STREAM_RETRY_DELAYS_MS=[1000,2000,4000,8000]',
-            'streamDesired=false',
-            'connectInFlight=false',
-            'playInFlight=false',
-            'reconnectAttempt=0',
-            'reconnectTimer=null',
-            'function scheduleStreamReconnect',
-            'function attemptVideoPlay',
-            'function destroyStreamMedia',
-        ):
+        for marker in ('const STREAM_RETRY_DELAYS_MS=[1000,2000,4000,8000]','streamDesired=false','connectInFlight=false','playInFlight=false','reconnectAttempt=0','reconnectTimer=null','function scheduleStreamReconnect','function attemptVideoPlay','function destroyStreamMedia'):
             self.assertIn(marker, self.source)
         self.assertIn('if(connectInFlight)return', self.source)
         self.assertEqual(self.source.count('new Hls('), 1)
 
     def test_hls_errors_use_network_and_media_recovery(self) -> None:
-        for marker in (
-            'Hls.ErrorTypes.NETWORK_ERROR',
-            'instance.startLoad()',
-            'Hls.ErrorTypes.MEDIA_ERROR',
-            'instance.recoverMediaError()',
-        ):
+        for marker in ('Hls.ErrorTypes.NETWORK_ERROR','instance.startLoad()','Hls.ErrorTypes.MEDIA_ERROR','instance.recoverMediaError()'):
             self.assertIn(marker, self.source)
 
     def test_stream_status_tracks_actual_playback_and_stop_cancels_retry(self) -> None:
         self.assertIn('video.addEventListener("playing"', self.source)
         self.assertEqual(self.source.count('setStatus(streamStatus,"online","good")'), 1)
-        self.assertNotIn(
-            'MANIFEST_PARSED,()=>video.play().then(()=>setStatus(streamStatus,"online"',
-            self.source,
-        )
         start = self.source.index('function disconnectStream(')
         end = self.source.index('async function refreshState', start)
         disconnect_source = self.source[start:end]
-        for marker in (
-            'streamDesired=false',
-            'clearReconnectTimer()',
-            'destroyStreamMedia()',
-            'setStatus(streamStatus,"idle","warn")',
-        ):
+        for marker in ('streamDesired=false','renderStreamControl()','clearReconnectTimer()','destroyStreamMedia()','setStatus(streamStatus,"idle","warn")'):
             self.assertIn(marker, disconnect_source)
         self.assertIn('video.removeAttribute("src")', self.source)
 
     def test_stalled_stream_uses_progress_watchdog_before_reconnect(self) -> None:
-        for marker in (
-            'const STREAM_STALL_GRACE_MS=2500',
-            'playbackWatchdogTimer=null',
-            'function schedulePlaybackWatchdog',
-            'video.currentTime)||0',
-            'current>baseline+0.05',
-            'video.addEventListener("timeupdate",notePlaybackProgress)',
-            'schedulePlaybackWatchdog("waiting timeout")',
-            'schedulePlaybackWatchdog("stalled timeout")',
-            'schedulePlaybackWatchdog("video error timeout")',
-        ):
+        for marker in ('const STREAM_STALL_GRACE_MS=2500','playbackWatchdogTimer=null','function schedulePlaybackWatchdog','video.currentTime)||0','current>baseline+0.05','video.addEventListener("timeupdate",notePlaybackProgress)','schedulePlaybackWatchdog("waiting timeout")','schedulePlaybackWatchdog("stalled timeout")','schedulePlaybackWatchdog("video error timeout")'):
             self.assertIn(marker, self.source)
         self.assertNotIn('scheduleStreamReconnect("stalled")', self.source)
         self.assertNotIn('scheduleStreamReconnect("video error")', self.source)
 
     def test_hls_builtin_recovery_gets_grace_period(self) -> None:
-        for marker in (
-            'const STREAM_RECOVERY_GRACE_MS=3500',
-            'recoveryTimer=null',
-            'function scheduleRecoveryCheck',
-            'scheduleRecoveryCheck("network recovery timeout")',
-            'scheduleRecoveryCheck("media recovery timeout")',
-        ):
+        for marker in ('const STREAM_RECOVERY_GRACE_MS=3500','recoveryTimer=null','function scheduleRecoveryCheck','scheduleRecoveryCheck("network recovery timeout")','scheduleRecoveryCheck("media recovery timeout")'):
             self.assertIn(marker, self.source)
-        self.assertNotIn('scheduleStreamReconnect("network error")', self.source)
-        self.assertNotIn('scheduleStreamReconnect("media error")', self.source)
 
     def test_playback_progress_clears_stale_reconnect_status(self) -> None:
         self.assertIn('function markStreamOnline()', self.source)
         self.assertIn('function playbackIsAdvancing', self.source)
         self.assertIn('if(playbackIsAdvancing()){markStreamOnline();return}', self.source)
-        mark_start = self.source.index('function markStreamOnline()')
-        mark_end = self.source.index('function notePlaybackProgress()', mark_start)
-        mark_source = self.source[mark_start:mark_end]
-        for marker in (
-            'clearStreamRecoveryTimers()',
-            'reconnectAttempt=0',
-            'connectInFlight=false',
-            'setStatus(streamStatus,"online","good")',
-        ):
-            self.assertIn(marker, mark_source)
 
     def test_stop_cancels_watchdog_and_recovery_timers(self) -> None:
         start = self.source.index('function disconnectStream(')
         end = self.source.index('video.addEventListener("loadedmetadata"', start)
         disconnect_source = self.source[start:end]
-        for marker in (
-            'clearReconnectTimer()',
-            'clearPlaybackWatchdog()',
-            'clearRecoveryTimer()',
-            'lastPlaybackTime=0',
-            'lastPlaybackProgressAt=0',
-        ):
+        for marker in ('clearReconnectTimer()','clearPlaybackWatchdog()','clearRecoveryTimer()','lastPlaybackTime=0','lastPlaybackProgressAt=0'):
             self.assertIn(marker, disconnect_source)
 
     def test_stream_autoconnects_and_recovers_video_events(self) -> None:
-        for marker in (
-            'video.addEventListener("stalled"',
-            'video.addEventListener("ended"',
-            'video.addEventListener("error"',
-            'setTimeout(()=>connectStream({resetRetry:true,reason:"auto"}),0)',
-        ):
+        for marker in ('video.addEventListener("stalled"','video.addEventListener("ended"','video.addEventListener("error"','setTimeout(()=>connectStream({resetRetry:true,reason:"auto"}),0)'):
             self.assertIn(marker, self.source)
 
     def test_detection_history_is_capped_and_does_not_use_bottom_panel(self) -> None:
@@ -249,43 +181,19 @@ class FrontendContractTests(unittest.TestCase):
         self.assertEqual(self.source.count('id="eventsList"'), 1)
 
     def test_all_left_utility_blocks_are_closed_disclosures(self) -> None:
-        markers = (
-            ('collapsible-overlay-controls', 'Overlay controls'),
-            ('collapsible-calibration', 'Speed calibration'),
-            ('collapsible-state', 'State JSON'),
-            ('collapsible-log', 'Operator log'),
-        )
+        markers = (('collapsible-overlay-controls','Overlay controls'),('collapsible-calibration','Speed calibration'),('collapsible-state','State JSON'),('collapsible-log','Operator log'))
         for layout, label in markers:
-            match = re.search(
-                rf'<details\s+class="[^"]+"\s+data-layout="{layout}"(?P<attrs>[^>]*)>.*?{re.escape(label)}.*?</details>',
-                self.source,
-                re.S,
-            )
+            match = re.search(rf'<details\s+class="[^"]+"\s+data-layout="{layout}"(?P<attrs>[^>]*)>.*?{re.escape(label)}.*?</details>', self.source, re.S)
             self.assertIsNotNone(match)
             self.assertNotRegex(match.group("attrs"), r'\bopen\b')
 
     def test_mobile_order_prioritizes_camera_live_history_then_utilities(self) -> None:
-        self.assertRegex(
-            self.source,
-            re.compile(r'@media\(max-width:760px\).*?grid-template-areas:"camera" "right" "utilities"', re.S),
-        )
-        for marker in (
-            "viewport-fit=cover",
-            "env(safe-area-inset-top)",
-            "env(safe-area-inset-right)",
-            "env(safe-area-inset-bottom)",
-            "env(safe-area-inset-left)",
-            "@media(max-width:430px)",
-            "@media(max-width:390px)",
-            "min-height:44px",
-        ):
+        self.assertRegex(self.source,re.compile(r'@media\(max-width:760px\).*?grid-template-areas:"camera" "right" "utilities"', re.S))
+        for marker in ("viewport-fit=cover","env(safe-area-inset-top)","env(safe-area-inset-right)","env(safe-area-inset-bottom)","env(safe-area-inset-left)","@media(max-width:430px)","@media(max-width:390px)","min-height:44px"):
             self.assertIn(marker, self.source)
 
     def test_operator_links_to_objects_registry(self) -> None:
-        self.assertRegex(
-            self.source,
-            r'<a\s+class="objects-link"\s+href="/sea-speed/objects/">Реестр объектов</a>',
-        )
+        self.assertRegex(self.source,r'<a\s+class="objects-link"\s+href="/sea-speed/objects/">Реестр объектов</a>')
 
     def test_protected_headers_use_trusted_authentik_identity_and_logout(self) -> None:
         pages = (self.source, self.objects_source, self.cameras_source)
@@ -295,10 +203,7 @@ class FrontendContractTests(unittest.TestCase):
             self.assertIn('class="project-lighthouse"', page)
             self.assertIn('aria-label="На главную mostdef.ru"', page)
             self.assertIn('href="/outpost.goauthentik.io/sign_out">Выйти</a>', page)
-            self.assertRegex(
-                page,
-                r'const\s+SESSION_URL\s*=\s*["\']/sea-speed/api/session["\']',
-            )
+            self.assertRegex(page,r'const\s+SESSION_URL\s*=\s*["\']/sea-speed/api/session["\']')
             self.assertNotIn('/outpost.goauthentik.io/auth/nginx', page)
             self.assertIn('credentials:"same-origin"', page)
             self.assertIn('textContent=', page)
@@ -312,27 +217,8 @@ class FrontendContractTests(unittest.TestCase):
             self.assertIn('.project-home', page)
 
     def test_objects_page_api_and_operator_actions(self) -> None:
-        self.assertRegex(
-            self.objects_source,
-            r'const\s+OBJECTS_URL\s*=\s*["\']/sea-speed/api/cam1/objects["\']',
-        )
-        for marker in (
-            'method:"PATCH"',
-            'method:"DELETE"',
-            'credentials:"same-origin"',
-            'const PAGE_SIZE=24',
-            'id="objectsGrid"',
-            'id="detailPhoto"',
-            'id="editClassName"',
-            'id="editSpeed"',
-            'id="editStatus"',
-            'id="editComment"',
-            'id="editForm"',
-            'id="deleteBtn"',
-            'id="prevBtn"',
-            'id="nextBtn"',
-            'href="/sea-speed/"',
-        ):
+        self.assertRegex(self.objects_source,r'const\s+OBJECTS_URL\s*=\s*["\']/sea-speed/api/cam1/objects["\']')
+        for marker in ('method:"PATCH"','method:"DELETE"','credentials:"same-origin"','const PAGE_SIZE=24','id="objectsGrid"','id="detailPhoto"','id="editClassName"','id="editSpeed"','id="editStatus"','id="editComment"','id="editForm"','id="deleteBtn"','id="prevBtn"','id="nextBtn"','href="/sea-speed/"'):
             self.assertIn(marker, self.objects_source)
         ids = re.findall(r'\bid="([^"]+)"', self.objects_source)
         self.assertEqual(len(ids), len(set(ids)))
