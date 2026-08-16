@@ -2,8 +2,9 @@
 
 - Specification: specs/017-delivery-automation/spec.md
 - Issue: #178
+- Active governance continuation: #195
 - Status: In implementation
-- Active remediation: fail-closed visible Scope admission
+- Active remediation: three-state terminal interaction contract
 
 ## Delivery tasks
 
@@ -29,6 +30,9 @@
 - TASK-020: Make source authorization admission fail closed. Require `VISIBLE_SCOPE_PRESENTED=YES` and `SCOPE_IMMEDIATELY_PRECEDES_APPROVAL=YES` before branch/source writes; require the Scope block as the last substantive assistant block before the request; reject bare, incomplete, stale or non-adjacent approval sequences; and recover only through a newly rendered Scope followed by a new approval token.
 - TASK-021: Deliver TASK-020 as an exact seven-path CONTROL_PLANE remediation limited to `AGENTS.md`, canonical governance, PM contract, task runtime and feature 017 spec/plan/tasks. Derived Change Contract production class is CONTROL_PLANE; VPS/Ubuntu/Windows runtime deployment impact is NONE.
 - TASK-022: Validate TASK-020 through exact content review, SDD validation, PR Validation and Quality integration on one exact final head; use active `Risk profile: NOT REQUIRED` for this CONTROL_PLANE Change Contract while retaining broader feature `RISK-*` records in a separate historical audit section; merge only after fresh main/head/scope/review checks and expected-head protection.
+- TASK-023: For canonical Issue #195, update exactly six active orchestration/governance contracts so returning control is legal only as `DONE`, `BLOCKED`, or `HUMAN DECISION REQUIRED`; classify `FAILED` as an internal event and prohibit progress-only terminal handoffs while deterministic authorized continuation exists.
+- TASK-024: Add `tests/test_delivery_terminal_states.py` to regression-protect the six-contract state set, external-blocker evidence/unblock semantics, structured human decision semantics, automatic remediation/resume, and the absence of legacy terminal-state wording.
+- TASK-025: Deliver TASK-023/024 as an exact ten-path CONTROL_PLANE PR for Issue #195, automatically remediate in-scope CI, verify exact ten-path scope and fresh reviews/main, merge the exact green head with expected-head protection, verify post-merge quality, persist terminal evidence in Issue #195, and close it as completed.
 
 ## Requirements traceability
 
@@ -48,24 +52,29 @@
 - AC-014 | Task: TASK-001,TASK-015,TASK-016 | Evidence: exact diff exclusions plus separate fresh production envelope after source merge | Coverage: COVERED
 - AC-015 | Task: TASK-019 | Evidence: `AGENTS.md`, `contracts/SEA_SPEED_GOVERNANCE.md`, `contracts/runtime/SEA_SPEED_TASK_RUNTIME.md`, `contracts/branches/project-manager.md`, plus feature 017 SDD | Coverage: COVERED
 - AC-016 | Task: TASK-020,TASK-021,TASK-022 | Evidence: same four contracts define the two admission flags, `DISCUSSION` recovery and source-write prohibition; feature 017 SDD records the regression/recovery sequence; exact seven-path PR Validation and Quality integration | Coverage: COVERED
+- AC-017 | Task: TASK-023,TASK-024,TASK-025 | Evidence: six active orchestration/governance contracts plus `tests/test_delivery_terminal_states.py`, exact ten-path PR Validation/Quality integration, fresh expected-head merge and Issue #195 terminal evidence | Coverage: COVERED
 
 ## Definition of Done
 
-- [x] Issue/spec/plan/tasks current: Issue #178 carries the approved automation history and feature 017 captures the accepted architecture.
+- [x] Issue/spec/plan/tasks current: Issue #178 carries the historical automation/runtime delivery; Issue #195 carries the accepted terminal-interaction governance continuation; feature 017 captures both.
 - [x] Original hardening release deployed/accepted: exact Ubuntu target `8dc74762a344dbf763d3ce1e7ecb1bac6872affb` was deployed through the one-command fallback and worker Stop/Start was confirmed independent from continuously available Camera 1 HLS.
-- [x] Scope-before-approval rule merged previously: contracts require visible exact Scope before every approval request.
-- [x] Active risk-profile applicability aligned: this CONTROL_PLANE Change Contract is `NOT REQUIRED`; historical feature risks are preserved outside the active Risk profile section.
-- [ ] Fail-closed source admission implemented: contracts require `VISIBLE_SCOPE_PRESENTED=YES`, `SCOPE_IMMEDIATELY_PRECEDES_APPROVAL=YES`, blocked source writes on invalid sequence, and fresh Scope+token recovery.
-- [ ] Exact changed-file scope verified: seven approved CONTROL_PLANE paths only; no frontend/API/deployment/runtime file changes.
-- [ ] Required tests and evidence complete: exact contract content review, SDD validation and repository quality checks prove AC-016.
+- [x] Scope-before-approval rule merged: contracts require visible exact Scope before every approval request.
+- [x] Fail-closed source admission merged: contracts require `VISIBLE_SCOPE_PRESENTED=YES`, `SCOPE_IMMEDIATELY_PRECEDES_APPROVAL=YES`, block source writes on invalid ordering, and require fresh Scope+token recovery.
+- [x] Historical seven-path fail-closed remediation source/CI/merge completed before Issue #195.
+- [x] Active risk-profile applicability aligned: the Issue #195 CONTROL_PLANE Change Contract is `NOT REQUIRED`; historical feature risks are preserved outside the active Risk profile section.
+- [x] Terminal interaction source implemented on the Issue #195 branch: six active contracts define `DONE`, `BLOCKED`, `HUMAN DECISION REQUIRED`; `FAILED` is not terminal; deterministic progress-only stops are forbidden.
+- [x] Terminal interaction regression added: `tests/test_delivery_terminal_states.py` covers AC-017 semantics.
+- [ ] Exact changed-file scope verified: ten approved CONTROL_PLANE paths only; no frontend/API/deployment/runtime implementation file changes.
+- [ ] Required tests and evidence complete: terminal-state regression, SDD validation and repository quality checks prove AC-017.
 - [ ] Required CI green: PR Validation and aggregate Quality integration succeed on the same exact final head.
 - [ ] Exact-green-head merge complete: fresh main/head/scope/review gate passes and merge uses expected-head protection.
-- [x] Deployment state resolved: NOT REQUIRED for this CONTROL_PLANE-only remediation.
-- [x] Runtime acceptance resolved: NOT REQUIRED for this CONTROL_PLANE-only remediation.
+- [ ] Post-merge quality complete and Issue #195 terminal evidence persisted/closed.
+- [x] Deployment state resolved: NOT REQUIRED for this CONTROL_PLANE-only continuation.
+- [x] Runtime acceptance resolved: NOT REQUIRED for this CONTROL_PLANE-only continuation.
 - [x] Deferred work recorded: provisioning restricted zero-touch Ubuntu transport and Windows production automation remain separate future capabilities.
 - [x] Risks resolved or explicitly accepted: active Risk profile is NOT REQUIRED; historical broader-feature risk rows remain audit-only outside the active section.
 - [x] Waivers resolved or current: no quality waiver is requested; all hard gates remain mandatory.
 
 ## Completion gate
 
-The delivery-automation hardening is valid only while every source-authorization interaction follows **Scope first, approval second** as a fail-closed state transition. For new work or material re-authorization, the Orchestrator must display the complete six-field Scope block as the last substantive assistant block before requesting `OUTCOME APPROVED`; the approval must be the immediately following user decision; and source writes are forbidden unless both admission flags are `YES`. Invalid ordering returns to `DISCUSSION` and requires a newly rendered Scope plus a new approval token. This recovery does not add a new product decision to the normal interaction budget; it prevents an improperly presented token from being executed.
+The delivery-automation hardening is valid only while both interaction invariants hold. Source authorization follows **Scope first, approval second** as a fail-closed transition: new work or material re-authorization displays the complete six-field Scope block immediately before requesting `OUTCOME APPROVED`, and source writes are forbidden unless both admission flags are `YES`. After authorization, execution ownership remains with the Delivery Orchestrator: deterministic authorized work continues without status-only handoffs until exactly one terminal interaction state is justified — `DONE`, `BLOCKED` with concrete external blocker/evidence/unblock/next action, or `HUMAN DECISION REQUIRED` with a structured protected decision and exact response format. `FAILED` is an event to remediate or classify, never a terminal interaction state.
