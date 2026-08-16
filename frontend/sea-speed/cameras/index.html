@@ -73,6 +73,7 @@
         <nav class="nav" aria-label="Sea Speed navigation">
           <a href="/sea-speed/">Оператор</a>
           <a href="/sea-speed/objects/">Реестр объектов</a>
+          <a href="/sea-speed/cameras/">Камеры</a>
           <a href="/sea-speed/road/">Дорога</a>
         </nav>
       </div>
@@ -357,7 +358,6 @@
         grid.innerHTML=`<div class="empty">Не удалось загрузить каталог: ${esc(error.message)}</div>`;
       }
     }
-
     async function refreshPreviewStatus(){
       if(busyCameraId)return;
       try{
