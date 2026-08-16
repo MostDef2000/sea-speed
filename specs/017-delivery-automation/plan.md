@@ -113,7 +113,7 @@ The runtime request is not itself a new authority model. Durable production auth
 
 ## Correct-course check
 
-- Trigger: ARCHITECTURE_PIVOT + OPERATOR_FEEDBACK
+- Trigger: ARCHITECTURE_PIVOT
 - Issue impact: Issue #178 remains the product/runtime parent, while this correct-course adds a bounded delivery-automation sub-outcome prompted by operator feedback about excessive orchestration interactions and ambiguous approval prompts.
 - Specification impact: Feature 017 defines two-intent delivery, machine runtime capability, one-transaction Ubuntu deployment and mandatory Scope-before-approval presentation without changing worker-control product semantics.
 - Plan impact: Runtime orchestration remains router plus protected contour workflows; source authorization UX is tightened so scope display is a hard prerequisite rather than an implied planning step.
