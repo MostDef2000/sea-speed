@@ -55,7 +55,7 @@ class FrontendContractTests(unittest.TestCase):
         self.assertIn('async function toggleWorker()', self.source)
         self.assertIn('WORKER_START_URL', self.source)
         self.assertIn('WORKER_STOP_URL', self.source)
-        self.assertIn('Остановить только AI worker? Чистый live HLS останется включён.', self.source)
+        self.assertNotIn('confirm(', self.source[self.source.index('async function toggleWorker()'):self.source.index('workerControlBtn.onclick=toggleWorker')])
         self.assertIn('AI worker stopped; live HLS unchanged', self.source)
         self.assertIn('const HLS_URL = "/sea-speed/media/cam1/index.m3u8";', self.source)
         self.assertIn('connectBtn.onclick=()=>connectStream', self.source)
@@ -63,6 +63,27 @@ class FrontendContractTests(unittest.TestCase):
         self.assertNotIn('systemctl', self.source)
         refresh = self.source[self.source.index('async function refreshState()'):self.source.index('function renderEvents', self.source.index('async function refreshState()'))]
         self.assertNotIn('setStatus(workerStatus', refresh)
+
+    def test_top_status_strip_owns_icon_only_worker_and_stream_controls(self) -> None:
+        status = re.search(r'<section\s+class="status-strip"[^>]*>(?P<body>.*?)</section>', self.source, re.S)
+        self.assertIsNotNone(status)
+        body = status.group("body")
+        for element_id in ("connectBtn", "disconnectBtn", "workerControlBtn"):
+            self.assertIn(f'id="{element_id}"', body)
+        self.assertIn('class="status-item stream-control"', body)
+        self.assertIn('aria-label="Запустить поток"', body)
+        self.assertIn('aria-label="Остановить поток"', body)
+        self.assertIn('workerControlBtn.textContent=workerServiceActive?"■":"▶"', self.source)
+        self.assertIn('workerControlBtn.setAttribute("aria-label",actionLabel)', self.source)
+        self.assertNotIn('■ Остановить', self.source)
+        self.assertNotIn('▶ Запустить', self.source)
+
+        live = re.search(r'<section\s+class="panel live-preview-card"[^>]*>(?P<body>.*?)</section>', self.source, re.S)
+        self.assertIsNotNone(live)
+        live_body = live.group("body")
+        self.assertNotIn('id="connectBtn"', live_body)
+        self.assertNotIn('id="disconnectBtn"', live_body)
+        self.assertNotIn('camera-actions', live_body)
 
     def test_desktop_workspace_has_three_columns_and_named_areas(self) -> None:
         self.assertIn('data-layout="three-column-workspace"', self.source)
