@@ -122,7 +122,7 @@ Current five-path UI continuation:
 
 ## Correct-course check
 
-- Trigger: production browser acceptance found two simultaneous Stream buttons where the intended compact interaction is one contextual action.
+- Trigger: MATERIAL_SCOPE_CHANGE
 - Issue impact: Issue #178 remains canonical and open; terminal UI acceptance is not yet satisfied.
 - Specification impact: Scenario 4, FR-001/FR-021, AC-001/AC-021 and NFR operator-UX wording require one dynamic Stream action.
 - Plan impact: D-014 and validation/rollout are revised; backend/runtime boundaries remain unchanged.
