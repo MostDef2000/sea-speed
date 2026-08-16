@@ -9,7 +9,7 @@ This directory is the durable Spec-Driven Development layer for Sea Speed.
 - `contracts/**`: HOW work is authorized, merged, deployed and accepted.
 - GitHub Issue: canonical backlog, authorization and audit history.
 - `specs/<feature>/spec.md`: WHAT/WHY plus measurable NFR targets/evidence status.
-- `plan.md`: HOW/decisions/contours plus risk profile, test design and correct-course impact.
+- `plan.md`: HOW/decisions/contours plus risk profile, test design, correct-course impact and conditional deployment transaction audit.
 - `tasks.md`: bounded execution, acceptance traceability and Definition of Done.
 - source code: implementation.
 - runtime evidence: operational truth written back into active artifacts.
@@ -57,6 +57,10 @@ For the feature linked by a significant PR, current templates additionally requi
 - `spec.md` -> `## NFR assessment` with `NFR-*` records;
 - `plan.md` -> `## Risk profile`, `## Test design`, `## Correct-course check`;
 - `tasks.md` -> `## Requirements traceability`, `## Definition of Done`.
+
+A linked significant PR additionally requires a machine-valid `## Deployment transaction audit` when it changes `deploy/**`, `scripts/release/**`, a deploy workflow, declares any runtime deployment field `REQUIRED`, or carries `Correct-course Trigger: PRODUCTION_LEARNING`. The audit covers exactly these stages: `ADMISSION`, `PRE-MUTATION`, `MUTATION`, `VERIFICATION`, `STATE-COMMIT`, `HOUSEKEEPING`, `EVIDENCE`, and `ROLLBACK`. For `PRODUCTION_LEARNING`, it must also record a completed adjacent-stage review, the root cause, and concrete findings beyond the line that failed in production.
+
+The transaction audit is intentionally broader than the source diff. A minimal remediation diff is still expected, but the analysis and tests must cover neighboring transaction stages so production learning does not devolve into serial symptom fixes.
 
 `Risk profile: REQUIRED` is derived by the PR Change Contract when security, schema, destructive/data-migration, `MIXED` runtime, or another explicit high-risk trigger applies. Otherwise `NOT REQUIRED` is valid.
 
