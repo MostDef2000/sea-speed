@@ -39,6 +39,12 @@ def test_all_active_orchestration_contracts_define_only_three_terminal_interacti
         assert legacy not in combined
 
 
+def test_task_runtime_status_block_uses_terminal_interaction_states() -> None:
+    runtime = _read("contracts/runtime/SEA_SPEED_TASK_RUNTIME.md")
+    assert "Terminal interaction state: PENDING/DONE/BLOCKED/HUMAN DECISION REQUIRED" in runtime
+    assert "Final state: PENDING/COMPLETE/BLOCKED/FAILED" not in runtime
+
+
 def test_failed_is_an_event_not_a_terminal_interaction_state() -> None:
     for path in CONTRACT_PATHS:
         text = _read(path)
