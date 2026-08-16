@@ -4,33 +4,8 @@ on:
   issue_comment:
     types: [created]
 
-permissions:
-  contents: read
-  actions: read
-  checks: read
-  issues: read
-  pull-requests: read
-
 jobs:
   request:
-    name: Validate production authorization and execution intent
-    if: ${{ !github.event.issue.pull_request && startsWith(github.event.comment.body, 'PRODUCTION APPROVED ') && contains(github.event.comment.body, 'Execution-Intent: EXECUTE') }}
     runs-on: ubuntu-latest
-    outputs:
-      commit_sha: ${{ steps.request.outputs.commit_sha }}
-      canonical_issue: ${{ steps.request.outputs.canonical_issue }}
-      vps_required: ${{ steps.authorization.outputs.vps_required }}
-      ubuntu_worker_required: ${{ steps.authorization.outputs.ubuntu_worker_required }}
-      windows_worker_required: ${{ steps.authorization.outputs.windows_worker_required }}
     steps:
-      - name: Compile probe
-        id: request
-        run: |
-          echo "commit_sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" >> "$GITHUB_OUTPUT"
-          echo "canonical_issue=178" >> "$GITHUB_OUTPUT"
-      - name: Compile authorization output probe
-        id: authorization
-        run: |
-          echo "vps_required=false" >> "$GITHUB_OUTPUT"
-          echo "ubuntu_worker_required=true" >> "$GITHUB_OUTPUT"
-          echo "windows_worker_required=false" >> "$GITHUB_OUTPUT"
+      - run: echo compile-probe
