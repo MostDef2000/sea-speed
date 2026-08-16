@@ -1,6 +1,6 @@
 # Sea Speed Governance
 
-Version: 1.11.0
+Version: 1.12.0
 Status: Active
 Source of truth: GitHub `main`
 
@@ -12,8 +12,10 @@ Source of truth: GitHub `main`
 - All GitHub repository lifecycle writes use the connected GitHub Connector. GitHub CLI `gh`, local GitHub authentication, `git push`, and direct local publication are not part of the Sea Speed delivery workflow.
 - VPS and worker hosts are runtime environments, not editable source stores.
 - Task Intake is read-only and produces a canonical Task Brief plus an Outcome Contract before implementation.
-- Before asking the operator to issue `OUTCOME APPROVED`, the Delivery Orchestrator MUST first present a visible Scope block containing the product outcome, exact repository paths, protected/out-of-scope boundaries, runtime/production impact and acceptance evidence. A bare approval prompt without that displayed scope is not valid Task Intake completion.
-- New repository work requires `OUTCOME APPROVED` issued after the displayed Implementation Scope Check. Historical `COMMIT APPROVED` / `MERGE APPROVED` records remain valid audit evidence for the tasks that used them, but are not accepted as the source-authorization declaration of a new pull request.
+- Before asking the operator to issue `OUTCOME APPROVED`, the Delivery Orchestrator MUST first present a visible Scope block containing the product outcome, exact repository paths, protected/out-of-scope boundaries, runtime/production impact and acceptance evidence. The Scope block MUST be the last substantive assistant content before the approval request, and the approval MUST be supplied in the immediately following user turn. A bare approval prompt without that displayed scope is not valid Task Intake completion.
+- Source authorization admission is fail closed. A new or fresh `OUTCOME APPROVED` presented without the immediately preceding complete six-field Scope block is invalid for source execution even if an older scope exists elsewhere in the conversation. In that case the Orchestrator MUST perform no branch/source write, return to `DISCUSSION`, present the full Scope again, and request a new approval.
+- Before the first repository write, source admission MUST resolve both `VISIBLE_SCOPE_PRESENTED=YES` and `SCOPE_IMMEDIATELY_PRECEDES_APPROVAL=YES`.
+- New repository work requires `OUTCOME APPROVED` issued after the displayed Implementation Scope Check and valid admission sequence. Historical `COMMIT APPROVED` / `MERGE APPROVED` records remain valid audit evidence for the tasks that used them, but are not accepted as the source-authorization declaration of a new pull request.
 - Changes under `skills/**` additionally require `SKILL UPDATE APPROVED`.
 - Every task uses a fresh branch created from current `main`.
 - Material product-scope expansion, destructive action, secret use/security-boundary change, protected behavior change, schema incompatibility, data migration, or behavior redesign requires fresh authorization.
@@ -26,7 +28,7 @@ The single active delivery role is **Sea Speed Delivery Orchestrator**. It owns 
 ```text
 read-only Task Intake
 -> Outcome Contract / visible Implementation Scope Check
--> source authorization
+-> fail-closed source authorization admission
 -> capability preflight
 -> fresh branch
 -> implementation coordination
@@ -56,7 +58,11 @@ Scope
 - Acceptance evidence:
 ```
 
-The visible Scope block is mandatory immediately before the authorization request. The Orchestrator MUST NOT request `OUTCOME APPROVED` by itself, MUST NOT rely on unshown internal reasoning as the scope, and MUST NOT ask the operator to infer the approved paths from prior discussion. If a re-authorization trigger changes the outcome, path set, runtime contour or protected boundary, the updated Scope block MUST be shown before requesting a fresh `OUTCOME APPROVED`.
+The visible Scope block is mandatory immediately before the authorization request. The Orchestrator MUST NOT request `OUTCOME APPROVED` by itself, MUST NOT rely on unshown internal reasoning as the scope, MUST NOT ask the operator to infer the approved paths from prior discussion, and MUST NOT treat a non-adjacent earlier Scope block as sufficient admission evidence. The complete Scope block must be the final substantive assistant block before the approval request; the next user decision supplies the token.
+
+A source approval sequence is invalid when any of the following is true: the immediately preceding assistant turn has no Scope block; any of the six fields is missing or materially ambiguous; the scope shown is stale relative to the requested outcome; substantive assistant content intervenes after the Scope block in a way that changes or obscures what is being approved; or the approval token is being reused for a materially revised scope. Invalid approval leaves the task in `DISCUSSION`; branch creation and source writes are prohibited until the Orchestrator re-renders the complete current Scope and obtains a fresh immediately-following approval.
+
+If a re-authorization trigger changes the outcome, path set, runtime contour or protected boundary, the updated Scope block MUST be shown before requesting a fresh `OUTCOME APPROVED` and the same adjacency rule applies.
 
 The durable Outcome Contract remains:
 
@@ -71,7 +77,7 @@ Outcome Contract
 - Acceptance evidence:
 ```
 
-`OUTCOME APPROVED` authorizes the complete bounded, reversible repository lifecycle needed to deliver that Outcome Contract:
+`OUTCOME APPROVED` authorizes the complete bounded, reversible repository lifecycle needed to deliver that Outcome Contract only after fail-closed source admission succeeds:
 
 ```text
 fresh branch
@@ -94,7 +100,8 @@ After valid source authorization, the Delivery Orchestrator continues through ev
 The normal interaction budget is:
 
 ```text
-source intent: one OUTCOME APPROVED, requested only after a visible Scope block
+scope presentation: mandatory immediately preceding assistant turn
+source intent: one OUTCOME APPROVED after that Scope block
 production intent: one exact-release authorization carrying Execution-Intent: EXECUTE
 manual runtime action: zero target; at most one fallback action per required contour
 intermediate deterministic confirmations: none
@@ -102,7 +109,7 @@ intermediate deterministic confirmations: none
 
 Extra interaction is allowed only for a material reauthorization trigger, a new exact release SHA after source remediation, protected secret/password/sudo/TOTP entry, irreversible/high-risk decision, configured environment reviewer, or evidence that automation cannot safely collect.
 
-Before the first repository write verify that the complete approved lifecycle is feasible through the GitHub Connector and repository-owned execution paths: required files are readable/writable; Issue/branch/commit/PR/CI/review/merge operations are available; the complete mandatory scope can be delivered; and applicable runtime execution, rollback and acceptance paths are known. Missing `gh`, local Git credentials or a local remote is not a blocker.
+Before the first repository write verify that the complete approved lifecycle is feasible through the GitHub Connector and repository-owned execution paths and verify source authorization admission itself: `VISIBLE_SCOPE_PRESENTED=YES`, `SCOPE_IMMEDIATELY_PRECEDES_APPROVAL=YES`, current Scope matches the durable Outcome Contract, and the supplied `OUTCOME APPROVED` applies to that exact scope. Any `NO`, unknown, stale, or ambiguous value blocks implementation. After admission succeeds, required files must be readable/writable; Issue/branch/commit/PR/CI/review/merge operations must be available; the complete mandatory scope must be deliverable; and applicable runtime execution, rollback and acceptance paths must be known. Missing `gh`, local Git credentials or a local remote is not a blocker.
 
 Every runtime-impacting Change Contract declares the execution capability for VPS, Ubuntu Worker/relay and Windows AI Worker using `CONNECTOR`, `ONE_COMMAND_FALLBACK`, `MISSING`, or `NOT APPLICABLE`, plus the exact number of operator actions expected after production intent. A contour marked `REQUIRED` may not be admitted with `MISSING` or `NOT APPLICABLE`. The operator-action count equals the number of required `ONE_COMMAND_FALLBACK` contours.
 
@@ -112,7 +119,7 @@ If a mandatory Connector operation is unavailable but a repository-owned one-com
 
 Before implementation record current `main`, task branch, branch head and freshness. Before merge re-read current `main`, compare exact base/head scope, verify required exact-head checks, confirm zero unresolved review threads, and use expected-head-SHA protection when supported.
 
-Successful CI is necessary but does not replace authorization. For new tasks a still-current `OUTCOME APPROVED` is the merge authorization; no second merge phrase is required. Historical tasks that used legacy tokens remain historical and are not reinterpreted.
+Successful CI is necessary but does not replace authorization. For new tasks a still-current, validly admitted `OUTCOME APPROVED` is the merge authorization; no second merge phrase is required. Historical tasks that used legacy tokens remain historical and are not reinterpreted.
 
 ## 6. Domain and runtime boundaries
 
@@ -132,7 +139,7 @@ Domain review lenses inspect only the approved task scope. Cross-domain changes 
 
 Fresh authorization is mandatory before material outcome/scope expansion; destructive or irreversible work outside the Outcome Contract; secret disclosure/use outside an already approved protected runtime mechanism; security-boundary weakening or credential-handling redesign; protected camera/runtime behavior change; incompatible API/state/storage/session schema change; data migration; detection/tracking/scoring/speed/calibration or event-semantics redesign; deployment-target redesign; or unauthorized `skills/**` edits.
 
-Before requesting that fresh authorization, the Delivery Orchestrator must present the updated visible Scope block that caused the re-authorization boundary.
+Before requesting that fresh authorization, the Delivery Orchestrator must present the updated visible Scope block that caused the re-authorization boundary. The updated Scope must immediately precede the approval request and the fresh approval must be the next user decision; otherwise the re-authorization is not admitted for source execution.
 
 Ordinary bug fixes, test corrections, PR metadata repair and CI remediation that remain inside the Outcome Contract do not require re-authorization.
 
@@ -144,7 +151,7 @@ Applicable delivery work uses `schemas/release-manifest.schema.json`, `schemas/d
 
 ## 9. Integrity and evidence gates
 
-After writes and before PR creation fetch complete written files, validate syntax/structure, compare branch to current `main`, prove changed paths remain inside the approved scope, and check for secrets/runtime artifacts. Failed checks return to in-scope implementation.
+After writes and before PR creation fetch complete written files, validate syntax/structure, compare branch to current `main`, prove changed paths remain inside the approved scope, and check for secrets/runtime artifacts. The task evidence must retain that source admission was opened only after `VISIBLE_SCOPE_PRESENTED=YES` and `SCOPE_IMMEDIATELY_PRECEDES_APPROVAL=YES`. Failed checks return to in-scope implementation.
 
 Post-release review follows `docs/evidence/POST_RELEASE_REVIEW.md` and ends in `accepted`, `regressed`, or `insufficient_evidence`. A regression requires a linked Issue and rollback decision unless the exact rollback condition was already included in the active production envelope.
 

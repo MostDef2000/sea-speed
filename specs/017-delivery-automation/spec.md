@@ -5,17 +5,17 @@
 
 ## Product outcome
 
-Sea Speed delivery should require the operator to make only the decisions that are genuinely protected: one source-outcome authorization and, for each exact production release, one authorization carrying explicit execution intent. Deterministic branch/PR/CI/merge/deployment sub-stages must be repository-owned, fail closed, and automated where capability exists. Ubuntu Worker deployment must have a protected reusable workflow and one target-side transaction so preparation, activation, verification, evidence and rollback are not exposed as serial confirmation prompts. The single source-authorization decision must always be preceded by a visible, exact scope presentation so the operator knows precisely what `OUTCOME APPROVED` will authorize.
+Sea Speed delivery should require the operator to make only the decisions that are genuinely protected: one source-outcome authorization and, for each exact production release, one authorization carrying explicit execution intent. Deterministic branch/PR/CI/merge/deployment sub-stages must be repository-owned, fail closed, and automated where capability exists. Ubuntu Worker deployment must have a protected reusable workflow and one target-side transaction so preparation, activation, verification, evidence and rollback are not exposed as serial confirmation prompts. The single source-authorization decision must always be preceded by a visible, exact scope presentation so the operator knows precisely what `OUTCOME APPROVED` will authorize. The scope/approval presentation order is itself a fail-closed state gate: an approval token received without the immediately preceding complete Scope block cannot authorize repository writes.
 
 ## User scenarios
 
 ### Scenario 1 - Scope is visible before source approval
 
-Before the Delivery Orchestrator asks the operator for `OUTCOME APPROVED`, it displays a concrete Scope block containing the product outcome, exact repository paths, protected/out-of-scope boundaries, runtime/production impact and acceptance evidence. If a later material change requires re-authorization, the revised scope is displayed before the fresh approval request.
+Before the Delivery Orchestrator asks the operator for `OUTCOME APPROVED`, it displays a concrete Scope block containing the product outcome, exact repository paths, protected/out-of-scope boundaries, runtime/production impact and acceptance evidence. The Scope block is the last substantive assistant content before the approval request, and the approval is the immediately following user decision. If a later material change requires re-authorization, the revised scope is displayed under the same ordering rule before the fresh approval request.
 
 ### Scenario 2 - Source delivery continues after one approval
 
-After the operator supplies `OUTCOME APPROVED` for the displayed exact Implementation Scope Check, the Delivery Orchestrator creates the branch, implements the bounded outcome, repairs PR metadata, remediates CI inside the approved paths and merges the exact green head without requesting another routine source approval.
+After the operator supplies a validly admitted `OUTCOME APPROVED` for the displayed exact Implementation Scope Check, the Delivery Orchestrator creates the branch, implements the bounded outcome, repairs PR metadata, remediates CI inside the approved paths and merges the exact green head without requesting another routine source approval.
 
 ### Scenario 3 - One production decision can authorize and execute
 
@@ -29,10 +29,14 @@ When Ubuntu Worker/relay deployment is required, the protected Ubuntu workflow v
 
 A runtime-impacting PR must declare execution capability for VPS, Ubuntu Worker/relay and Windows AI Worker plus the expected manual-action count. A required contour cannot be admitted with `MISSING`; a one-command fallback is explicit and counted.
 
+### Scenario 6 - Misordered or bare source approval fails closed
+
+If the operator sends `OUTCOME APPROVED` when the immediately preceding assistant turn does not contain the complete current six-field Scope block, source authorization admission remains blocked. No branch or source/SDD write may begin. The Delivery Orchestrator returns to `DISCUSSION`, renders the full current Scope again as the last substantive block before the request, and accepts only a new approval supplied in the immediately following user turn; the misplaced token is never retroactively reused.
+
 ## Requirements
 
 - FR-001: One current `OUTCOME APPROVED` MUST authorize all deterministic reversible source-lifecycle transitions inside the exact approved paths, including ordinary in-scope bug/test/CI remediation and exact-green-head merge.
-- FR-002: A new source approval MUST be required only when the product outcome, approved repository path set or protected/security boundary materially expands or changes.
+- FR-002: A new source approval MUST be required only when the product outcome, approved repository path set or protected/security boundary materially expands or changes, except that a misordered approval sequence requires protocol recovery before any source execution.
 - FR-003: A production authorization comment MAY add exact third line `Execution-Intent: EXECUTE`; two-line authorization remains authorize-only and MUST NOT itself trigger runtime mutation.
 - FR-004: The runtime execution request parser MUST accept only an exact three-line comment from a production-policy authorized actor on an open canonical Issue, with lowercase full SHA and lowercase SHA-256 fingerprint.
 - FR-005: The runtime request workflow MUST independently re-run durable production authorization verification with execution-intent required before routing any contour and MUST contain no SSH/runtime mutation implementation.
@@ -46,6 +50,7 @@ A runtime-impacting PR must declare execution capability for VPS, Ubuntu Worker/
 - FR-013: Production-equivalent CI MUST execute the real Ubuntu deployment entrypoint in an isolated sandbox with fake Git/systemd/runtime boundaries and cover running-state success, intentional stopped state, authorization failure before mutation and post-activation verification failure/rollback.
 - FR-014: Existing exact-SHA provenance, production fingerprint semantics, rollback, Authentik/M2M boundaries, Camera 1/MediaMTX behavior, AI algorithms, credentials and Windows runtime behavior MUST NOT be weakened or changed by this outcome.
 - FR-015: Before every request for `OUTCOME APPROVED`, including re-authorization, the Delivery Orchestrator MUST first render an operator-visible Scope block with product outcome, exact repository paths, protected/out-of-scope boundaries, runtime/production impact and acceptance evidence. A bare approval prompt without that visible scope MUST be treated as an invalid authorization request sequence.
+- FR-016: Source authorization admission MUST require `VISIBLE_SCOPE_PRESENTED=YES` and `SCOPE_IMMEDIATELY_PRECEDES_APPROVAL=YES` before branch creation or any source/SDD write. The complete Scope MUST be the last substantive assistant block before the approval request and the approval MUST be the immediately following user decision. Missing, incomplete, stale, ambiguous or non-adjacent scope evidence MUST leave admission blocked and require a newly rendered Scope plus a new approval; an earlier misplaced token MUST NOT be reused.
 
 ## Acceptance criteria
 
@@ -64,6 +69,7 @@ A runtime-impacting PR must declare execution capability for VPS, Ubuntu Worker/
 - AC-013: PR Validation and aggregate Quality integration succeed on the exact final head; merge uses a fresh main/head/scope/review check and expected-head protection.
 - AC-014: This source task changes no API/frontend/media/AI algorithm/credential/sudoers/runtime secret behavior and performs no production mutation before a fresh exact-SHA production envelope for the merge commit.
 - AC-015: `AGENTS.md`, canonical governance, task runtime and Delivery Orchestrator contract all require the visible Scope-before-approval order, define the minimum scope fields, prohibit a standalone `OUTCOME APPROVED` prompt, and require revised scope presentation before re-authorization.
+- AC-016: The same four contracts define fail-closed admission: `VISIBLE_SCOPE_PRESENTED=YES` plus `SCOPE_IMMEDIATELY_PRECEDES_APPROVAL=YES` are required before source writes; a bare/misordered/non-adjacent approval remains in `DISCUSSION`, cannot create a branch/write source, and can recover only through a newly displayed Scope followed by a new approval.
 
 ## NFR assessment
 
@@ -74,10 +80,10 @@ A runtime-impacting PR must declare execution capability for VPS, Ubuntu Worker/
 - NFR-005 | Area: Safety | Target: Required runtime contour cannot be admitted with missing execution capability; manual action count is machine-consistent | Validation: Change Contract unit tests | Evidence: `scripts/ci/validate_change_contract.py`, `tests/test_change_contract.py` | Status: PASS
 - NFR-006 | Area: Compatibility | Target: Legacy `DEPLOY VPS <sha>` and two-line production authorization remain readable/usable under their existing semantics | Validation: unchanged legacy request workflow plus authorization verifier behavior | Evidence: `.github/workflows/deploy-vps-request.yml`, `scripts/release/verify_production_authorization.py` | Status: PASS
 - NFR-007 | Area: Operator comprehension | Target: Every source-authorization request is preceded by an explicit exact scope presentation, including re-authorization | Validation: governance/agent/task-runtime/PM contract review and exact diff | Evidence: `AGENTS.md`, `contracts/SEA_SPEED_GOVERNANCE.md`, `contracts/runtime/SEA_SPEED_TASK_RUNTIME.md`, `contracts/branches/project-manager.md` | Status: PASS
+- NFR-008 | Area: Process reliability | Target: A missing/incomplete/stale/non-adjacent Scope can never be converted into source execution merely because the operator typed `OUTCOME APPROVED`; admission must remain blocked until the exact presentation sequence is repaired | Validation: contract state-machine review and feature 017 regression scenario | Evidence: `AGENTS.md`, `contracts/SEA_SPEED_GOVERNANCE.md`, `contracts/runtime/SEA_SPEED_TASK_RUNTIME.md`, `contracts/branches/project-manager.md`, `specs/017-delivery-automation/{spec,plan,tasks}.md` | Status: PASS
 
 ## Runtime feedback
 
-- Runtime acceptance for this source task: REQUIRED after merge because the exact diff adds an Ubuntu production entrypoint under `deploy/worker/ubuntu/**`.
-- Production mutation during source implementation: NONE.
-- Current parent runtime Issue #178 remains on legacy Ubuntu source until a fresh exact-SHA production envelope authorizes the hardening merge release.
-- Zero-touch Ubuntu transport is deliberately not claimed by source alone. Until a restricted deploy credential/route/privilege boundary is independently provisioned, the guaranteed capability is one-command fallback.
+- Runtime acceptance for the original automation source task was REQUIRED because that exact diff added an Ubuntu production entrypoint under `deploy/worker/ubuntu/**`; that runtime deployment and acceptance were completed for Issue #178.
+- Production mutation during this fail-closed scope-admission remediation: NONE; it is CONTROL_PLANE only.
+- Zero-touch Ubuntu transport is deliberately not claimed by source alone. Until a restricted deploy credential/route/privilege boundary is independently provisioned, the guaranteed capability remains one-command fallback.
