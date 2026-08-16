@@ -5,7 +5,9 @@
 
 ## Product outcome
 
-Sea Speed MUST run one profile-driven analytics implementation across two isolated operator domains. The existing main operator contour becomes `water-v1`, using a locally staged `yolo26x.pt` baseline and normalizing the model-native `boat` class into the canonical maritime object type `vessel`. A new authenticated `/sea-speed/road/` contour runs `road-v1` against logical camera `road1`, with a separate worker process, tracking state, configuration, event/state files and overlay/output state. Both workers reuse the same immutable Python runtime and shared read-only model store, while protected runtime configuration resolves `road1` to its private camera source without exposing source credentials or the physical source through Git/frontend/API.
+Sea Speed MUST run one profile-driven analytics implementation across two isolated operator domains. The existing main operator contour becomes `water-v1`, using a locally staged `yolo26x.pt` baseline and normalizing model-native `boat` into canonical maritime object type `vessel`. A new authenticated `/sea-speed/road/` contour runs `road-v1` against logical camera `road1`, with separate worker process, tracking state, configuration, event/state files and overlay/output state. Both Ubuntu analytics workers reuse the same immutable Python runtime and shared read-only model store. Protected runtime configuration resolves `road1` to its private camera source without exposing source credentials or the physical source through Git/frontend/API.
+
+Because canonical delivery policy classifies shared `worker/**` runtime source as applicable to both Ubuntu and Windows workers, this Outcome also carries a Windows compatibility/update contour. No Windows-specific Road feature, UI or service is introduced; Windows must consume the changed shared worker source without regression under its existing package/runtime contract.
 
 ## User scenarios
 
@@ -19,7 +21,7 @@ The road service runs profile `road-v1` for logical `road1`. `car`, `truck`, `bu
 
 ### Scenario 3 - Operators use a dedicated Road page
 
-An authenticated operator opens `/sea-speed/road/` from the same navigation used by the main operator, Objects Registry and Cameras pages. The Road page shows road worker/AI/detection/track state, AI overlay, road ROI and speed calibration, recent road events, and an on-demand clean preview for logical camera `road1`. The page does not expose arbitrary service control or camera source details.
+An authenticated operator opens `/sea-speed/road/` from the same navigation used by the main operator, Objects Registry and Cameras pages. The page shows road worker/AI/detection/track state, AI overlay, road ROI and speed calibration, recent road events, and an on-demand clean preview for logical `road1`. The page does not expose arbitrary service control or camera source details.
 
 ### Scenario 4 - Objects Registry spans both domains
 
@@ -28,6 +30,10 @@ The registry retains historical records and can list/filter objects across camer
 ### Scenario 5 - YOLO26x activation is fail closed
 
 The model binary is supplied only as protected local runtime input. A bounded preparation helper verifies the operator-supplied SHA-256, stages `yolo26x.pt` into the shared model store, and performs an exact runtime CUDA/Ultralytics inference self-test. No model binary enters Git/artifacts and no smaller model is selected silently if validation fails.
+
+### Scenario 6 - Shared worker source remains Windows-compatible
+
+The final shared worker source is packaged through the existing Windows Worker pipeline. Windows receives no Road-specific service/configuration surface; acceptance proves exact package/source identity, preserved protected local state, process restart/freshness and applicable telemetry after separately authorized production execution.
 
 ## Requirements
 
@@ -45,12 +51,12 @@ The model binary is supplied only as protected local runtime input. A bounded pr
 - FR-012: Legacy `/api/cam1/**` behavior MUST remain available and delegate to Camera 1 data semantics.
 - FR-013: API storage MUST isolate per-camera state/events/ROI/speed configuration and preserve historical object rows while additively adding analytics semantic columns/indexes.
 - FR-014: A global Objects Registry API MUST support camera/domain/profile/object-type filtering while object detail/update/delete remains stable by object ID.
-- FR-015: `/sea-speed/road/` MUST use only logical `road1` analytics endpoints and on-demand camera preview start for `road1`; the preview policy remains maximum one active preview with existing TTL/stop behavior.
+- FR-015: `/sea-speed/road/` MUST use only logical `road1` analytics endpoints and on-demand camera preview start for `road1`; preview policy remains maximum one active preview with existing TTL/stop behavior.
 - FR-016: Main, Objects, Cameras and Road pages MUST expose consistent navigation containing Objects, Cameras and Road destinations.
 - FR-017: VPS exact release/install/rollback/smoke handling MUST include the Road page.
 - FR-018: VPS and Ubuntu exact artifacts MUST include the new profile/Road source assets and MUST reject model binaries as release inputs.
-- FR-019: Windows Worker behavior and package contour MUST remain unchanged.
-- FR-020: Source integration MUST NOT perform production mutation. VPS/Ubuntu activation requires a later exact-merged-SHA production authorization and runtime evidence.
+- FR-019: Shared `worker/**` changes MUST remain compatible with the existing Windows Worker package/runtime contract; no Windows-specific Road feature, service or browser control is added.
+- FR-020: Source integration MUST NOT perform production mutation. VPS, Ubuntu Worker and Windows Worker activation/update require a later exact-merged-SHA production authorization and contour-specific runtime evidence.
 
 ## Acceptance criteria
 
@@ -65,8 +71,8 @@ The model binary is supplied only as protected local runtime input. A bounded pr
 - AC-009: Model preparation verifies SHA-256 and CUDA model self-test and source/artifact policy prevents `.pt`/ONNX/engine binaries from entering Git/exact artifacts.
 - AC-010: VPS deploy transaction captures/installs/verifies/rolls back Road frontend state alongside existing frontends.
 - AC-011: Exact final PR changed-file set equals the authorized 42 paths; no physical road source/credential/model binary is present.
-- AC-012: PR Validation and Quality integration succeed on one exact final head; merge uses fresh main/head/scope/review checks and post-merge push/main quality succeeds.
-- AC-013: Production acceptance, after separate exact-SHA authorization, records model digest/CUDA readiness, both worker exact identities/progression, dual-worker GPU headroom, protected `road1` source binding and browser smoke for Main/Road.
+- AC-012: PR Validation, Quality integration and Package Windows Worker succeed on one exact final head; merge uses fresh main/head/scope/review checks and post-merge push/main quality succeeds.
+- AC-013: Production acceptance, after separate exact-SHA authorization, records model digest/CUDA readiness, both Ubuntu worker exact identities/progression, dual-worker GPU headroom, protected `road1` source binding, exact Windows package/source/process/freshness evidence, and browser smoke for Main/Road.
 
 ## NFR assessment
 
@@ -74,13 +80,14 @@ The model binary is supplied only as protected local runtime input. A bounded pr
 - NFR-002 | Area: Compatibility | Target: Legacy `/api/cam1/**` remains present and historical object rows require no destructive rewrite | Validation: API source/behavior tests and additive SQLite migration checks | Evidence: `tests/test_api_contract.py`, `api/app/main.py` | Status: PASS
 - NFR-003 | Area: Isolation | Target: water and road use distinct logical IDs, state/events/config files, service/heartbeat/output and tracker processes | Validation: API/worker/systemd contract tests | Evidence: `tests/test_analytics_profiles.py`, `tests/test_ubuntu_worker_systemd.py` | Status: PASS
 - NFR-004 | Area: Reliability | Target: Exact model activation is digest-bound, CUDA self-tested and has no silent fallback | Validation: model preparation source tests; runtime-manual gate after production authorization | Evidence: `deploy/worker/ubuntu/prepare-yolo-model.py` | Status: CONCERNS
-- NFR-005 | Area: Performance | Target: Both profiles request 960 input and 5 FPS, and simultaneous workers produce sustained frame/state/AI progression without OOM/degraded inference | Validation: source defaults plus runtime-manual dual-worker GPU acceptance | Evidence: `worker/analytics_profiles.py`; production runtime evidence pending | Status: CONCERNS
+- NFR-005 | Area: Performance | Target: Both Ubuntu profiles request 960 input and 5 FPS, and simultaneous workers produce sustained frame/state/AI progression without OOM/degraded inference | Validation: source defaults plus runtime-manual dual-worker GPU acceptance | Evidence: `worker/analytics_profiles.py`; production runtime evidence pending | Status: CONCERNS
 - NFR-006 | Area: Operator UX | Target: Road destination is visible from all four Sea Speed pages and Road page exposes state/calibration/events/preview without arbitrary system control | Validation: frontend contract/browser smoke | Evidence: `tests/test_frontend_contract.py`, runtime browser smoke pending | Status: CONCERNS
-- NFR-007 | Area: Provenance | Target: VPS/Ubuntu exact artifacts contain every new source asset but no model binary; runtime remains exact-source bound | Validation: exact artifact build/validation and deployment tests | Evidence: `scripts/quality/{build_exact_artifacts,validate_exact_artifacts}.py` | Status: PASS
+- NFR-007 | Area: Provenance | Target: VPS/Ubuntu exact artifacts contain every new source asset but no model binary; runtime remains exact-source bound | Validation: exact artifact build/validation and deployment tests | Evidence: `scripts/quality/build_exact_artifacts.py`, `scripts/quality/validate_exact_artifacts.py` | Status: PASS
+- NFR-008 | Area: Compatibility | Target: The final shared worker head produces a valid Windows package and preserves existing Windows runtime contract semantics | Validation: Package Windows Worker plus shared worker contract tests; runtime-manual exact package/process/freshness evidence after production authorization | Evidence: GitHub Package Windows Worker, `tests/test_worker_contract.py` | Status: CONCERNS
 
 ## Runtime feedback
 
 - Source stage: implementation/CI pending.
-- VPS production: NOT AUTHORIZED by this source outcome.
-- Ubuntu production/model staging: NOT AUTHORIZED by this source outcome.
-- Windows Worker: NOT REQUIRED.
+- VPS production: REQUIRED by policy; NOT AUTHORIZED by source authorization.
+- Ubuntu production/model staging: REQUIRED by policy; NOT AUTHORIZED by source authorization.
+- Windows Worker: REQUIRED by shared `worker/**` policy classification; NOT AUTHORIZED by source authorization; no Windows-specific Road feature is introduced.
