@@ -1,11 +1,12 @@
 # Specification: Two-intent delivery automation
 
 - Issue: #178
+- Active governance continuation: #195
 - Status: In implementation
 
 ## Product outcome
 
-Sea Speed delivery should require the operator to make only the decisions that are genuinely protected: one source-outcome authorization and, for each exact production release, one authorization carrying explicit execution intent. Deterministic branch/PR/CI/merge/deployment sub-stages must be repository-owned, fail closed, and automated where capability exists. Ubuntu Worker deployment must have a protected reusable workflow and one target-side transaction so preparation, activation, verification, evidence and rollback are not exposed as serial confirmation prompts. The single source-authorization decision must always be preceded by a visible, exact scope presentation so the operator knows precisely what `OUTCOME APPROVED` will authorize. The scope/approval presentation order is itself a fail-closed state gate: an approval token received without the immediately preceding complete Scope block cannot authorize repository writes.
+Sea Speed delivery should require the operator to make only the decisions that are genuinely protected: one source-outcome authorization and, for each exact production release, one authorization carrying explicit execution intent. Deterministic branch/PR/CI/merge/deployment sub-stages must be repository-owned, fail closed, and automated where capability exists. Ubuntu Worker deployment must have a protected reusable workflow and one target-side transaction so preparation, activation, verification, evidence and rollback are not exposed as serial confirmation prompts. The single source-authorization decision must always be preceded by a visible, exact scope presentation so the operator knows precisely what `OUTCOME APPROVED` will authorize. The scope/approval presentation order is itself a fail-closed state gate: an approval token received without the immediately preceding complete Scope block cannot authorize repository writes. The Orchestrator must also retain execution ownership instead of stopping on intermediate status: control returns to the operator only as `DONE`, `BLOCKED` with a concrete external blocker, or `HUMAN DECISION REQUIRED` with a structured protected decision.
 
 ## User scenarios
 
@@ -33,6 +34,10 @@ A runtime-impacting PR must declare execution capability for VPS, Ubuntu Worker/
 
 If the operator sends `OUTCOME APPROVED` when the immediately preceding assistant turn does not contain the complete current six-field Scope block, source authorization admission remains blocked. No branch or source/SDD write may begin. The Delivery Orchestrator returns to `DISCUSSION`, renders the full current Scope again as the last substantive block before the request, and accepts only a new approval supplied in the immediately following user turn; the misplaced token is never retroactively reused.
 
+### Scenario 7 - Orchestrator returns control only at a real terminal interaction boundary
+
+After authorization, the Delivery Orchestrator must continue through every safe deterministic action it can perform. PR creation, queued/running CI, a remediable source/test/metadata/CI failure, merge readiness, packaging, deployment preparation or deployment start are progress events and cannot end the turn. The Orchestrator returns control only as `DONE` when the Outcome is actually complete, `BLOCKED` when a concrete external blocker prevents continuation and its evidence/unblock condition/next action are known, or `HUMAN DECISION REQUIRED` when a genuine protected human choice is needed and the exact options/consequences/reply format are stated. `FAILED` is an event to remediate or classify, never a terminal interaction state.
+
 ## Requirements
 
 - FR-001: One current `OUTCOME APPROVED` MUST authorize all deterministic reversible source-lifecycle transitions inside the exact approved paths, including ordinary in-scope bug/test/CI remediation and exact-green-head merge.
@@ -51,6 +56,7 @@ If the operator sends `OUTCOME APPROVED` when the immediately preceding assistan
 - FR-014: Existing exact-SHA provenance, production fingerprint semantics, rollback, Authentik/M2M boundaries, Camera 1/MediaMTX behavior, AI algorithms, credentials and Windows runtime behavior MUST NOT be weakened or changed by this outcome.
 - FR-015: Before every request for `OUTCOME APPROVED`, including re-authorization, the Delivery Orchestrator MUST first render an operator-visible Scope block with product outcome, exact repository paths, protected/out-of-scope boundaries, runtime/production impact and acceptance evidence. A bare approval prompt without that visible scope MUST be treated as an invalid authorization request sequence.
 - FR-016: Source authorization admission MUST require `VISIBLE_SCOPE_PRESENTED=YES` and `SCOPE_IMMEDIATELY_PRECEDES_APPROVAL=YES` before branch creation or any source/SDD write. The complete Scope MUST be the last substantive assistant block before the approval request and the approval MUST be the immediately following user decision. Missing, incomplete, stale, ambiguous or non-adjacent scope evidence MUST leave admission blocked and require a newly rendered Scope plus a new approval; an earlier misplaced token MUST NOT be reused.
+- FR-017: The Delivery Orchestrator MUST return control only as `DONE`, `BLOCKED`, or `HUMAN DECISION REQUIRED`. `BLOCKED` MUST identify a concrete external blocker, evidence, unblock condition and next admissible action; `HUMAN DECISION REQUIRED` MUST identify the exact protected decision, bounded alternatives/consequences where applicable and exact reply/action format; `FAILED` MUST be treated as a remediable/classifiable event rather than a terminal interaction state. Deterministic authorized work MUST continue automatically until one of these states is justified.
 
 ## Acceptance criteria
 
@@ -70,6 +76,7 @@ If the operator sends `OUTCOME APPROVED` when the immediately preceding assistan
 - AC-014: This source task changes no API/frontend/media/AI algorithm/credential/sudoers/runtime secret behavior and performs no production mutation before a fresh exact-SHA production envelope for the merge commit.
 - AC-015: `AGENTS.md`, canonical governance, task runtime and Delivery Orchestrator contract all require the visible Scope-before-approval order, define the minimum scope fields, prohibit a standalone `OUTCOME APPROVED` prompt, and require revised scope presentation before re-authorization.
 - AC-016: The same four contracts define fail-closed admission: `VISIBLE_SCOPE_PRESENTED=YES` plus `SCOPE_IMMEDIATELY_PRECEDES_APPROVAL=YES` are required before source writes; a bare/misordered/non-adjacent approval remains in `DISCUSSION`, cannot create a branch/write source, and can recover only through a newly displayed Scope followed by a new approval.
+- AC-017: `AGENTS.md`, governance, delivery policy, task runtime, release readiness and Delivery Orchestrator contract all define the same three terminal interaction states and prohibit intermediate status-only stops; `tests/test_delivery_terminal_states.py` regression-protects state names, blocker/human-decision semantics, automatic remediation and automatic resume.
 
 ## NFR assessment
 
@@ -81,9 +88,11 @@ If the operator sends `OUTCOME APPROVED` when the immediately preceding assistan
 - NFR-006 | Area: Compatibility | Target: Legacy `DEPLOY VPS <sha>` and two-line production authorization remain readable/usable under their existing semantics | Validation: unchanged legacy request workflow plus authorization verifier behavior | Evidence: `.github/workflows/deploy-vps-request.yml`, `scripts/release/verify_production_authorization.py` | Status: PASS
 - NFR-007 | Area: Operator comprehension | Target: Every source-authorization request is preceded by an explicit exact scope presentation, including re-authorization | Validation: governance/agent/task-runtime/PM contract review and exact diff | Evidence: `AGENTS.md`, `contracts/SEA_SPEED_GOVERNANCE.md`, `contracts/runtime/SEA_SPEED_TASK_RUNTIME.md`, `contracts/branches/project-manager.md` | Status: PASS
 - NFR-008 | Area: Process reliability | Target: A missing/incomplete/stale/non-adjacent Scope can never be converted into source execution merely because the operator typed `OUTCOME APPROVED`; admission must remain blocked until the exact presentation sequence is repaired | Validation: contract state-machine review and feature 017 regression scenario | Evidence: `AGENTS.md`, `contracts/SEA_SPEED_GOVERNANCE.md`, `contracts/runtime/SEA_SPEED_TASK_RUNTIME.md`, `contracts/branches/project-manager.md`, `specs/017-delivery-automation/{spec,plan,tasks}.md` | Status: PASS
+- NFR-009 | Area: Orchestration reliability | Target: Every Delivery Orchestrator turn with active work continues deterministic authorized actions until exactly `DONE`, `BLOCKED`, or `HUMAN DECISION REQUIRED`; no status-only terminal handoff or terminal `FAILED` is permitted | Validation: six-contract consistency plus regression test | Evidence: `tests/test_delivery_terminal_states.py`, `AGENTS.md`, `contracts/SEA_SPEED_GOVERNANCE.md`, `contracts/SEA_SPEED_DELIVERY_POLICY.md`, `contracts/runtime/SEA_SPEED_TASK_RUNTIME.md`, `contracts/runtime/RELEASE_READINESS_GATE.md`, `contracts/branches/project-manager.md` | Status: PASS
 
 ## Runtime feedback
 
 - Runtime acceptance for the original automation source task was REQUIRED because that exact diff added an Ubuntu production entrypoint under `deploy/worker/ubuntu/**`; that runtime deployment and acceptance were completed for Issue #178.
-- Production mutation during this fail-closed scope-admission remediation: NONE; it is CONTROL_PLANE only.
+- Production mutation during the fail-closed scope-admission remediation and Issue #195 terminal-interaction governance continuation: NONE; both are CONTROL_PLANE only.
+- Issue #195 records the accepted three-state terminal interaction contract: `DONE`, `BLOCKED`, `HUMAN DECISION REQUIRED`; `FAILED` is now an internal event, not a terminal handoff.
 - Zero-touch Ubuntu transport is deliberately not claimed by source alone. Until a restricted deploy credential/route/privilege boundary is independently provisioned, the guaranteed capability remains one-command fallback.
