@@ -1,6 +1,6 @@
 # Sea Speed Delivery Policy
 
-Version: 1.12.0
+Version: 1.13.0
 Status: Active
 
 ## 1. Purpose
@@ -27,6 +27,8 @@ New tasks use `OUTCOME APPROVED` after a canonical Outcome Contract / Implementa
 PR admission requires an exact Change Contract, exact changed-file match, valid SDD linkage for significant work, required CI and unchanged protected boundaries. Merge additionally requires a fresh base/head comparison, zero unresolved review threads and expected-head protection when supported.
 
 The merge-facing context remains `Quality integration gate / quality-integration`. PR checks validate source; they do not deploy production.
+
+Deployment/release changes and production-learning correct-course work require the linked SDD Deployment Transaction Audit defined in section 16. A narrow source diff does not justify narrow failure analysis: after production learning, inspect neighboring transaction stages before the next production attempt.
 
 ## 4. Release identity
 
@@ -59,7 +61,17 @@ Before mutation prove:
 - exact artifacts/release/quality evidence validate;
 - rollback target and semantics are known.
 
-For VPS, `.github/workflows/deploy-vps.yml` remains `workflow_dispatch` only and retains `environment: production`; admission checks run before SSH.
+For VPS, `.github/workflows/deploy-vps.yml` is the single protected deployment implementation. It supports reusable `workflow_call` execution and retains manual `workflow_dispatch` as an emergency/operator fallback; its deploy job retains `environment: production`, and all admission checks run before SSH.
+
+The normal Delivery Orchestrator execution request is a Connector-written, exact one-line comment on the open canonical Issue:
+
+```text
+DEPLOY VPS <full-lowercase-40-character-sha>
+```
+
+`.github/workflows/deploy-vps-request.yml` admits only newly created comments on Issues, not pull requests, and repository-owned `scripts/release/parse_deployment_request.py` requires an actor from the production authorization policy plus the exact lowercase SHA command. The request workflow may only parse and delegate to the reusable deployment implementation; it must not contain SSH or production mutation logic.
+
+A `DEPLOY VPS` request is execution intent, not authorization. It never substitutes for the separate durable `PRODUCTION APPROVED` evidence, fingerprint, exact-main quality/provenance checks, protected environment or rollback gate that `deploy-vps.yml` verifies again before mutation.
 
 ## 6. Mixed-contour rollout
 
@@ -76,7 +88,9 @@ Ubuntu worker: seaspeedadmin@10.123.239.102:22
 Worker transport: ZeroTier
 ```
 
-The operator establishes the target shell/SSH boundary. Credentials, private keys, passwords, camera secrets, TOTP and populated environment values remain local/trusted and never enter chat or Git.
+The operator establishes a target shell/SSH boundary only when a runtime contour still needs an interactive handoff. Credentials, private keys, passwords, camera secrets, TOTP and populated environment values remain local/trusted and never enter chat or Git.
+
+For VPS, once the durable production envelope is current, the Delivery Orchestrator should normally create the canonical Issue `DEPLOY VPS <sha>` request through the connected GitHub Connector instead of asking the operator to click GitHub Actions. A human Actions click is fallback-only unless a genuine protected interaction such as an environment reviewer is configured.
 
 ## 8. Repository-owned server-pull model
 
@@ -98,9 +112,9 @@ If the exact approved SHA lacks a required safe operation, production stops for 
 
 ## 9. Fastest-safe operator UX
 
-Default budget: **one copy-paste action and one sanitized result per deployment contour or independently authorized stage whenever safe**.
+Default budget: **one copy-paste action and one sanitized result per deployment contour or independently authorized stage whenever safe**. For VPS, a valid Connector-written Issue deployment request is preferable to any operator copy-paste or Actions click when the GitHub execution path is available.
 
-Expose the largest safe authorized step. Do not split deterministic internal phases merely because they are separate scripts. Keep extra human checkpoints only for a genuine protected interaction: authorization, password/sudo/TOTP/IdP secret entry, host-key trust, irreversible/high-risk review, or a result that cannot safely be handled by internal guards.
+Expose the largest safe authorized step. Do not split deterministic internal phases merely because they are separate scripts. Keep extra human checkpoints only for a genuine protected interaction: authorization, password/sudo/TOTP/IdP secret entry, host-key trust, environment reviewer, irreversible/high-risk review, or a result that cannot safely be handled by internal guards.
 
 Known deterministic prerequisites, integrity checks, backups, restart, smoke, evidence collection and safe retry should be encoded in the repository entrypoint rather than emitted as serial operator commands. Never reduce exact-SHA binding, host validation, authorization, backup, rollback, integrity or fail-closed behavior for convenience.
 
@@ -133,3 +147,16 @@ A linked significant PR is quality-enabled only when its canonical SDD includes 
 Full risk profiling is required for security impact, API/event/state/storage schema impact, destructive/data migration, `MIXED` runtime impact, or an explicit other high-risk trigger. Risk records use categories `TECH`, `SEC`, `PERF`, `DATA`, `BUS`, `OPS`; probability and impact are scored 1-5 and the score is their product. Test design identifies `unit`, `integration`, `end-to-end`, or `runtime-manual` evidence with priority `P0` through `P3`.
 
 The quality verdict is advisory with respect to product confidence but machine-enforced for admission: `FAIL` blocks; `PASS` and `CONCERNS` proceed subject to all hard gates; `WAIVED` proceeds only with a complete durable waiver record. A waiver never changes runtime applicability or production authorization and never converts missing mandatory evidence into success.
+
+## 16. Deployment transaction audit
+
+For linked significant work, `scripts/ci/validate_sdd.py` requires a Deployment Transaction Audit when any of the following is true:
+
+- a changed path is under `deploy/**` or `scripts/release/**`;
+- a changed workflow is a deployment workflow;
+- any Change Contract runtime deployment field is `REQUIRED`;
+- the correct-course trigger is `PRODUCTION_LEARNING`.
+
+The audit contains exactly one record for each stage: `ADMISSION`, `PRE-MUTATION`, `MUTATION`, `VERIFICATION`, `STATE-COMMIT`, `HOUSEKEEPING`, `EVIDENCE`, and `ROLLBACK`. Every stage declares mutation possibility, failure disposition, state after failure, safe retry, rollback semantics and evidence.
+
+A `PRODUCTION_LEARNING` additionally requires `Adjacent-stage review: COMPLETE`, a concrete root cause, and concrete adjacent-stage findings. Before proposing the next production retry, review the entire transaction around the failure rather than only the final error line. Minimal source scope remains desirable, but analysis and fault-path testing must be broad enough to expose neighboring failure modes.
