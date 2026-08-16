@@ -12,6 +12,8 @@ import numpy as np
 import requests
 from ultralytics import YOLO
 
+from analytics_profiles import get_profile, normalize_model_class
+
 
 VEHICLE_CLASSES = {"car", "truck", "bus", "motorcycle", "bicycle"}
 
@@ -135,26 +137,22 @@ def start_ffmpeg():
 
 def read_exact(pipe, size):
     data = bytearray()
-
     while len(data) < size:
         chunk = pipe.read(size - len(data))
         if not chunk:
             return None
         data.extend(chunk)
-
     return bytes(data)
 
 
 def _frame_time_seconds(frame):
     pts = getattr(frame, "pts", None)
     time_base = getattr(frame, "time_base", None)
-
     if pts is not None and time_base is not None:
         try:
             return float(pts * time_base)
         except Exception:
             pass
-
     return time.monotonic()
 
 
@@ -182,30 +180,23 @@ class RtspFrameReader:
     def __init__(self, input_url, width, height, sample_fps, av_module=None):
         if sample_fps <= 0:
             raise RuntimeError("SAMPLE_FPS must be greater than zero")
-
         if av_module is None:
             try:
                 import av as av_module
             except ImportError:
-                raise RuntimeError(
-                    "RTSP input requires the PyAV runtime dependency"
-                ) from None
-
+                raise RuntimeError("RTSP input requires the PyAV runtime dependency") from None
         self._av = av_module
         self._input_label = safe_media_input_label(input_url)
         self._width = width
         self._height = height
         self._sample_interval = 1.0 / float(sample_fps)
         self._next_sample_ts = None
-
         try:
             with self._av.logging.Capture(local=False):
                 self._container = self._av.open(input_url, mode="r")
             self._frames = self._container.decode(video=0)
         except Exception:
-            raise RuntimeError(
-                f"RTSP media open failed: {self._input_label}"
-            ) from None
+            raise RuntimeError(f"RTSP media open failed: {self._input_label}") from None
 
     def read_frame(self):
         while True:
@@ -215,30 +206,18 @@ class RtspFrameReader:
             except StopIteration:
                 return None
             except Exception:
-                raise RuntimeError(
-                    f"RTSP media read failed: {self._input_label}"
-                ) from None
-
+                raise RuntimeError(f"RTSP media read failed: {self._input_label}") from None
             frame_ts = _frame_time_seconds(frame)
             if self._next_sample_ts is None:
                 self._next_sample_ts = frame_ts
-
             if frame_ts + 1e-9 < self._next_sample_ts:
                 continue
-
             while self._next_sample_ts <= frame_ts + 1e-9:
                 self._next_sample_ts += self._sample_interval
-
             try:
-                return frame.reformat(
-                    width=self._width,
-                    height=self._height,
-                    format="bgr24",
-                ).to_ndarray()
+                return frame.reformat(width=self._width, height=self._height, format="bgr24").to_ndarray()
             except Exception:
-                raise RuntimeError(
-                    f"RTSP frame conversion failed: {self._input_label}"
-                ) from None
+                raise RuntimeError(f"RTSP frame conversion failed: {self._input_label}") from None
 
     def close(self):
         try:
@@ -251,24 +230,15 @@ def start_media_reader(av_module=None):
     input_url = env_str("HLS_URL")
     if not input_url:
         raise RuntimeError("HLS_URL is not set")
-
     width = env_int("FRAME_WIDTH", 704)
     height = env_int("FRAME_HEIGHT", 576)
     sample_fps = env_float("SAMPLE_FPS", 5.0)
-
     if _media_input_scheme(input_url) == "rtsp":
         print("Starting in-process RTSP reader")
         print(f"HLS: {safe_media_input_label(input_url)}")
         print(f"Frame: {width}x{height}")
         print(f"Sample FPS: {sample_fps}")
-        return RtspFrameReader(
-            input_url,
-            width,
-            height,
-            sample_fps,
-            av_module=av_module,
-        )
-
+        return RtspFrameReader(input_url, width, height, sample_fps, av_module=av_module)
     return FFmpegFrameReader(start_ffmpeg(), width, height)
 
 
@@ -285,40 +255,30 @@ class MotionDetector:
     def process(self, frame):
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         gray = cv2.GaussianBlur(gray, (21, 21), 0)
-
         if self.prev is None:
             self.prev = gray
             self.last_boxes = []
             self.last_area = 0.0
             return False, 0.0, []
-
         diff = cv2.absdiff(self.prev, gray)
         _, th = cv2.threshold(diff, self.threshold, 255, cv2.THRESH_BINARY)
         th = cv2.dilate(th, None, iterations=2)
-
         contours, _ = cv2.findContours(th, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
         boxes = []
         area_sum = 0.0
-
         for c in contours:
             area = cv2.contourArea(c)
             if area < self.min_area:
                 continue
-
             x, y, w, h = cv2.boundingRect(c)
             boxes.append((int(x), int(y), int(w), int(h)))
             area_sum += float(area)
-
         self.prev = gray
         self.last_boxes = boxes
         self.last_area = area_sum
-
         instant_motion = len(boxes) > 0
-
         if instant_motion:
             self.active_until = time.time() + self.active_seconds
-
         return instant_motion, area_sum, boxes
 
     def is_ai_active(self):
@@ -326,121 +286,88 @@ class MotionDetector:
 
 
 def detect_vehicles(model, frame):
-    confidence = env_float("YOLO_CONFIDENCE", 0.25)
-    image_size = env_int("YOLO_IMAGE_SIZE", 960)
-    tracker = env_str("YOLO_TRACKER", "bytetrack.yaml").strip() or "bytetrack.yaml"
-
-    results = model.track(
-        frame,
-        persist=True,
-        tracker=tracker,
-        imgsz=image_size,
-        conf=confidence,
-        verbose=False,
-    )
-
+    profile_name = env_str("ANALYTICS_PROFILE", "").strip()
+    profile = get_profile(profile_name) if profile_name else None
+    if profile is None:
+        confidence_default = 0.25
+        image_size_default = 960
+        tracker_default = "bytetrack.yaml"
+    else:
+        confidence_default = profile.confidence
+        image_size_default = profile.image_size
+        tracker_default = profile.tracker
+    confidence = env_float("YOLO_CONFIDENCE", confidence_default)
+    image_size = env_int("YOLO_IMAGE_SIZE", image_size_default)
+    tracker = env_str("YOLO_TRACKER", tracker_default).strip() or tracker_default
+    results = model.track(frame, persist=True, tracker=tracker, imgsz=image_size, conf=confidence, verbose=False)
     detections = []
-
     if not results:
         return detections
-
     r = results[0]
     names = r.names
-
     if r.boxes is None:
         return detections
-
     track_ids = getattr(r.boxes, "id", None)
-
     for index, box in enumerate(r.boxes):
         cls_id = int(box.cls[0].item())
-        class_name = str(names.get(cls_id, cls_id))
+        model_class = str(names.get(cls_id, cls_id))
         conf = float(box.conf[0].item())
-
-        if class_name not in VEHICLE_CLASSES:
-            continue
-
+        if profile is None:
+            if model_class not in VEHICLE_CLASSES:
+                continue
+            semantic = {"class_name": model_class}
+        else:
+            semantic = normalize_model_class(model_class, profile.name)
+            if semantic is None:
+                continue
         track_id = None
         if track_ids is not None:
             try:
                 track_id = int(track_ids[index].item())
             except Exception:
                 track_id = None
-
         xyxy = box.xyxy[0].tolist()
         x1, y1, x2, y2 = [int(round(v)) for v in xyxy]
-
         detections.append({
             "track_id": track_id,
-            "class_name": class_name,
             "confidence": conf,
             "bbox_xyxy": [x1, y1, x2, y2],
+            **semantic,
         })
-
     return detections
 
 
 def bbox_intersects_motion(det, motion_boxes):
     if not motion_boxes:
         return False
-
     x1, y1, x2, y2 = det["bbox_xyxy"]
     det_area = max(1.0, float((x2 - x1) * (y2 - y1)))
-
     for mx, my, mw, mh in motion_boxes:
-        mx1 = mx
-        my1 = my
-        mx2 = mx + mw
-        my2 = my + mh
-
-        ix1 = max(x1, mx1)
-        iy1 = max(y1, my1)
-        ix2 = min(x2, mx2)
-        iy2 = min(y2, my2)
-
+        mx1, my1, mx2, my2 = mx, my, mx + mw, my + mh
+        ix1, iy1, ix2, iy2 = max(x1, mx1), max(y1, my1), min(x2, mx2), min(y2, my2)
         if ix2 <= ix1 or iy2 <= iy1:
             continue
-
         inter_area = float((ix2 - ix1) * (iy2 - iy1))
-
         if inter_area / det_area >= 0.03:
             return True
-
     return False
 
 
-
 def filter_detections_by_motion(detections, motion_boxes):
-    return [
-        det for det in detections
-        if bbox_intersects_motion(det, motion_boxes)
-    ]
+    return [det for det in detections if bbox_intersects_motion(det, motion_boxes)]
 
 
-_roi_cache = {
-    "ts": 0.0,
-    "enabled": False,
-    "points": [],
-    "signature": "",
-}
-
-# The Worker main loop is serial. Bind the effective ROI captured before
-# motion/inference so the legacy one-argument final guard cannot refetch a
-# different polygon after a slow AI inference.
+_roi_cache = {"ts": 0.0, "enabled": False, "points": [], "signature": ""}
 _roi_processing_points = None
 
 
 def get_roi_url():
     url = env_str("SEA_SPEED_ROI_URL", "").strip()
-
     if url:
         return url
-
     state_url = env_str("SEA_SPEED_API_URL", "").strip()
-
     if state_url:
         return state_url.rsplit("/", 1)[0] + "/roi"
-
     return ""
 
 
@@ -449,59 +376,42 @@ def fetch_remote_roi():
     now = time.time()
     if now - _roi_cache["ts"] < refresh_sec:
         return _roi_cache["enabled"], _roi_cache["points"]
-
     _roi_cache["ts"] = now
-
     url = get_roi_url()
-
     if not url:
         _roi_cache["enabled"] = False
         _roi_cache["points"] = []
         return False, []
-
     headers = {}
     basic_auth = roi_basic_auth()
-
     if basic_auth:
         headers["Authorization"] = f"Basic {basic_auth}"
-
     try:
         r = requests.get(url, headers=headers, timeout=5)
-
         if r.status_code >= 300:
             print(f"ROI fetch failed: HTTP {r.status_code} {r.text[:160]}")
             return _roi_cache["enabled"], _roi_cache["points"]
-
         data = r.json()
         raw_points = data.get("polygon", [])
         points = []
-
         if isinstance(raw_points, list):
             for p in raw_points:
                 if not isinstance(p, dict):
                     continue
-
                 try:
                     x = int(round(float(p.get("x"))))
                     y = int(round(float(p.get("y"))))
                 except Exception:
                     continue
-
                 points.append((x, y))
-
         enabled = bool(data.get("enabled")) and len(points) >= 3
-
         signature = f"{enabled}:{points}"
-
         if signature != _roi_cache.get("signature"):
             print(f"ROI loaded from VPS: enabled={enabled} points={len(points)}")
-
         _roi_cache["enabled"] = enabled
         _roi_cache["points"] = points
         _roi_cache["signature"] = signature
-
         return enabled, points
-
     except Exception as e:
         print(f"ROI fetch error: {e}")
         return _roi_cache["enabled"], _roi_cache["points"]
@@ -514,17 +424,14 @@ def road_roi_enabled():
 
 def parse_road_roi_polygon():
     enabled, points = fetch_remote_roi()
-
     if not enabled:
         return []
-
     return points
 
 
 def roi_processing_signature(enabled, points):
     if not enabled or len(points) < 3:
         return "full-frame"
-
     normalized = tuple((int(x), int(y)) for x, y in points)
     return f"roi:{normalized}"
 
@@ -532,7 +439,6 @@ def roi_processing_signature(enabled, points):
 def mask_frame_to_roi(frame, points):
     if len(points) < 3:
         return frame
-
     mask = np.zeros(frame.shape[:2], dtype=np.uint8)
     polygon = np.array(points, dtype=np.int32)
     cv2.fillPoly(mask, [polygon], 255)
@@ -541,23 +447,16 @@ def mask_frame_to_roi(frame, points):
 
 def prepare_roi_processing_frame(frame, motion_detector):
     global _roi_processing_points
-
     enabled, points = fetch_remote_roi()
     points = list(points) if enabled and len(points) >= 3 else []
     signature = roi_processing_signature(bool(points), points)
-    previous_signature = getattr(
-        motion_detector,
-        "_roi_processing_signature",
-        None,
-    )
-
+    previous_signature = getattr(motion_detector, "_roi_processing_signature", None)
     if previous_signature != signature:
         motion_detector.prev = None
         motion_detector.active_until = 0.0
         motion_detector.last_boxes = []
         motion_detector.last_area = 0.0
         motion_detector._roi_processing_signature = signature
-
     _roi_processing_points = list(points)
     return mask_frame_to_roi(frame, points), points
 
@@ -572,29 +471,21 @@ def detection_inside_road_roi(det, points=None):
         points = _roi_processing_points
     if points is None:
         points = parse_road_roi_polygon()
-
     if len(points) < 3:
         return True
-
     polygon = np.array(points, dtype=np.int32)
     cx, cy = bbox_center(det)
-
     return cv2.pointPolygonTest(polygon, (float(cx), float(cy)), False) >= 0
 
 
 def filter_detections_by_roi(detections, points=None):
-    return [
-        det for det in detections
-        if detection_inside_road_roi(det, points)
-    ]
+    return [det for det in detections if detection_inside_road_roi(det, points)]
 
 
 def draw_roi_polygon(frame):
     points = parse_road_roi_polygon()
-
     if len(points) < 3:
         return
-
     polygon = np.array(points, dtype=np.int32)
     cv2.polylines(frame, [polygon], True, (255, 0, 0), 2)
 
@@ -605,87 +496,37 @@ def format_detection_label(det):
     class_name = str(det.get("class_name", "object"))
     confidence = float(det.get("confidence") or 0.0)
     speed_kmh = det.get("speed_kmh")
-
-    if speed_kmh is None:
-        speed_text = "speed: --"
-    else:
-        speed_text = f"{float(speed_kmh):.1f} km/h"
-
+    speed_text = "speed: --" if speed_kmh is None else f"{float(speed_kmh):.1f} km/h"
     return f"{id_text} | {class_name} {confidence:.2f} | {speed_text}"
 
 
 def overlay_label_opacity():
-    # JPEG has no alpha channel, so translucency is rendered by blending a
-    # dark label layer back into the camera frame. Keep the configured value
-    # inside a readable range even when the environment is misconfigured.
     configured = env_float("OVERLAY_LABEL_OPACITY", 0.38)
     return max(0.15, min(0.85, float(configured)))
 
 
 def draw_overlay(frame, motion_now, motion_area, ai_active, detections, motion_boxes):
     out = frame.copy()
-
     for det in detections:
         x1, y1, x2, y2 = det["bbox_xyxy"]
         label = format_detection_label(det)
-
         cv2.rectangle(out, (x1, y1), (x2, y2), (0, 255, 0), 2)
-
         font = cv2.FONT_HERSHEY_SIMPLEX
         font_scale = 0.5
         thickness = 2
-        (text_width, text_height), baseline = cv2.getTextSize(
-            label,
-            font,
-            font_scale,
-            thickness,
-        )
+        (text_width, text_height), baseline = cv2.getTextSize(label, font, font_scale, thickness)
         label_x = max(0, x1)
         label_y = max(text_height + 8, y1 - 7)
         label_right = min(out.shape[1] - 1, label_x + text_width + 8)
-
         label_top = max(0, label_y - text_height - 7)
         label_bottom = min(out.shape[0] - 1, label_y + baseline + 2)
         label_layer = out.copy()
-        cv2.rectangle(
-            label_layer,
-            (label_x, label_top),
-            (label_right, label_bottom),
-            (0, 18, 18),
-            -1,
-        )
+        cv2.rectangle(label_layer, (label_x, label_top), (label_right, label_bottom), (0, 18, 18), -1)
         opacity = overlay_label_opacity()
-        cv2.addWeighted(
-            label_layer,
-            opacity,
-            out,
-            1.0 - opacity,
-            0.0,
-            dst=out,
-        )
-        cv2.rectangle(
-            out,
-            (label_x, label_top),
-            (label_right, label_bottom),
-            (0, 210, 140),
-            1,
-        )
-        cv2.putText(
-            out,
-            label,
-            (label_x + 4, label_y),
-            font,
-            font_scale,
-            (0, 255, 0),
-            thickness,
-            cv2.LINE_AA,
-        )
-
-    active_track_ids = {
-        int(det["track_id"])
-        for det in detections
-        if det.get("track_id") is not None
-    }
+        cv2.addWeighted(label_layer, opacity, out, 1.0 - opacity, 0.0, dst=out)
+        cv2.rectangle(out, (label_x, label_top), (label_right, label_bottom), (0, 210, 140), 1)
+        cv2.putText(out, label, (label_x + 4, label_y), font, font_scale, (0, 255, 0), thickness, cv2.LINE_AA)
+    active_track_ids = {int(det["track_id"]) for det in detections if det.get("track_id") is not None}
     lines = [
         f"motion_now: {motion_now}",
         f"motion_area: {int(motion_area)}",
@@ -694,59 +535,29 @@ def draw_overlay(frame, motion_now, motion_area, ai_active, detections, motion_b
         f"tracks: {len(active_track_ids)}",
         f"posted_to: mostdef.ru/sea-speed",
     ]
-
     y = 24
     for line in lines:
-        cv2.putText(
-            out,
-            line,
-            (10, y),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.62,
-            (255, 255, 255),
-            2,
-            cv2.LINE_AA,
-        )
+        cv2.putText(out, line, (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.62, (255, 255, 255), 2, cv2.LINE_AA)
         y += 25
-
     return out
 
 
 def post_state(metadata, overlay_path):
     state_url = env_str("SEA_SPEED_API_URL")
     token = env_str("SEA_SPEED_API_TOKEN")
-
     if not state_url or not token:
         print("POST state skipped: SEA_SPEED_API_URL or SEA_SPEED_API_TOKEN is not set")
         return False
-
-    headers = {
-        "Authorization": f"Bearer {token}",
-    }
-
+    headers = {"Authorization": f"Bearer {token}"}
     try:
         with open(overlay_path, "rb") as f:
-            files = {
-                "overlay": ("overlay.jpg", f, "image/jpeg"),
-            }
-            data = {
-                "metadata": json.dumps(metadata, ensure_ascii=False),
-            }
-
-            r = requests.post(
-                state_url,
-                headers=headers,
-                data=data,
-                files=files,
-                timeout=10,
-            )
-
+            files = {"overlay": ("overlay.jpg", f, "image/jpeg")}
+            data = {"metadata": json.dumps(metadata, ensure_ascii=False)}
+            r = requests.post(state_url, headers=headers, data=data, files=files, timeout=10)
         if r.status_code >= 300:
             print(f"POST state failed: HTTP {r.status_code} {r.text[:300]}")
             return False
-
         return True
-
     except Exception as e:
         print(f"POST state error: {e}")
         return False
@@ -755,63 +566,33 @@ def post_state(metadata, overlay_path):
 def post_event(event, snapshot_path):
     state_url = env_str("SEA_SPEED_API_URL")
     event_url = env_str("SEA_SPEED_EVENT_API_URL")
-
     if not event_url and state_url:
         event_url = state_url.rsplit("/", 1)[0] + "/events"
-
     token = env_str("SEA_SPEED_API_TOKEN")
-
     if not event_url or not token:
         print("POST event skipped: event URL or token is not set")
         return False
-
-    headers = {
-        "Authorization": f"Bearer {token}",
-    }
-
+    headers = {"Authorization": f"Bearer {token}"}
     try:
         with open(snapshot_path, "rb") as f:
-            files = {
-                "snapshot": ("event.jpg", f, "image/jpeg"),
-            }
-            data = {
-                "metadata": json.dumps(event, ensure_ascii=False),
-            }
-
-            r = requests.post(
-                event_url,
-                headers=headers,
-                data=data,
-                files=files,
-                timeout=10,
-            )
-
+            files = {"snapshot": ("event.jpg", f, "image/jpeg")}
+            data = {"metadata": json.dumps(event, ensure_ascii=False)}
+            r = requests.post(event_url, headers=headers, data=data, files=files, timeout=10)
         if r.status_code >= 300:
             print(f"POST event failed: HTTP {r.status_code} {r.text[:300]}")
             return False
-
         print(f'POST event ok id={event["event_id"]} class={event["class_name"]} conf={event["confidence"]:.2f}')
         return True
-
     except Exception as e:
         print(f"POST event error: {e}")
         return False
 
 
-_speed_track = {
-    "center": None,
-    "ts": None,
-    "class_name": None,
-}
-
-# Per-object runtime state. The legacy singleton states remain as a
-# compatibility fallback for trackless detections and dependency-free tests.
+_speed_track = {"center": None, "ts": None, "class_name": None}
 _track_states = {}
 
 
 def detection_center_px(det):
-    # Bottom-center is the speed trigger point for both pixel and calibrated
-    # measurements. A single definition prevents geometric-center drift.
     x1, _y1, x2, y2 = det["bbox_xyxy"]
     return ((x1 + x2) / 2.0, y2)
 
@@ -820,7 +601,6 @@ def update_speed_estimate(det):
     now = time.time()
     cx, cy = detection_center_px(det)
     track_id = det.get("track_id")
-
     if track_id is None:
         state = _speed_track
         track_state = None
@@ -829,102 +609,61 @@ def update_speed_estimate(det):
         track_state = _track_states.setdefault(track_id, {})
         track_state["last_seen"] = now
         state = track_state.setdefault("pixel_speed", {})
-
-    info = {
-        "center_x": round(cx, 2),
-        "center_y": round(cy, 2),
-        "dx_px": None,
-        "dy_px": None,
-        "dt_sec": None,
-        "distance_px": None,
-        "speed_px_s": None,
-    }
-
+    info = {"center_x": round(cx, 2), "center_y": round(cy, 2), "dx_px": None, "dy_px": None, "dt_sec": None, "distance_px": None, "speed_px_s": None}
     prev_center = state.get("center")
     prev_ts = state.get("ts")
     prev_class = state.get("class_name")
-
     if prev_center is not None and prev_ts is not None and prev_class == det["class_name"]:
         dt = now - prev_ts
-
         if 0.05 <= dt <= 3.0:
             dx = cx - prev_center[0]
             dy = cy - prev_center[1]
             distance = (dx * dx + dy * dy) ** 0.5
             speed = distance / dt
-
-            info.update({
-                "dx_px": round(dx, 2),
-                "dy_px": round(dy, 2),
-                "dt_sec": round(dt, 3),
-                "distance_px": round(distance, 2),
-                "speed_px_s": round(speed, 2),
-            })
-
+            info.update({"dx_px": round(dx, 2), "dy_px": round(dy, 2), "dt_sec": round(dt, 3), "distance_px": round(distance, 2), "speed_px_s": round(speed, 2)})
     state["center"] = (cx, cy)
     state["ts"] = now
     state["class_name"] = det["class_name"]
-
     if track_state is not None:
         track_state["pixel_speed_info"] = dict(info)
-
     return info
 
 
-_speed_config_cache = {
-    "ts": 0.0,
-    "enabled": False,
-    "kmh_per_px_s": 0.0,
-}
+_speed_config_cache = {"ts": 0.0, "enabled": False, "kmh_per_px_s": 0.0}
 
 
 def get_speed_config_url():
     url = env_str("SEA_SPEED_SPEED_CONFIG_URL", "").strip()
-
     if url:
         return url
-
     state_url = env_str("SEA_SPEED_API_URL", "").strip()
-
     if state_url:
         return state_url.rsplit("/", 1)[0] + "/speed-config"
-
     return ""
 
 
 def fetch_speed_config():
     refresh_sec = env_float("SPEED_CONFIG_REFRESH_SEC", 10.0)
     now = time.time()
-
     if now - _speed_config_cache["ts"] < refresh_sec:
         return _speed_config_cache
-
     _speed_config_cache["ts"] = now
-
     url = get_speed_config_url()
-
     if not url:
         return _speed_config_cache
-
     headers = {}
     basic_auth = env_str("HLS_BASIC_AUTH_BASE64", "").strip()
-
     if basic_auth:
         headers["Authorization"] = f"Basic {basic_auth}"
-
     try:
         r = requests.get(url, headers=headers, timeout=5)
-
         if r.status_code >= 300:
             print(f"Speed config fetch failed: HTTP {r.status_code} {r.text[:160]}")
             return _speed_config_cache
-
         data = r.json()
         _speed_config_cache["enabled"] = bool(data.get("enabled"))
         _speed_config_cache["kmh_per_px_s"] = float(data.get("kmh_per_px_s") or 0.0)
-
         return _speed_config_cache
-
     except Exception as e:
         print(f"Speed config fetch error: {e}")
         return _speed_config_cache
@@ -933,81 +672,49 @@ def fetch_speed_config():
 def convert_px_s_to_kmh(speed_px_s):
     if speed_px_s is None:
         return None
-
     config = fetch_speed_config()
-
     if not config.get("enabled"):
         return None
-
     factor = float(config.get("kmh_per_px_s") or 0.0)
-
     if factor <= 0:
         return None
-
     return round(float(speed_px_s) * factor, 1)
 
 
-_speed_lines_cache = {
-    "ts": 0.0,
-    "enabled": False,
-    "distance_m": 57.0,
-    "line_a": [],
-    "line_b": [],
-    "signature": "",
-}
-
-_line_speed_state = {
-    "prev_center": None,
-    "prev_ts": None,
-    "prev_side_a": None,
-    "prev_side_b": None,
-    "pending": None,
-}
+_speed_lines_cache = {"ts": 0.0, "enabled": False, "distance_m": 57.0, "line_a": [], "line_b": [], "signature": ""}
+_line_speed_state = {"prev_center": None, "prev_ts": None, "prev_side_a": None, "prev_side_b": None, "pending": None}
 
 
 def get_speed_lines_url():
     url = env_str("SEA_SPEED_SPEED_LINES_URL", "").strip()
-
     if url:
         return url
-
     state_url = env_str("SEA_SPEED_API_URL", "").strip()
-
     if state_url:
         return state_url.rsplit("/", 1)[0] + "/speed-lines"
-
     return ""
 
 
 def fetch_speed_lines_config():
     refresh_sec = env_float("SPEED_LINES_REFRESH_SEC", 5.0)
     now = time.time()
-
     if now - _speed_lines_cache["ts"] < refresh_sec:
         return _speed_lines_cache
-
     _speed_lines_cache["ts"] = now
     url = get_speed_lines_url()
-
     if not url:
         _speed_lines_cache["enabled"] = False
         return _speed_lines_cache
-
     headers = {}
     basic_auth = env_str("HLS_BASIC_AUTH_BASE64", "").strip()
-
     if basic_auth:
         headers["Authorization"] = f"Basic {basic_auth}"
-
     try:
         r = requests.get(url, headers=headers, timeout=5)
-
         if r.status_code >= 300:
             print(f"Speed lines fetch failed: HTTP {r.status_code} {r.text[:160]}")
             return _speed_lines_cache
-
         data = r.json()
-
         def clean_line(raw):
             points = []
             if isinstance(raw, list):
@@ -1019,29 +726,18 @@ def fetch_speed_lines_config():
                     except Exception:
                         continue
             return points
-
         line_a = clean_line(data.get("line_a", []))
         line_b = clean_line(data.get("line_b", []))
         enabled = bool(data.get("enabled")) and len(line_a) == 2 and len(line_b) == 2
-
         try:
             distance_m = float(data.get("distance_m") or 57.0)
         except Exception:
             distance_m = 57.0
-
         signature = f"{enabled}:{distance_m}:{line_a}:{line_b}"
-
         if signature != _speed_lines_cache.get("signature"):
             print(f"Speed lines loaded: enabled={enabled} distance_m={distance_m} A={line_a} B={line_b}")
-
-        _speed_lines_cache["enabled"] = enabled
-        _speed_lines_cache["distance_m"] = distance_m
-        _speed_lines_cache["line_a"] = line_a
-        _speed_lines_cache["line_b"] = line_b
-        _speed_lines_cache["signature"] = signature
-
+        _speed_lines_cache.update({"enabled": enabled, "distance_m": distance_m, "line_a": line_a, "line_b": line_b, "signature": signature})
         return _speed_lines_cache
-
     except Exception as e:
         print(f"Speed lines fetch error: {e}")
         return _speed_lines_cache
@@ -1050,11 +746,9 @@ def fetch_speed_lines_config():
 def side_of_line(point, line):
     if not line or len(line) != 2:
         return None
-
     x, y = point
     x1, y1 = line[0]
     x2, y2 = line[1]
-
     return (x2 - x1) * (y - y1) - (y2 - y1) * (x - x1)
 
 
@@ -1071,20 +765,16 @@ def sign_with_deadzone(value, deadzone=1.0):
 def crossed_line(prev_side, current_side):
     ps = sign_with_deadzone(prev_side)
     cs = sign_with_deadzone(current_side)
-
     if ps == 0 or cs == 0:
         return False
-
     return ps != cs
 
 
 def update_speed_lines_estimate(det):
-    # Detection-first calibrated speed, isolated by persistent track ID.
     cfg = fetch_speed_lines_config()
     now = time.time()
     point = detection_center_px(det)
     track_id = det.get("track_id")
-
     if track_id is None:
         state = _line_speed_state
         track_state = None
@@ -1094,7 +784,6 @@ def update_speed_lines_estimate(det):
         track_state["last_seen"] = now
         track_state.setdefault("event_posted", False)
         state = track_state.setdefault("line_speed", {})
-
     speed_lines_enabled = bool(cfg.get("enabled"))
     info = {
         "line_speed_kmh": None,
@@ -1113,7 +802,6 @@ def update_speed_lines_estimate(det):
         "speed_sample_count": 0,
         "speed_ready": False,
     }
-
     state.setdefault("prev_point", None)
     state.setdefault("prev_progress_m", None)
     state.setdefault("prev_ts", None)
@@ -1122,7 +810,6 @@ def update_speed_lines_estimate(det):
     state.setdefault("last_seen_ts", now)
     state.setdefault("display_speed_kmh", None)
     state.setdefault("display_speed_ts", None)
-
     max_gap_sec = env_float("DETECTION_TRACK_MAX_GAP_SEC", 2.0)
     display_hold_sec = max(0.0, env_float("DETECTION_SPEED_DISPLAY_HOLD_SEC", 2.0))
     min_dt = env_float("DETECTION_SPEED_MIN_DT_SEC", 0.05)
@@ -1158,17 +845,7 @@ def update_speed_lines_estimate(det):
         if now - float(display_ts) > display_hold_sec:
             return False
         display_speed = round(float(display_speed), 1)
-        info.update({
-            "line_speed_kmh": display_speed,
-            "speed_kmh": display_speed,
-            "speed_source": "detection_first_calibrated_held",
-            "speed_segment_kmh": display_speed,
-            "speed_travel_time_sec": round(
-                now - float(state.get("track_started_ts", now)),
-                3,
-            ),
-            "speed_ready": True,
-        })
+        info.update({"line_speed_kmh": display_speed, "speed_kmh": display_speed, "speed_source": "detection_first_calibrated_held", "speed_segment_kmh": display_speed, "speed_travel_time_sec": round(now - float(state.get("track_started_ts", now)), 3), "speed_ready": True})
         update_sample_metadata()
         return True
 
@@ -1183,48 +860,36 @@ def update_speed_lines_estimate(det):
         state["display_speed_ts"] = None
         if track_state is not None:
             track_state["event_posted"] = False
-
     line_a = cfg.get("line_a") or []
     line_b = cfg.get("line_b") or []
-
     try:
         distance_m = float(cfg.get("distance_m") or 57.0)
     except Exception:
         distance_m = 57.0
-
     info["speed_distance_m"] = round(distance_m, 2)
 
     def valid_line(line):
         return isinstance(line, list) and len(line) == 2
 
     def midpoint(line):
-        return (
-            (float(line[0][0]) + float(line[1][0])) / 2.0,
-            (float(line[0][1]) + float(line[1][1])) / 2.0,
-        )
+        return ((float(line[0][0]) + float(line[1][0])) / 2.0, (float(line[0][1]) + float(line[1][1])) / 2.0)
 
     def progress_m_from_calibration(p):
         if not speed_lines_enabled or not valid_line(line_a) or not valid_line(line_b):
             return None
-
         ma = midpoint(line_a)
         mb = midpoint(line_b)
-
         vx = mb[0] - ma[0]
         vy = mb[1] - ma[1]
         denom = vx * vx + vy * vy
-
         if denom <= 1e-6:
             return None
-
         px = float(p[0]) - ma[0]
         py = float(p[1]) - ma[1]
         t = (px * vx + py * vy) / denom
-
         return t * distance_m
 
     progress_m = progress_m_from_calibration(point)
-
     if progress_m is None:
         state["prev_point"] = point
         state["prev_progress_m"] = None
@@ -1235,66 +900,38 @@ def update_speed_lines_estimate(det):
         if track_state is not None:
             track_state["line_speed_info"] = dict(info)
         return info
-
     prev_progress_m = state.get("prev_progress_m")
     prev_ts = state.get("prev_ts")
-
     if prev_progress_m is not None and prev_ts is not None:
         dt = now - float(prev_ts)
-
         if min_dt <= dt <= max_dt:
             dm = float(progress_m) - float(prev_progress_m)
             inst_kmh = abs(dm / dt) * 3.6
-
             if min_kmh <= inst_kmh <= max_kmh:
                 inst_kmh = round(inst_kmh, 1)
                 state["samples"].append(inst_kmh)
-
                 if len(state["samples"]) > 120:
                     state["samples"] = state["samples"][-120:]
-
                 samples = list(state["samples"])
                 recent = samples[-smooth_samples:]
                 update_sample_metadata()
-
                 if len(samples) >= min_samples:
                     canonical_kmh = round(median_value(recent), 1)
                     state["display_speed_kmh"] = canonical_kmh
                     state["display_speed_ts"] = now
-
-                    info.update({
-                        "line_speed_kmh": canonical_kmh,
-                        "speed_kmh": canonical_kmh,
-                        "speed_source": "detection_first_calibrated",
-                        "speed_trigger_point": "bottom_center",
-                        "speed_segment_kmh": canonical_kmh,
-                        "speed_travel_time_sec": round(
-                            now - float(state.get("track_started_ts", now)),
-                            3,
-                        ),
-                        "speed_ready": True,
-                    })
-
-                    print(
-                        f"Detection-first speed track={track_id}: {canonical_kmh} km/h "
-                        f"instant={inst_kmh} min={info['speed_kmh_min']} "
-                        f"avg={info['speed_kmh_avg']} max={info['speed_kmh_max']} "
-                        f"samples={len(samples)} trigger=bottom_center"
-                    )
-
+                    info.update({"line_speed_kmh": canonical_kmh, "speed_kmh": canonical_kmh, "speed_source": "detection_first_calibrated", "speed_trigger_point": "bottom_center", "speed_segment_kmh": canonical_kmh, "speed_travel_time_sec": round(now - float(state.get("track_started_ts", now)), 3), "speed_ready": True})
+                    print(f"Detection-first speed track={track_id}: {canonical_kmh} km/h instant={inst_kmh} min={info['speed_kmh_min']} avg={info['speed_kmh_avg']} max={info['speed_kmh_max']} samples={len(samples)} trigger=bottom_center")
     state["prev_point"] = point
     state["prev_progress_m"] = progress_m
     state["prev_ts"] = now
     state["last_seen_ts"] = now
-
     if not info["speed_ready"]:
         apply_held_speed()
         update_sample_metadata()
-
     if track_state is not None:
         track_state["line_speed_info"] = dict(info)
-
     return info
+
 
 def track_event_posted(track_id):
     if track_id is None:
@@ -1313,32 +950,25 @@ def mark_track_event_posted(track_id):
 def prune_track_states(now=None):
     if now is None:
         now = time.time()
-
     max_gap_sec = env_float("DETECTION_TRACK_MAX_GAP_SEC", 2.0)
     stale_track_ids = []
-
     for track_id, state in list(_track_states.items()):
         last_seen = state.get("last_seen")
         if last_seen is None or now - float(last_seen) > max_gap_sec:
             stale_track_ids.append(track_id)
             _track_states.pop(track_id, None)
-
     return stale_track_ids
 
 
 def draw_speed_lines_overlay(frame):
     cfg = fetch_speed_lines_config()
-
     if not cfg.get("enabled"):
         return
-
     line_a = cfg.get("line_a") or []
     line_b = cfg.get("line_b") or []
-
     if len(line_a) == 2:
         cv2.line(frame, line_a[0], line_a[1], (0, 128, 255), 2)
         cv2.putText(frame, "A", line_a[0], cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 128, 255), 2, cv2.LINE_AA)
-
     if len(line_b) == 2:
         cv2.line(frame, line_b[0], line_b[1], (255, 0, 255), 2)
         cv2.putText(frame, "B", line_b[0], cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 255), 2, cv2.LINE_AA)
@@ -1346,22 +976,16 @@ def draw_speed_lines_overlay(frame):
 
 def build_event(best_det, motion_area, speed_info=None, line_speed_info=None):
     event_id = f"{int(time.time())}-{uuid.uuid4().hex[:8]}"
-
     if speed_info is None:
         speed_info = {}
-
     if line_speed_info is None:
         line_speed_info = {}
-
     speed_px_s = speed_info.get("speed_px_s")
-
     speed_kmh = best_det.get("speed_kmh")
     speed_source = best_det.get("speed_source")
-
     if speed_kmh is None:
         speed_kmh = line_speed_info.get("speed_kmh")
         speed_source = line_speed_info.get("speed_source")
-
     if speed_kmh is None and not line_speed_info.get("speed_lines_enabled"):
         try:
             speed_kmh = convert_px_s_to_kmh(speed_px_s)
@@ -1369,12 +993,15 @@ def build_event(best_det, motion_area, speed_info=None, line_speed_info=None):
                 speed_source = "px_factor"
         except Exception:
             speed_kmh = None
-
     return {
         "event_id": event_id,
         "created_at": now_iso(),
         "track_id": best_det.get("track_id"),
         "class_name": best_det["class_name"],
+        "analytics_profile": best_det.get("analytics_profile") or env_str("ANALYTICS_PROFILE", "").strip() or None,
+        "domain": best_det.get("domain"),
+        "object_type": best_det.get("object_type") or best_det.get("class_name"),
+        "model_class": best_det.get("model_class") or best_det.get("class_name"),
         "confidence": best_det["confidence"],
         "bbox": best_det["bbox_xyxy"],
         "center_x": speed_info.get("center_x"),
@@ -1392,68 +1019,57 @@ def build_event(best_det, motion_area, speed_info=None, line_speed_info=None):
         "speed_end_line": line_speed_info.get("speed_end_line"),
         "motion_area": int(motion_area),
         "model_name": env_str("MODEL_NAME", "yolo11s.pt"),
-        "message": "motion-filtered tracked vehicle detection with speed lines",
+        "message": "motion-filtered tracked object detection with speed lines",
     }
 
 
 def main():
-    model_name = env_str("MODEL_NAME", "yolo11s.pt")
-    tracker_name = env_str("YOLO_TRACKER", "bytetrack.yaml").strip() or "bytetrack.yaml"
+    profile_name = env_str("ANALYTICS_PROFILE", "").strip()
+    profile = get_profile(profile_name) if profile_name else None
+    model_name = env_str("MODEL_NAME", profile.model_name if profile else "yolo11s.pt")
+    tracker_name = env_str("YOLO_TRACKER", profile.tracker if profile else "bytetrack.yaml").strip() or (profile.tracker if profile else "bytetrack.yaml")
     print(f"Loading model: {model_name}")
     print(f"Tracking: {tracker_name}")
+    if profile is not None:
+        print(f"Analytics profile: {profile.name} domain={profile.domain}")
     model = YOLO(model_name)
-
     state_interval = env_float("STATE_POST_INTERVAL_SEC", 1.0)
     event_cooldown = env_float("EVENT_COOLDOWN_SEC", 12.0)
-
     motion_detector = MotionDetector()
     reader = start_media_reader()
-
     last_state_post = 0.0
     last_event_post = 0.0
     frame_no = 0
-
     latest_overlay_path = LATEST_DIR / "latest_overlay.jpg"
-
     print("Worker started")
     print(f"State interval: {state_interval}s")
     print(f"Event cooldown: {event_cooldown}s")
-
     try:
         while True:
             frame = reader.read_frame()
-
             if frame is None:
                 print("Media stream ended")
                 break
-
             frame_no += 1
-
             processing_frame, roi_points = prepare_roi_processing_frame(frame, motion_detector)
             motion_now, motion_area, motion_boxes = motion_detector.process(processing_frame)
             ai_active = motion_detector.is_ai_active()
-
             detections = []
-
             if ai_active:
                 raw_detections = detect_vehicles(model, processing_frame)
                 detections = filter_detections_by_motion(raw_detections, motion_boxes)
                 detections = filter_detections_by_roi(detections)
-
             active_track_ids = set()
-
             for det in detections:
                 track_id = det.get("track_id")
                 if track_id is not None:
                     active_track_ids.add(int(track_id))
-
                 speed_info = update_speed_estimate(det)
                 line_speed_info = update_speed_lines_estimate(det)
                 speed_px_s = speed_info.get("speed_px_s")
                 speed_kmh = line_speed_info.get("speed_kmh")
                 speed_source = line_speed_info.get("speed_source")
                 speed_lines_enabled = bool(line_speed_info.get("speed_lines_enabled"))
-
                 if speed_kmh is None and not speed_lines_enabled:
                     try:
                         speed_kmh = convert_px_s_to_kmh(speed_px_s)
@@ -1461,81 +1077,47 @@ def main():
                             speed_source = "px_factor"
                     except Exception:
                         speed_kmh = None
-
                 det["speed_px_s"] = speed_px_s
                 det["speed_kmh"] = speed_kmh
                 det["speed_source"] = speed_source
-                det["speed_ready"] = bool(line_speed_info.get("speed_ready")) or (
-                    not speed_lines_enabled and speed_kmh is not None
-                )
+                det["speed_ready"] = bool(line_speed_info.get("speed_ready")) or (not speed_lines_enabled and speed_kmh is not None)
                 det["_speed_info"] = speed_info
                 det["_line_speed_info"] = line_speed_info
-
             now = time.time()
             prune_track_states(now)
-
-            overlay = draw_overlay(
-                frame=frame,
-                motion_now=motion_now,
-                motion_area=motion_area,
-                ai_active=ai_active,
-                detections=detections,
-                motion_boxes=motion_boxes,
-            )
-
-            cv2.imwrite(
-                str(latest_overlay_path),
-                overlay,
-                [cv2.IMWRITE_JPEG_QUALITY, 85],
-            )
-
+            overlay = draw_overlay(frame=frame, motion_now=motion_now, motion_area=motion_area, ai_active=ai_active, detections=detections, motion_boxes=motion_boxes)
+            cv2.imwrite(str(latest_overlay_path), overlay, [cv2.IMWRITE_JPEG_QUALITY, 85])
             if detections:
                 best = max(detections, key=lambda d: d["confidence"])
                 speed_info = best.get("_speed_info") or {}
                 line_speed_info = best.get("_line_speed_info") or {}
                 speed_px_s = speed_info.get("speed_px_s")
                 min_speed = env_float("MIN_EVENT_SPEED_PX_PER_SEC", 10.0)
-
                 speed_lines_enabled = bool(line_speed_info.get("speed_lines_enabled"))
                 canonical_speed_kmh = best.get("speed_kmh")
-                speed_ready = (
-                    bool(line_speed_info.get("speed_ready"))
-                    and canonical_speed_kmh is not None
-                )
+                speed_ready = bool(line_speed_info.get("speed_ready")) and canonical_speed_kmh is not None
                 track_id = best.get("track_id")
                 event_already_posted = track_event_posted(track_id)
-
                 has_px_speed = speed_px_s is not None
                 cooldown_ok = now - last_event_post >= event_cooldown
-                legacy_event_ready = speed_ready or (
-                    has_px_speed
-                    and speed_px_s >= min_speed
-                    and cooldown_ok
-                )
-
+                legacy_event_ready = speed_ready or (has_px_speed and speed_px_s >= min_speed and cooldown_ok)
                 if speed_lines_enabled:
                     should_post_event = speed_ready and not event_already_posted
                 else:
                     should_post_event = not event_already_posted and legacy_event_ready
-
                 if should_post_event:
                     event = build_event(best, motion_area, speed_info, line_speed_info)
                     event_snapshot_path = EVENTS_DIR / f'{event["event_id"]}.jpg'
-
-                    cv2.imwrite(
-                        str(event_snapshot_path),
-                        overlay,
-                        [cv2.IMWRITE_JPEG_QUALITY, 90],
-                    )
-
+                    cv2.imwrite(str(event_snapshot_path), overlay, [cv2.IMWRITE_JPEG_QUALITY, 90])
                     if post_event(event, event_snapshot_path):
                         last_event_post = now
                         mark_track_event_posted(track_id)
-
             if now - last_state_post >= state_interval:
                 track_count = len(active_track_ids)
                 metadata = {
-                    "camera_id": env_str("CAMERA_ID", "cam1_road_test"),
+                    "camera_id": env_str("CAMERA_ID", profile.default_camera_id if profile else "cam1_road_test"),
+                    "analytics_profile": profile.name if profile else None,
+                    "domain": profile.domain if profile else None,
                     "motion_now": bool(motion_now),
                     "motion_area": int(motion_area),
                     "ai_active": bool(ai_active),
@@ -1545,19 +1127,12 @@ def main():
                     "model_name": model_name,
                     "message": "event-worker running with persistent tracking",
                 }
-
                 ok = post_state(metadata, latest_overlay_path)
                 last_state_post = now
-
                 if ok:
-                    print(
-                        f"POST state ok motion={motion_now} "
-                        f"ai={ai_active} detections={len(detections)} tracks={track_count}"
-                    )
-
+                    print(f"POST state ok motion={motion_now} ai={ai_active} detections={len(detections)} tracks={track_count}")
     except KeyboardInterrupt:
         print("Stopped by user")
-
     finally:
         reader.close()
 

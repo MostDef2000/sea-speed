@@ -70,6 +70,8 @@ def main() -> int:
     parser.add_argument("--service-name", default="sea-speed-worker.service")
     parser.add_argument("--unit-path", type=Path)
     parser.add_argument("--expected-commit", default="")
+    parser.add_argument("--expected-profile", default="")
+    parser.add_argument("--expected-camera-id", default="")
     parser.add_argument("--heartbeat", type=Path)
     parser.add_argument("--write-report", type=Path)
     parser.add_argument("--max-heartbeat-age-sec", type=float, default=30.0)
@@ -135,6 +137,14 @@ def main() -> int:
         pass
     unit_matches = bool(active_commit) and active_commit in unit_text and "observed-worker-runner.py" in unit_text
     add("installed_unit", unit_matches, "exact_observed_runner" if unit_matches else "missing_or_mismatch")
+    if args.expected_profile:
+        profile_marker = f"Environment=ANALYTICS_PROFILE={args.expected_profile}"
+        profile_ok = profile_marker in unit_text
+        add("analytics_profile", profile_ok, args.expected_profile if profile_ok else "missing_or_mismatch")
+    if args.expected_camera_id:
+        camera_marker = f"Environment=CAMERA_ID={args.expected_camera_id}"
+        camera_ok = camera_marker in unit_text
+        add("camera_id", camera_ok, args.expected_camera_id if camera_ok else "missing_or_mismatch")
 
     active_rc, _ = run_command(["systemctl", "is-active", "--quiet", args.service_name])
     add("service_active", active_rc == 0, "active" if active_rc == 0 else "inactive")

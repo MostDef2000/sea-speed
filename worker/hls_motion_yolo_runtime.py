@@ -11,6 +11,11 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 
+try:
+    from analytics_profiles import get_profile
+except ModuleNotFoundError:  # importlib-based repository tests
+    from worker.analytics_profiles import get_profile
+
 STATE_SCHEMA = "sea_speed_worker_state_v1"
 EVENT_SCHEMA = "sea_speed_vehicle_event_v1"
 TELEMETRY_SCHEMA = "sea_speed_telemetry_v1"
@@ -55,6 +60,12 @@ def enrich_state(metadata: dict[str, Any], source_commit: str) -> dict[str, Any]
     enriched.setdefault("state_schema", STATE_SCHEMA)
     enriched.setdefault("telemetry_schema", TELEMETRY_SCHEMA)
     enriched.setdefault("worker_source_commit", source_commit)
+    profile_name = str(enriched.get("analytics_profile") or os.environ.get("ANALYTICS_PROFILE") or "").strip()
+    if profile_name:
+        profile = get_profile(profile_name)
+        enriched.setdefault("analytics_profile", profile.name)
+        enriched.setdefault("domain", profile.domain)
+        enriched.setdefault("camera_id", os.environ.get("CAMERA_ID") or profile.default_camera_id)
     return enriched
 
 
@@ -64,6 +75,14 @@ def enrich_event(event: dict[str, Any], source_commit: str, calibration: str) ->
     enriched.setdefault("telemetry_schema", TELEMETRY_SCHEMA)
     enriched.setdefault("worker_source_commit", source_commit)
     enriched.setdefault("calibration_version", calibration)
+    profile_name = str(enriched.get("analytics_profile") or os.environ.get("ANALYTICS_PROFILE") or "").strip()
+    if profile_name:
+        profile = get_profile(profile_name)
+        enriched.setdefault("analytics_profile", profile.name)
+        enriched.setdefault("domain", profile.domain)
+        enriched.setdefault("camera_id", os.environ.get("CAMERA_ID") or profile.default_camera_id)
+        enriched.setdefault("object_type", enriched.get("class_name"))
+        enriched.setdefault("model_class", enriched.get("class_name"))
     return enriched
 
 

@@ -1,0 +1,44 @@
+[Unit]
+Description=Sea Speed road analytics worker
+Documentation=https://github.com/MostDef2000/sea-speed/issues/197
+Wants=network-online.target sea-speed-camera-preview-relay.service
+After=network-online.target sea-speed-camera-preview-relay.service
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=__SERVICE_USER__
+Group=__SERVICE_USER__
+WorkingDirectory=__INSTALL_ROOT__/shared/road-runtime
+EnvironmentFile=__INSTALL_ROOT__/shared/config/road-worker.env
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=YOLO_AUTOINSTALL=false
+Environment=ANALYTICS_PROFILE=road-v1
+Environment=CAMERA_ID=road1
+Environment=SEA_SPEED_SOURCE_COMMIT=__SOURCE_COMMIT__
+Environment=SEA_SPEED_RUNTIME_ID=__RUNTIME_ID__
+ExecStart=__INSTALL_ROOT__/runtimes/__RUNTIME_ID__/venv/bin/python __INSTALL_ROOT__/releases/__SOURCE_COMMIT__/source/deploy/worker/ubuntu/observed-worker-runner.py --source-commit __SOURCE_COMMIT__ --heartbeat __INSTALL_ROOT__/shared/road-runtime/road-worker-heartbeat.json --overlay __INSTALL_ROOT__/shared/road-runtime/output/latest/latest_overlay.jpg __INSTALL_ROOT__/releases/__SOURCE_COMMIT__/source/worker/ubuntu_worker_entrypoint.py
+Restart=on-failure
+RestartSec=10s
+TimeoutStopSec=30s
+KillSignal=SIGTERM
+KillMode=mixed
+SuccessExitStatus=0 143
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=sea-speed-road-worker
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+ReadWritePaths=__INSTALL_ROOT__/shared
+
+[Install]
+WantedBy=multi-user.target

@@ -40,6 +40,7 @@ activate=false
 repository="MostDef2000/sea-speed"
 repository_url="https://github.com/MostDef2000/sea-speed.git"
 service_name="sea-speed-worker.service"
+road_service_name="sea-speed-road-worker.service"
 control_service_name="sea-speed-worker-control.service"
 
 while [[ $# -gt 0 ]]; do
@@ -124,6 +125,7 @@ fi
 staging_root="$(mktemp -d "$updater_root/staging.XXXXXX")"
 chmod 0700 "$staging_root"
 unit_backup=""
+road_unit_backup=""
 control_unit_backup=""
 marker_tmp=""
 cleanup() {
@@ -131,6 +133,9 @@ cleanup() {
   rm -rf "$staging_root" || true
   if [[ -n "$unit_backup" ]]; then
     rm -f "$unit_backup" || true
+  fi
+  if [[ -n "$road_unit_backup" ]]; then
+    rm -f "$road_unit_backup" || true
   fi
   if [[ -n "$control_unit_backup" ]]; then
     rm -f "$control_unit_backup" || true
@@ -217,9 +222,12 @@ if [[ "$activate" != true ]]; then
 fi
 
 unit_target="/etc/systemd/system/$service_name"
+road_unit_target="/etc/systemd/system/$road_service_name"
 control_unit_target="/etc/systemd/system/$control_service_name"
 active_marker="$install_root/shared/runtime/active-source-commit"
 heartbeat="$install_root/shared/runtime/worker-heartbeat.json"
+road_heartbeat="$install_root/shared/road-runtime/road-worker-heartbeat.json"
+road_env_file="$install_root/shared/config/road-worker.env"
 desired_state_file="$install_root/shared/runtime/operator-desired-state"
 target_control_template="$release_root/source/deploy/worker/ubuntu/sea-speed-worker-control.service.template"
 target_control_agent="$release_root/source/deploy/worker/ubuntu/worker-control-agent.py"
@@ -242,6 +250,9 @@ previous_runtime_ready=false
 previous_control_present=false
 previous_control_enabled=false
 previous_control_active=false
+previous_road_present=false
+previous_road_enabled=false
+previous_road_active=false
 
 if [[ -f "$active_marker" ]]; then
   previous_commit="$(cat "$active_marker")"
@@ -279,6 +290,20 @@ if [[ -f "$active_marker" ]]; then
 
   unit_backup="$(mktemp "$updater_root/unit-backup.XXXXXX")"
   install -o root -g root -m 0600 "$unit_target" "$unit_backup"
+  if [[ -f "$road_unit_target" ]]; then
+    previous_road_present=true
+    if systemctl is-enabled --quiet "$road_service_name"; then previous_road_enabled=true; fi
+    if systemctl is-active --quiet "$road_service_name"; then
+      previous_road_active=true
+      previous_road_exec="$(systemctl show -p ExecStart --value "$road_service_name")"
+      [[ "$previous_road_exec" == *"$previous_commit"* ]] || { echo "ERROR running road worker and active source marker disagree" >&2; exit 20; }
+    fi
+    road_unit_backup="$(mktemp "$updater_root/road-unit-backup.XXXXXX")"
+    install -o root -g root -m 0600 "$road_unit_target" "$road_unit_backup"
+  elif systemctl is-active --quiet "$road_service_name" || systemctl is-enabled --quiet "$road_service_name"; then
+    echo "ERROR road worker service state exists without an installed unit" >&2
+    exit 20
+  fi
   if [[ -f "$control_unit_target" ]]; then
     previous_control_present=true
     if ! grep -Fq "$previous_commit" "$control_unit_target"; then
@@ -304,6 +329,35 @@ if [[ -f "$active_marker" ]]; then
   fi
   previous_runtime_ready=true
 fi
+
+restore_previous_road() {
+  if [[ "$previous_road_present" == true ]]; then
+    [[ -n "$road_unit_backup" ]] || return 1
+    install -o root -g root -m 0644 "$road_unit_backup" "$road_unit_target" || return 1
+    systemctl daemon-reload || return 1
+    if [[ "$previous_road_enabled" == true ]]; then
+      systemctl enable "$road_service_name" >/dev/null || return 1
+    else
+      systemctl disable "$road_service_name" >/dev/null || return 1
+    fi
+    if [[ "$previous_road_active" == true ]]; then
+      rm -f "$road_heartbeat"
+      systemctl restart "$road_service_name" || return 1
+      systemctl is-active --quiet "$road_service_name" || return 1
+      restored_road_exec="$(systemctl show -p ExecStart --value "$road_service_name")"
+      [[ "$restored_road_exec" == *"$previous_commit"* ]] || return 1
+    else
+      systemctl stop "$road_service_name" >/dev/null 2>&1 || true
+      ! systemctl is-active --quiet "$road_service_name" || return 1
+    fi
+    return 0
+  fi
+  systemctl stop "$road_service_name" >/dev/null 2>&1 || true
+  systemctl disable "$road_service_name" >/dev/null 2>&1 || true
+  rm -f "$road_unit_target" || return 1
+  systemctl daemon-reload || return 1
+  return 0
+}
 
 restore_previous_control() {
   if [[ "$previous_control_present" == true ]]; then
@@ -344,6 +398,7 @@ restore_previous() {
 
   echo "RESTORE previous_source_commit=$previous_commit desired_state=$desired_state" >&2
   install -o root -g root -m 0644 "$unit_backup" "$unit_target" || return 1
+  restore_previous_road || return 1
   restore_previous_control || return 1
   rm -f "$heartbeat"
   systemctl reset-failed "$service_name" || return 1
@@ -361,8 +416,8 @@ restore_previous() {
   fi
   [[ "$(cat "$active_marker")" == "$previous_commit" ]] || return 1
 
-  printf 'RESTORED previous_source_commit=%s runtime_id=%s desired_state=%s control_present=%s\n' \
-    "$previous_commit" "${previous_runtime_id:-legacy-per-release}" "$desired_state" "$previous_control_present"
+  printf 'RESTORED previous_source_commit=%s runtime_id=%s desired_state=%s control_present=%s road_present=%s\n' \
+    "$previous_commit" "${previous_runtime_id:-legacy-per-release}" "$desired_state" "$previous_control_present" "$previous_road_present"
   return 0
 }
 
@@ -390,6 +445,21 @@ if ! systemctl restart "$control_service_name"; then
 fi
 if ! systemctl is-active --quiet "$control_service_name"; then
   abort_activation "worker control service is not active"
+fi
+
+road_configured=false
+if [[ -f "$road_env_file" ]]; then
+  [[ "$(stat -c '%a' "$road_env_file")" == "600" ]] || abort_activation "road-worker.env must be mode 600"
+  road_configured=true
+  rm -f "$road_heartbeat"
+  systemctl reset-failed "$road_service_name" || abort_activation "failed to clear road worker start limit"
+  systemctl restart "$road_service_name" || abort_activation "road worker restart failed"
+  systemctl is-active --quiet "$road_service_name" || abort_activation "road worker is not active"
+  road_exec="$(systemctl show -p ExecStart --value "$road_service_name")"
+  [[ "$road_exec" == *"$source_commit"* ]] || abort_activation "road worker unit does not reference requested commit"
+  [[ "$road_exec" == *"/runtimes/$runtime_id/venv/bin/python"* ]] || abort_activation "road worker unit does not reference requested runtime ID"
+else
+  systemctl stop "$road_service_name" >/dev/null 2>&1 || true
 fi
 
 rm -f "$heartbeat"
@@ -421,17 +491,26 @@ if [[ "$control_exec" != *"$source_commit"* ]]; then
   abort_activation "control unit does not reference requested commit"
 fi
 
+runtime_gate="$release_root/source/deploy/worker/ubuntu/verify-runtime-progression.py"
+if [[ ! -f "$runtime_gate" ]]; then
+  abort_activation "runtime progression verifier is missing"
+fi
 if [[ "$desired_state" == "running" ]]; then
-  runtime_gate="$release_root/source/deploy/worker/ubuntu/verify-runtime-progression.py"
-  if [[ ! -f "$runtime_gate" ]]; then
-    abort_activation "runtime progression verifier is missing"
-  fi
   if ! python3 "$runtime_gate" \
     --heartbeat "$heartbeat" \
     --expected-commit "$source_commit" \
     --timeout-sec 90 \
     --poll-sec 1; then
     abort_activation "frame/state progression gate failed"
+  fi
+fi
+if [[ "$road_configured" == true ]]; then
+  if ! python3 "$runtime_gate" \
+    --heartbeat "$road_heartbeat" \
+    --expected-commit "$source_commit" \
+    --timeout-sec 90 \
+    --poll-sec 1; then
+    abort_activation "road frame/state progression gate failed"
   fi
 fi
 
@@ -444,6 +523,12 @@ marker_tmp=""
 
 printf 'ACTIVATED source_commit=%s runtime_id=%s desired_state=%s\n' "$source_commit" "$runtime_id" "$desired_state"
 printf 'CONTROL_SERVICE_ACTIVE %s\n' "$control_service_name"
+if [[ "$road_configured" == true ]]; then
+  printf 'ROAD_SERVICE_ACTIVE %s profile=road-v1 camera_id=road1\n' "$road_service_name"
+  printf 'ROAD_RUNTIME_GATE frame_and_state_progression=PASS\n'
+else
+  printf 'ROAD_SERVICE_PENDING protected_config=%s\n' "$road_env_file"
+fi
 if [[ "$desired_state" == "running" ]]; then
   printf 'SERVICE_ACTIVE %s\n' "$service_name"
   printf 'RUNTIME_GATE frame_and_state_progression=PASS\n'

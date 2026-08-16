@@ -29,8 +29,10 @@ install_root="/opt/sea-speed-worker"
 service_user="sea-speed"
 expected_current=""
 service_name="sea-speed-worker.service"
+road_service_name="sea-speed-road-worker.service"
 control_service_name="sea-speed-worker-control.service"
 unit_target="/etc/systemd/system/$service_name"
+road_unit_target="/etc/systemd/system/$road_service_name"
 control_unit_target="/etc/systemd/system/$control_service_name"
 
 while [[ $# -gt 0 ]]; do
@@ -62,6 +64,7 @@ flock -n 9 || { echo "ERROR another worker update or rollback is already running
 active_marker="$install_root/shared/runtime/active-source-commit"
 desired_state_file="$install_root/shared/runtime/operator-desired-state"
 env_file="$install_root/shared/config/worker.env"
+road_env_file="$install_root/shared/config/road-worker.env"
 [[ -f "$active_marker" ]] || { echo "ERROR active source marker is missing" >&2; exit 6; }
 current_commit="$(cat "$active_marker")"
 [[ "$current_commit" =~ ^[0-9a-f]{40}$ ]] || { echo "ERROR active source marker is invalid" >&2; exit 6; }
@@ -88,6 +91,22 @@ if [[ -f "$current_runtime_file" ]]; then
 fi
 [[ -f "$env_file" && "$(stat -c '%a' "$env_file")" == "600" ]] || { echo "ERROR protected worker environment file is missing or not mode 600" >&2; exit 9; }
 
+current_road_present=false
+current_road_enabled=false
+current_road_active=false
+if [[ -f "$road_unit_target" ]]; then
+  current_road_present=true
+  if systemctl is-enabled --quiet "$road_service_name"; then current_road_enabled=true; fi
+  if systemctl is-active --quiet "$road_service_name"; then
+    current_road_active=true
+    current_road_exec="$(systemctl show -p ExecStart --value "$road_service_name")"
+    [[ "$current_road_exec" == *"$current_commit"* ]] || { echo "ERROR running road worker and active source marker disagree" >&2; exit 8; }
+  fi
+elif systemctl is-active --quiet "$road_service_name" || systemctl is-enabled --quiet "$road_service_name"; then
+  echo "ERROR road worker service state exists without an installed unit" >&2
+  exit 8
+fi
+
 current_control_present=false
 current_control_enabled=false
 current_control_active=false
@@ -112,6 +131,7 @@ target_quality="$target_root/quality-approved"
 target_worker="$target_source/worker/hls_motion_yolo_worker_events.py"
 target_installer="$target_source/deploy/worker/ubuntu/install-systemd.sh"
 target_runtime_file="$target_root/runtime-id"
+target_road_template="$target_source/deploy/worker/ubuntu/sea-speed-road-worker.service.template"
 target_control_template="$target_source/deploy/worker/ubuntu/sea-speed-worker-control.service.template"
 target_control_agent="$target_source/deploy/worker/ubuntu/worker-control-agent.py"
 for required in "$target_source" "$target_provenance" "$target_quality" "$target_worker" "$target_installer"; do
@@ -136,6 +156,15 @@ if [[ -e "$target_control_template" || -e "$target_control_agent" ]]; then
   target_has_control=true
 fi
 
+target_has_road=false
+if [[ -f "$target_road_template" ]]; then
+  if ! grep -Fq "$road_service_name" "$target_installer"; then
+    echo "ERROR rollback target installer does not manage its road worker unit" >&2
+    exit 10
+  fi
+  target_has_road=true
+fi
+
 target_runtime_id=""
 if [[ -f "$target_runtime_file" ]]; then
   target_runtime_id="$(cat "$target_runtime_file")"
@@ -147,15 +176,21 @@ else
 fi
 
 unit_backup="$(mktemp "$updater_root/unit-backup.XXXXXX")"
+road_unit_backup=""
 control_unit_backup=""
 marker_tmp=""
 install -o root -g root -m 0600 "$unit_target" "$unit_backup"
+if [[ "$current_road_present" == true ]]; then
+  road_unit_backup="$(mktemp "$updater_root/road-unit-backup.XXXXXX")"
+  install -o root -g root -m 0600 "$road_unit_target" "$road_unit_backup"
+fi
 if [[ "$current_control_present" == true ]]; then
   control_unit_backup="$(mktemp "$updater_root/control-unit-backup.XXXXXX")"
   install -o root -g root -m 0600 "$control_unit_target" "$control_unit_backup"
 fi
 cleanup() {
   rm -f "$unit_backup"
+  if [[ -n "$road_unit_backup" ]]; then rm -f "$road_unit_backup"; fi
   if [[ -n "$control_unit_backup" ]]; then rm -f "$control_unit_backup"; fi
   if [[ -n "$marker_tmp" ]]; then rm -f "$marker_tmp"; fi
 }
@@ -170,6 +205,30 @@ apply_desired_state() {
     systemctl stop "$service_name" || return 1
     ! systemctl is-active --quiet "$service_name" || return 1
   fi
+}
+
+restore_current_road() {
+  if [[ "$current_road_present" == true ]]; then
+    [[ -n "$road_unit_backup" ]] || return 1
+    install -o root -g root -m 0644 "$road_unit_backup" "$road_unit_target" || return 1
+    systemctl daemon-reload || return 1
+    if [[ "$current_road_enabled" == true ]]; then systemctl enable "$road_service_name" >/dev/null || return 1; else systemctl disable "$road_service_name" >/dev/null || return 1; fi
+    if [[ "$current_road_active" == true ]]; then
+      systemctl restart "$road_service_name" || return 1
+      systemctl is-active --quiet "$road_service_name" || return 1
+      restored_road_exec="$(systemctl show -p ExecStart --value "$road_service_name")"
+      [[ "$restored_road_exec" == *"$current_commit"* ]] || return 1
+    else
+      systemctl stop "$road_service_name" >/dev/null 2>&1 || true
+      ! systemctl is-active --quiet "$road_service_name" || return 1
+    fi
+    return 0
+  fi
+  systemctl stop "$road_service_name" >/dev/null 2>&1 || true
+  systemctl disable "$road_service_name" >/dev/null 2>&1 || true
+  rm -f "$road_unit_target" || return 1
+  systemctl daemon-reload || return 1
+  return 0
 }
 
 restore_current_control() {
@@ -207,6 +266,7 @@ restore_current_control() {
 restore_previous() {
   echo "RESTORE previous_source_commit=$current_commit desired_state=$desired_state" >&2
   install -o root -g root -m 0644 "$unit_backup" "$unit_target" || return 1
+  restore_current_road || return 1
   restore_current_control || return 1
   apply_desired_state || return 1
   restored_exec="$(systemctl show -p ExecStart --value "$service_name")"
@@ -225,6 +285,14 @@ remove_control_for_legacy_target() {
   ! systemctl is-active --quiet "$control_service_name" || return 1
 }
 
+remove_road_for_legacy_target() {
+  systemctl stop "$road_service_name" >/dev/null 2>&1 || true
+  systemctl disable "$road_service_name" >/dev/null 2>&1 || true
+  rm -f "$road_unit_target" || return 1
+  systemctl daemon-reload || return 1
+  return 0
+}
+
 activate_target() {
   (cd "$target_source" && bash deploy/worker/ubuntu/install-systemd.sh "$target_commit" "$install_root" "$service_user") || return 1
   if [[ "$target_has_control" == true ]]; then
@@ -234,6 +302,20 @@ activate_target() {
     [[ "$control_exec" == *"$target_commit"* ]] || return 1
   else
     remove_control_for_legacy_target || return 1
+  fi
+  if [[ "$target_has_road" == true ]]; then
+    if [[ -f "$road_env_file" ]]; then
+      [[ "$(stat -c '%a' "$road_env_file")" == "600" ]] || return 1
+      systemctl restart "$road_service_name" || return 1
+      systemctl is-active --quiet "$road_service_name" || return 1
+      road_exec="$(systemctl show -p ExecStart --value "$road_service_name")"
+      [[ "$road_exec" == *"$target_commit"* ]] || return 1
+      if [[ -n "$target_runtime_id" ]] && [[ "$road_exec" != *"/runtimes/$target_runtime_id/venv/bin/python"* ]]; then return 1; fi
+    else
+      systemctl stop "$road_service_name" >/dev/null 2>&1 || true
+    fi
+  else
+    remove_road_for_legacy_target || return 1
   fi
   apply_desired_state || return 1
   target_exec="$(systemctl show -p ExecStart --value "$service_name")"
@@ -266,6 +348,13 @@ if [[ "$target_has_control" == true ]]; then
   printf 'CONTROL_SERVICE_ACTIVE %s\n' "$control_service_name"
 else
   printf 'CONTROL_SERVICE_ABSENT %s\n' "$control_service_name"
+fi
+if [[ "$target_has_road" == true && -f "$road_env_file" ]]; then
+  printf 'ROAD_SERVICE_ACTIVE %s\n' "$road_service_name"
+elif [[ "$target_has_road" == true ]]; then
+  printf 'ROAD_SERVICE_PENDING %s\n' "$road_env_file"
+else
+  printf 'ROAD_SERVICE_ABSENT %s\n' "$road_service_name"
 fi
 if [[ "$desired_state" == "running" ]]; then printf 'SERVICE_ACTIVE %s\n' "$service_name"; else printf 'SERVICE_STOPPED %s\n' "$service_name"; fi
 printf 'ACTIVE_SOURCE_COMMIT %s\n' "$target_commit"

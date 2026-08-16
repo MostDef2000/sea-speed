@@ -36,6 +36,10 @@ OBJECTS_DB_FILE = DATA_DIR / "objects.sqlite3"
 ROI_FILE = DATA_DIR / "cam1_roi.json"
 SPEED_CONFIG_FILE = DATA_DIR / "cam1_speed_config.json"
 SPEED_LINES_FILE = DATA_DIR / "cam1_speed_lines.json"
+ANALYTICS_IDENTITIES = {
+    "cam1": {"analytics_profile": "water-v1", "domain": "water"},
+    "road1": {"analytics_profile": "road-v1", "domain": "road"},
+}
 CAMERA_PREVIEW_CATALOG_FILE = Path(
     os.environ.get(
         "SEA_SPEED_CAMERA_PREVIEW_CATALOG",
@@ -111,7 +115,6 @@ def deployed_source_commit() -> str:
 def require_auth(authorization: Optional[str]) -> None:
     if not API_TOKEN:
         raise HTTPException(status_code=500, detail="SEA_SPEED_API_TOKEN is not set")
-
     expected = f"Bearer {API_TOKEN}"
     if authorization != expected:
         raise HTTPException(status_code=403, detail="Forbidden")
@@ -120,10 +123,7 @@ def require_auth(authorization: Optional[str]) -> None:
 def require_operator_identity(x_authentik_username: Optional[str]) -> str:
     username = (x_authentik_username or "").strip()
     if not username:
-        raise HTTPException(
-            status_code=503,
-            detail="Trusted Authentik identity is unavailable",
-        )
+        raise HTTPException(status_code=503, detail="Trusted Authentik identity is unavailable")
     return username
 
 
@@ -150,11 +150,7 @@ def worker_control_origin() -> tuple[str, int]:
 
 
 def call_worker_control(method: str, path: str) -> Dict[str, Any]:
-    allowed = {
-        ("GET", "/v1/status"),
-        ("POST", "/v1/start"),
-        ("POST", "/v1/stop"),
-    }
+    allowed = {("GET", "/v1/status"), ("POST", "/v1/start"), ("POST", "/v1/stop")}
     if (method, path) not in allowed:
         raise HTTPException(status_code=500, detail="Unsupported worker control operation")
     if not API_TOKEN:
@@ -225,6 +221,10 @@ def initialize_objects_db() -> None:
                 track_id INTEGER,
                 detected_at TEXT NOT NULL,
                 class_name TEXT,
+                analytics_profile TEXT,
+                domain TEXT,
+                object_type TEXT,
+                model_class TEXT,
                 confidence REAL,
                 speed_kmh REAL,
                 snapshot_url TEXT,
@@ -238,21 +238,17 @@ def initialize_objects_db() -> None:
             )
             """
         )
-        connection.execute(
-            "CREATE INDEX IF NOT EXISTS idx_objects_detected_at ON objects(detected_at DESC)"
-        )
-        connection.execute(
-            "CREATE INDEX IF NOT EXISTS idx_objects_class_name ON objects(class_name)"
-        )
-        connection.execute(
-            "CREATE INDEX IF NOT EXISTS idx_objects_speed_kmh ON objects(speed_kmh)"
-        )
-        connection.execute(
-            "CREATE INDEX IF NOT EXISTS idx_objects_status ON objects(status)"
-        )
-        connection.execute(
-            "CREATE INDEX IF NOT EXISTS idx_objects_deleted_at ON objects(deleted_at)"
-        )
+        existing = {row[1] for row in connection.execute("PRAGMA table_info(objects)")}
+        for name in ("analytics_profile", "domain", "object_type", "model_class"):
+            if name not in existing:
+                connection.execute(f"ALTER TABLE objects ADD COLUMN {name} TEXT")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_objects_detected_at ON objects(detected_at DESC)")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_objects_class_name ON objects(class_name)")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_objects_speed_kmh ON objects(speed_kmh)")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_objects_status ON objects(status)")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_objects_deleted_at ON objects(deleted_at)")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_objects_camera_id ON objects(camera_id)")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_objects_domain ON objects(domain)")
 
 
 def optional_float(value: Any) -> Optional[float]:
@@ -286,22 +282,38 @@ def persist_object_event(event: Dict[str, Any]) -> bool:
     object_id = stable_object_id(event)
     detected_at = str(event.get("created_at") or event.get("detected_at") or now_iso())
     created_at = str(event.get("created_at") or now_iso())
+    camera_id = str(event.get("camera_id") or "cam1")
+    profile = event.get("analytics_profile")
+    domain = event.get("domain")
+    if camera_id == "cam1":
+        profile = profile or "water-v1"
+        domain = domain or "water"
+    elif camera_id == "road1":
+        profile = profile or "road-v1"
+        domain = domain or "road"
+    object_type = event.get("object_type") or event.get("class_name") or event.get("class") or "object"
+    model_class = event.get("model_class") or event.get("class_name") or event.get("class") or "object"
     original_event_json = json.dumps(event, ensure_ascii=False, sort_keys=True)
     with open_objects_db() as connection:
         cursor = connection.execute(
             """
             INSERT OR IGNORE INTO objects (
                 object_id, camera_id, track_id, detected_at, class_name,
+                analytics_profile, domain, object_type, model_class,
                 confidence, speed_kmh, snapshot_url, comment, status,
                 original_event_json, created_at, updated_at, deleted_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', 'new', ?, ?, ?, NULL)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', 'new', ?, ?, ?, NULL)
             """,
             (
                 object_id,
-                str(event.get("camera_id") or "cam1"),
+                camera_id,
                 optional_int(event.get("track_id")),
                 detected_at,
-                str(event.get("class_name") or event.get("class") or "object"),
+                str(event.get("class_name") or event.get("class") or object_type),
+                profile,
+                domain,
+                str(object_type),
+                str(model_class),
                 optional_float(event.get("confidence")),
                 optional_float(event.get("speed_kmh")),
                 event.get("snapshot_url"),
@@ -344,9 +356,25 @@ def build_objects_where(
     speed_max: Optional[float],
     search: Optional[str],
     include_deleted: bool,
+    camera_id: Optional[str] = "cam1",
+    domain: Optional[str] = None,
+    analytics_profile: Optional[str] = None,
+    object_type: Optional[str] = None,
 ) -> tuple[str, List[Any]]:
-    clauses = ["camera_id = ?"]
-    values: List[Any] = ["cam1"]
+    clauses: List[str] = []
+    values: List[Any] = []
+    if camera_id:
+        clauses.append("camera_id = ?")
+        values.append(camera_id)
+    if domain:
+        clauses.append("domain = ?")
+        values.append(domain)
+    if analytics_profile:
+        clauses.append("analytics_profile = ?")
+        values.append(analytics_profile)
+    if object_type:
+        clauses.append("object_type = ?")
+        values.append(object_type)
     if not include_deleted:
         clauses.append("deleted_at IS NULL")
     if date_from:
@@ -373,12 +401,14 @@ def build_objects_where(
         term = f"%{search.strip()}%"
         clauses.append("(object_id LIKE ? OR class_name LIKE ? OR comment LIKE ?)")
         values.extend([term, term, term])
-    return " AND ".join(clauses), values
+    return " AND ".join(clauses) if clauses else "1=1", values
 
 
 def default_state() -> Dict[str, Any]:
     return {
         "camera_id": "cam1",
+        "analytics_profile": "water-v1",
+        "domain": "water",
         "state_schema": WORKER_STATE_SCHEMA,
         "telemetry_schema": TELEMETRY_SCHEMA,
         "worker_source_commit": None,
@@ -393,6 +423,88 @@ def default_state() -> Dict[str, Any]:
         "last_overlay_url": None,
         "message": "No worker state received yet",
     }
+
+
+def analytics_identity(camera_id: str) -> Dict[str, str]:
+    identity = ANALYTICS_IDENTITIES.get(camera_id)
+    if identity is None:
+        raise HTTPException(status_code=404, detail="Unknown analytics camera")
+    return dict(identity)
+
+
+def analytics_data_file(camera_id: str, kind: str) -> Path:
+    analytics_identity(camera_id)
+    legacy = {
+        "state": STATE_FILE,
+        "events": EVENTS_FILE,
+        "roi": ROI_FILE,
+        "speed_config": SPEED_CONFIG_FILE,
+        "speed_lines": SPEED_LINES_FILE,
+    }
+    if camera_id == "cam1":
+        return legacy[kind]
+    return DATA_DIR / f"{camera_id}_{kind}.json"
+
+
+def analytics_default_state(camera_id: str) -> Dict[str, Any]:
+    identity = analytics_identity(camera_id)
+    data = default_state() if camera_id == "cam1" else {
+        "camera_id": camera_id,
+        "state_schema": WORKER_STATE_SCHEMA,
+        "telemetry_schema": TELEMETRY_SCHEMA,
+        "worker_source_commit": None,
+        "updated_at": None,
+        "worker_online": False,
+        "motion_now": False,
+        "motion_area": 0,
+        "ai_active": False,
+        "detections": 0,
+        "tracks": 0,
+        "frame_no": 0,
+        "last_overlay_url": None,
+        "message": "No worker state received yet",
+    }
+    data.update(identity)
+    data["camera_id"] = camera_id
+    return data
+
+
+def analytics_state(camera_id: str) -> Dict[str, Any]:
+    state = read_json_file(analytics_data_file(camera_id, "state"), analytics_default_state(camera_id))
+    identity = analytics_identity(camera_id)
+    state["camera_id"] = camera_id
+    state.setdefault("analytics_profile", identity["analytics_profile"])
+    state.setdefault("domain", identity["domain"])
+    state.setdefault("state_schema", WORKER_STATE_SCHEMA)
+    state.setdefault("telemetry_schema", TELEMETRY_SCHEMA)
+    state.setdefault("worker_source_commit", None)
+    state.setdefault("frame_no", 0)
+    updated_at = state.get("updated_at")
+    if not updated_at:
+        state["worker_online"] = False
+        return state
+    try:
+        dt = datetime.fromisoformat(str(updated_at).replace("Z", "+00:00"))
+        state["worker_online"] = time.time() - dt.timestamp() <= 30
+    except Exception:
+        state["worker_online"] = False
+    return state
+
+
+def clean_points_list(raw_points: Any, max_points: int = 2) -> List[Dict[str, int]]:
+    clean = []
+    if not isinstance(raw_points, list):
+        return clean
+    for point in raw_points[:max_points]:
+        if not isinstance(point, dict):
+            continue
+        try:
+            x = int(round(float(point.get("x"))))
+            y = int(round(float(point.get("y"))))
+        except Exception:
+            continue
+        clean.append({"x": x, "y": y})
+    return clean
 
 
 def validate_camera_preview_source(camera_id: str, source: str) -> str:
@@ -463,63 +575,26 @@ def camera_snapshot_public_metadata(camera_id: str) -> Dict[str, Any]:
     except OSError:
         return {"available": False, "url": None, "updated_at": None}
     updated_at = datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat()
-    return {
-        "available": True,
-        "url": f"/sea-speed/api/cameras/{camera_id}/snapshot?v={stat.st_mtime_ns}",
-        "updated_at": updated_at,
-    }
+    return {"available": True, "url": f"/sea-speed/api/cameras/{camera_id}/snapshot?v={stat.st_mtime_ns}", "updated_at": updated_at}
 
 
 def build_camera_snapshot_extract_args(playlist: Path, output_path: Path) -> List[str]:
     return [
-        CAMERA_PREVIEW_FFMPEG_BIN,
-        "-nostdin",
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-live_start_index",
-        "-1",
-        "-i",
-        str(playlist),
-        "-map",
-        "0:v:0",
-        "-frames:v",
-        "1",
-        "-vf",
-        "scale=640:-2",
-        "-q:v",
-        "3",
-        "-y",
-        str(output_path),
+        CAMERA_PREVIEW_FFMPEG_BIN, "-nostdin", "-hide_banner", "-loglevel", "error",
+        "-live_start_index", "-1", "-i", str(playlist), "-map", "0:v:0", "-frames:v", "1",
+        "-vf", "scale=640:-2", "-q:v", "3", "-y", str(output_path),
     ]
 
 
 def camera_snapshot_luma_spread(path: Path) -> Optional[float]:
     args = [
-        CAMERA_PREVIEW_FFMPEG_BIN,
-        "-nostdin",
-        "-hide_banner",
-        "-loglevel",
-        "info",
-        "-i",
-        str(path),
-        "-frames:v",
-        "1",
-        "-vf",
-        "signalstats,metadata=print",
-        "-f",
-        "null",
-        "-",
+        CAMERA_PREVIEW_FFMPEG_BIN, "-nostdin", "-hide_banner", "-loglevel", "info",
+        "-i", str(path), "-frames:v", "1", "-vf", "signalstats,metadata=print", "-f", "null", "-",
     ]
     try:
         result = subprocess.run(
-            args,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-            text=True,
-            timeout=CAMERA_SNAPSHOT_EXTRACT_TIMEOUT_SEC,
-            check=False,
+            args, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+            text=True, timeout=CAMERA_SNAPSHOT_EXTRACT_TIMEOUT_SEC, check=False,
         )
     except (OSError, subprocess.TimeoutExpired):
         return None
@@ -561,12 +636,9 @@ def commit_camera_snapshot_locked(state: Dict[str, Any]) -> Dict[str, Any]:
     temp_path = CAMERA_SNAPSHOT_DIR / f".{camera_id}.{uuid.uuid4().hex}.jpg"
     try:
         result = subprocess.run(
-            build_camera_snapshot_extract_args(playlist, temp_path),
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=CAMERA_SNAPSHOT_EXTRACT_TIMEOUT_SEC,
-            check=False,
+            build_camera_snapshot_extract_args(playlist, temp_path), stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            timeout=CAMERA_SNAPSHOT_EXTRACT_TIMEOUT_SEC, check=False,
         )
         if result.returncode != 0 or not camera_snapshot_candidate_is_usable(temp_path):
             raise HTTPException(status_code=422, detail="Camera snapshot did not pass the last-good quality gate")
@@ -585,12 +657,9 @@ def camera_preview_public_state(state: Optional[Dict[str, Any]]) -> Optional[Dic
     if not state:
         return None
     return {
-        "camera_id": state.get("camera_id"),
-        "display_name": state.get("display_name"),
-        "session_id": state.get("session_id"),
-        "hls_url": state.get("hls_url"),
-        "started_at": state.get("started_at"),
-        "expires_at": state.get("expires_at"),
+        "camera_id": state.get("camera_id"), "display_name": state.get("display_name"),
+        "session_id": state.get("session_id"), "hls_url": state.get("hls_url"),
+        "started_at": state.get("started_at"), "expires_at": state.get("expires_at"),
         "ttl_sec": state.get("ttl_sec", CAMERA_PREVIEW_TTL_SEC),
     }
 
@@ -604,9 +673,7 @@ def camera_preview_pid_matches(state: Dict[str, Any]) -> bool:
         return False
     try:
         os.kill(pid, 0)
-        cmdline = (Path("/proc") / str(pid) / "cmdline").read_bytes().replace(b"\x00", b" ").decode(
-            "utf-8", errors="replace"
-        )
+        cmdline = (Path("/proc") / str(pid) / "cmdline").read_bytes().replace(b"\x00", b" ").decode("utf-8", errors="replace")
     except (OSError, PermissionError):
         return False
     output_dir = str(state.get("output_dir") or "")
@@ -671,52 +738,14 @@ def active_camera_preview_locked() -> Optional[Dict[str, Any]]:
 
 def build_camera_preview_ffmpeg_args(source: str, output_dir: Path) -> List[str]:
     return [
-        CAMERA_PREVIEW_FFMPEG_BIN,
-        "-nostdin",
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-rtsp_transport",
-        "tcp",
-        "-i",
-        source,
-        "-map",
-        "0:v:0",
-        "-an",
-        "-vf",
-        "scale=640:-2,fps=8",
-        "-c:v",
-        "libx264",
-        "-preset",
-        "veryfast",
-        "-tune",
-        "zerolatency",
-        "-profile:v",
-        "baseline",
-        "-pix_fmt",
-        "yuv420p",
-        "-g",
-        "16",
-        "-keyint_min",
-        "16",
-        "-sc_threshold",
-        "0",
-        "-t",
-        str(CAMERA_PREVIEW_TTL_SEC),
-        "-f",
-        "hls",
-        "-hls_time",
-        "1",
-        "-hls_list_size",
-        "4",
-        "-hls_flags",
-        "delete_segments+independent_segments+omit_endlist",
-        "-hls_segment_type",
-        "fmp4",
-        "-hls_fmp4_init_filename",
-        "init.mp4",
-        "-hls_segment_filename",
-        str(output_dir / "segment_%05d.m4s"),
+        CAMERA_PREVIEW_FFMPEG_BIN, "-nostdin", "-hide_banner", "-loglevel", "error",
+        "-rtsp_transport", "tcp", "-i", source, "-map", "0:v:0", "-an",
+        "-vf", "scale=640:-2,fps=8", "-c:v", "libx264", "-preset", "veryfast",
+        "-tune", "zerolatency", "-profile:v", "baseline", "-pix_fmt", "yuv420p",
+        "-g", "16", "-keyint_min", "16", "-sc_threshold", "0", "-t", str(CAMERA_PREVIEW_TTL_SEC),
+        "-f", "hls", "-hls_time", "1", "-hls_list_size", "4",
+        "-hls_flags", "delete_segments+independent_segments+omit_endlist", "-hls_segment_type", "fmp4",
+        "-hls_fmp4_init_filename", "init.mp4", "-hls_segment_filename", str(output_dir / "segment_%05d.m4s"),
         str(output_dir / "index.m3u8"),
     ]
 
@@ -737,27 +766,14 @@ def start_camera_preview_locked(camera: Dict[str, str]) -> Dict[str, Any]:
     hls_url = f"/sea-speed/media/camera-preview/{session_id}/index.m3u8"
     args = build_camera_preview_ffmpeg_args(camera["source"], output_dir)
     try:
-        process = subprocess.Popen(
-            args,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            close_fds=True,
-        )
+        process = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True)
     except OSError as exc:
         cleanup_camera_preview_media({"session_id": session_id})
         raise HTTPException(status_code=503, detail="Camera preview transcoder failed to start") from exc
     state: Dict[str, Any] = {
-        "camera_id": camera["camera_id"],
-        "display_name": camera["display_name"],
-        "session_id": session_id,
-        "pid": process.pid,
-        "output_dir": str(output_dir),
-        "hls_url": hls_url,
-        "started_at": started_at,
-        "expires_at": expires_at,
-        "expires_epoch": expires_epoch,
-        "ttl_sec": CAMERA_PREVIEW_TTL_SEC,
+        "camera_id": camera["camera_id"], "display_name": camera["display_name"], "session_id": session_id,
+        "pid": process.pid, "output_dir": str(output_dir), "hls_url": hls_url, "started_at": started_at,
+        "expires_at": expires_at, "expires_epoch": expires_epoch, "ttl_sec": CAMERA_PREVIEW_TTL_SEC,
     }
     write_json_file(CAMERA_PREVIEW_STATE_FILE, state)
     deadline = time.monotonic() + CAMERA_PREVIEW_START_TIMEOUT_SEC
@@ -784,22 +800,12 @@ def get_cameras() -> Dict[str, Any]:
     with CAMERA_PREVIEW_LOCK:
         active = camera_preview_public_state(active_camera_preview_locked())
     public_cameras = [
-        {
-            "camera_id": camera["camera_id"],
-            "display_name": camera["display_name"],
-            "available": True,
-            "snapshot": camera_snapshot_public_metadata(camera["camera_id"]),
-        }
-        for camera in cameras
+        {"camera_id": camera["camera_id"], "display_name": camera["display_name"], "available": True,
+         "snapshot": camera_snapshot_public_metadata(camera["camera_id"])} for camera in cameras
     ]
-    return {
-        "ok": True,
-        "schema": CAMERA_PREVIEW_CATALOG_SCHEMA,
-        "count": len(public_cameras),
-        "cameras": public_cameras,
-        "active": active,
-        "preview_policy": {"max_active": 1, "ttl_sec": CAMERA_PREVIEW_TTL_SEC},
-    }
+    return {"ok": True, "schema": CAMERA_PREVIEW_CATALOG_SCHEMA, "count": len(public_cameras), "cameras": public_cameras,
+            "active": active, "preview_policy": {"max_active": 1, "ttl_sec": CAMERA_PREVIEW_TTL_SEC}}
+
 
 @app.get("/api/cameras/{camera_id}/snapshot")
 def get_camera_snapshot(camera_id: str):
@@ -809,11 +815,7 @@ def get_camera_snapshot(camera_id: str):
     path = camera_snapshot_path(camera_id)
     if not path.is_file():
         raise HTTPException(status_code=404, detail="Camera snapshot is not available")
-    return FileResponse(
-        path,
-        media_type="image/jpeg",
-        headers={"Cache-Control": "no-store, max-age=0", "Pragma": "no-cache"},
-    )
+    return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": "no-store, max-age=0", "Pragma": "no-cache"})
 
 
 @app.post("/api/cameras/{camera_id}/snapshot/commit")
@@ -825,11 +827,7 @@ def commit_camera_snapshot(camera_id: str, session_id: str) -> Dict[str, Any]:
         raise HTTPException(status_code=409, detail="Camera preview session is stale")
     with CAMERA_PREVIEW_LOCK:
         state = active_camera_preview_locked()
-        if (
-            not state
-            or state.get("camera_id") != camera_id
-            or state.get("session_id") != session_id
-        ):
+        if not state or state.get("camera_id") != camera_id or state.get("session_id") != session_id:
             raise HTTPException(status_code=409, detail="Camera preview session is stale")
         snapshot = commit_camera_snapshot_locked(state)
     return {"ok": True, "camera_id": camera_id, "snapshot": snapshot}
@@ -863,6 +861,8 @@ def stop_camera_preview() -> Dict[str, Any]:
 @app.get("/api/cam1/state")
 def get_cam1_state() -> Dict[str, Any]:
     state = read_json_file(STATE_FILE, default_state())
+    state.setdefault("analytics_profile", "water-v1")
+    state.setdefault("domain", "water")
     state.setdefault("state_schema", WORKER_STATE_SCHEMA)
     state.setdefault("telemetry_schema", TELEMETRY_SCHEMA)
     state.setdefault("worker_source_commit", None)
@@ -881,86 +881,25 @@ def get_cam1_state() -> Dict[str, Any]:
 
 
 @app.post("/api/cam1/state")
-async def post_cam1_state(
-    metadata: str = Form(...),
-    overlay: Optional[UploadFile] = File(None),
-    authorization: Optional[str] = Header(None),
-) -> Dict[str, Any]:
-    require_auth(authorization)
-    try:
-        data = json.loads(metadata)
-    except Exception:
-        raise HTTPException(status_code=400, detail="metadata must be valid JSON")
-    data["camera_id"] = "cam1"
-    data.setdefault("state_schema", WORKER_STATE_SCHEMA)
-    data.setdefault("telemetry_schema", TELEMETRY_SCHEMA)
-    data.setdefault("worker_source_commit", None)
-    data["updated_at"] = now_iso()
-    data["worker_online"] = True
-    if overlay is not None:
-        overlay_path = OVERLAY_DIR / "cam1_latest_overlay.jpg"
-        content = await overlay.read()
-        overlay_path.write_bytes(content)
-        data["last_overlay_url"] = "/sea-speed/media/overlays/cam1_latest_overlay.jpg"
-    else:
-        old_state = read_json_file(STATE_FILE, default_state())
-        data["last_overlay_url"] = old_state.get("last_overlay_url")
-    write_json_file(STATE_FILE, data)
-    return {"ok": True, "state": data}
+async def post_cam1_state(metadata: str = Form(...), overlay: Optional[UploadFile] = File(None), authorization: Optional[str] = Header(None)) -> Dict[str, Any]:
+    return await post_analytics_state("cam1", metadata, overlay, authorization)
 
 
 @app.get("/api/cam1/events")
 def get_cam1_events(limit: int = 50) -> Dict[str, Any]:
-    events = read_json_file(EVENTS_FILE, [])
-    events = events[: max(1, min(limit, 200))]
-    return {"ok": True, "camera_id": "cam1", "count": len(events), "events": events}
+    return get_analytics_events("cam1", limit)
 
 
 @app.post("/api/cam1/events")
-async def post_cam1_event(
-    metadata: str = Form(...),
-    snapshot: Optional[UploadFile] = File(None),
-    authorization: Optional[str] = Header(None),
-) -> Dict[str, Any]:
-    require_auth(authorization)
-    try:
-        event = json.loads(metadata)
-    except Exception:
-        raise HTTPException(status_code=400, detail="metadata must be valid JSON")
-    event_id = str(event.get("event_id") or uuid.uuid4())
-    event["event_id"] = event_id
-    event["camera_id"] = "cam1"
-    event.setdefault("event_schema", VEHICLE_EVENT_SCHEMA)
-    event.setdefault("telemetry_schema", TELEMETRY_SCHEMA)
-    event.setdefault("worker_source_commit", None)
-    event.setdefault("calibration_version", None)
-    event["created_at"] = event.get("created_at") or now_iso()
-    if snapshot is not None:
-        filename = f"{event_id}.jpg"
-        snapshot_path = EVENTS_MEDIA_DIR / filename
-        content = await snapshot.read()
-        snapshot_path.write_bytes(content)
-        event["snapshot_url"] = f"/sea-speed/media/events/{filename}"
-    persist_object_event(event)
-    events: List[Dict[str, Any]] = read_json_file(EVENTS_FILE, [])
-    events.insert(0, event)
-    events = events[:500]
-    write_json_file(EVENTS_FILE, events)
-    return {"ok": True, "event": event}
+async def post_cam1_event(metadata: str = Form(...), snapshot: Optional[UploadFile] = File(None), authorization: Optional[str] = Header(None)) -> Dict[str, Any]:
+    return await post_analytics_event("cam1", metadata, snapshot, authorization)
 
 
 @app.get("/api/cam1/objects")
 def get_cam1_objects(
-    limit: int = 50,
-    offset: int = 0,
-    date_from: Optional[str] = None,
-    date_to: Optional[str] = None,
-    class_name: Optional[str] = None,
-    status: Optional[str] = None,
-    speed_min: Optional[float] = None,
-    speed_max: Optional[float] = None,
-    search: Optional[str] = None,
-    include_deleted: bool = False,
+    limit: int = 50, offset: int = 0, date_from: Optional[str] = None, date_to: Optional[str] = None,
+    class_name: Optional[str] = None, status: Optional[str] = None, speed_min: Optional[float] = None,
+    speed_max: Optional[float] = None, search: Optional[str] = None, include_deleted: bool = False,
 ) -> Dict[str, Any]:
     limit = max(1, min(limit, 200))
     offset = max(0, offset)
@@ -970,40 +909,21 @@ def get_cam1_objects(
         raise HTTPException(status_code=400, detail="speed_max must be >= 0")
     if speed_min is not None and speed_max is not None and speed_min > speed_max:
         raise HTTPException(status_code=400, detail="speed_min must be <= speed_max")
-    where_sql, values = build_objects_where(
-        date_from, date_to, class_name, status, speed_min, speed_max, search, include_deleted
-    )
+    where_sql, values = build_objects_where(date_from, date_to, class_name, status, speed_min, speed_max, search, include_deleted)
     with open_objects_db() as connection:
-        total = connection.execute(
-            f"SELECT COUNT(*) FROM objects WHERE {where_sql}", values
-        ).fetchone()[0]
+        total = connection.execute(f"SELECT COUNT(*) FROM objects WHERE {where_sql}", values).fetchone()[0]
         rows = connection.execute(
-            f"""
-            SELECT * FROM objects
-            WHERE {where_sql}
-            ORDER BY detected_at DESC, object_id DESC
-            LIMIT ? OFFSET ?
-            """,
+            f"SELECT * FROM objects WHERE {where_sql} ORDER BY detected_at DESC, object_id DESC LIMIT ? OFFSET ?",
             [*values, limit, offset],
         ).fetchall()
-    return {
-        "ok": True,
-        "camera_id": "cam1",
-        "count": len(rows),
-        "total": total,
-        "limit": limit,
-        "offset": offset,
-        "objects": [object_row_to_dict(row) for row in rows],
-    }
+    return {"ok": True, "camera_id": "cam1", "count": len(rows), "total": total, "limit": limit, "offset": offset,
+            "objects": [object_row_to_dict(row) for row in rows]}
 
 
 @app.get("/api/cam1/objects/{object_id}")
 def get_cam1_object(object_id: str) -> Dict[str, Any]:
     with open_objects_db() as connection:
-        row = connection.execute(
-            "SELECT * FROM objects WHERE object_id = ? AND camera_id = ? AND deleted_at IS NULL",
-            (object_id, "cam1"),
-        ).fetchone()
+        row = connection.execute("SELECT * FROM objects WHERE object_id = ? AND camera_id = ? AND deleted_at IS NULL", (object_id, "cam1")).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="Object not found")
     return {"ok": True, "object": object_row_to_dict(row, include_original=True)}
@@ -1011,6 +931,45 @@ def get_cam1_object(object_id: str) -> Dict[str, Any]:
 
 @app.patch("/api/cam1/objects/{object_id}")
 def patch_cam1_object(object_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    return patch_object_record(object_id, payload, "cam1")
+
+
+@app.delete("/api/cam1/objects/{object_id}")
+def delete_cam1_object(object_id: str) -> Dict[str, Any]:
+    return delete_object_record(object_id, "cam1")
+
+
+@app.get("/api/cam1/roi")
+def get_cam1_roi() -> Dict[str, Any]:
+    return get_analytics_roi("cam1")
+
+
+@app.post("/api/cam1/roi")
+def post_cam1_roi(payload: Dict[str, Any]) -> Dict[str, Any]:
+    return post_analytics_roi("cam1", payload)
+
+
+@app.get("/api/cam1/speed-config")
+def get_cam1_speed_config() -> Dict[str, Any]:
+    return get_analytics_speed_config("cam1")
+
+
+@app.post("/api/cam1/speed-config")
+def post_cam1_speed_config(payload: Dict[str, Any]) -> Dict[str, Any]:
+    return post_analytics_speed_config("cam1", payload)
+
+
+@app.get("/api/cam1/speed-lines")
+def get_cam1_speed_lines() -> Dict[str, Any]:
+    return get_analytics_speed_lines("cam1")
+
+
+@app.post("/api/cam1/speed-lines")
+def post_cam1_speed_lines(payload: Dict[str, Any]) -> Dict[str, Any]:
+    return post_analytics_speed_lines("cam1", payload)
+
+
+def patch_object_record(object_id: str, payload: Dict[str, Any], camera_id: Optional[str] = None) -> Dict[str, Any]:
     updates: Dict[str, Any] = {}
     if "class_name" in payload:
         class_name = str(payload.get("class_name") or "").strip()
@@ -1043,98 +1002,159 @@ def patch_cam1_object(object_id: str, payload: Dict[str, Any]) -> Dict[str, Any]
         raise HTTPException(status_code=400, detail="No editable fields supplied")
     updates["updated_at"] = now_iso()
     set_sql = ", ".join(f"{name} = ?" for name in updates)
-    values = [*updates.values(), object_id, "cam1"]
+    where = "object_id = ? AND deleted_at IS NULL"
+    values: List[Any] = [*updates.values(), object_id]
+    if camera_id:
+        where += " AND camera_id = ?"
+        values.append(camera_id)
     with open_objects_db() as connection:
-        cursor = connection.execute(
-            f"UPDATE objects SET {set_sql} WHERE object_id = ? AND camera_id = ? AND deleted_at IS NULL",
-            values,
-        )
+        cursor = connection.execute(f"UPDATE objects SET {set_sql} WHERE {where}", values)
         if cursor.rowcount == 0:
             raise HTTPException(status_code=404, detail="Object not found")
-        row = connection.execute(
-            "SELECT * FROM objects WHERE object_id = ? AND camera_id = ?",
-            (object_id, "cam1"),
-        ).fetchone()
+        row = connection.execute("SELECT * FROM objects WHERE object_id = ?", (object_id,)).fetchone()
     return {"ok": True, "object": object_row_to_dict(row, include_original=True)}
 
 
-@app.delete("/api/cam1/objects/{object_id}")
-def delete_cam1_object(object_id: str) -> Dict[str, Any]:
+def delete_object_record(object_id: str, camera_id: Optional[str] = None) -> Dict[str, Any]:
     deleted_at = now_iso()
+    where = "object_id = ? AND deleted_at IS NULL"
+    values: List[Any] = [deleted_at, deleted_at, object_id]
+    if camera_id:
+        where += " AND camera_id = ?"
+        values.append(camera_id)
     with open_objects_db() as connection:
-        cursor = connection.execute(
-            """
-            UPDATE objects
-            SET deleted_at = ?, updated_at = ?
-            WHERE object_id = ? AND camera_id = ? AND deleted_at IS NULL
-            """,
-            (deleted_at, deleted_at, object_id, "cam1"),
-        )
+        cursor = connection.execute(f"UPDATE objects SET deleted_at = ?, updated_at = ? WHERE {where}", values)
         if cursor.rowcount == 0:
             raise HTTPException(status_code=404, detail="Object not found")
     return {"ok": True, "object_id": object_id, "deleted_at": deleted_at}
 
 
-@app.get("/api/cam1/roi")
-def get_cam1_roi() -> Dict[str, Any]:
-    default_roi = {"ok": True, "camera_id": "cam1", "enabled": False, "polygon": [], "updated_at": None}
-    roi = read_json_file(ROI_FILE, default_roi)
+@app.get("/api/analytics/{camera_id}/state")
+def get_analytics_state(camera_id: str) -> Dict[str, Any]:
+    return analytics_state(camera_id)
+
+
+@app.post("/api/analytics/{camera_id}/state")
+async def post_analytics_state(
+    camera_id: str,
+    metadata: str = Form(...),
+    overlay: Optional[UploadFile] = File(None),
+    authorization: Optional[str] = Header(None),
+) -> Dict[str, Any]:
+    require_auth(authorization)
+    identity = analytics_identity(camera_id)
+    try:
+        data = json.loads(metadata)
+    except Exception:
+        raise HTTPException(status_code=400, detail="metadata must be valid JSON")
+    data["camera_id"] = camera_id
+    data["analytics_profile"] = identity["analytics_profile"]
+    data["domain"] = identity["domain"]
+    data.setdefault("state_schema", WORKER_STATE_SCHEMA)
+    data.setdefault("telemetry_schema", TELEMETRY_SCHEMA)
+    data.setdefault("worker_source_commit", None)
+    data["updated_at"] = now_iso()
+    data["worker_online"] = True
+    path = analytics_data_file(camera_id, "state")
+    if overlay is not None:
+        overlay_path = OVERLAY_DIR / f"{camera_id}_latest_overlay.jpg"
+        overlay_path.write_bytes(await overlay.read())
+        data["last_overlay_url"] = f"/sea-speed/media/overlays/{camera_id}_latest_overlay.jpg"
+    else:
+        old_state = read_json_file(path, analytics_default_state(camera_id))
+        data["last_overlay_url"] = old_state.get("last_overlay_url")
+    write_json_file(path, data)
+    return {"ok": True, "state": data}
+
+
+@app.get("/api/analytics/{camera_id}/events")
+def get_analytics_events(camera_id: str, limit: int = 50) -> Dict[str, Any]:
+    analytics_identity(camera_id)
+    events = read_json_file(analytics_data_file(camera_id, "events"), [])
+    events = events[: max(1, min(limit, 200))]
+    return {"ok": True, "camera_id": camera_id, "count": len(events), "events": events}
+
+
+@app.post("/api/analytics/{camera_id}/events")
+async def post_analytics_event(
+    camera_id: str,
+    metadata: str = Form(...),
+    snapshot: Optional[UploadFile] = File(None),
+    authorization: Optional[str] = Header(None),
+) -> Dict[str, Any]:
+    require_auth(authorization)
+    identity = analytics_identity(camera_id)
+    try:
+        event = json.loads(metadata)
+    except Exception:
+        raise HTTPException(status_code=400, detail="metadata must be valid JSON")
+    event_id = str(event.get("event_id") or uuid.uuid4())
+    event["event_id"] = event_id
+    event["camera_id"] = camera_id
+    event["analytics_profile"] = identity["analytics_profile"]
+    event["domain"] = identity["domain"]
+    event.setdefault("object_type", event.get("class_name") or event.get("class") or "object")
+    event.setdefault("model_class", event.get("class_name") or event.get("class") or "object")
+    event.setdefault("event_schema", VEHICLE_EVENT_SCHEMA)
+    event.setdefault("telemetry_schema", TELEMETRY_SCHEMA)
+    event.setdefault("worker_source_commit", None)
+    event.setdefault("calibration_version", None)
+    event["created_at"] = event.get("created_at") or now_iso()
+    if snapshot is not None:
+        filename = f"{camera_id}-{event_id}.jpg"
+        snapshot_path = EVENTS_MEDIA_DIR / filename
+        snapshot_path.write_bytes(await snapshot.read())
+        event["snapshot_url"] = f"/sea-speed/media/events/{filename}"
+    persist_object_event(event)
+    events_path = analytics_data_file(camera_id, "events")
+    events: List[Dict[str, Any]] = read_json_file(events_path, [])
+    events.insert(0, event)
+    write_json_file(events_path, events[:500])
+    return {"ok": True, "event": event}
+
+
+@app.get("/api/analytics/{camera_id}/roi")
+def get_analytics_roi(camera_id: str) -> Dict[str, Any]:
+    analytics_identity(camera_id)
+    default_roi = {"ok": True, "camera_id": camera_id, "enabled": False, "polygon": [], "updated_at": None}
+    roi = read_json_file(analytics_data_file(camera_id, "roi"), default_roi)
     roi["ok"] = True
-    roi["camera_id"] = "cam1"
+    roi["camera_id"] = camera_id
     roi.setdefault("enabled", False)
     roi.setdefault("polygon", [])
     roi.setdefault("updated_at", None)
     return roi
 
 
-@app.post("/api/cam1/roi")
-def post_cam1_roi(payload: Dict[str, Any]) -> Dict[str, Any]:
+@app.post("/api/analytics/{camera_id}/roi")
+def post_analytics_roi(camera_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    analytics_identity(camera_id)
     polygon = payload.get("polygon", [])
     enabled = bool(payload.get("enabled", True))
-    clean_polygon = []
-    if isinstance(polygon, list):
-        for point in polygon:
-            if not isinstance(point, dict):
-                continue
-            try:
-                x = int(round(float(point.get("x"))))
-                y = int(round(float(point.get("y"))))
-            except Exception:
-                continue
-            clean_polygon.append({"x": x, "y": y})
+    clean_polygon = clean_points_list(polygon, max_points=1000)
     if enabled and len(clean_polygon) < 3:
         raise HTTPException(status_code=400, detail="ROI polygon must contain at least 3 points")
-    roi = {
-        "ok": True,
-        "camera_id": "cam1",
-        "enabled": enabled,
-        "polygon": clean_polygon,
-        "updated_at": now_iso(),
-    }
-    write_json_file(ROI_FILE, roi)
+    roi = {"ok": True, "camera_id": camera_id, "enabled": enabled, "polygon": clean_polygon, "updated_at": now_iso()}
+    write_json_file(analytics_data_file(camera_id, "roi"), roi)
     return roi
 
 
-@app.get("/api/cam1/speed-config")
-def get_cam1_speed_config() -> Dict[str, Any]:
-    default_config = {
-        "ok": True,
-        "camera_id": "cam1",
-        "enabled": False,
-        "kmh_per_px_s": 0.0,
-        "updated_at": None,
-    }
-    config = read_json_file(SPEED_CONFIG_FILE, default_config)
+@app.get("/api/analytics/{camera_id}/speed-config")
+def get_analytics_speed_config(camera_id: str) -> Dict[str, Any]:
+    analytics_identity(camera_id)
+    default_config = {"ok": True, "camera_id": camera_id, "enabled": False, "kmh_per_px_s": 0.0, "updated_at": None}
+    config = read_json_file(analytics_data_file(camera_id, "speed_config"), default_config)
     config["ok"] = True
-    config["camera_id"] = "cam1"
+    config["camera_id"] = camera_id
     config.setdefault("enabled", False)
     config.setdefault("kmh_per_px_s", 0.0)
     config.setdefault("updated_at", None)
     return config
 
 
-@app.post("/api/cam1/speed-config")
-def post_cam1_speed_config(payload: Dict[str, Any]) -> Dict[str, Any]:
+@app.post("/api/analytics/{camera_id}/speed-config")
+def post_analytics_speed_config(camera_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    analytics_identity(camera_id)
     enabled = bool(payload.get("enabled", True))
     try:
         kmh_per_px_s = float(payload.get("kmh_per_px_s", 0.0))
@@ -1142,47 +1162,20 @@ def post_cam1_speed_config(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise HTTPException(status_code=400, detail="kmh_per_px_s must be a number")
     if kmh_per_px_s < 0:
         raise HTTPException(status_code=400, detail="kmh_per_px_s must be >= 0")
-    config = {
-        "ok": True,
-        "camera_id": "cam1",
-        "enabled": enabled and kmh_per_px_s > 0,
-        "kmh_per_px_s": kmh_per_px_s,
-        "updated_at": now_iso(),
-    }
-    write_json_file(SPEED_CONFIG_FILE, config)
+    config = {"ok": True, "camera_id": camera_id, "enabled": enabled and kmh_per_px_s > 0,
+              "kmh_per_px_s": kmh_per_px_s, "updated_at": now_iso()}
+    write_json_file(analytics_data_file(camera_id, "speed_config"), config)
     return config
 
 
-def clean_points_list(raw_points: Any, max_points: int = 2) -> List[Dict[str, int]]:
-    clean = []
-    if not isinstance(raw_points, list):
-        return clean
-    for point in raw_points[:max_points]:
-        if not isinstance(point, dict):
-            continue
-        try:
-            x = int(round(float(point.get("x"))))
-            y = int(round(float(point.get("y"))))
-        except Exception:
-            continue
-        clean.append({"x": x, "y": y})
-    return clean
-
-
-@app.get("/api/cam1/speed-lines")
-def get_cam1_speed_lines() -> Dict[str, Any]:
-    default_config = {
-        "ok": True,
-        "camera_id": "cam1",
-        "enabled": False,
-        "distance_m": 57.0,
-        "line_a": [],
-        "line_b": [],
-        "updated_at": None,
-    }
-    config = read_json_file(SPEED_LINES_FILE, default_config)
+@app.get("/api/analytics/{camera_id}/speed-lines")
+def get_analytics_speed_lines(camera_id: str) -> Dict[str, Any]:
+    analytics_identity(camera_id)
+    default_config = {"ok": True, "camera_id": camera_id, "enabled": False, "distance_m": 57.0,
+                      "line_a": [], "line_b": [], "updated_at": None}
+    config = read_json_file(analytics_data_file(camera_id, "speed_lines"), default_config)
     config["ok"] = True
-    config["camera_id"] = "cam1"
+    config["camera_id"] = camera_id
     config.setdefault("enabled", False)
     config.setdefault("distance_m", 57.0)
     config.setdefault("line_a", [])
@@ -1191,8 +1184,9 @@ def get_cam1_speed_lines() -> Dict[str, Any]:
     return config
 
 
-@app.post("/api/cam1/speed-lines")
-def post_cam1_speed_lines(payload: Dict[str, Any]) -> Dict[str, Any]:
+@app.post("/api/analytics/{camera_id}/speed-lines")
+def post_analytics_speed_lines(camera_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    analytics_identity(camera_id)
     try:
         distance_m = float(payload.get("distance_m", 57.0))
     except Exception:
@@ -1204,23 +1198,77 @@ def post_cam1_speed_lines(payload: Dict[str, Any]) -> Dict[str, Any]:
     enabled = bool(payload.get("enabled", True))
     if enabled and (len(line_a) != 2 or len(line_b) != 2):
         raise HTTPException(status_code=400, detail="line_a and line_b must contain exactly 2 points each")
-    config = {
-        "ok": True,
-        "camera_id": "cam1",
-        "enabled": enabled,
-        "distance_m": distance_m,
-        "line_a": line_a,
-        "line_b": line_b,
-        "updated_at": now_iso(),
-    }
-    write_json_file(SPEED_LINES_FILE, config)
+    config = {"ok": True, "camera_id": camera_id, "enabled": enabled, "distance_m": distance_m,
+              "line_a": line_a, "line_b": line_b, "updated_at": now_iso()}
+    write_json_file(analytics_data_file(camera_id, "speed_lines"), config)
     return config
 
 
-@app.get("/api/worker/control")
-def get_worker_control(
-    x_authentik_username: Optional[str] = Header(None),
+@app.get("/api/analytics/{camera_id}/objects")
+def get_analytics_objects(
+    camera_id: str, limit: int = 50, offset: int = 0, date_from: Optional[str] = None,
+    date_to: Optional[str] = None, class_name: Optional[str] = None, status: Optional[str] = None,
+    speed_min: Optional[float] = None, speed_max: Optional[float] = None, search: Optional[str] = None,
+    include_deleted: bool = False, object_type: Optional[str] = None,
 ) -> Dict[str, Any]:
+    identity = analytics_identity(camera_id)
+    return get_objects(limit, offset, date_from, date_to, class_name, status, speed_min, speed_max, search,
+                       include_deleted, camera_id, identity["domain"], identity["analytics_profile"], object_type)
+
+
+@app.get("/api/objects")
+def get_objects(
+    limit: int = 50, offset: int = 0, date_from: Optional[str] = None, date_to: Optional[str] = None,
+    class_name: Optional[str] = None, status: Optional[str] = None, speed_min: Optional[float] = None,
+    speed_max: Optional[float] = None, search: Optional[str] = None, include_deleted: bool = False,
+    camera_id: Optional[str] = None, domain: Optional[str] = None, analytics_profile: Optional[str] = None,
+    object_type: Optional[str] = None,
+) -> Dict[str, Any]:
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
+    if camera_id:
+        analytics_identity(camera_id)
+    if speed_min is not None and speed_min < 0:
+        raise HTTPException(status_code=400, detail="speed_min must be >= 0")
+    if speed_max is not None and speed_max < 0:
+        raise HTTPException(status_code=400, detail="speed_max must be >= 0")
+    if speed_min is not None and speed_max is not None and speed_min > speed_max:
+        raise HTTPException(status_code=400, detail="speed_min must be <= speed_max")
+    where_sql, values = build_objects_where(
+        date_from, date_to, class_name, status, speed_min, speed_max, search, include_deleted,
+        camera_id, domain, analytics_profile, object_type,
+    )
+    with open_objects_db() as connection:
+        total = connection.execute(f"SELECT COUNT(*) FROM objects WHERE {where_sql}", values).fetchone()[0]
+        rows = connection.execute(
+            f"SELECT * FROM objects WHERE {where_sql} ORDER BY detected_at DESC, object_id DESC LIMIT ? OFFSET ?",
+            [*values, limit, offset],
+        ).fetchall()
+    return {"ok": True, "count": len(rows), "total": total, "limit": limit, "offset": offset,
+            "objects": [object_row_to_dict(row) for row in rows]}
+
+
+@app.get("/api/objects/{object_id}")
+def get_object(object_id: str) -> Dict[str, Any]:
+    with open_objects_db() as connection:
+        row = connection.execute("SELECT * FROM objects WHERE object_id = ? AND deleted_at IS NULL", (object_id,)).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Object not found")
+    return {"ok": True, "object": object_row_to_dict(row, include_original=True)}
+
+
+@app.patch("/api/objects/{object_id}")
+def patch_object(object_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    return patch_object_record(object_id, payload)
+
+
+@app.delete("/api/objects/{object_id}")
+def delete_object(object_id: str) -> Dict[str, Any]:
+    return delete_object_record(object_id)
+
+
+@app.get("/api/worker/control")
+def get_worker_control(x_authentik_username: Optional[str] = Header(None)) -> Dict[str, Any]:
     username = require_operator_identity(x_authentik_username)
     payload = call_worker_control("GET", "/v1/status")
     payload["requested_by"] = username
@@ -1228,9 +1276,7 @@ def get_worker_control(
 
 
 @app.post("/api/worker/control/start")
-def start_worker_control(
-    x_authentik_username: Optional[str] = Header(None),
-) -> Dict[str, Any]:
+def start_worker_control(x_authentik_username: Optional[str] = Header(None)) -> Dict[str, Any]:
     username = require_operator_identity(x_authentik_username)
     payload = call_worker_control("POST", "/v1/start")
     payload["requested_by"] = username
@@ -1238,9 +1284,7 @@ def start_worker_control(
 
 
 @app.post("/api/worker/control/stop")
-def stop_worker_control(
-    x_authentik_username: Optional[str] = Header(None),
-) -> Dict[str, Any]:
+def stop_worker_control(x_authentik_username: Optional[str] = Header(None)) -> Dict[str, Any]:
     username = require_operator_identity(x_authentik_username)
     payload = call_worker_control("POST", "/v1/stop")
     payload["requested_by"] = username
@@ -1248,24 +1292,14 @@ def stop_worker_control(
 
 
 @app.get("/api/session")
-def get_session_identity(
-    x_authentik_username: Optional[str] = Header(None),
-) -> Dict[str, Any]:
+def get_session_identity(x_authentik_username: Optional[str] = Header(None)) -> Dict[str, Any]:
     username = (x_authentik_username or "").strip()
     if not username:
-        raise HTTPException(
-            status_code=503,
-            detail="Trusted Authentik identity is unavailable",
-        )
+        raise HTTPException(status_code=503, detail="Trusted Authentik identity is unavailable")
     return {"ok": True, "username": username}
 
 
 @app.get("/api/health")
 def health() -> Dict[str, Any]:
-    return {
-        "ok": True,
-        "service": "sea-speed-api",
-        "api_schema": API_SCHEMA,
-        "source_commit": deployed_source_commit(),
-        "time": now_iso(),
-    }
+    return {"ok": True, "service": "sea-speed-api", "api_schema": API_SCHEMA,
+            "source_commit": deployed_source_commit(), "time": now_iso()}

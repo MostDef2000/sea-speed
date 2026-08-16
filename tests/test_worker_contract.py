@@ -40,10 +40,7 @@ class FakeTime:
 
 class WorkerContractTests(unittest.TestCase):
     def test_line_geometry_and_deadzone(self) -> None:
-        ns = load_functions(
-            {"side_of_line", "sign_with_deadzone", "crossed_line"},
-            {},
-        )
+        ns = load_functions({"side_of_line", "sign_with_deadzone", "crossed_line"}, {})
         line = [(0, 0), (10, 0)]
         self.assertGreater(ns["side_of_line"]((5, 2), line), 0)
         self.assertLess(ns["side_of_line"]((5, -2), line), 0)
@@ -53,23 +50,11 @@ class WorkerContractTests(unittest.TestCase):
 
     def test_detection_first_calibration_produces_expected_speed(self) -> None:
         FakeTime.current = 0.0
-        ns: dict[str, Any] = {
-            "time": FakeTime,
-            "_line_speed_state": {},
-            "fetch_speed_lines_config": lambda: {
-                "enabled": True,
-                "distance_m": 100.0,
-                "line_a": [(0, -5), (0, 5)],
-                "line_b": [(10, -5), (10, 5)],
-            },
-            "env_float": lambda name, default: default,
-        }
+        ns: dict[str, Any] = {"time": FakeTime, "_line_speed_state": {}, "fetch_speed_lines_config": lambda: {"enabled": True, "distance_m": 100.0, "line_a": [(0, -5), (0, 5)], "line_b": [(10, -5), (10, 5)]}, "env_float": lambda name, default: default}
         load_functions({"detection_center_px", "update_speed_lines_estimate"}, ns)
-
         first = {"bbox_xyxy": [-1, -1, 1, 1], "class_name": "car"}
         second = {"bbox_xyxy": [0, -1, 2, 1], "class_name": "car"}
         self.assertFalse(ns["update_speed_lines_estimate"](first)["speed_ready"])
-
         FakeTime.current = 1.0
         result = ns["update_speed_lines_estimate"](second)
         self.assertTrue(result["speed_ready"])
@@ -77,16 +62,9 @@ class WorkerContractTests(unittest.TestCase):
         self.assertEqual(result["speed_source"], "detection_first_calibrated")
 
     def test_px_factor_conversion_and_event_identity(self) -> None:
-        ns: dict[str, Any] = {
-            "fetch_speed_config": lambda: {"enabled": True, "kmh_per_px_s": 0.5},
-            "time": real_time,
-            "uuid": uuid,
-            "now_iso": lambda: datetime.now(timezone.utc).isoformat(),
-            "env_str": lambda name, default="": default,
-        }
+        ns: dict[str, Any] = {"fetch_speed_config": lambda: {"enabled": True, "kmh_per_px_s": 0.5}, "time": real_time, "uuid": uuid, "now_iso": lambda: datetime.now(timezone.utc).isoformat(), "env_str": lambda name, default="": default}
         load_functions({"convert_px_s_to_kmh", "build_event"}, ns)
         self.assertEqual(ns["convert_px_s_to_kmh"](20), 10.0)
-
         det = {"class_name": "car", "confidence": 0.9, "bbox_xyxy": [1, 2, 3, 4]}
         speed = {"center_x": 2, "center_y": 4, "speed_px_s": 20}
         first = ns["build_event"](det, 100, speed, {})
@@ -94,6 +72,7 @@ class WorkerContractTests(unittest.TestCase):
         self.assertNotEqual(first["event_id"], second["event_id"])
         self.assertEqual(first["speed_kmh"], 10.0)
         self.assertEqual(first["speed_source"], "px_factor")
+        self.assertEqual(first["model_name"], "yolo11s.pt")
 
     def test_event_cooldown_contract_is_present(self) -> None:
         source = SOURCE.read_text(encoding="utf-8-sig")
@@ -101,6 +80,26 @@ class WorkerContractTests(unittest.TestCase):
         self.assertIn('cooldown_ok = now - last_event_post >= event_cooldown', source)
         self.assertIn('has_px_speed', source)
         self.assertIn('speed_ready or (', source)
+
+    def test_profiled_event_preserves_domain_semantics(self) -> None:
+        ns: dict[str, Any] = {"fetch_speed_config": lambda: {"enabled": False, "kmh_per_px_s": 0.0}, "time": real_time, "uuid": uuid, "now_iso": lambda: datetime.now(timezone.utc).isoformat(), "env_str": lambda name, default="": default}
+        load_functions({"convert_px_s_to_kmh", "build_event"}, ns)
+        det = {"class_name":"vessel","object_type":"vessel","model_class":"boat","analytics_profile":"water-v1","domain":"water","confidence":0.91,"bbox_xyxy":[1,2,3,4]}
+        event = ns["build_event"](det, 5, {}, {})
+        self.assertEqual(event["analytics_profile"], "water-v1")
+        self.assertEqual(event["domain"], "water")
+        self.assertEqual(event["class_name"], "vessel")
+        self.assertEqual(event["model_class"], "boat")
+        self.assertEqual(event["model_name"], "yolo11s.pt")
+
+    def test_no_profile_environment_keeps_legacy_windows_defaults(self) -> None:
+        source = SOURCE.read_text(encoding="utf-8-sig")
+        self.assertIn('profile_name = env_str("ANALYTICS_PROFILE", "").strip()', source)
+        self.assertIn('profile = get_profile(profile_name) if profile_name else None', source)
+        self.assertIn('confidence_default = 0.25', source)
+        self.assertIn('model_name = env_str("MODEL_NAME", profile.model_name if profile else "yolo11s.pt")', source)
+        self.assertIn('profile.tracker if profile else "bytetrack.yaml"', source)
+        self.assertIn('profile.default_camera_id if profile else "cam1_road_test"', source)
 
 
 if __name__ == "__main__":
