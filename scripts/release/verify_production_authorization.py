@@ -17,6 +17,7 @@ SHA40_RE = re.compile(r"^[0-9a-f]{40}$")
 ISSUE_FIELD_RE = re.compile(r"^- Issue:\s*#(\d+)\s*$", re.MULTILINE)
 FIELD_RE = re.compile(r"^- ([A-Za-z][A-Za-z0-9 /_-]*):\s*(.*?)\s*$", re.MULTILINE)
 DECLARED_PATH_RE = re.compile(r"^\s{2}- `([^`]+)`\s*$", re.MULTILINE)
+EXECUTION_INTENT_LINE = "Execution-Intent: EXECUTE"
 
 
 def github_json(url: str, token: str) -> object:
@@ -78,7 +79,27 @@ def authorization_payload(issue_number: int, pr_number: int, source_commit: str,
     return payload
 
 
-def verify(repository: str, source_commit: str, issue_number: int, token: str) -> dict[str, object]:
+def _authorization_comment_state(body: str, first_line: str, fingerprint_line: str) -> tuple[bool, bool]:
+    """Return (authorized, execute_intent) for one strict authorization comment.
+
+    Historical two-line authorization remains valid. New execution intent is valid only
+    as the exact third line; additional non-empty lines do not create execution intent.
+    """
+    lines = [line.strip() for line in body.strip().splitlines() if line.strip()]
+    if len(lines) < 2 or lines[0] != first_line or lines[1] != fingerprint_line:
+        return False, False
+    execute = len(lines) == 3 and lines[2] == EXECUTION_INTENT_LINE
+    return True, execute
+
+
+def verify(
+    repository: str,
+    source_commit: str,
+    issue_number: int,
+    token: str,
+    *,
+    require_execution_intent: bool = False,
+) -> dict[str, object]:
     if source_commit != source_commit.lower() or not SHA40_RE.fullmatch(source_commit):
         raise ValueError("source commit must be an exact lowercase full SHA")
     policy = json.loads(POLICY_PATH.read_text(encoding="utf-8"))
@@ -111,18 +132,32 @@ def verify(repository: str, source_commit: str, issue_number: int, token: str) -
     exact_first_line = f"{prefix} {source_commit}"
     fp_line = f"Authorization-Fingerprint: {fingerprint}"
     matching_actor = None
+    execution_intent = False
     for comment in comments:
         actor = ((comment.get("user") or {}).get("login") or "").strip()
-        body = (comment.get("body") or "").strip()
-        lines = [line.strip() for line in body.splitlines() if line.strip()]
-        if actor in approved_actors and lines and lines[0] == exact_first_line and fp_line in lines[1:]:
-            matching_actor = actor
+        if actor not in approved_actors:
+            continue
+        authorized, execute = _authorization_comment_state(comment.get("body") or "", exact_first_line, fp_line)
+        if not authorized:
+            continue
+        matching_actor = actor
+        execution_intent = execution_intent or execute
+        if execute:
             break
     if not matching_actor:
         raise ValueError(
             "durable production authorization not found; required exact lines: "
             f"{exact_first_line!r} and {fp_line!r} from an authorized actor"
         )
+    if require_execution_intent and not execution_intent:
+        raise ValueError(
+            "explicit production execution intent not found; authorization comment must add exact third line "
+            f"{EXECUTION_INTENT_LINE!r}"
+        )
+
+    fields = {name: value.strip() for name, value in FIELD_RE.findall(pr_body)}
+    runtime_contours = payload["runtimeContours"]
+    assert isinstance(runtime_contours, dict)
     return {
         "schema": "sea_speed_production_authorization_evidence_v1",
         "repository": repository,
@@ -134,7 +169,19 @@ def verify(repository: str, source_commit: str, issue_number: int, token: str) -
         "approvedFiles": declared_changed_files(pr_body),
         "authorizationFingerprint": fingerprint,
         "authorizedBy": matching_actor,
+        "executionIntent": "EXECUTE" if execution_intent else "AUTHORIZE_ONLY",
+        "runtimeContours": runtime_contours,
+        "executionCapabilities": {
+            "vps": fields.get("VPS execution capability", ""),
+            "ubuntuWorkerRelay": fields.get("Ubuntu worker execution capability", ""),
+            "windowsWorker": fields.get("Windows worker execution capability", ""),
+        },
+        "operatorActionsExpected": fields.get("Operator actions expected", ""),
     }
+
+
+def _bool_text(value: object) -> str:
+    return "true" if str(value).strip().upper() == "REQUIRED" else "false"
 
 
 def main() -> int:
@@ -142,6 +189,7 @@ def main() -> int:
     parser.add_argument("--repository", required=True)
     parser.add_argument("--commit", required=True)
     parser.add_argument("--issue", required=True, type=int)
+    parser.add_argument("--require-execution-intent", action="store_true")
     parser.add_argument("--github-output", type=Path)
     parser.add_argument("--evidence-output", type=Path)
     args = parser.parse_args()
@@ -150,7 +198,13 @@ def main() -> int:
         print("ERROR: GITHUB_TOKEN is required", file=sys.stderr)
         return 1
     try:
-        evidence = verify(args.repository, args.commit, args.issue, token)
+        evidence = verify(
+            args.repository,
+            args.commit,
+            args.issue,
+            token,
+            require_execution_intent=args.require_execution_intent,
+        )
     except (ValueError, OSError, json.JSONDecodeError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
@@ -158,15 +212,23 @@ def main() -> int:
         args.evidence_output.parent.mkdir(parents=True, exist_ok=True)
         args.evidence_output.write_text(json.dumps(evidence, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     if args.github_output:
+        contours = evidence["runtimeContours"]
+        assert isinstance(contours, dict)
         with args.github_output.open("a", encoding="utf-8") as handle:
             handle.write(f"pr_number={evidence['pullRequest']}\n")
             handle.write(f"authorization_fingerprint={evidence['authorizationFingerprint']}\n")
             handle.write(f"outcome_contract_hash={evidence['outcomeContractHash']}\n")
             handle.write(f"change_contract_hash={evidence['changeContractHash']}\n")
+            handle.write(f"execution_intent={evidence['executionIntent']}\n")
+            handle.write(f"production_impact={contours.get('productionImpact', '')}\n")
+            handle.write(f"vps_required={_bool_text(contours.get('vps'))}\n")
+            handle.write(f"ubuntu_worker_required={_bool_text(contours.get('ubuntuWorkerRelay'))}\n")
+            handle.write(f"windows_worker_required={_bool_text(contours.get('windowsWorker'))}\n")
     print(
         "Production authorization verified: "
         f"issue=#{evidence['canonicalIssue']} pr=#{evidence['pullRequest']} "
-        f"commit={evidence['sourceCommit']} fingerprint={evidence['authorizationFingerprint']}"
+        f"commit={evidence['sourceCommit']} fingerprint={evidence['authorizationFingerprint']} "
+        f"execution={evidence['executionIntent']}"
     )
     return 0
 
