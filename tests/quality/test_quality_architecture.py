@@ -52,12 +52,29 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 """
         policy.validate_workflow_source(valid, "valid.yml")
+        valid_heredoc = valid + """      - run: |
+          VALUE="$(python - <<'PY'
+          import json
+          PY
+          )"
+"""
+        policy.validate_workflow_source(valid_heredoc, "valid-heredoc.yml")
         invalid_sources = {
             "mutable action": valid.replace("11d5960a326750d5838078e36cf38b85af677262", "v4"),
             "write-all": valid.replace("permissions:\n  contents: read", "permissions: write-all"),
             "dangerous trigger": valid.replace("on: workflow_dispatch", "on:\n  pull_request_target:"),
             "download pipe": valid + "      - run: curl https://example.invalid/tool | bash\n",
             "missing permissions": valid.replace("permissions:\n  contents: read\n", ""),
+            "unquoted if colon": valid.replace(
+                "    runs-on: ubuntu-latest\n",
+                "    if: ${{ contains(github.event.comment.body, 'Execution-Intent: EXECUTE') }}\n    runs-on: ubuntu-latest\n",
+            ),
+            "heredoc escapes yaml block": valid + """      - run: |
+          VALUE="$(python - <<'PY'
+import json
+PY
+)"
+""",
         }
         for name, source in invalid_sources.items():
             with self.subTest(name=name):
@@ -107,6 +124,7 @@ jobs:
         request = (ROOT / ".github/workflows/deploy-runtime-request.yml").read_text(encoding="utf-8")
         self.assertIn("issue_comment:", request)
         self.assertIn("types: [created]", request)
+        self.assertIn('if: "${{ github.event.issue.pull_request == null', request)
         self.assertIn("Execution-Intent: EXECUTE", request)
         self.assertIn("parse_runtime_execution_request.py", request)
         self.assertIn("verify_production_authorization.py", request)
@@ -132,6 +150,8 @@ jobs:
         self.assertIn("one-command-fallback", deploy)
         self.assertIn("exit 42", deploy)
         self.assertIn("deployment-manifest-ubuntu-worker.json", deploy)
+        self.assertIn("<<'PY'\n          import json", deploy)
+        self.assertNotIn("<<'PY'\nimport json", deploy)
 
     def test_windows_worker_package_is_pre_release_and_worker_scoped(self) -> None:
         package = (ROOT / ".github/workflows/package-worker.yml").read_text(encoding="utf-8")
