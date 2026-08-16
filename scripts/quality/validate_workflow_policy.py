@@ -43,22 +43,30 @@ def validate_workflow_source(source: str, file: str) -> None:
             raise ValueError(f"{file} action is not pinned to a full commit SHA: {value}")
 
 
+def _require_markers(source: str, file: str, markers: tuple[str, ...]) -> None:
+    for marker in markers:
+        if marker not in source:
+            fail(f"{file} marker missing: {marker}")
+
+
 def main() -> int:
     root = repository_root()
-    quality_path = root / ".github/workflows/quality-integration.yml"
-    deploy_path = root / ".github/workflows/deploy-vps.yml"
-    request_path = root / ".github/workflows/deploy-vps-request.yml"
-    quality = quality_path.read_text(encoding="utf-8-sig")
-    deploy = deploy_path.read_text(encoding="utf-8-sig")
-    request = request_path.read_text(encoding="utf-8-sig")
+    workflows = root / ".github/workflows"
+    quality = (workflows / "quality-integration.yml").read_text(encoding="utf-8-sig")
+    deploy_vps = (workflows / "deploy-vps.yml").read_text(encoding="utf-8-sig")
+    vps_request = (workflows / "deploy-vps-request.yml").read_text(encoding="utf-8-sig")
+    runtime_request = (workflows / "deploy-runtime-request.yml").read_text(encoding="utf-8-sig")
+    deploy_ubuntu = (workflows / "deploy-ubuntu-worker.yml").read_text(encoding="utf-8-sig")
 
-    for marker in (
-        "name: Quality integration gate", "pull_request:", "push:", "workflow_dispatch:", "contents: read",
-        "static-contract-security:", "property-fuzz-reliability:", "exact-artifact-e2e:",
-        "release-deployment-evidence:", "quality-integration:", "if: always()", "validate_sdd.py --event",
-    ):
-        if marker not in quality:
-            fail(f"quality workflow marker missing: {marker}")
+    _require_markers(
+        quality,
+        "quality-integration.yml",
+        (
+            "name: Quality integration gate", "pull_request:", "push:", "workflow_dispatch:", "contents: read",
+            "static-contract-security:", "property-fuzz-reliability:", "exact-artifact-e2e:",
+            "release-deployment-evidence:", "quality-integration:", "if: always()", "validate_sdd.py --event",
+        ),
+    )
     if re.search(r"^\s+paths(?:-ignore)?:", quality, re.MULTILINE):
         fail("aggregate workflow must not use path filters")
     aggregate_block = quality[quality.index("  quality-integration:"):]
@@ -66,55 +74,96 @@ def main() -> int:
         if dependency not in aggregate_block:
             fail(f"aggregate job does not depend on {dependency}")
 
-    on_block = deploy.split("permissions:", 1)[0]
+    vps_on = deploy_vps.split("permissions:", 1)[0]
     for marker in ("workflow_dispatch:", "workflow_call:"):
-        if marker not in on_block:
+        if marker not in vps_on:
             fail(f"VPS deployment must support {marker.rstrip(':')}")
-    if re.search(r"^\s{2}(push|pull_request|issue_comment):", on_block, re.MULTILINE):
+    if re.search(r"^\s{2}(push|pull_request|issue_comment):", vps_on, re.MULTILINE):
         fail("VPS deployment implementation must not run directly from push, pull_request, or issue_comment")
-    for marker in (
-        "commit_sha:", "canonical_issue:", "environment: production", "issues: read", "pull-requests: read",
-        "refs/heads/main", "--first-parent", "verify_quality_status.py", "--workflow-file quality-integration.yml",
-        "verify_production_authorization.py", "production-authorization.json", "Build exact deployment artifacts",
-        "Build and validate quality evidence", "Build release provenance v2",
-    ):
-        if marker not in deploy:
-            fail(f"controlled deployment marker missing: {marker}")
-    if "${INPUT_COMMIT,,}" in deploy:
+    _require_markers(
+        deploy_vps,
+        "deploy-vps.yml",
+        (
+            "commit_sha:", "canonical_issue:", "environment: production", "issues: read", "pull-requests: read",
+            "refs/heads/main", "--first-parent", "verify_quality_status.py", "--workflow-file quality-integration.yml",
+            "verify_production_authorization.py", "production-authorization.json", "Build exact deployment artifacts",
+            "Build and validate quality evidence", "Build release provenance v2",
+        ),
+    )
+    if "${INPUT_COMMIT,,}" in deploy_vps:
         fail("deployment workflow must reject uppercase SHA rather than normalize it")
-    if deploy.index("verify_production_authorization.py") > deploy.index("Configure SSH"):
-        fail("production authorization must be verified before SSH configuration")
-    if deploy.index("verify_quality_status.py") > deploy.index("Configure SSH"):
-        fail("quality evidence must be verified before SSH configuration")
+    if deploy_vps.index("verify_production_authorization.py") > deploy_vps.index("Configure SSH"):
+        fail("production authorization must be verified before VPS SSH configuration")
+    if deploy_vps.index("verify_quality_status.py") > deploy_vps.index("Configure SSH"):
+        fail("quality evidence must be verified before VPS SSH configuration")
 
-    request_on_block = request.split("permissions:", 1)[0]
-    if "issue_comment:" not in request_on_block or "types: [created]" not in request_on_block:
+    legacy_request_on = vps_request.split("permissions:", 1)[0]
+    if "issue_comment:" not in legacy_request_on or "types: [created]" not in legacy_request_on:
         fail("VPS deployment request workflow must trigger only from created issue_comment events")
-    if re.search(r"^\s{2}(push|pull_request|workflow_dispatch):", request_on_block, re.MULTILINE):
-        fail("VPS deployment request workflow must not run from push, pull_request, or workflow_dispatch")
-    for marker in (
-        "startsWith(github.event.comment.body, 'DEPLOY VPS ')",
-        "!github.event.issue.pull_request",
-        "scripts/release/parse_deployment_request.py",
-        "uses: ./.github/workflows/deploy-vps.yml",
-        "secrets: inherit",
-        "canonical_issue:",
-        "commit_sha:",
-    ):
-        if marker not in request:
-            fail(f"VPS deployment request marker missing: {marker}")
+    _require_markers(
+        vps_request,
+        "deploy-vps-request.yml",
+        (
+            "startsWith(github.event.comment.body, 'DEPLOY VPS ')", "!github.event.issue.pull_request",
+            "scripts/release/parse_deployment_request.py", "uses: ./.github/workflows/deploy-vps.yml",
+            "secrets: inherit", "canonical_issue:", "commit_sha:",
+        ),
+    )
     for forbidden in ("environment: production", "Configure SSH", "VPS_SSH_PRIVATE_KEY", "VPS_HOST", "ssh -i"):
-        if forbidden in request:
+        if forbidden in vps_request:
             fail(f"VPS request workflow must delegate protected execution; forbidden marker: {forbidden}")
 
-    for workflow_path in sorted((root / ".github/workflows").glob("*.y*ml")):
+    runtime_on = runtime_request.split("permissions:", 1)[0]
+    if "issue_comment:" not in runtime_on or "types: [created]" not in runtime_on:
+        fail("runtime execution request must trigger only from created issue_comment events")
+    if re.search(r"^\s{2}(push|pull_request|workflow_dispatch):", runtime_on, re.MULTILINE):
+        fail("runtime execution request must not run from push, pull_request, or workflow_dispatch")
+    _require_markers(
+        runtime_request,
+        "deploy-runtime-request.yml",
+        (
+            "startsWith(github.event.comment.body, 'PRODUCTION APPROVED ')",
+            "Execution-Intent: EXECUTE", "!github.event.issue.pull_request",
+            "parse_runtime_execution_request.py", "verify_production_authorization.py",
+            "--require-execution-intent", "uses: ./.github/workflows/deploy-vps.yml",
+            "uses: ./.github/workflows/deploy-ubuntu-worker.yml", "windows-worker-fallback:", "secrets: inherit",
+        ),
+    )
+    for forbidden in ("environment: production", "Configure SSH", "SSH_PRIVATE_KEY", "ssh -i"):
+        if forbidden in runtime_request:
+            fail(f"runtime request workflow must only parse/verify/route; forbidden marker: {forbidden}")
+
+    ubuntu_on = deploy_ubuntu.split("permissions:", 1)[0]
+    for marker in ("workflow_dispatch:", "workflow_call:"):
+        if marker not in ubuntu_on:
+            fail(f"Ubuntu deployment must support {marker.rstrip(':')}")
+    if re.search(r"^\s{2}(push|pull_request|issue_comment):", ubuntu_on, re.MULTILINE):
+        fail("Ubuntu deployment implementation must not run directly from push, pull_request, or issue_comment")
+    _require_markers(
+        deploy_ubuntu,
+        "deploy-ubuntu-worker.yml",
+        (
+            "environment: production", "refs/heads/main", "--first-parent", "verify_quality_status.py",
+            "--workflow-file quality-integration.yml", "verify_production_authorization.py",
+            "build_exact_artifacts.py", "sea-speed-ubuntu-worker-", "Build one-command fallback",
+            "deploy/worker/ubuntu/deploy-authorized.sh", "UBUNTU_DEPLOY_SSH_PRIVATE_KEY",
+            "sea-speed-ubuntu-deploy-v1", "deployment-manifest-ubuntu-worker.json",
+            "one-command-fallback", "exit 42",
+        ),
+    )
+    if deploy_ubuntu.index("verify_production_authorization.py") > deploy_ubuntu.index("Resolve zero-touch execution capability"):
+        fail("Ubuntu authorization must be verified before transport capability resolution")
+    if deploy_ubuntu.index("verify_quality_status.py") > deploy_ubuntu.index("Resolve zero-touch execution capability"):
+        fail("Ubuntu quality must be verified before transport capability resolution")
+
+    for workflow_path in sorted(workflows.glob("*.y*ml")):
         try:
             validate_workflow_source(workflow_path.read_text(encoding="utf-8-sig"), str(workflow_path.relative_to(root)))
         except ValueError as exc:
             fail(str(exc))
     print(
-        "Workflow policy valid: immutable actions, aggregate SDD gate, reusable exact-main deployment, "
-        "Connector-addressable Issue request, durable authorization"
+        "Workflow policy valid: immutable actions, aggregate SDD gate, reusable exact-main deployments, "
+        "two-intent Connector request routing, durable authorization and bounded fallback"
     )
     return 0
 

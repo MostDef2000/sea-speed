@@ -40,6 +40,10 @@
 - Ubuntu worker/relay update: REQUIRED / NOT REQUIRED
 - Windows worker update: REQUIRED / NOT REQUIRED
 - Production safety envelope: REQUIRED / NOT REQUIRED
+- VPS execution capability: CONNECTOR / ONE_COMMAND_FALLBACK / MISSING / NOT APPLICABLE
+- Ubuntu worker execution capability: CONNECTOR / ONE_COMMAND_FALLBACK / MISSING / NOT APPLICABLE
+- Windows worker execution capability: CONNECTOR / ONE_COMMAND_FALLBACK / MISSING / NOT APPLICABLE
+- Operator actions expected: 0
 - Rollout order:
 - Release manifest:
 - Rollback target:

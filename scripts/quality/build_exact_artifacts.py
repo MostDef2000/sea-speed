@@ -42,6 +42,7 @@ COMPONENT_FILES = {
             "deploy/worker/ubuntu/install-systemd.sh",
             "deploy/worker/ubuntu/update-exact.sh",
             "deploy/worker/ubuntu/rollback-exact.sh",
+            "deploy/worker/ubuntu/deploy-authorized.sh",
             "deploy/worker/ubuntu/preflight.sh",
             "deploy/worker/ubuntu/prepare-runtime.sh",
             "deploy/worker/ubuntu/requirements-runtime.txt",
@@ -139,9 +140,8 @@ def main() -> int:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Preserve the quality-evidence v1 component contract (`vps` + legacy `edge`)
-    # while adding a first-class Ubuntu release artifact. The whole manifest is
-    # hash-bound by release-manifest v2, and the Ubuntu archive is also directly
-    # digest-bound there as the `ubuntu-worker` deployment artifact.
+    # while binding the full repository-owned Ubuntu deployment transaction into
+    # the first-class Ubuntu release artifact.
     artifacts = [
         build_component(root, output_dir, component, source_commit)
         for component in ("vps", "edge")

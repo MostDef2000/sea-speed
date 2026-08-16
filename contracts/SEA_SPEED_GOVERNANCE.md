@@ -1,6 +1,6 @@
 # Sea Speed Governance
 
-Version: 1.9.0
+Version: 1.10.0
 Status: Active
 Source of truth: GitHub `main`
 
@@ -70,15 +70,28 @@ fresh branch
 -> exact-green-head merge
 ```
 
-The authorization remains current while the canonical Issue/product outcome, approved file scope, runtime contours and protected boundaries remain unchanged and all merge gates are satisfied. A material change to those semantics requires fresh authorization.
+The authorization remains current while the canonical Issue/product outcome, approved file scope, runtime contours and protected boundaries remain unchanged and all merge gates are satisfied. Ordinary defects and CI findings that can be corrected entirely inside that authorized path set are continuation work, not a new approval event. A material change to outcome, approved paths or protected/security semantics requires fresh authorization.
 
-## 4. Controlled delivery and capability preflight
+## 4. Controlled delivery, interaction budget and capability preflight
 
-After valid source authorization, the Delivery Orchestrator continues through every deterministic safe repository transition without another routine approval prompt. Do not stop at commit, PR, CI, merge, package creation, deployment start or process start when the next transition is already authorized and technically available.
+After valid source authorization, the Delivery Orchestrator continues through every deterministic safe repository transition without another routine approval prompt. Do not stop at commit, PR, CI, merge, package creation, deployment preparation, deployment start or process start when the next transition is already authorized and technically guarded.
 
-Before the first repository write verify that the complete approved lifecycle is feasible through the GitHub Connector: required files are readable/writable; Issue/branch/commit/PR/CI/review/merge operations are available; the complete mandatory scope can be delivered; and applicable runtime execution, rollback and acceptance paths are known. Missing `gh`, local Git credentials or a local remote is not a blocker.
+The normal interaction budget is:
 
-If a mandatory Connector operation is unavailable, identify the missing capability and stop `BLOCKED` before partial delivery.
+```text
+source intent: one OUTCOME APPROVED
+production intent: one exact-release authorization carrying Execution-Intent: EXECUTE
+manual runtime action: zero target; at most one fallback action per required contour
+intermediate deterministic confirmations: none
+```
+
+Extra interaction is allowed only for a material reauthorization trigger, a new exact release SHA after source remediation, protected secret/password/sudo/TOTP entry, irreversible/high-risk decision, configured environment reviewer, or evidence that automation cannot safely collect.
+
+Before the first repository write verify that the complete approved lifecycle is feasible through the GitHub Connector and repository-owned execution paths: required files are readable/writable; Issue/branch/commit/PR/CI/review/merge operations are available; the complete mandatory scope can be delivered; and applicable runtime execution, rollback and acceptance paths are known. Missing `gh`, local Git credentials or a local remote is not a blocker.
+
+Every runtime-impacting Change Contract declares the execution capability for VPS, Ubuntu Worker/relay and Windows AI Worker using `CONNECTOR`, `ONE_COMMAND_FALLBACK`, `MISSING`, or `NOT APPLICABLE`, plus the exact number of operator actions expected after production intent. A contour marked `REQUIRED` may not be admitted with `MISSING` or `NOT APPLICABLE`. The operator-action count equals the number of required `ONE_COMMAND_FALLBACK` contours.
+
+If a mandatory Connector operation is unavailable but a repository-owned one-command runtime fallback exists, the task may continue with that declared fallback. If no safe execution path exists for a required contour, stop `BLOCKED` before partial delivery.
 
 ## 5. Branch and merge policy
 
@@ -132,11 +145,11 @@ Historical Issues, PRs and accepted decision records remain audit history. Runti
 
 Every implementation PR keeps the machine-readable Change Contract from `.github/pull_request_template.md`; path policy lives in `data/contracts/change-control-policy-v1.json` and validation in `scripts/ci/validate_change_contract.py`.
 
-A new Change Contract must declare `Source authorization: OUTCOME APPROVED`, one canonical Issue, the exact changed-file set, derived production impact, exact VPS/Ubuntu/Windows applicability, production safety-envelope applicability, compatibility/rollout/rollback/evidence declarations, and `NO` material scope/protected-boundary drift since authorization. Significant PRs also link their specification.
+A new Change Contract must declare `Source authorization: OUTCOME APPROVED`, one canonical Issue, the exact changed-file set, derived production impact, exact VPS/Ubuntu/Windows applicability, production safety-envelope applicability, per-contour execution capability, expected operator-action count, compatibility/rollout/rollback/evidence declarations, and `NO` material scope/protected-boundary drift since authorization. Significant PRs also link their specification.
 
 Historical legacy authorization text remains readable in old audit records but is not admitted as a new PR source authorization.
 
-## 12. Production safety envelope and durable authorization
+## 12. Production safety envelope and durable execution intent
 
 Source authorization never authorizes production mutation.
 
@@ -144,7 +157,17 @@ A separate `PRODUCTION APPROVED <full-sha>` envelope may authorize bounded execu
 
 The source-controlled authorized actor set and exact approval/fingerprint format are defined by `data/contracts/production-authorization-policy-v1.json`. Durable authorization binds canonical Issue, applicable merged PR, exact source SHA, Outcome Contract, runtime contours, security impact, deployment target and rollback semantics. Any material change makes it stale; missing/ambiguous GitHub evidence fails closed.
 
-For VPS production, `.github/workflows/deploy-vps.yml` remains manual and keeps the `production` environment. Before SSH configuration it must require an already-lowercase full SHA on current `main` first-parent history, require successful `quality-integration.yml` evidence from `push/main` on that exact SHA, resolve exactly one applicable merged PR and canonical Issue, validate the current production-authorization fingerprint, and validate exact artifacts/release/quality evidence.
+Production authorization and execution intent remain distinct semantics but may be expressed in one durable Issue comment:
+
+```text
+PRODUCTION APPROVED <full-lowercase-40-character-sha>
+Authorization-Fingerprint: <sha256>
+Execution-Intent: EXECUTE
+```
+
+The first two exact lines provide authority. The third exact line provides execution intent. A two-line approval remains authorize-only. `.github/workflows/deploy-runtime-request.yml` may react only to the exact three-line form, must independently re-run `verify_production_authorization.py --require-execution-intent`, and may route only the exact required contours from the applicable merged Change Contract.
+
+For VPS production, `.github/workflows/deploy-vps.yml` remains the single protected implementation. For Ubuntu Worker/relay, `.github/workflows/deploy-ubuntu-worker.yml` is the reusable protected orchestrator and `deploy/worker/ubuntu/deploy-authorized.sh` owns the target-side admission/preparation/activation/verification/evidence/rollback transaction. A separately provisioned restricted transport may enable zero-touch Ubuntu execution; absent that protected bootstrap, the declared fallback is one operator action that stages exact main and hands off to the repository-owned launcher. This governance change does not itself authorize secrets, sudoers changes, public runners or privilege expansion.
 
 Repository rulesets, branch protection, required approvals and protected environments are GitHub settings, not facts proved by source installation. They may be reported as enforced only after independent settings verification.
 

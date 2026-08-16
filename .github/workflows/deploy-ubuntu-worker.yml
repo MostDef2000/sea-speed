@@ -1,0 +1,276 @@
+name: Deploy Ubuntu Worker
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit_sha:
+        description: "Exact lowercase 40-character main commit SHA"
+        required: true
+        type: string
+      canonical_issue:
+        description: "Canonical GitHub Issue number carrying durable production authorization"
+        required: true
+        type: number
+  workflow_call:
+    inputs:
+      commit_sha:
+        description: "Exact lowercase 40-character main commit SHA"
+        required: true
+        type: string
+      canonical_issue:
+        description: "Canonical GitHub Issue number carrying durable production authorization"
+        required: true
+        type: number
+
+permissions:
+  contents: read
+  actions: read
+  checks: read
+  issues: read
+  pull-requests: read
+
+concurrency:
+  group: sea-speed-ubuntu-worker-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy exact main quality-approved Ubuntu release
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 30
+
+    steps:
+      - name: Require execution from main workflow definition
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == "refs/heads/main" ]] || { echo "Deploy Ubuntu Worker must execute from the main workflow definition" >&2; exit 1; }
+
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+
+      - name: Resolve exact main deployment commit
+        id: release
+        env:
+          INPUT_COMMIT: ${{ inputs.commit_sha }}
+        run: |
+          set -euo pipefail
+          DEPLOY_SHA="$INPUT_COMMIT"
+          [[ "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "Deployment commit must be a full lowercase 40-character SHA" >&2; exit 1; }
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          git cat-file -e "${DEPLOY_SHA}^{commit}" 2>/dev/null || git fetch --no-tags origin "$DEPLOY_SHA"
+          FIRST_PARENT_MATCH=0
+          while IFS= read -r commit; do
+            [[ "$commit" == "$DEPLOY_SHA" ]] && FIRST_PARENT_MATCH=1
+          done < <(git rev-list --first-parent origin/main)
+          [[ "$FIRST_PARENT_MATCH" == "1" ]] || { echo "Deployment commit is not on current origin/main first-parent history" >&2; exit 1; }
+          git checkout --detach "$DEPLOY_SHA"
+          [[ "$(git rev-parse HEAD)" == "$DEPLOY_SHA" ]]
+          echo "sha=$DEPLOY_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Verify aggregate quality push run
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          DEPLOY_SHA: ${{ steps.release.outputs.sha }}
+        run: |
+          python scripts/quality/verify_quality_status.py \
+            --repository "$GITHUB_REPOSITORY" \
+            --commit "$DEPLOY_SHA" \
+            --workflow-file quality-integration.yml
+
+      - name: Verify durable production authorization and execution intent
+        id: authorization
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          DEPLOY_SHA: ${{ steps.release.outputs.sha }}
+          CANONICAL_ISSUE: ${{ inputs.canonical_issue }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          python scripts/release/verify_production_authorization.py \
+            --repository "$GITHUB_REPOSITORY" \
+            --commit "$DEPLOY_SHA" \
+            --issue "$CANONICAL_ISSUE" \
+            --require-execution-intent \
+            --github-output "$GITHUB_OUTPUT" \
+            --evidence-output dist/production-authorization.json
+
+      - name: Require Ubuntu contour in exact Change Contract
+        env:
+          UBUNTU_REQUIRED: ${{ steps.authorization.outputs.ubuntu_worker_required }}
+        run: |
+          set -euo pipefail
+          [[ "$UBUNTU_REQUIRED" == "true" ]] || {
+            echo "Exact Change Contract does not require Ubuntu Worker deployment" >&2
+            exit 1
+          }
+
+      - name: Validate Ubuntu deployment tooling
+        run: |
+          set -euo pipefail
+          bash -n deploy/worker/ubuntu/deploy-authorized.sh
+          bash -n deploy/worker/ubuntu/update-exact.sh
+          bash -n deploy/worker/ubuntu/rollback-exact.sh
+          python -m py_compile scripts/release/*.py scripts/quality/*.py
+          python scripts/quality/validate_quality_contracts.py
+          python scripts/quality/validate_workflow_policy.py
+
+      - name: Build exact artifacts and Ubuntu release provenance
+        id: exact
+        env:
+          DEPLOY_SHA: ${{ steps.release.outputs.sha }}
+        run: |
+          set -euo pipefail
+          python scripts/quality/build_exact_artifacts.py --source-commit "$DEPLOY_SHA" --output-dir dist/exact
+          python scripts/quality/validate_exact_artifacts.py --manifest dist/exact/exact-artifacts.json
+          python scripts/quality/build_quality_evidence.py \
+            --source-commit "$DEPLOY_SHA" \
+            --artifacts-manifest dist/exact/exact-artifacts.json \
+            --output dist/quality-evidence.json
+          python scripts/quality/validate_quality_evidence.py \
+            --evidence dist/quality-evidence.json \
+            --artifacts-manifest dist/exact/exact-artifacts.json
+          ARTIFACT_SHA="$(python - <<'PY'
+import json
+m=json.load(open('dist/exact/exact-artifacts.json', encoding='utf-8'))
+u=next(a for a in m['release_artifacts'] if a['component']=='ubuntu-worker')
+print(u['sha256'])
+PY
+)"
+          echo "artifact_sha256=$ARTIFACT_SHA" >> "$GITHUB_OUTPUT"
+          BASE_SHA="$(git rev-parse "${DEPLOY_SHA}^")"
+          python scripts/release/build_release_manifest.py \
+            --component ubuntu-worker \
+            --source-commit "$DEPLOY_SHA" \
+            --base-commit "$BASE_SHA" \
+            --authorization-evidence dist/production-authorization.json \
+            --artifact "dist/exact/sea-speed-ubuntu-worker-${DEPLOY_SHA}.tar.gz" \
+            --exact-artifacts-manifest dist/exact/exact-artifacts.json \
+            --quality-evidence dist/quality-evidence.json \
+            --state ready_for_deployment \
+            --output dist/release-manifest-ubuntu-worker.json
+          python scripts/release/validate_release_manifest.py dist/release-manifest-ubuntu-worker.json
+
+      - name: Resolve zero-touch execution capability
+        id: capability
+        env:
+          DEPLOY_KEY: ${{ secrets.UBUNTU_DEPLOY_SSH_PRIVATE_KEY }}
+          KNOWN_HOSTS: ${{ secrets.UBUNTU_DEPLOY_SSH_KNOWN_HOSTS }}
+          DEPLOY_HOST: ${{ vars.UBUNTU_DEPLOY_HOST }}
+          DEPLOY_USER: ${{ vars.UBUNTU_DEPLOY_USER }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$DEPLOY_KEY" && -n "$KNOWN_HOSTS" && -n "$DEPLOY_HOST" && -n "$DEPLOY_USER" ]]; then
+            echo "mode=connector" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=one-command-fallback" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Configure restricted Ubuntu SSH transport
+        if: ${{ steps.capability.outputs.mode == 'connector' }}
+        env:
+          DEPLOY_KEY: ${{ secrets.UBUNTU_DEPLOY_SSH_PRIVATE_KEY }}
+          KNOWN_HOSTS: ${{ secrets.UBUNTU_DEPLOY_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          install -d -m 0700 "$HOME/.ssh"
+          printf '%s\n' "$DEPLOY_KEY" > "$HOME/.ssh/sea-speed-ubuntu-deploy"
+          printf '%s\n' "$KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 0600 "$HOME/.ssh/sea-speed-ubuntu-deploy" "$HOME/.ssh/known_hosts"
+
+      - name: Execute restricted Ubuntu deployment protocol
+        if: ${{ steps.capability.outputs.mode == 'connector' }}
+        env:
+          DEPLOY_SHA: ${{ steps.release.outputs.sha }}
+          CANONICAL_ISSUE: ${{ inputs.canonical_issue }}
+          ARTIFACT_SHA: ${{ steps.exact.outputs.artifact_sha256 }}
+          DEPLOY_HOST: ${{ vars.UBUNTU_DEPLOY_HOST }}
+          DEPLOY_USER: ${{ vars.UBUNTU_DEPLOY_USER }}
+          DEPLOY_PORT: ${{ vars.UBUNTU_DEPLOY_PORT || '22' }}
+        run: |
+          set -euo pipefail
+          ssh -i "$HOME/.ssh/sea-speed-ubuntu-deploy" -p "$DEPLOY_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            "$DEPLOY_USER@$DEPLOY_HOST" \
+            "sea-speed-ubuntu-deploy-v1 '$DEPLOY_SHA' '$CANONICAL_ISSUE' '$ARTIFACT_SHA'" \
+            > dist/deployment-manifest-ubuntu-worker.json
+          python scripts/release/validate_deployment_manifest.py dist/deployment-manifest-ubuntu-worker.json
+
+      - name: Build one-command fallback
+        if: ${{ steps.capability.outputs.mode == 'one-command-fallback' }}
+        env:
+          DEPLOY_SHA: ${{ steps.release.outputs.sha }}
+          CANONICAL_ISSUE: ${{ inputs.canonical_issue }}
+          ARTIFACT_SHA: ${{ steps.exact.outputs.artifact_sha256 }}
+        run: |
+          set -euo pipefail
+          cat > dist/ubuntu-worker-one-command.sh <<EOF
+          #!/usr/bin/env bash
+          set -euo pipefail
+          TARGET='$DEPLOY_SHA'
+          ISSUE='$CANONICAL_ISSUE'
+          ARTIFACT_SHA='$ARTIFACT_SHA'
+          ROOT=/opt/sea-speed-worker
+          [[ "\$EUID" -eq 0 ]] || { echo "ERROR run with sudo/root" >&2; exit 1; }
+          install -d -o root -g root -m 0700 "\$ROOT/updater"
+          STAGE="\$(mktemp -d \"\$ROOT/updater/bootstrap.XXXXXX\")"
+          cleanup() { status=\$?; rm -rf "\$STAGE" || true; return "\$status"; }
+          trap cleanup EXIT
+          git -C "\$STAGE" init -q
+          git -C "\$STAGE" remote add origin https://github.com/MostDef2000/sea-speed.git
+          git -C "\$STAGE" fetch --quiet --no-tags origin main:refs/remotes/origin/main
+          git -C "\$STAGE" cat-file -e "\$TARGET^{commit}"
+          MATCH=0
+          while IFS= read -r commit; do [[ "\$commit" == "\$TARGET" ]] && MATCH=1; done < <(git -C "\$STAGE" rev-list --first-parent refs/remotes/origin/main)
+          [[ "\$MATCH" == 1 ]]
+          git -C "\$STAGE" -c advice.detachedHead=false checkout --quiet --detach "\$TARGET"
+          exec bash "\$STAGE/deploy/worker/ubuntu/deploy-authorized.sh" "\$TARGET" --issue "\$ISSUE" --artifact-sha256 "\$ARTIFACT_SHA"
+          EOF
+          sed -i 's/^          //' dist/ubuntu-worker-one-command.sh
+          chmod 0755 dist/ubuntu-worker-one-command.sh
+          {
+            echo "### Ubuntu Worker execution fallback"
+            echo "The repository has not observed a provisioned restricted zero-touch Ubuntu transport."
+            echo "Run the uploaded exact one-command bootstrap on the canonical Ubuntu worker as root/sudo."
+            echo "This is one operator action; it stages exact main source and hands off to deploy-authorized.sh."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Ubuntu release and deployment evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sea-speed-ubuntu-deployment-${{ steps.release.outputs.sha }}
+          path: |
+            dist/production-authorization.json
+            dist/release-manifest-ubuntu-worker.json
+            dist/quality-evidence.json
+            dist/exact/exact-artifacts.json
+            dist/deployment-manifest-ubuntu-worker.json
+            dist/ubuntu-worker-one-command.sh
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Require completed runtime mutation
+        if: ${{ steps.capability.outputs.mode == 'one-command-fallback' }}
+        run: |
+          echo "Ubuntu zero-touch transport is not provisioned; one-command fallback evidence was produced." >&2
+          exit 42
+
+      - name: Deployment summary
+        if: ${{ steps.capability.outputs.mode == 'connector' }}
+        env:
+          DEPLOY_SHA: ${{ steps.release.outputs.sha }}
+          CANONICAL_ISSUE: ${{ inputs.canonical_issue }}
+        run: |
+          echo "### Sea Speed Ubuntu Worker deployment" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Commit: \`$DEPLOY_SHA\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Canonical Issue: #$CANONICAL_ISSUE" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Execution: restricted Connector-addressable SSH protocol" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Runtime state: verified by deployment manifest" >> "$GITHUB_STEP_SUMMARY"
