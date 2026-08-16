@@ -19,7 +19,7 @@
 - TASK-011: Record process integration evidence on Issue #184 and close it only when source/control-plane acceptance is complete; no production mutation is required for this task.
 - TASK-012: Resume parent runtime Issue #178 only after this task is complete, starting with read-only recovery of actual VPS state from run #27 rather than assuming the runtime result.
 - TASK-013: Correct the discovered `Package Windows Worker` control-plane debt by narrowing triggers to worker/package-workflow changes, preserving exact ZIP/SHA/source provenance, removing ordinary PR-time release-manifest v2 generation, and proving the final workflow succeeds without production authorization evidence.
-- TASK-014: After any approved scope expansion, synchronize the PR Change Contract before the final source synchronization commit so PR-triggered validators receive an event snapshot whose declared changed-file set already matches the exact Git diff; if a run captured stale metadata, create a new in-scope synchronization commit rather than treating that stale event as source evidence.
+- TASK-014: After any approved scope expansion, synchronize the PR Change Contract before the final source synchronization commit and preserve the validator's canonical field names/values exactly (`Approval recorded after Implementation Scope Check: YES`, `Material scope/protected-boundary change since authorization: NO`, `Local checks`, `PR checks`). If a run captured stale or noncanonical metadata, create a new in-scope synchronization commit rather than treating that event as source evidence.
 
 ## Requirements traceability
 
