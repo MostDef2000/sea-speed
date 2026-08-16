@@ -27,7 +27,7 @@
 - TASK-018: Complete parent Issue #178 product acceptance only after exact Ubuntu deployment plus worker Stop/Start behavior and continuous Camera 1 HLS evidence are proven.
 - TASK-019: Require an explicit operator-visible six-field Scope block before every `OUTCOME APPROVED` request or re-authorization request; update agent/governance/task-runtime/PM contracts so a bare approval prompt is invalid and scope cannot be left implicit.
 - TASK-020: Make source authorization admission fail closed. Require `VISIBLE_SCOPE_PRESENTED=YES` and `SCOPE_IMMEDIATELY_PRECEDES_APPROVAL=YES` before branch/source writes; require the Scope block as the last substantive assistant block before the request; reject bare, incomplete, stale or non-adjacent approval sequences; and recover only through a newly rendered Scope followed by a new approval token.
-- TASK-021: Deliver TASK-020 as an exact seven-path CONTROL_PLANE remediation limited to `AGENTS.md`, canonical governance, PM contract, task runtime and feature 017 spec/plan/tasks. Production impact is NONE.
+- TASK-021: Deliver TASK-020 as an exact seven-path CONTROL_PLANE remediation limited to `AGENTS.md`, canonical governance, PM contract, task runtime and feature 017 spec/plan/tasks. Derived Change Contract production class is CONTROL_PLANE; VPS/Ubuntu/Windows runtime deployment impact is NONE.
 - TASK-022: Validate TASK-020 through exact content review, SDD validation, PR Validation and Quality integration on one exact final head; merge only after fresh main/head/scope/review checks and expected-head protection.
 
 ## Requirements traceability
