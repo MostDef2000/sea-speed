@@ -2,114 +2,101 @@
 
 - Feature: 015-worker-operator-control
 - Issue: #178
-- Status: Operator control UI polish
-- Owner outcome: Allow an authenticated Sea Speed operator to start and stop only the Ubuntu AI worker while Camera 1 live HLS remains independent and uninterrupted.
+- Status: Single dynamic Stream action remediation
+- Owner outcome: Allow an authenticated Sea Speed operator to start and stop only the Ubuntu AI worker while Camera 1 live HLS remains independent and uninterrupted, with compact contextual controls in the top status strip.
 
 ## Product outcome
 
-Sea Speed Operator must expose a bounded worker-control action that changes only `sea-speed-worker.service`. The clean Camera 1 live stream remains owned by the independent relay/HLS contour and must continue to work when the AI worker is intentionally stopped. The accepted operator-control behavior is now presented as compact icon-only controls in the top status strip, without an extra worker stop confirmation dialog.
+Sea Speed Operator exposes bounded Worker control that changes only `sea-speed-worker.service`. Camera 1 HLS remains owned by the independent relay/media contour. The operator surface uses one contextual Worker action and exactly one contextual Stream action: Stream shows Play when HLS is not desired/active and Stop when HLS is desired/active. The Live camera card contains the clean video and camera information but no duplicate Stream action.
 
 ## User scenarios
 
 ### Scenario 1 - stop AI processing without losing live video
-
-Given Camera 1 live playback is available and the AI worker is running, when an authenticated operator selects the worker stop icon, then only `sea-speed-worker.service` becomes inactive, the control service remains available, and the HLS path remains independently playable.
+Given Camera 1 live playback is available and the AI worker is running, when an authenticated operator selects the worker stop action, only `sea-speed-worker.service` becomes inactive, the control service remains available, and HLS remains independently playable.
 
 ### Scenario 2 - restart AI processing
+Given the AI worker was intentionally stopped, when the operator selects the worker start action, the same installed exact-release worker service starts without changing Camera 1 relay/HLS configuration.
 
-Given the AI worker was intentionally stopped, when an authenticated operator selects the worker start icon, then the same installed exact-release worker service starts without changing Camera 1 relay/HLS configuration and the UI reports the observed running state.
+### Scenario 3 - fail closed when worker control is unavailable
+Given VPS cannot reach/authenticate/confirm the fixed Ubuntu control protocol, no alternate command path is used and the UI reports control unavailability without changing the live stream.
 
-### Scenario 3 - fail closed when control is unavailable or incompatible
-
-Given the VPS cannot reach, authenticate to, or confirm the fixed protocol version of the Ubuntu control agent, when the UI refreshes or an operator attempts a worker action, then no alternate command path is used, no arbitrary service can be selected, and the UI reports control unavailability while leaving the live stream untouched.
-
-### Scenario 4 - operate worker and stream from one compact status surface
-
-Given the Operator UI is open, the worker start/stop icon remains beside Worker status and the HLS play/stop icons are beside Stream status. The Live camera card contains the clean video and camera information but no duplicate stream-control buttons. Worker start/stop executes directly on click without an additional confirmation popup.
+### Scenario 4 - one compact contextual action per controllable status
+Given the Operator UI is open, Worker has exactly one contextual icon action and Stream has exactly one contextual icon action. Stream action displays Play when HLS is not desired/active and Stop when it is desired/active. The Live camera card contains no Stream action button. Worker start/stop executes directly without an extra confirmation popup.
 
 ## Requirements
 
-- FR-001: The Operator UI MUST expose one worker-control button separate from the live-camera HLS Play/Stop buttons, adjacent to worker status in the top status strip.
+- FR-001: The top status strip MUST expose exactly one `streamControlBtn` adjacent to Stream status and exactly one `workerControlBtn` adjacent to Worker status.
 - FR-002: Browser worker-control requests MUST be accepted only with trusted Authentik identity forwarded by the existing `/sea-speed/**` boundary.
 - FR-003: VPS FastAPI MUST proxy only fixed worker-control operations (`status`, `start`, `stop`) to one configured private Ubuntu control origin.
-- FR-004: VPS-to-Ubuntu worker-control traffic MUST use the existing `SEA_SPEED_API_TOKEN` bearer secret and a validated RFC1918 HTTP origin; redirects and arbitrary upstream paths MUST NOT be followed.
-- FR-005: The Ubuntu control agent MUST bind to a private configured address, require the bearer token, and operate only on the literal `sea-speed-worker.service`.
-- FR-006: The Ubuntu control agent MUST NOT accept arbitrary service names, shell commands, command arguments, camera-relay operations, or MediaMTX operations.
-- FR-007: `Stop worker` MUST persist desired state `stopped` before stopping the AI worker; `Start worker` MUST persist desired state `running` and restore the previous desired state if startup fails.
-- FR-008: The dedicated worker-control service MUST remain independent of `sea-speed-worker.service` so an intentionally stopped AI worker can be started again remotely.
-- FR-009: Exact-release activation and rollback MUST preserve an intentional `stopped` desired state rather than treating the inactive worker as an automatic fault.
-- FR-010: Existing Camera 1 HLS URL `/sea-speed/media/cam1/index.m3u8`, MediaMTX/relay lifecycle and browser Play/Stop behavior MUST remain unchanged in purpose.
-- FR-011: Detection, tracking, speed, calibration and event semantics MUST remain unchanged; no `worker/**` source is modified by the operator-control feature implementation or its provenance/remediation changes.
-- FR-012: Source integration MUST NOT mutate production. VPS and Ubuntu runtime changes require a later exact-SHA production safety envelope when applicable.
-- FR-013: Every successful Ubuntu worker-control response MUST carry the fixed protocol marker `sea_speed_worker_control_v1`, and VPS FastAPI MUST reject a missing or different marker as an unavailable/incompatible control agent.
-- FR-014: Exact-artifact tooling MUST build and validate a deterministic `ubuntu-worker` source artifact as release-specific provenance while preserving the existing quality-evidence v1 `vps` and legacy `edge` component contract. Release-manifest v2 MUST be able to bind the Ubuntu archive digest directly plus the SHA-256 of the complete exact-artifacts manifest.
-- FR-015: VPS exact deployment and automatic rollback verification MUST use the accepted Auth v1 FastAPI loopback origin `http://127.0.0.1:8010/api/health` by default; the retired `127.0.0.1:8000` origin MUST NOT be the deployment health default.
-- FR-016: Deploy VPS admission MUST retain exact lowercase SHA and current-`main` first-parent membership checks without a producer-to-early-exit pipeline that can turn a valid match into a `pipefail`/SIGPIPE false-negative.
-- FR-017: After candidate activation, origin/public verification and persistence of the current/previous release identities plus deployment manifest have succeeded, pruning releases that are neither current nor previous MUST be best-effort. A stale-release removal failure MUST emit a warning and MUST NOT invalidate the already verified deployment; current and previous release identities MUST never be pruning targets.
-- FR-018: Ubuntu `update-exact.sh` MUST invoke `scripts/quality/verify_quality_status.py` only through its supported exact-workflow CLI (`--workflow-file quality-integration.yml`) and MUST NOT pass the unsupported `--required-name` option. Regression evidence MUST execute the verifier help/parser surface rather than merely assert an invented argument string.
-- FR-019: Ubuntu activation and explicit rollback MUST treat worker-control unit topology as part of exact release state. Failed activation MUST restore whether the previous control unit was present, enabled and active; rollback to a legacy target that predates worker control MUST stop/disable/remove the newer control unit and prove it absent; a target with only partial worker-control components MUST fail closed before acceptance.
-- FR-020: Ubuntu updater `EXIT` housekeeping MUST preserve the primary updater exit status. Successful preparation/activation MUST remain exit 0 even when optional temporary cleanup has nothing to remove or a cleanup attempt fails; a primary updater failure MUST retain its original nonzero status. Cleanup MUST still attempt staging and all populated temporary backup/marker removals without changing protected release/runtime/shared state.
-- FR-021: The top status strip MUST use icon-only controls for Worker (`▶` start, `■` stop) and HLS Stream (play/stop SVG icons). Worker control MUST execute without `confirm(...)`; dynamic `aria-label` and `title` MUST describe the worker action/state. Stream Play/Stop controls MUST live in the top Stream status item and MUST NOT be duplicated in the Live camera card.
+- FR-004: VPS-to-Ubuntu worker-control traffic MUST use the existing bearer secret and validated RFC1918 origin; redirects/arbitrary paths are forbidden.
+- FR-005: Ubuntu control agent MUST bind privately, require the bearer token, and operate only on literal `sea-speed-worker.service`.
+- FR-006: Ubuntu control agent MUST NOT accept arbitrary service names, shell commands, command arguments, camera-relay operations or MediaMTX operations.
+- FR-007: Worker Stop MUST persist desired state `stopped`; Worker Start MUST persist `running` and restore prior desired state if startup fails.
+- FR-008: Dedicated worker-control service MUST remain independent of `sea-speed-worker.service`.
+- FR-009: Exact-release activation/rollback MUST preserve intentional stopped/running desired state.
+- FR-010: Existing Camera 1 HLS URL `/sea-speed/media/cam1/index.m3u8`, MediaMTX/relay lifecycle and browser connect/disconnect semantics MUST remain unchanged in purpose.
+- FR-011: Detection, tracking, speed, calibration and event semantics MUST remain unchanged; no `worker/**` source changes are part of this UI remediation.
+- FR-012: Source integration MUST NOT mutate production; runtime changes require separate exact-SHA production authorization.
+- FR-013: Successful Ubuntu worker-control responses MUST carry `sea_speed_worker_control_v1`; VPS rejects missing/different markers.
+- FR-014: Exact-artifact tooling MUST retain deterministic `ubuntu-worker` provenance established by the accepted implementation.
+- FR-015: VPS deployment/rollback health MUST use accepted FastAPI loopback origin `http://127.0.0.1:8010/api/health` by default.
+- FR-016: Deploy VPS admission MUST retain exact lowercase SHA/current-main first-parent membership checks without pipefail/SIGPIPE false-negatives.
+- FR-017: Stale VPS release pruning after verified persistence MUST be best-effort; current/previous releases are protected.
+- FR-018: Ubuntu updater quality verification MUST use supported `--workflow-file quality-integration.yml` contract.
+- FR-019: Ubuntu activation/rollback MUST preserve exact worker-control unit topology for modern/legacy releases and fail closed on partial targets.
+- FR-020: Ubuntu updater EXIT housekeeping MUST preserve the primary updater status.
+- FR-021: Stream MUST NOT expose simultaneous Play and Stop buttons. A single `streamControlBtn` MUST dynamically render the currently available action, update `aria-label` and `title`, route Play to the existing `connectStream` lifecycle and Stop to the existing `disconnectStream` lifecycle, and remain outside the Live camera card. Worker remains a single icon-only dynamic action and has no `confirm(...)` gate.
 
 ## Acceptance criteria
 
-- AC-001: UI contains a distinct icon-only worker Start/Stop control adjacent to worker status and distinct HLS Play/Stop controls adjacent to Stream status.
-- AC-002: Authenticated browser GET of worker-control status returns the bounded Ubuntu service state; missing trusted Authentik identity fails closed.
-- AC-003: Authenticated browser start/stop requests can reach only fixed FastAPI routes and fixed Ubuntu agent paths.
-- AC-004: Ubuntu agent rejects a missing/wrong bearer token and has no request shape for an arbitrary service or command.
-- AC-005: Ubuntu agent start/stop functions invoke only `systemctl start sea-speed-worker.service` or `systemctl stop sea-speed-worker.service` plus fixed read-only status queries.
-- AC-006: Operator stop records desired state `stopped`; operator start records `running`; a failed start restores the prior desired-state marker.
-- AC-007: The separate worker-control systemd unit is installed/enabled independently and is not stopped by `systemctl stop sea-speed-worker.service`.
-- AC-008: Exact updater and rollback accept an intentionally inactive worker when desired state is `stopped` and preserve that state.
-- AC-009: Existing private Ubuntu->VPS worker API ingress does not expose `/api/worker/control/**`.
-- AC-010: Source tests prove the public HLS identity remains `/sea-speed/media/cam1/index.m3u8` and worker-control code contains no MediaMTX/camera-relay stop/restart operation.
-- AC-011: PR Validation and aggregate Quality integration succeed on the exact final PR head with exact approved scope and no unresolved review threads.
-- AC-012: After separate production authorization, runtime-manual evidence proves stop/start changes AI worker state while Camera 1 HLS remains playable throughout.
-- AC-013: Source tests prove the Ubuntu agent emits `sea_speed_worker_control_v1` and the VPS proxy has an explicit fail-closed protocol mismatch guard before returning successful control payloads.
-- AC-014: Two independent exact-artifact builds produce byte-identical `vps`, `ubuntu-worker`, and `edge` archives/manifests; the validator accepts all three, quality-evidence v1 remains valid for its existing `vps`/`edge` inventory, and the exact-artifacts manifest separately records the Ubuntu artifact digest for later release-manifest v2 binding.
-- AC-015: Source regression evidence proves `deploy/vps/deploy.sh` defaults `SEA_SPEED_ORIGIN_HEALTH_URL` to `http://127.0.0.1:8010/api/health`, contains no stale `http://127.0.0.1:8000/api/health` default, and uses the same origin verifier for both deployment and automatic rollback verification.
-- AC-016: Source regression evidence proves Deploy VPS no longer uses `git rev-list --first-parent origin/main | grep -q` under `pipefail`, still enumerates `origin/main` first-parent history, admits an exact matching SHA through an explicit membership result, and preserves fail-closed rejection when no first-parent match exists.
-- AC-017: Source regression evidence proves `prune_releases` excludes both current and previous identities, wraps stale `rm -rf` in a non-fatal conditional with an explicit warning on failure, and successful deployment persists previous/current state plus the runtime-verified deployment manifest before pruning begins.
-- AC-018: Focused updater regression evidence runs the real quality-verifier CLI help/parser surface, requires `--workflow-file quality-integration.yml`, forbids `--required-name`, and retains the protected-token/exact-main checks.
-- AC-019: Focused updater/rollback regression evidence proves a failed modern activation can restore a legacy no-control baseline, a successful rollback to a legacy target removes the modern control service, modern targets still require an exact active control unit, and incomplete target control components are rejected.
-- AC-020: Focused updater regression evidence executes the real `cleanup()` function through an `EXIT` trap under `set -euo pipefail` and proves success remains 0, a primary failure retains its original status, cleanup failure does not override either result, and all populated temporary cleanup targets are still attempted.
-- AC-021: Frontend contract tests prove worker Start/Stop contains no `confirm(...)`, worker rendering is icon-only with dynamic accessibility labels, Stream Play/Stop controls occur inside the top status strip, and the Live camera card contains neither stream-control button.
+- AC-001: Top status strip contains exactly one Stream action button and exactly one Worker action button; no legacy `connectBtn` or `disconnectBtn` exists.
+- AC-002: Authenticated browser GET of worker-control status returns bounded Ubuntu service state; missing trusted identity fails closed.
+- AC-003: Browser start/stop requests reach only fixed FastAPI/Ubuntu paths.
+- AC-004: Ubuntu agent rejects missing/wrong bearer token and exposes no arbitrary command/service shape.
+- AC-005: Ubuntu agent operates only on literal `sea-speed-worker.service` plus fixed status queries.
+- AC-006: Desired state is persisted/restored correctly around start/stop failure.
+- AC-007: Independent worker-control systemd unit remains available when worker is stopped.
+- AC-008: Exact updater/rollback preserve intentional worker state.
+- AC-009: Existing private Ubuntu->VPS ingress does not expose worker-control routes.
+- AC-010: HLS public identity remains `/sea-speed/media/cam1/index.m3u8`; worker control contains no MediaMTX/relay lifecycle mutation.
+- AC-011: PR Validation and aggregate Quality integration succeed on the same exact final head with authorized scope and no unresolved review threads.
+- AC-012: Runtime evidence proves worker Stop/Start does not interrupt Camera 1 HLS; final current UI smoke must also pass.
+- AC-013: Protocol marker/compatibility mismatch fails closed.
+- AC-014: Deterministic release provenance remains valid for VPS/Ubuntu Worker/legacy edge inventories.
+- AC-015: VPS origin health contract remains on port 8010.
+- AC-016: VPS first-parent admission remains pipefail-safe.
+- AC-017: VPS stale pruning remains warning-only after verified persistence.
+- AC-018: Ubuntu updater uses real quality-verifier CLI contract.
+- AC-019: Ubuntu modern/legacy control-service topology is rollback-safe.
+- AC-020: Ubuntu cleanup preserves primary process status.
+- AC-021: Frontend contract proves exactly one `streamControlBtn`, dynamic Play/Stop SVG rendering, dynamic `aria-label`/`title`, no `connectBtn`/`disconnectBtn`, no Stream control in Live camera, one Worker action, and no worker confirmation popup.
 
 ## NFR assessment
 
-- NFR-001 | Area: SECURITY | Target: only authenticated browser identity plus bearer-authenticated private fixed-operation agent may mutate worker state; no arbitrary service/command surface | Validation: unit/integration contract tests | Evidence: tests/test_worker_operator_control.py and tests/test_sea_speed_auth_v1.py | Status: PASS
-- NFR-002 | Area: RELIABILITY | Target: worker-control outage or protocol incompatibility fails closed within bounded timeout and never interrupts HLS | Validation: API proxy contract plus frontend invariant tests | Evidence: tests/test_worker_operator_control.py and tests/test_frontend_contract.py | Status: PASS
-- NFR-003 | Area: OPERABILITY | Target: intentional stopped/running state survives exact update/rollback maintenance semantics | Validation: updater/rollback contract tests | Evidence: tests/test_ubuntu_worker_exact_updater.py and tests/test_ubuntu_worker_rollback.py | Status: PASS
-- NFR-004 | Area: COMPATIBILITY | Target: Camera 1 HLS URL and Play/Stop semantics remain unchanged while controls move to the top Stream status item | Validation: frontend contract test | Evidence: tests/test_frontend_contract.py | Status: PASS
-- NFR-005 | Area: PERFORMANCE | Target: worker-control status/action upstream timeout is bounded to <= 5 seconds by configuration clamp | Validation: API contract assertions | Evidence: tests/test_worker_operator_control.py | Status: PASS
-- NFR-006 | Area: RELEASE_PROVENANCE | Target: MIXED release provenance contains deterministic exact artifacts for VPS and Ubuntu Worker while preserving the existing quality-evidence v1 `vps`/legacy-`edge` contract | Validation: deterministic build, extraction/digest/syntax validation, quality-evidence validation, and exact-manifest/release-artifact binding | Evidence: tests/quality/test_quality_architecture.py | Status: PASS
-- NFR-007 | Area: OPERABILITY | Target: VPS deployment and rollback health verification use the accepted FastAPI origin on loopback port 8010 and cannot silently regress to the retired port 8000 default | Validation: source contract regression tests plus exact-head CI | Evidence: tests/test_vps_deploy_origin_health.py, tests/test_camera_preview_gallery.py, and tests/test_sea_speed_auth_v1.py | Status: PASS
-- NFR-008 | Area: RELIABILITY | Target: Deploy VPS first-parent admission accepts a valid current-main/first-parent SHA without `pipefail` SIGPIPE false-negatives while preserving rejection of non-first-parent commits | Validation: workflow architecture regression plus exact-head CI | Evidence: tests/quality/test_quality_architecture.py | Status: PASS
-- NFR-009 | Area: RELIABILITY | Target: stale-release cleanup permission failures cannot overturn an already persisted, runtime-verified VPS deployment, while current and previous rollback identities remain protected from pruning | Validation: deploy-script regression contract plus exact-head CI | Evidence: tests/test_vps_deploy_origin_health.py | Status: PASS
-- NFR-010 | Area: RELIABILITY | Target: Ubuntu release admission uses an executable caller/verifier CLI contract and activation/rollback can restore the exact legacy-or-modern control-service topology without changing the active marker before acceptance | Validation: shell syntax plus real verifier CLI help and updater/rollback topology regression contracts | Evidence: tests/test_ubuntu_worker_exact_updater.py and tests/test_ubuntu_worker_rollback.py | Status: PASS
-- NFR-011 | Area: RELIABILITY | Target: updater housekeeping is status-neutral and cannot convert a completed preparation into failure or mask the original fatal status | Validation: executable EXIT-trap cleanup regression under `set -euo pipefail` | Evidence: tests/test_ubuntu_worker_exact_updater.py | Status: PASS
-- NFR-012 | Area: OPERATOR_UX | Target: Worker and Stream controls are one-click icon-only actions in the top status strip, with no worker confirmation popup and accessible action labels retained | Validation: frontend contract tests and production UI smoke after VPS deploy | Evidence: tests/test_frontend_contract.py | Status: CONCERNS
+- NFR-001 | Area: SECURITY | Target: authenticated browser + bearer-authenticated fixed-operation agent only | Evidence: worker-control/auth tests | Status: PASS
+- NFR-002 | Area: RELIABILITY | Target: worker-control outage/mismatch fails closed and never interrupts HLS | Evidence: worker/frontend tests | Status: PASS
+- NFR-003 | Area: OPERABILITY | Target: intentional worker state survives update/rollback | Evidence: updater/rollback tests | Status: PASS
+- NFR-004 | Area: COMPATIBILITY | Target: HLS URL/lifecycle unchanged while a single contextual Stream action replaces simultaneous Play+Stop controls | Evidence: frontend contract | Status: PASS
+- NFR-005 | Area: PERFORMANCE | Target: worker-control timeout remains bounded | Evidence: API tests | Status: PASS
+- NFR-006 | Area: RELEASE_PROVENANCE | Target: deterministic exact artifacts remain valid | Evidence: quality architecture | Status: PASS
+- NFR-007 | Area: OPERABILITY | Target: VPS health/rollback uses loopback 8010 | Evidence: deploy regression | Status: PASS
+- NFR-008 | Area: RELIABILITY | Target: first-parent admission avoids SIGPIPE false negatives | Evidence: workflow regression | Status: PASS
+- NFR-009 | Area: RELIABILITY | Target: stale pruning cannot invalidate verified deployment | Evidence: deploy regression | Status: PASS
+- NFR-010 | Area: RELIABILITY | Target: Ubuntu admission/rollback topology remains exact | Evidence: updater/rollback tests | Status: PASS
+- NFR-011 | Area: RELIABILITY | Target: updater housekeeping remains status-neutral | Evidence: EXIT-trap regression | Status: PASS
+- NFR-012 | Area: OPERATOR_UX | Target: one contextual Stream action and one contextual Worker action in the top strip, no duplicate Stream action, accessible dynamic labels/titles | Validation: frontend contract plus production browser smoke | Evidence: tests/test_frontend_contract.py + Issue #178 runtime-manual evidence | Status: CONCERNS until current VPS browser smoke passes
 
 ## Compatibility and boundaries
 
-- Stable public media interface: `/sea-speed/media/cam1/index.m3u8`.
-- Stable worker runtime semantics: detection/tracking/speed/calibration/event behavior unchanged.
-- Additive browser API: `/sea-speed/api/worker/control`, `/start`, `/stop`.
-- Private Ubuntu agent: fixed status/start/stop HTTP surface on a configured RFC1918 listener.
-- Private worker-control compatibility identity: `sea_speed_worker_control_v1`; mismatches fail closed rather than falling back.
-- VPS deployment origin identity: accepted FastAPI origin `127.0.0.1:8010`; public protected health remains an authentication-boundary smoke, not origin-health proof.
-- Deploy admission identity: exact lowercase 40-character target SHA must remain on current `main` first-parent history.
-- VPS release retention: current and previous releases form the protected rollback pair; older release cleanup is post-verification housekeeping.
-- Ubuntu release admission: `verify_quality_status.py --workflow-file quality-integration.yml` is the supported exact-workflow caller contract; unsupported aliases are forbidden.
-- Ubuntu rollback topology: modern releases include the independent control unit; legacy releases may intentionally have no control unit, and that absence is part of rollback state rather than a missing-file error.
-- Ubuntu updater housekeeping: temporary cleanup is best-effort and must preserve the primary updater status; it never deletes protected release/runtime/shared state.
-- Release evidence: deterministic exact provenance retains `vps`, release-specific `ubuntu-worker`, and legacy `edge` inventory as already established.
-- Current UI polish changes only `frontend/sea-speed/index.html` plus frontend tests/SDD; API, Ubuntu/Windows runtime, MediaMTX/relay and credentials remain out of scope.
-- Out of scope: MediaMTX/relay lifecycle, Camera 2, Windows Worker, browser SSH, arbitrary systemd control, new credentials, secret migration, AI algorithm changes.
+- Stable media interface: `/sea-speed/media/cam1/index.m3u8`.
+- Stable Worker runtime semantics: detection/tracking/speed/calibration/event behavior unchanged.
+- Stable worker-control API/agent/security boundaries remain unchanged.
+- Current remediation is VPS frontend + frontend tests/SDD only.
+- Out of scope: API behavior, MediaMTX/relay lifecycle, Ubuntu/Windows runtime mutation, credentials/secrets, AI algorithm changes.
 
 ## Runtime feedback
 
-- Worker-control production acceptance is COMPLETE on Ubuntu exact source `8dc74762a344dbf763d3ce1e7ecb1bac6872affb`: worker Stop/Start was confirmed while Camera 1 HLS remained continuously available.
-- The UI-polish source change is VPS-only. Ubuntu Worker and Windows Worker require no update for this change.
-- Current source task is the exact five-path UI scope recorded on Issue #178 comment `5306717626`.
-- A fresh exact-SHA VPS production envelope will be required only after the UI-polish merge; source authorization does not itself mutate production.
+- Worker-control production acceptance is COMPLETE on Ubuntu exact source `8dc74762a344dbf763d3ce1e7ecb1bac6872affb`: Worker Stop/Start was confirmed while Camera 1 HLS remained continuously available.
+- VPS UI source `0c2651629f517f939b8d18cacbc624654e8c4e11` was deployed/runtime-verified, but final browser acceptance identified two simultaneous Stream buttons and therefore did not satisfy the intended compact contextual interaction.
+- Fresh source authorization for the exact five-path single-Stream-action remediation was supplied immediately after the visible six-field Scope block on 2026-08-16.
+- A fresh exact-SHA VPS production envelope is required only after the remediation merge; Ubuntu Worker and Windows Worker require no update for this change.
