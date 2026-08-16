@@ -19,6 +19,7 @@
 - TASK-011: Record process integration evidence on Issue #184 and close it only when source/control-plane acceptance is complete; no production mutation is required for this task.
 - TASK-012: Resume parent runtime Issue #178 only after this task is complete, starting with read-only recovery of actual VPS state from run #27 rather than assuming the runtime result.
 - TASK-013: Correct the discovered `Package Windows Worker` control-plane debt by narrowing triggers to worker/package-workflow changes, preserving exact ZIP/SHA/source provenance, removing ordinary PR-time release-manifest v2 generation, and proving the final workflow succeeds without production authorization evidence.
+- TASK-014: After any approved scope expansion, synchronize the PR Change Contract before the final source synchronization commit so PR-triggered validators receive an event snapshot whose declared changed-file set already matches the exact Git diff; if a run captured stale metadata, create a new in-scope synchronization commit rather than treating that stale event as source evidence.
 
 ## Requirements traceability
 
@@ -29,7 +30,7 @@
 - AC-005 | Task: TASK-002,TASK-003,TASK-005 | Evidence: request workflow delegates to reusable deploy workflow; workflow policy prohibits SSH/environment in request path | Coverage: COVERED
 - AC-006 | Task: TASK-002,TASK-005 | Evidence: `.github/workflows/deploy-vps.yml` plus `tests/quality/test_quality_architecture.py` and workflow policy | Coverage: COVERED
 - AC-007 | Task: TASK-003,TASK-004,TASK-005 | Evidence: request job command prefix gate plus exact parser tests; durable production verifier remains inside called workflow | Coverage: COVERED
-- AC-008 | Task: TASK-001,TASK-009,TASK-010 | Evidence: exact 18-path Git compare, CONTROL_PLANE Change Contract and exact-head/post-merge CI | Coverage: COVERED
+- AC-008 | Task: TASK-001,TASK-009,TASK-010,TASK-014 | Evidence: exact 18-path Git compare, synchronized CONTROL_PLANE Change Contract and exact-head/post-merge CI | Coverage: COVERED
 - AC-009 | Task: TASK-013 | Evidence: `.github/workflows/package-worker.yml`, `tests/quality/test_quality_architecture.py`, and final-head Package Windows Worker run | Coverage: COVERED
 
 ## Definition of Done
