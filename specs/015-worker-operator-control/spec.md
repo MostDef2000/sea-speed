@@ -73,18 +73,18 @@ Given the Operator UI is open, Worker has exactly one contextual icon action and
 
 ## NFR assessment
 
-- NFR-001 | Area: SECURITY | Target: authenticated browser + bearer-authenticated fixed-operation agent only | Evidence: worker-control/auth tests | Status: PASS
-- NFR-002 | Area: RELIABILITY | Target: worker-control outage/mismatch fails closed and never interrupts HLS | Evidence: worker/frontend tests | Status: PASS
-- NFR-003 | Area: OPERABILITY | Target: intentional worker state survives update/rollback | Evidence: updater/rollback tests | Status: PASS
-- NFR-004 | Area: COMPATIBILITY | Target: HLS URL/lifecycle unchanged while a single contextual Stream action replaces simultaneous Play+Stop controls | Evidence: frontend contract | Status: PASS
-- NFR-005 | Area: PERFORMANCE | Target: worker-control timeout remains bounded | Evidence: API tests | Status: PASS
-- NFR-006 | Area: RELEASE_PROVENANCE | Target: deterministic exact artifacts remain valid | Evidence: quality architecture | Status: PASS
-- NFR-007 | Area: OPERABILITY | Target: VPS health/rollback uses loopback 8010 | Evidence: deploy regression | Status: PASS
-- NFR-008 | Area: RELIABILITY | Target: first-parent admission avoids SIGPIPE false negatives | Evidence: workflow regression | Status: PASS
-- NFR-009 | Area: RELIABILITY | Target: stale pruning cannot invalidate verified deployment | Evidence: deploy regression | Status: PASS
-- NFR-010 | Area: RELIABILITY | Target: Ubuntu admission/rollback topology remains exact | Evidence: updater/rollback tests | Status: PASS
-- NFR-011 | Area: RELIABILITY | Target: updater housekeeping remains status-neutral | Evidence: EXIT-trap regression | Status: PASS
-- NFR-012 | Area: OPERATOR_UX | Target: one contextual Stream action and one contextual Worker action in the top strip, no duplicate Stream action, accessible dynamic labels/titles | Validation: frontend contract plus production browser smoke | Evidence: tests/test_frontend_contract.py + Issue #178 runtime-manual evidence | Status: CONCERNS until current VPS browser smoke passes
+- NFR-001 | Area: SECURITY | Target: authenticated browser + bearer-authenticated fixed-operation agent only | Validation: worker-control and auth contract tests | Evidence: worker-control/auth tests | Status: PASS
+- NFR-002 | Area: RELIABILITY | Target: worker-control outage/mismatch fails closed and never interrupts HLS | Validation: worker-control and frontend lifecycle tests | Evidence: worker/frontend tests | Status: PASS
+- NFR-003 | Area: OPERABILITY | Target: intentional worker state survives update/rollback | Validation: exact updater and rollback tests | Evidence: updater/rollback tests | Status: PASS
+- NFR-004 | Area: COMPATIBILITY | Target: HLS URL/lifecycle unchanged while a single contextual Stream action replaces simultaneous Play+Stop controls | Validation: frontend contract and aggregate CI | Evidence: frontend contract | Status: PASS
+- NFR-005 | Area: PERFORMANCE | Target: worker-control timeout remains bounded | Validation: worker-control API timeout tests | Evidence: API tests | Status: PASS
+- NFR-006 | Area: RELEASE_PROVENANCE | Target: deterministic exact artifacts remain valid | Validation: exact-artifact and quality architecture jobs | Evidence: quality architecture | Status: PASS
+- NFR-007 | Area: OPERABILITY | Target: VPS health/rollback uses loopback 8010 | Validation: VPS deploy origin-health regression | Evidence: deploy regression | Status: PASS
+- NFR-008 | Area: RELIABILITY | Target: first-parent admission avoids SIGPIPE false negatives | Validation: deployment admission regression | Evidence: workflow regression | Status: PASS
+- NFR-009 | Area: RELIABILITY | Target: stale pruning cannot invalidate verified deployment | Validation: VPS stale-pruning regression | Evidence: deploy regression | Status: PASS
+- NFR-010 | Area: RELIABILITY | Target: Ubuntu admission/rollback topology remains exact | Validation: Ubuntu updater and rollback regression | Evidence: updater/rollback tests | Status: PASS
+- NFR-011 | Area: RELIABILITY | Target: updater housekeeping remains status-neutral | Validation: executable EXIT-trap cleanup regression | Evidence: EXIT-trap regression | Status: PASS
+- NFR-012 | Area: OPERATOR_UX | Target: one contextual Stream action and one contextual Worker action in the top strip, no duplicate Stream action, accessible dynamic labels/titles | Validation: frontend contract plus production browser smoke | Evidence: tests/test_frontend_contract.py + Issue #178 runtime-manual evidence | Status: CONCERNS
 
 ## Compatibility and boundaries
 
