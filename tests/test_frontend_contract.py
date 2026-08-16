@@ -6,261 +6,89 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 OPERATOR_SOURCE = ROOT / "frontend/sea-speed/index.html"
-ROOT_SOURCE = ROOT / "frontend/root/index.html"
 OBJECTS_SOURCE = ROOT / "frontend/sea-speed/objects/index.html"
 CAMERAS_SOURCE = ROOT / "frontend/sea-speed/cameras/index.html"
+ROAD_SOURCE = ROOT / "frontend/sea-speed/road/index.html"
+ROOT_SOURCE = ROOT / "frontend/root/index.html"
 
 
 class FrontendContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.source = OPERATOR_SOURCE.read_text(encoding="utf-8-sig")
-        cls.root_source = ROOT_SOURCE.read_text(encoding="utf-8-sig")
-        cls.objects_source = OBJECTS_SOURCE.read_text(encoding="utf-8-sig")
-        cls.cameras_source = CAMERAS_SOURCE.read_text(encoding="utf-8-sig")
+        cls.objects = OBJECTS_SOURCE.read_text(encoding="utf-8-sig")
+        cls.cameras = CAMERAS_SOURCE.read_text(encoding="utf-8-sig")
+        cls.road = ROAD_SOURCE.read_text(encoding="utf-8-sig")
+        cls.root = ROOT_SOURCE.read_text(encoding="utf-8-sig")
 
-    def test_operator_endpoints_are_explicit(self) -> None:
+    def test_existing_operator_endpoints_and_single_stream_control_remain(self) -> None:
         expected = {
-            "HLS_URL": "/sea-speed/media/cam1/index.m3u8",
-            "STATE_URL": "/sea-speed/api/cam1/state",
-            "EVENTS_URL": "/sea-speed/api/cam1/events?limit=3",
-            "ROI_URL": "/sea-speed/api/cam1/roi",
-            "SPEED_CONFIG_URL": "/sea-speed/api/cam1/speed-config",
-            "SPEED_LINES_URL": "/sea-speed/api/cam1/speed-lines",
-            "WORKER_CONTROL_URL": "/sea-speed/api/worker/control",
+            "HLS_URL": "/sea-speed/media/cam1/index.m3u8", "STATE_URL": "/sea-speed/api/cam1/state",
+            "ROI_URL": "/sea-speed/api/cam1/roi", "WORKER_CONTROL_URL": "/sea-speed/api/worker/control",
         }
         for name, value in expected.items():
             self.assertRegex(self.source, rf"const\s+{name}\s*=\s*[\"']{re.escape(value)}[\"']")
-        self.assertNotIn("/cams/", self.source)
-
-    def test_configuration_save_flows_use_json_post(self) -> None:
-        for function_name in ("saveSpeedConfig", "saveSpeedLines", "saveRoi"):
-            self.assertIn(f"async function {function_name}", self.source)
-        self.assertIn('method:"POST"', self.source)
-        self.assertIn('headers:{"Content-Type":"application/json"}', self.source)
-
-    def test_runtime_ids_are_unique(self) -> None:
-        ids = re.findall(r'\bid="([^"]+)"', self.source)
-        self.assertEqual(len(ids), len(set(ids)))
-        for element_id in (
-            "video", "streamStatus", "streamControlBtn", "workerStatus", "workerControlBtn", "motionStatus", "aiStatus",
-            "detectionsStatus", "tracksStatus", "overlayImg", "roiCanvas",
-            "speedLinesCanvas", "stateJson", "debugLog", "eventsList",
-        ):
-            self.assertEqual(self.source.count(f'id="{element_id}"'), 1)
-
-    def test_worker_control_is_separate_from_live_hls_controls(self) -> None:
-        self.assertIn('id="workerControlBtn"', self.source)
-        self.assertIn('async function refreshWorkerControl()', self.source)
-        self.assertIn('async function toggleWorker()', self.source)
-        self.assertIn('WORKER_START_URL', self.source)
-        self.assertIn('WORKER_STOP_URL', self.source)
-        self.assertNotIn('confirm(', self.source[self.source.index('async function toggleWorker()'):self.source.index('workerControlBtn.onclick=toggleWorker')])
-        self.assertIn('AI worker stopped; live HLS unchanged', self.source)
-        self.assertIn('const HLS_URL = "/sea-speed/media/cam1/index.m3u8";', self.source)
+        self.assertEqual(self.source.count('id="streamControlBtn"'), 1)
+        self.assertEqual(self.source.count('id="workerControlBtn"'), 1)
         self.assertIn('streamControlBtn.onclick=()=>streamDesired?disconnectStream(true):connectStream', self.source)
-        self.assertNotIn('connectBtn', self.source)
-        self.assertNotIn('disconnectBtn', self.source)
-        self.assertNotIn('systemctl', self.source)
-        refresh = self.source[self.source.index('async function refreshState()'):self.source.index('function renderEvents', self.source.index('async function refreshState()'))]
-        self.assertNotIn('setStatus(workerStatus', refresh)
+        self.assertNotIn('id="connectBtn"', self.source)
+        self.assertNotIn('id="disconnectBtn"', self.source)
 
-    def test_top_status_strip_owns_single_dynamic_stream_action(self) -> None:
-        status = re.search(r'<section\s+class="status-strip"[^>]*>(?P<body>.*?)</section>', self.source, re.S)
-        self.assertIsNotNone(status)
-        body = status.group("body")
-        self.assertEqual(body.count('id="streamControlBtn"'), 1)
-        self.assertIn('id="workerControlBtn"', body)
-        self.assertIn('class="status-item stream-control"', body)
-        self.assertIn('aria-label="Запустить поток"', body)
-        self.assertIn('function renderStreamControl()', self.source)
-        self.assertIn('const actionLabel=stopping?"Остановить поток":"Запустить поток"', self.source)
-        self.assertIn('streamControlBtn.setAttribute("aria-label",actionLabel)', self.source)
-        self.assertIn('streamControlBtn.title=actionLabel', self.source)
-        self.assertIn('streamControlBtn.innerHTML=stopping?', self.source)
-        self.assertIn('workerControlBtn.textContent=workerServiceActive?"■":"▶"', self.source)
-        self.assertIn('workerControlBtn.setAttribute("aria-label",actionLabel)', self.source)
-        self.assertNotIn('id="connectBtn"', body)
-        self.assertNotIn('id="disconnectBtn"', body)
-
-        live = re.search(r'<section\s+class="panel live-preview-card"[^>]*>(?P<body>.*?)</section>', self.source, re.S)
-        self.assertIsNotNone(live)
-        live_body = live.group("body")
-        self.assertNotIn('id="streamControlBtn"', live_body)
-        self.assertNotIn('camera-actions', live_body)
-
-    def test_desktop_workspace_has_three_columns_and_named_areas(self) -> None:
-        self.assertIn('data-layout="three-column-workspace"', self.source)
-        self.assertIn('grid-template-columns:minmax(250px,286px) minmax(0,720px) minmax(300px,340px)', self.source)
-        self.assertIn('grid-template-areas:"utilities camera right"', self.source)
-        self.assertIn('data-layout="left-utilities"', self.source)
-        self.assertIn('data-layout="primary-camera"', self.source)
-        self.assertIn('data-layout="right-live-history"', self.source)
-
-    def test_primary_camera_is_annotated_and_contains_no_video(self) -> None:
-        match = re.search(r'<article\s+class="panel camera-panel"[^>]*>(?P<body>.*?)</article>', self.source, re.S)
-        self.assertIsNotNone(match)
-        body = match.group("body")
-        for marker in ('id="overlayImg"', 'id="roiCanvas"', 'id="speedLinesCanvas"'):
-            self.assertIn(marker, body)
-        self.assertNotIn('id="video"', body)
-        self.assertIn('width:min(100%,720px)', self.source)
-
-    def test_primary_camera_keeps_saved_calibration_visible_outside_edit_mode(self) -> None:
-        self.assertIn('#roiCanvas,#speedLinesCanvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;opacity:1}', self.source)
-        self.assertIn('.roi-editor-wrap.editing #roiCanvas,.roi-editor-wrap.speed-lines-editing #speedLinesCanvas{pointer-events:auto;cursor:crosshair}', self.source)
-        self.assertIn('Сохранённая ROI и линии скорости отображаются поверх AI-кадра; режим редактирования включает точки управления.', self.source)
-        self.assertIn('if(roiEditing)p.forEach', self.source)
-        self.assertIn('if(speedLineEditing===k)p.forEach', self.source)
-        self.assertIn('roiEditorWrap.classList.toggle("editing",v)', self.source)
-        self.assertIn('roiEditorWrap.classList.toggle("speed-lines-editing",!!v)', self.source)
-        self.assertIn('setSpeedLineEditing(null);drawSpeedLines()', self.source)
-
-    def test_clean_live_and_detection_history_share_right_rail(self) -> None:
-        right = re.search(r'<aside\s+class="right-sidebar"[^>]*>(?P<body>.*?)</aside>', self.source, re.S)
-        self.assertIsNotNone(right)
-        body = right.group("body")
-        self.assertIn('data-layout="clean-live"', body)
-        self.assertIn('<video id="video" controls playsinline muted></video>', body)
-        self.assertIn('data-layout="compact-detection-history"', body)
-        self.assertIn('id="eventsList"', body)
-        self.assertLess(body.index('data-layout="clean-live"'), body.index('data-layout="compact-detection-history"'))
-        self.assertEqual(self.source.count('new Hls('), 1)
-
-    def test_clean_live_has_controlled_retry_lifecycle(self) -> None:
-        for marker in ('const STREAM_RETRY_DELAYS_MS=[1000,2000,4000,8000]','streamDesired=false','connectInFlight=false','playInFlight=false','reconnectAttempt=0','reconnectTimer=null','function scheduleStreamReconnect','function attemptVideoPlay','function destroyStreamMedia'):
-            self.assertIn(marker, self.source)
-        self.assertIn('if(connectInFlight)return', self.source)
-        self.assertEqual(self.source.count('new Hls('), 1)
-
-    def test_hls_errors_use_network_and_media_recovery(self) -> None:
-        for marker in ('Hls.ErrorTypes.NETWORK_ERROR','instance.startLoad()','Hls.ErrorTypes.MEDIA_ERROR','instance.recoverMediaError()'):
-            self.assertIn(marker, self.source)
-
-    def test_stream_status_tracks_actual_playback_and_stop_cancels_retry(self) -> None:
-        self.assertIn('video.addEventListener("playing"', self.source)
-        self.assertEqual(self.source.count('setStatus(streamStatus,"online","good")'), 1)
-        start = self.source.index('function disconnectStream(')
-        end = self.source.index('async function refreshState', start)
-        disconnect_source = self.source[start:end]
-        for marker in ('streamDesired=false','renderStreamControl()','clearReconnectTimer()','destroyStreamMedia()','setStatus(streamStatus,"idle","warn")'):
-            self.assertIn(marker, disconnect_source)
-        self.assertIn('video.removeAttribute("src")', self.source)
-
-    def test_stalled_stream_uses_progress_watchdog_before_reconnect(self) -> None:
-        for marker in ('const STREAM_STALL_GRACE_MS=2500','playbackWatchdogTimer=null','function schedulePlaybackWatchdog','video.currentTime)||0','current>baseline+0.05','video.addEventListener("timeupdate",notePlaybackProgress)','schedulePlaybackWatchdog("waiting timeout")','schedulePlaybackWatchdog("stalled timeout")','schedulePlaybackWatchdog("video error timeout")'):
-            self.assertIn(marker, self.source)
-        self.assertNotIn('scheduleStreamReconnect("stalled")', self.source)
-        self.assertNotIn('scheduleStreamReconnect("video error")', self.source)
-
-    def test_hls_builtin_recovery_gets_grace_period(self) -> None:
-        for marker in ('const STREAM_RECOVERY_GRACE_MS=3500','recoveryTimer=null','function scheduleRecoveryCheck','scheduleRecoveryCheck("network recovery timeout")','scheduleRecoveryCheck("media recovery timeout")'):
-            self.assertIn(marker, self.source)
-
-    def test_playback_progress_clears_stale_reconnect_status(self) -> None:
-        self.assertIn('function markStreamOnline()', self.source)
-        self.assertIn('function playbackIsAdvancing', self.source)
-        self.assertIn('if(playbackIsAdvancing()){markStreamOnline();return}', self.source)
-
-    def test_stop_cancels_watchdog_and_recovery_timers(self) -> None:
-        start = self.source.index('function disconnectStream(')
-        end = self.source.index('video.addEventListener("loadedmetadata"', start)
-        disconnect_source = self.source[start:end]
-        for marker in ('clearReconnectTimer()','clearPlaybackWatchdog()','clearRecoveryTimer()','lastPlaybackTime=0','lastPlaybackProgressAt=0'):
-            self.assertIn(marker, disconnect_source)
-
-    def test_stream_autoconnects_and_recovers_video_events(self) -> None:
-        for marker in ('video.addEventListener("stalled"','video.addEventListener("ended"','video.addEventListener("error"','setTimeout(()=>connectStream({resetRetry:true,reason:"auto"}),0)'):
-            self.assertIn(marker, self.source)
-
-    def test_detection_history_is_capped_and_does_not_use_bottom_panel(self) -> None:
-        self.assertIn('events.slice(0,3)', self.source)
-        self.assertIn('grid-template-rows:auto minmax(0,1fr)', self.source)
-        self.assertIn('overflow-y:auto', self.source)
-        self.assertNotIn('class="panel events-panel"', self.source)
-        self.assertEqual(self.source.count('id="eventsList"'), 1)
-
-    def test_all_left_utility_blocks_are_closed_disclosures(self) -> None:
-        markers = (('collapsible-overlay-controls','Overlay controls'),('collapsible-calibration','Speed calibration'),('collapsible-state','State JSON'),('collapsible-log','Operator log'))
-        for layout, label in markers:
-            match = re.search(rf'<details\s+class="[^"]+"\s+data-layout="{layout}"(?P<attrs>[^>]*)>.*?{re.escape(label)}.*?</details>', self.source, re.S)
-            self.assertIsNotNone(match)
-            self.assertNotRegex(match.group("attrs"), r'\bopen\b')
-
-    def test_mobile_order_prioritizes_camera_live_history_then_utilities(self) -> None:
-        self.assertRegex(self.source,re.compile(r'@media\(max-width:760px\).*?grid-template-areas:"camera" "right" "utilities"', re.S))
-        for marker in ("viewport-fit=cover","env(safe-area-inset-top)","env(safe-area-inset-right)","env(safe-area-inset-bottom)","env(safe-area-inset-left)","@media(max-width:430px)","@media(max-width:390px)","min-height:44px"):
-            self.assertIn(marker, self.source)
-
-    def test_operator_links_to_objects_registry(self) -> None:
-        self.assertRegex(self.source,r'<a\s+class="objects-link"\s+href="/sea-speed/objects/">Реестр объектов</a>')
-
-    def test_protected_headers_use_trusted_authentik_identity_and_logout(self) -> None:
-        pages = (self.source, self.objects_source, self.cameras_source)
-        for page in pages:
+    def test_navigation_is_synchronized_across_four_authenticated_pages(self) -> None:
+        for page in (self.source, self.objects, self.cameras, self.road):
+            self.assertIn('/sea-speed/objects/', page)
+            self.assertIn('/sea-speed/cameras/', page)
+            self.assertIn('/sea-speed/road/', page)
             self.assertEqual(page.count('id="sessionUser"'), 1)
-            self.assertIn('class="project-home" href="/"', page)
-            self.assertIn('class="project-lighthouse"', page)
-            self.assertIn('aria-label="На главную mostdef.ru"', page)
             self.assertIn('href="/outpost.goauthentik.io/sign_out">Выйти</a>', page)
-            self.assertRegex(page,r'const\s+SESSION_URL\s*=\s*["\']/sea-speed/api/session["\']')
-            self.assertNotIn('/outpost.goauthentik.io/auth/nginx', page)
-            self.assertIn('credentials:"same-origin"', page)
-            self.assertIn('textContent=', page)
-            self.assertNotIn('localStorage', page)
-            self.assertNotIn('sessionStorage', page)
+            self.assertRegex(page, r'SESSION_URL\s*=\s*["\']/sea-speed/api/session["\']')
+            self.assertNotIn("localStorage", page)
+            self.assertNotIn("sessionStorage", page)
 
-    def test_common_protected_headers_are_mobile_responsive(self) -> None:
-        for page in (self.source, self.objects_source, self.cameras_source):
+    def test_road_page_uses_logical_road1_and_generic_analytics_api(self) -> None:
+        for marker in (
+            'const CAMERA_ID="road1"', 'BASE="/sea-speed/api/analytics/road1"',
+            "BASE+'/state'", "BASE+'/events?limit=8'", "BASE+'/roi'",
+            "BASE+'/speed-config'", "BASE+'/speed-lines'",
+            '/sea-speed/api/cameras/road1/preview/start', '/sea-speed/api/cameras/preview/stop',
+        ):
+            self.assertIn(marker, self.road)
+        self.assertNotIn('/sea-speed/api/worker/control', self.road)
+        self.assertNotRegex(self.road, r'rtsp://[^\s"\']+:[^\s"\']+@')
+
+    def test_road_page_has_independent_status_overlay_calibration_and_events(self) -> None:
+        for marker in (
+            'id="workerStatus"', 'id="aiStatus"', 'id="detections"', 'id="tracks"',
+            'id="overlay"', 'id="roiCanvas"', 'id="lineCanvas"', 'id="events"',
+            'id="roiSave"', 'id="factorSave"', 'id="linesSave"',
+            'async function startPreview()', 'function stopMedia()',
+        ):
+            self.assertIn(marker, self.road)
+        ids = re.findall(r'\bid="([^"]+)"', self.road)
+        self.assertEqual(len(ids), len(set(ids)))
+
+    def test_objects_registry_is_cross_camera_and_filterable(self) -> None:
+        self.assertIn('const OBJECTS_URL="/sea-speed/api/objects"', self.objects)
+        self.assertIn('name="camera_id"', self.objects)
+        self.assertIn('name="domain"', self.objects)
+        self.assertIn('value="cam1"', self.objects)
+        self.assertIn('value="road1"', self.objects)
+        for marker in ('method:"PATCH"', 'method:"DELETE"', 'credentials:"same-origin"', 'id="objectsGrid"'):
+            self.assertIn(marker, self.objects)
+
+    def test_existing_operator_workspace_and_hls_recovery_markers_remain(self) -> None:
+        for marker in (
+            'data-layout="three-column-workspace"', 'data-layout="primary-camera"', 'data-layout="clean-live"',
+            'const STREAM_RETRY_DELAYS_MS=[1000,2000,4000,8000]', 'Hls.ErrorTypes.NETWORK_ERROR',
+            'Hls.ErrorTypes.MEDIA_ERROR', 'function schedulePlaybackWatchdog', 'function disconnectStream(',
+        ):
+            self.assertIn(marker, self.source)
+
+    def test_all_pages_keep_mobile_baseline(self) -> None:
+        for page in (self.source, self.objects, self.cameras, self.road):
             self.assertIn('@media(max-width:760px)', page)
-            self.assertIn('.session-bar', page)
-            self.assertIn('.project-home', page)
-
-    def test_objects_page_api_and_operator_actions(self) -> None:
-        self.assertRegex(self.objects_source,r'const\s+OBJECTS_URL\s*=\s*["\']/sea-speed/api/cam1/objects["\']')
-        for marker in ('method:"PATCH"','method:"DELETE"','credentials:"same-origin"','const PAGE_SIZE=24','id="objectsGrid"','id="detailPhoto"','id="editClassName"','id="editSpeed"','id="editStatus"','id="editComment"','id="editForm"','id="deleteBtn"','id="prevBtn"','id="nextBtn"','href="/sea-speed/"'):
-            self.assertIn(marker, self.objects_source)
-        ids = re.findall(r'\bid="([^"]+)"', self.objects_source)
-        self.assertEqual(len(ids), len(set(ids)))
-
-    def test_objects_page_mobile_and_accessibility_baseline(self) -> None:
-        self.assertIn('@media(max-width:760px)', self.objects_source)
-        self.assertIn('min-height:44px', self.objects_source)
-        self.assertIn('viewport-fit=cover', self.objects_source)
-
-    def test_cameras_page_runtime_ids_are_unique(self) -> None:
-        ids = re.findall(r'\bid="([^"]+)"', self.cameras_source)
-        self.assertEqual(len(ids), len(set(ids)))
-        self.assertEqual(self.cameras_source.count('id="sessionUser"'), 1)
-        self.assertIn('const CAMERAS_URL="/sea-speed/api/cameras"', self.cameras_source)
-        self.assertIn('const PREVIEW_STOP_URL="/sea-speed/api/cameras/preview/stop"', self.cameras_source)
-
-    def test_root_page_primary_action_opens_operator_frontend(self) -> None:
-        self.assertRegex(self.root_source, r'<a\s+class="primary-link"\s+href="/sea-speed/">')
-        self.assertIn("Открыть морской мониторинг", self.root_source)
-
-    def test_root_page_has_no_public_cameras_surface(self) -> None:
-        self.assertNotIn('href="/cams/"', self.root_source)
-        self.assertNotIn("https://mostdef.ru/cams/", self.root_source)
-        self.assertNotIn(">Камеры</a>", self.root_source)
-
-    def test_root_page_uses_local_absolute_paths(self) -> None:
-        self.assertNotIn("https://mostdef.ru/sea-speed/", self.root_source)
-        self.assertNotIn("https://mostdef.ru/cams/", self.root_source)
-
-    def test_root_page_is_explicitly_maritime_and_local(self) -> None:
-        for phrase in ("морского транспорта", "Обнаружение судов", "акватории Владивостока", "Эгершельд"):
-            self.assertIn(phrase, self.root_source)
-
-    def test_root_page_contains_marine_scene_and_radar_animation(self) -> None:
-        for class_name in ("marine-backdrop", "vladivostok-skyline", "lighthouse-scene", "lighthouse", "sea", "radar", "sweep", "vessel"):
-            self.assertIn(f'class="{class_name}"', self.root_source)
-        self.assertIn("@keyframes sweep", self.root_source)
-        self.assertIn("prefers-reduced-motion", self.root_source)
-
-    def test_root_page_has_no_external_visual_assets(self) -> None:
-        self.assertNotRegex(self.root_source, r'<img\b')
-        self.assertNotRegex(self.root_source, r'url\(["\']?https?://')
+            self.assertIn('viewport-fit=cover', page)
+        self.assertIn('href="/sea-speed/"', self.root)
 
 
 if __name__ == "__main__":

@@ -16,8 +16,10 @@ from typing import BinaryIO
 
 import numpy as np
 
+from analytics_profiles import get_profile, normalize_model_class
 
-VEHICLE_CLASSES = {"car", "truck", "bus", "motorcycle", "bicycle"}
+
+VEHICLE_CLASSES = set(get_profile("road-v1").model_classes)
 _LENGTH = struct.Struct("!I")
 
 
@@ -51,7 +53,7 @@ def write_response(stream: BinaryIO, payload: dict[str, object]) -> None:
     stream.flush()
 
 
-def serialize_detections(results) -> list[dict[str, object]]:
+def serialize_detections(results, analytics_profile: str = "water-v1") -> list[dict[str, object]]:
     detections: list[dict[str, object]] = []
     if not results:
         return detections
@@ -66,7 +68,8 @@ def serialize_detections(results) -> list[dict[str, object]]:
     for index, box in enumerate(result.boxes):
         cls_id = int(box.cls[0].item())
         class_name = str(names.get(cls_id, cls_id))
-        if class_name not in VEHICLE_CLASSES:
+        semantic = normalize_model_class(class_name, analytics_profile)
+        if semantic is None:
             continue
 
         track_id = None
@@ -81,7 +84,7 @@ def serialize_detections(results) -> list[dict[str, object]]:
         detections.append(
             {
                 "track_id": track_id,
-                "class_name": class_name,
+                **semantic,
                 "confidence": float(box.conf[0].item()),
                 "bbox_xyxy": [x1, y1, x2, y2],
             }
@@ -93,11 +96,13 @@ def serialize_detections(results) -> list[dict[str, object]]:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", required=True)
+    parser.add_argument("--analytics-profile", default="water-v1")
     parser.add_argument("--tracker", required=True)
     parser.add_argument("--image-size", type=int, required=True)
     parser.add_argument("--confidence", type=float, required=True)
     parser.add_argument("--device", default="0")
     args = parser.parse_args()
+    profile = get_profile(args.analytics_profile)
 
     protocol_in = sys.stdin.buffer
     protocol_out = sys.stdout.buffer
@@ -138,7 +143,7 @@ def main() -> int:
                 )
             write_response(
                 protocol_out,
-                {"ok": True, "detections": serialize_detections(results)},
+                {"ok": True, "detections": serialize_detections(results, profile.name)},
             )
         except Exception as exc:
             write_response(

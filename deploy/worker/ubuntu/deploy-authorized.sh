@@ -34,6 +34,7 @@ artifact_sha256=""
 repository="MostDef2000/sea-speed"
 repository_url="https://github.com/MostDef2000/sea-speed.git"
 worker_service="sea-speed-worker.service"
+road_service="sea-speed-road-worker.service"
 control_service="sea-speed-worker-control.service"
 test_mode="${SEA_SPEED_DEPLOY_TEST_MODE:-0}"
 systemd_unit_root="${SEA_SPEED_SYSTEMD_UNIT_ROOT:-/etc/systemd/system}"
@@ -135,6 +136,8 @@ desired_file="$install_root/shared/runtime/operator-desired-state"
 desired="$(cat "$desired_file" 2>/dev/null || echo running)"
 [[ "$desired" == "running" || "$desired" == "stopped" ]] || { echo "ERROR operator desired state is invalid" >&2; exit 9; }
 control_unit="$systemd_unit_root/$control_service"
+road_unit="$systemd_unit_root/$road_service"
+road_env="$install_root/shared/config/road-worker.env"
 
 verify_active_target() {
   [[ "$(cat "$active_marker" 2>/dev/null || true)" == "$target" ]] || return 1
@@ -147,6 +150,14 @@ verify_active_target() {
   systemctl is-active --quiet "$control_service" || return 1
   control_exec="$(systemctl show -p ExecStart --value "$control_service" 2>/dev/null || true)"
   [[ "$control_exec" == *"$target"* ]] || return 1
+  if [[ -f "$road_env" ]]; then
+    [[ "$(stat -c '%a' "$road_env")" == "600" ]] || return 1
+    [[ -f "$road_unit" ]] || return 1
+    grep -Fq "$target" "$road_unit" || return 1
+    systemctl is-active --quiet "$road_service" || return 1
+    road_exec="$(systemctl show -p ExecStart --value "$road_service" 2>/dev/null || true)"
+    [[ "$road_exec" == *"$target"* && "$road_exec" == *"/runtimes/$target_runtime/venv/bin/python"* ]] || return 1
+  fi
   if [[ "$desired" == "running" ]]; then
     systemctl is-active --quiet "$worker_service" || return 1
   else
@@ -191,7 +202,9 @@ fi
 
 runtime_id="$(cat "$install_root/releases/$target/runtime-id")"
 manifest="$updater_root/deployment-manifest-ubuntu-worker.json"
-TARGET="$target" PREVIOUS="$previous" RUNTIME_ID="$runtime_id" DESIRED="$desired" \
+road_configured=false
+if [[ -f "$road_env" ]]; then road_configured=true; fi
+TARGET="$target" PREVIOUS="$previous" RUNTIME_ID="$runtime_id" DESIRED="$desired" ROAD_CONFIGURED="$road_configured" \
 ARTIFACT_SHA256="$artifact_sha256" MANIFEST="$manifest" ROLLED_BACK="$rolled_back" python3 - <<'PY'
 import json, os
 from datetime import datetime, timezone
@@ -210,6 +223,7 @@ payload = {
         {"name": "current-main-first-parent", "status": "passed"},
         {"name": "exact-worker-source-runtime", "status": "passed"},
         {"name": "worker-control-service", "status": "passed"},
+        {"name": "road-worker-" + ("active" if os.environ["ROAD_CONFIGURED"] == "true" else "config-pending"), "status": "passed"},
         {"name": "operator-desired-state-" + os.environ["DESIRED"], "status": "passed"},
     ],
     "rollbackTarget": os.environ["PREVIOUS"],
@@ -220,6 +234,6 @@ Path(os.environ["MANIFEST"]).write_text(json.dumps(payload, indent=2, sort_keys=
 PY
 chmod 0600 "$manifest"
 
-printf 'DEPLOYMENT_ACCEPTED target=%s previous=%s runtime_id=%s desired_state=%s\n' \
-  "$target" "$previous" "$runtime_id" "$desired"
+printf 'DEPLOYMENT_ACCEPTED target=%s previous=%s runtime_id=%s desired_state=%s road_configured=%s\n' \
+  "$target" "$previous" "$runtime_id" "$desired" "$road_configured"
 printf 'DEPLOYMENT_MANIFEST path=%s\n' "$manifest"

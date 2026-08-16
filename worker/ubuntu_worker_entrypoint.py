@@ -14,6 +14,11 @@ from urllib.parse import urlsplit
 
 import numpy as np
 
+from analytics_profiles import get_profile
+
+# Ubuntu main is the water contour unless protected runtime config overrides it.
+os.environ.setdefault("ANALYTICS_PROFILE", "water-v1")
+
 import hls_motion_yolo_worker_events as worker
 
 
@@ -186,16 +191,18 @@ def start_media_reader(av_module=None):
 
     width = worker.env_int("FRAME_WIDTH", 704)
     height = worker.env_int("FRAME_HEIGHT", 576)
-    sample_fps = worker.env_float("SAMPLE_FPS", 5.0)
+    profile = get_profile(worker.env_str("ANALYTICS_PROFILE", "water-v1"))
+    sample_fps = worker.env_float("SAMPLE_FPS", profile.sample_fps)
     return ResilientFFmpegRtspReader(input_url, width, height, sample_fps)
 
 
 class BoundedYoloSupervisor:
     def __init__(self) -> None:
-        self.model_name = worker.env_str("MODEL_NAME", "yolo11s.pt")
-        self.tracker = worker.env_str("YOLO_TRACKER", "bytetrack.yaml").strip() or "bytetrack.yaml"
-        self.image_size = worker.env_int("YOLO_IMAGE_SIZE", 960)
-        self.confidence = worker.env_float("YOLO_CONFIDENCE", 0.25)
+        self.profile = get_profile(worker.env_str("ANALYTICS_PROFILE", "water-v1"))
+        self.model_name = worker.env_str("MODEL_NAME", self.profile.model_name)
+        self.tracker = worker.env_str("YOLO_TRACKER", self.profile.tracker).strip() or self.profile.tracker
+        self.image_size = worker.env_int("YOLO_IMAGE_SIZE", self.profile.image_size)
+        self.confidence = worker.env_float("YOLO_CONFIDENCE", self.profile.confidence)
         self.device = worker.env_str("YOLO_DEVICE", "0").strip() or "0"
         self.timeout_sec = max(1.0, worker.env_float("AI_INFERENCE_TIMEOUT_SEC", 12.0))
         self.startup_timeout_sec = max(
@@ -219,6 +226,8 @@ class BoundedYoloSupervisor:
                 str(self.child_path),
                 "--model",
                 self.model_name,
+                "--analytics-profile",
+                self.profile.name,
                 "--tracker",
                 self.tracker,
                 "--image-size",
@@ -239,7 +248,10 @@ class BoundedYoloSupervisor:
             raise RuntimeError("AI inference stdin unavailable")
         os.set_blocking(self.proc.stdin.fileno(), False)
         self.child_warmed = False
-        print(f"AI inference child restart reason={reason} device={self.device}")
+        print(
+            f"AI inference child restart reason={reason} device={self.device} "
+            f"profile={self.profile.name}"
+        )
 
     def close(self) -> None:
         proc = self.proc
