@@ -3,6 +3,7 @@
 - Specification: specs/017-delivery-automation/spec.md
 - Issue: #178
 - Status: In implementation
+- Active remediation PR: #191
 
 ## Delivery tasks
 
