@@ -1,6 +1,6 @@
 # Sea Speed Release Readiness Gate
 
-Version: 1.8.0
+Version: 1.9.0
 Status: Active
 
 ## Gate
@@ -52,7 +52,17 @@ The exact Change Contract must declare one runtime execution capability per cont
 
 For VPS, the repository already has Connector-addressable protected execution. For Ubuntu, `.github/workflows/deploy-ubuntu-worker.yml` plus `deploy/worker/ubuntu/deploy-authorized.sh` provide the protected workflow/target transaction. Zero-touch Ubuntu transport is `CONNECTOR` only when a restricted production transport/privilege boundary is independently provisioned and reachable; otherwise the truthful capability is `ONE_COMMAND_FALLBACK`. Do not infer a secret, route, sudo policy or runner from source alone.
 
-If a mandatory runtime contour has neither Connector execution nor one repository-owned exact fallback action, stop `BLOCKED` before partial delivery.
+If a mandatory runtime contour has neither Connector execution nor one repository-owned exact fallback action, the Orchestrator may return `BLOCKED` before partial delivery only after recording the concrete external capability blocker, evidence, unblock condition and next admissible action.
+
+## Terminal interaction gate
+
+Release readiness is an internal gate and does not create an intermediate operator handoff. The Delivery Orchestrator must continue every deterministic authorized release transition until exactly one terminal interaction state is justified:
+
+- `DONE`: the approved Outcome has all applicable source, release, deployment, runtime and product evidence satisfied.
+- `BLOCKED`: a concrete external blocker prevents any safe authorized continuation. State the blocker, evidence, unblock condition and next admissible action. A remediable source/test/CI/metadata failure or queued/running workflow is not `BLOCKED`.
+- `HUMAN DECISION REQUIRED`: a genuine operator authorization, protected input, configured environment review, irreversible/high-risk decision, or one-command fallback action is required. State the exact decision/action, bounded alternatives and consequences where relevant, and exact reply/action format.
+
+`FAILED` is not a terminal interaction state. A failed internal gate or workflow is remediated automatically when possible; otherwise the actual boundary is classified as `BLOCKED` or `HUMAN DECISION REQUIRED`. `APPROVED FOR RELEASE`, `CHANGES REQUIRED`, and internal workflow statuses are gate verdicts only and never substitute for the three terminal interaction states.
 
 ## Aggregate quality gate
 
@@ -145,7 +155,7 @@ The active `mvp_v1` and target `edge_v2` storage boundary remain unchanged; acti
 
 ## Evidence review gate
 
-After runtime verification, return exactly one product verdict: `accepted`, `regressed`, or `insufficient_evidence`. A regression requires a linked Issue and rollback decision unless the exact safe rollback was already included in the active production envelope.
+After runtime verification, return exactly one product verdict: `accepted`, `regressed`, or `insufficient_evidence`. A regression requires a linked Issue and rollback decision unless the exact safe rollback was already included in the active production envelope. This product verdict is evidence input to the terminal interaction contract; it is not itself a terminal interaction state.
 
 ## Deployment transaction gate
 
@@ -161,12 +171,14 @@ Changes limited to governance, SDD, documentation and delivery/quality tooling r
 
 ## Evidence rule
 
-Green PR is not deployment evidence. Merge is not release. Release is not deployment. Deployment is not acceptance. `COMPLETE` requires evidence for every applicable transition.
+Green PR is not deployment evidence. Merge is not release. Release is not deployment. Deployment is not acceptance. `DONE` requires evidence for every applicable transition and terminal Issue evidence for the approved Outcome.
 
 ## Verdicts
 
-The release gate ends with exactly one verdict:
+The release gate ends with exactly one internal verdict:
 
 - `APPROVED FOR RELEASE`
 - `CHANGES REQUIRED`
 - `BLOCKED`
+
+These are release-gate verdicts only. The Delivery Orchestrator still returns control only as `DONE`, `BLOCKED`, or `HUMAN DECISION REQUIRED` under the terminal interaction gate above.

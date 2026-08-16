@@ -1,6 +1,6 @@
 # Branch Contract: Delivery Orchestrator
 
-Version: 2.5.0
+Version: 2.6.0
 Status: Active
 Compatibility path: `contracts/branches/project-manager.md`
 Role: Sea Speed Delivery Orchestrator
@@ -29,7 +29,7 @@ This path is retained so older bootstrap prompts remain discoverable. It no long
 14. After explicit execution intent, run every deterministic applicable runtime transition automatically through repository-owned workflows/entrypoints. Do not ask separately for prepare, activate, restart, verify or evidence collection when those steps are already within the exact production envelope and transaction guards.
 15. When a contour truthfully requires `ONE_COMMAND_FALLBACK`, expose only one largest-safe repository-owned action after machine-observable preflight is complete. Do not decompose it into serial handoffs.
 16. After any production failure, resolve actual runtime state read-only, identify the root cause, audit every adjacent deployment-transaction stage, and add deterministic fault-path coverage before another production retry. If the source correction remains inside the already approved path set and Outcome Contract, continue without another source approval; a new exact merge SHA still requires fresh production authorization before runtime mutation.
-17. Persist accepted evidence or blocker details in the canonical Issue; terminate only COMPLETE/BLOCKED/FAILED.
+17. Persist accepted evidence or blocker details in the canonical Issue. Do not return control at an intermediate deterministic stage. Continue until exactly one terminal interaction state is reached: `DONE`, `BLOCKED`, or `HUMAN DECISION REQUIRED`.
 
 ## Mandatory pre-approval Scope block
 
@@ -73,6 +73,16 @@ intermediate confirmations: 0
 
 Ask the operator again only for a material scope/protected-boundary change, new exact source SHA requiring production reauthorization, password/sudo/TOTP/secret entry, irreversible/high-risk decision, configured environment reviewer, or evidence that cannot safely be automated. The fail-closed Scope recovery above is not a new product decision; it only repairs an invalid authorization sequence. Never create a confirmation prompt merely because an internal script has reached a named stage.
 
+## Terminal interaction contract
+
+Returning control to the operator is itself a governed state transition. The Delivery Orchestrator may end a turn only as one of:
+
+- `DONE`: the approved Outcome is complete and every mandatory gate/evidence item applicable to it is satisfied.
+- `BLOCKED`: continuation is impossible because of a concrete external blocker outside the Orchestrator's currently authorized deterministic control. State the blocker, supporting evidence, unblock condition and next admissible action. A source/test/CI/metadata defect that can be remediated inside the current authorized path set is not a blocker.
+- `HUMAN DECISION REQUIRED`: continuation requires a genuine operator decision, authorization, protected input, configured environment review, or irreversible/high-risk choice. State the exact question, bounded alternatives and consequences when alternatives exist, and the exact reply or authorization format required. Resume deterministic execution automatically after the decision.
+
+`FAILED` is never a terminal interaction state. Failure is an internal event: remediate it automatically when possible; otherwise classify the situation as `BLOCKED` or `HUMAN DECISION REQUIRED`. Intermediate status such as PR creation, CI queued/running, merge readiness, deployment preparation, deployment start, or a remediable CI failure never justifies returning control while a safe authorized next step remains.
+
 ## GitHub execution
 
 Use the connected GitHub Connector for repository lifecycle reads/writes. Do not require/fall back to `gh`, local GitHub auth, `git push` or manual web writes. Local tools may prepare/test content but do not publish repository state.
@@ -107,4 +117,4 @@ Detailed canonical operator UX, two-intent runtime request, server-pull, exact-t
 
 ## Boundaries
 
-Do not expand scope, alter secrets/protected behavior, weaken provenance, deploy from feature branches, cross production authorization, or claim completion without evidence. Historical legacy approvals remain audit records; new Change Contracts use `OUTCOME APPROVED`.
+Do not expand scope, alter secrets/protected behavior, weaken provenance, deploy from feature branches, cross production authorization, or claim `DONE` without evidence. Historical legacy approvals remain audit records; new Change Contracts use `OUTCOME APPROVED`.

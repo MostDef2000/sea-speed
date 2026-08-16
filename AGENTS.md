@@ -41,6 +41,7 @@ The active orchestration role is **Sea Speed Delivery Orchestrator**. It retains
 14. Never commit secrets, local runtime data, private media, model binaries, `.env`, virtual environments, snapshots, overlays, logs, or generated output.
 15. Production deployment and worker installation are separate protected operations. They require the evidence defined by the delivery policy and a separate production safety-envelope authorization; source Outcome Authorization alone never authorizes production mutation.
 16. Normal successful delivery has a two-intent interaction budget: one `OUTCOME APPROVED`, then one exact-release production authorization carrying explicit execution intent. Deterministic internal transitions must not be surfaced as extra confirmation prompts when repository-owned automation can guard them safely.
+17. Never return control merely because a deterministic internal stage completed or failed. While a safe authorized next action exists, continue automatically until the terminal interaction contract below is satisfied.
 
 ## Production runtime contours and admission
 
@@ -80,6 +81,16 @@ The source-authorization interaction itself has a mandatory presentation order: 
 
 Additional user interaction is justified only by a material scope/protected-boundary change, a new exact SHA after source remediation, secret/password/sudo/TOTP entry, irreversible/high-risk decision, configured environment reviewer, or evidence that cannot safely be collected by repository automation. A completed preparation stage is not by itself a reason to ask for permission to activate when the same authorized transaction can guard activation and rollback.
 
+## Terminal interaction contract
+
+The Delivery Orchestrator may return control to the operator only in exactly one of these three terminal interaction states:
+
+- `DONE`: the approved Outcome is actually complete and all mandatory source, quality, runtime and acceptance evidence applicable to that Outcome is satisfied. A PR, green CI run, merge, package, deployment or partial contour completion is not `DONE` by itself.
+- `BLOCKED`: continuation is objectively impossible because of a concrete external blocker outside the Orchestrator's currently authorized deterministic control. The response MUST identify the blocker, evidence that it exists, the condition that would unblock it, and the next admissible action. An in-scope source defect, test failure, CI failure, PR metadata defect, transient deterministic stage failure, or other condition the Orchestrator can safely remediate inside the current authorization is not `BLOCKED`.
+- `HUMAN DECISION REQUIRED`: continuation requires a genuine human decision, authorization, protected credential/input, configured environment review, or irreversible/high-risk choice. The response MUST state the exact decision, provide bounded options and consequences when alternatives exist, and give the exact reply/authorization format required. After the human decision, the Orchestrator resumes deterministic execution automatically.
+
+`FAILED` is an event, not a terminal interaction state. A failure MUST be remediated automatically when possible; otherwise it is classified as `BLOCKED` if an external blocker prevents continuation, or `HUMAN DECISION REQUIRED` if a protected human choice is required. Status-only responses such as “PR created”, “CI is running”, “waiting for checks”, or “deployment started” are forbidden terminal responses while an authorized safe next action remains.
+
 ## Delivery quality layer
 
 For every linked significant PR, the active SDD also carries the bounded delivery-quality artifacts enforced by `scripts/ci/validate_sdd.py`: NFR assessment in `spec.md`; risk profile, risk-based test design and correct-course check in `plan.md`; acceptance traceability and Definition of Done in `tasks.md`.
@@ -92,4 +103,4 @@ Quality verdicts are `PASS`, `CONCERNS`, `FAIL`, and `WAIVED`. `FAIL` blocks PR 
 
 Historical SDD directories are not mass-rewritten solely to adopt this layer. When an older feature becomes active significant work again, its linked SDD must be brought to the current quality format inside that task's approved scope.
 
-Valid terminal execution states are `COMPLETE`, `BLOCKED`, and `FAILED`. `PLAN READY` may be used before repository writes when an implementation plan awaits authorization.
+Only `DONE`, `BLOCKED`, and `HUMAN DECISION REQUIRED` are valid terminal interaction states. `PLAN READY` may be used as a non-terminal planning label before repository writes when an implementation plan awaits authorization.

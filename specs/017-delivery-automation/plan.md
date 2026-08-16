@@ -2,21 +2,25 @@
 
 - Specification: specs/017-delivery-automation/spec.md
 - Issue: #178
+- Active governance continuation: #195
 - Status: In implementation
 
 ## Architecture
 
 The change introduces one policy layer and three execution layers while retaining the existing exact-SHA provenance model.
 
-1. **Interaction policy**: governance, task-runtime, release-readiness and Delivery Orchestrator contracts define the two-intent budget, require a visible exact Scope block before every source-authorization request, make the presentation order a fail-closed source-admission gate, and make ordinary in-scope remediation a continuation of the original validly admitted `OUTCOME APPROVED` rather than a new approval event.
+1. **Interaction policy**: governance, task-runtime, release-readiness and Delivery Orchestrator contracts define the two-intent budget, require a visible exact Scope block before every source-authorization request, make the presentation order a fail-closed source-admission gate, make ordinary in-scope remediation a continuation of the original validly admitted `OUTCOME APPROVED`, and now make return-control itself fail closed to exactly `DONE`, `BLOCKED`, or `HUMAN DECISION REQUIRED`.
 2. **Executable Change Contract**: every runtime-impacting PR declares per-contour execution capability and expected operator-action count. CI rejects required contours whose execution path is missing and rejects inconsistent manual-action budgets.
 3. **Connector-addressable runtime request**: `deploy-runtime-request.yml` accepts only the exact three-line production authorization carrying `Execution-Intent: EXECUTE`, validates the comment through repository code, independently re-verifies durable production authorization and routes only the required contours.
 4. **Ubuntu protected execution**: `deploy-ubuntu-worker.yml` owns hosted admission/provenance and selects either a separately provisioned restricted transport or one-command fallback. `deploy-authorized.sh` owns the target-side exact-source activation, verification, deployment evidence and rollback transaction.
 5. **Production-equivalent CI**: the real Ubuntu transaction entrypoint executes in an isolated sandbox with fake Git/systemd/runtime boundaries so deterministic ordering, desired-state and rollback defects fail before production.
+6. **Terminal interaction regression**: a repository test reads all six active orchestration/governance contracts and rejects legacy terminal-state wording, missing three-state definitions, unstructured blockers, unstructured human decisions, terminal `FAILED`, or status-only handoff semantics.
 
 The runtime request is not itself a new authority model. Durable production authorization retains the existing fingerprint payload. `Execution-Intent: EXECUTE` is an additional exact line proving that the already authorized release should now execute. A two-line authorization remains authorize-only.
 
 The source admission rule is also not a new user decision. It is a protocol invariant around the existing single `OUTCOME APPROVED`: the exact six-field Scope must be the last substantive assistant block before the request, the approval must be the next user decision, and no branch/source write is legal unless `VISIBLE_SCOPE_PRESENTED=YES` and `SCOPE_IMMEDIATELY_PRECEDES_APPROVAL=YES`. Failure returns to `DISCUSSION` and requires re-presenting Scope plus a new token; the misplaced token is never retroactively reused.
+
+The terminal interaction rule does not introduce a new approval. It governs when the Orchestrator is allowed to stop executing and return control. Internal failures, CI states and stage completions remain non-terminal while safe deterministic continuation is available.
 
 ## Decisions
 
@@ -75,11 +79,17 @@ The source admission rule is also not a new user decision. It is a protocol inva
 - Recovery: return to `DISCUSSION`, render the complete current Scope, request approval, and accept only the newly supplied immediately-following token.
 - Rejected: retroactively accepting the earlier token after showing Scope; relying on “scope was mentioned somewhere above”; allowing branch creation before the presentation gate is proven.
 
+### D-010 - Return control is a three-state governed transition
+
+- Decision: The Orchestrator may return control only as `DONE`, `BLOCKED`, or `HUMAN DECISION REQUIRED`. `FAILED` is an internal event. `BLOCKED` requires a concrete external blocker plus evidence/unblock/next action. `HUMAN DECISION REQUIRED` requires the exact protected decision, bounded options/consequences when alternatives exist and exact response/action format; execution resumes automatically after the decision.
+- Reason: Status-only stops such as “PR created”, “waiting for CI”, or “checks failed” transfer deterministic orchestration work back to the operator even though the authorized task is still executable.
+- Rejected: `COMPLETE/BLOCKED/FAILED` as conversational terminal states; arbitrary progress handoffs; asking the operator to prompt the Orchestrator to continue after every internal stage.
+
 ## Affected contours
 
-- Repository/control plane: governance and feature 017 SDD only for this remediation.
+- Repository/control plane: six active orchestration/governance contracts, feature 017 SDD, and one terminal-state regression test for Issue #195.
 - VPS application runtime: unchanged.
-- Ubuntu Worker/relay: runtime/source unchanged by this remediation; previously delivered automation remains unchanged.
+- Ubuntu Worker/relay: runtime/source unchanged by this continuation; previously delivered automation remains unchanged.
 - Windows AI Worker: unchanged.
 - Public application/API/media behavior: unchanged.
 - Credentials/privilege: no credential material, sudoers, root SSH policy, GitHub environment secret or runner provisioning is changed.
@@ -87,18 +97,18 @@ The source admission rule is also not a new user decision. It is a protocol inva
 
 ## Validation
 
-- Static: repository/SDD validation and exact content review of the four active orchestration contracts.
-- Contract UX: `AGENTS.md`, canonical governance, task runtime and Delivery Orchestrator contract all require Scope-before-approval ordering, immediate adjacency, two explicit admission state flags, and no source write while admission is blocked.
-- Regression: feature 017 records bare approval, approval-before-scope, incomplete/stale Scope and non-adjacent Scope as invalid source-admission sequences; recovery requires a newly rendered Scope and new token.
-- Scope: exact seven-path diff only; no application/runtime/deployment source changes.
+- Static: repository/SDD validation and exact content review of all six active orchestration/governance contracts.
+- Contract UX: `AGENTS.md`, governance, delivery policy, task runtime, release readiness and Delivery Orchestrator contract all define exactly `DONE`, `BLOCKED`, `HUMAN DECISION REQUIRED` as terminal interaction states and classify `FAILED` as an event.
+- Regression: `tests/test_delivery_terminal_states.py` asserts the state names, removes legacy terminal wording, requires external blocker evidence/unblock semantics, structured human decisions, automatic remediation/resume, and rejects progress-only handoff semantics.
+- Scope: exact ten-path diff only; no application/runtime/deployment implementation source changes.
 - PR: exact in-scope diff, PR Validation and aggregate Quality integration on one exact final head; fresh main/head/scope/review gate before expected-head merge.
-- Runtime: NOT REQUIRED for this control-plane-only remediation.
+- Runtime: NOT REQUIRED for this control-plane-only continuation.
 
 ## Risk profile
 
 - Risk profile: NOT REQUIRED
 
-The current seven-path remediation is CONTROL_PLANE-only with security impact `NONE`, no API/event/state/storage schema impact, no destructive/data migration, no MIXED runtime impact and no other high-risk trigger. The broader feature 017 historical risk records are retained separately below as audit context and are not active risk rows for this Change Contract.
+The current ten-path continuation is CONTROL_PLANE-only with security impact `NONE`, no API/event/state/storage schema impact, no destructive/data migration, no MIXED runtime impact and no other high-risk trigger. The broader feature 017 historical risk records are retained separately below as audit context and are not active risk rows for this Change Contract.
 
 ## Historical feature risk record
 
@@ -125,21 +135,22 @@ These records document the broader delivery/runtime automation work already deli
 - TEST-008 | Covers: AC-013 | Level: integration | Priority: P0 | Evidence: exact-head PR Validation, Quality integration, fresh merge gate and expected-head merge
 - TEST-009 | Covers: AC-014 | Level: integration | Priority: P1 | Evidence: exact approved diff plus Change Contract exclusions and post-merge runtime authorization boundary
 - TEST-010 | Covers: AC-015 | Level: integration | Priority: P0 | Evidence: exact content review of `AGENTS.md`, `contracts/SEA_SPEED_GOVERNANCE.md`, `contracts/runtime/SEA_SPEED_TASK_RUNTIME.md`, `contracts/branches/project-manager.md` plus SDD validation
-- TEST-011 | Covers: AC-016 | Level: integration | Priority: P0 | Evidence: exact content review proves the two admission flags, `DISCUSSION` fallback, source-write prohibition and fresh-token recovery are present in all four contracts; PR Validation and Quality integration validate the seven-path SDD change
+- TEST-011 | Covers: AC-016 | Level: integration | Priority: P0 | Evidence: exact content review proves the two admission flags, `DISCUSSION` fallback, source-write prohibition and fresh-token recovery are present in all four contracts; PR Validation and Quality integration validate the historical seven-path SDD change
+- TEST-012 | Covers: AC-017 | Level: integration | Priority: P0 | Evidence: `tests/test_delivery_terminal_states.py` plus exact content review of all six active orchestration/governance contracts
 
 ## Correct-course check
 
 - Trigger: ARCHITECTURE_PIVOT
-- Issue impact: Issue #178 remains the product/runtime parent. Operator feedback exposed that the existing Scope-before-approval prose could still be executed incorrectly, so the same delivery-automation outcome now makes presentation ordering a fail-closed state gate.
-- Specification impact: adds the invalid-sequence scenario, FR-016, AC-016 and NFR-008 without changing the two-intent model or runtime automation semantics.
-- Plan impact: adds D-009 and explicit admission/recovery state; runtime/deployment architecture is unchanged.
-- Tasks impact: adds bounded seven-path remediation for fail-closed Scope admission.
-- Authorization impact: a complete seven-path Scope block was displayed immediately before the operator supplied `OUTCOME APPROVED`; admission is valid for this remediation.
-- Follow-up: merge only an exact-green seven-path head; future source tasks must prove the two Scope-admission flags before any branch/source write.
+- Issue impact: Issue #178 remains the historical product/runtime parent; Issue #195 is the canonical active governance continuation after operator feedback showed that the Orchestrator could still stop at intermediate deterministic stages.
+- Specification impact: adds Scenario 7, FR-017, AC-017 and NFR-009 for the three-state terminal interaction contract without changing source/production authorization semantics.
+- Plan impact: adds D-010, six-contract consistency and an executable regression test; runtime/deployment architecture remains unchanged.
+- Tasks impact: adds a bounded ten-path CONTROL_PLANE continuation for Issue #195.
+- Authorization impact: the complete ten-path Scope was displayed immediately before the operator supplied `OUTCOME APPROVED` on 2026-08-16; admission is valid for Issue #195.
+- Follow-up: merge only an exact-green ten-path head; after merge future Orchestrator turns may return control only as `DONE`, `BLOCKED`, or `HUMAN DECISION REQUIRED`.
 
 ## Deployment transaction audit
 
-The following audit remains historical evidence for the broader feature 017 Ubuntu deployment automation. This current seven-path remediation is CONTROL_PLANE-only and introduces no production transaction.
+The following audit remains historical evidence for the broader feature 017 Ubuntu deployment automation. The active Issue #195 ten-path continuation is CONTROL_PLANE-only and introduces no production transaction.
 
 - TX-001 | Stage: ADMISSION | Mutation: NO | Failure disposition: FATAL | State after failure: repository and runtime unchanged | Retry: correct exact comment/main-history/quality/authorization/capability evidence then re-enter protected workflow | Rollback: NOT REQUIRED because runtime mutation has not started | Evidence: strict request parser, first-parent check, push/main quality, durable authorization and release-manifest logs
 - TX-002 | Stage: PRE-MUTATION | Mutation: NO | Failure disposition: FATAL | State after failure: exact release/evidence may exist only on runner or root-owned staging; active worker unchanged | Retry: correct missing transport/prerequisite or use the single declared fallback action | Rollback: NOT REQUIRED because target activation has not started | Evidence: exact artifact digest, release manifest, target baseline source/desired state and transport capability result
@@ -154,5 +165,5 @@ The following audit remains historical evidence for the broader feature 017 Ubun
 
 - Actual production transport after source merge: one-command fallback was used successfully for Issue #178 runtime target `8dc74762a344dbf763d3ce1e7ecb1bac6872affb`.
 - Restricted zero-touch Ubuntu transport remains separately unprovisioned; the repository still truthfully advertises one-command fallback when needed.
-- The current fail-closed scope-admission remediation is governance/control-plane only and performs no production mutation.
+- The fail-closed scope-admission remediation and Issue #195 terminal-interaction continuation are governance/control-plane only and perform no production mutation.
 - Product runtime acceptance for Issue #178 has already confirmed worker Stop/Start independence from Camera 1 HLS; later UI polish remains separately scoped source work.

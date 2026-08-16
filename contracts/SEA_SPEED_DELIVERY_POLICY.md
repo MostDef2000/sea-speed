@@ -1,6 +1,6 @@
 # Sea Speed Delivery Policy
 
-Version: 1.14.0
+Version: 1.15.0
 Status: Active
 
 ## 1. Purpose
@@ -29,6 +29,8 @@ PR admission requires an exact Change Contract, exact changed-file match, valid 
 The merge-facing context remains `Quality integration gate / quality-integration`. PR checks validate source; they do not deploy production.
 
 After `OUTCOME APPROVED`, ordinary implementation defects, test corrections and CI remediation inside the already approved exact path set are continuation work. They do not require another source-approval prompt. Reauthorization is required only for material outcome/scope/protected-boundary expansion.
+
+A deterministic lifecycle stage, including PR creation, queued/running CI, a remediable check failure, merge readiness, packaging, or an already-authorized runtime transition, is not a valid reason to return control to the operator. Continue automatically until the terminal interaction contract in section 15 is satisfied.
 
 Deployment/release changes and production-learning correct-course work require the linked SDD Deployment Transaction Audit defined in section 17. A narrow source diff does not justify narrow failure analysis: after production learning, inspect neighboring transaction stages before the next production attempt.
 
@@ -139,6 +141,8 @@ Expose the largest safe authorized step. Do not split deterministic internal pha
 
 Known deterministic prerequisites, integrity checks, backups, preparation, activation, restart, smoke, evidence collection and safe retry should be encoded in the repository entrypoint rather than emitted as serial operator commands. Never reduce exact-SHA binding, host validation, authorization, backup, rollback, integrity or fail-closed behavior for convenience.
 
+When an allowed protected interaction is required, return control as `HUMAN DECISION REQUIRED` and state the exact decision, bounded options/consequences where alternatives exist, and exact reply/action format. Do not use a generic status handoff.
+
 ## 11. VPS execution and evidence
 
 `.github/workflows/deploy-vps.yml` remains the single protected VPS implementation. It supports reusable `workflow_call` and emergency/operator `workflow_dispatch`, retains `environment: production`, and performs all admission checks before SSH. The two-intent runtime router may call it directly for an applicable VPS contour.
@@ -163,9 +167,17 @@ Windows completion requires exact package/install identity, preservation of loca
 
 The active media mode remains `mvp_v1`; `edge_v2` is a separate protected migration. Runtime identity fields are additive and must not redefine detection/tracking/calibration/speed/event formulas.
 
-## 15. Completion
+## 15. Completion and terminal interaction
 
-Merge is not release. Release is not deployment. Deployment is not acceptance. `COMPLETE` requires evidence for every applicable contour and the product verdict rules in `docs/evidence/POST_RELEASE_REVIEW.md`.
+Merge is not release. Release is not deployment. Deployment is not acceptance. `DONE` requires evidence for every applicable contour and the product verdict rules in `docs/evidence/POST_RELEASE_REVIEW.md`.
+
+The Delivery Orchestrator may return control to the operator only in exactly one terminal interaction state:
+
+- `DONE`: all mandatory evidence for the approved Outcome is satisfied.
+- `BLOCKED`: a concrete external blocker makes continuation objectively impossible. The response records the blocker, supporting evidence, unblock condition and next admissible action. A remediable in-scope source/test/CI/PR-metadata failure is not a blocker.
+- `HUMAN DECISION REQUIRED`: continuation requires a genuine human decision, authorization, protected input, configured environment review, or irreversible/high-risk choice. The response records the exact decision, bounded options and consequences when alternatives exist, and the exact response/action format; deterministic execution resumes after the decision.
+
+`FAILED` is an event, not a terminal interaction state. Remediate it automatically when possible; otherwise classify the real boundary as `BLOCKED` or `HUMAN DECISION REQUIRED`. Never terminate on PR creation, queued/running CI, a remediable failed check, merge readiness, package creation, deployment preparation, or deployment start while an authorized safe next step exists.
 
 ## 16. Delivery quality admission
 
@@ -173,7 +185,7 @@ A linked significant PR is quality-enabled only when its canonical SDD includes 
 
 Full risk profiling is required for security impact, API/event/state/storage schema impact, destructive/data migration, `MIXED` runtime impact, or an explicit other high-risk trigger. Risk records use categories `TECH`, `SEC`, `PERF`, `DATA`, `BUS`, `OPS`; probability and impact are scored 1-5 and the score is their product. Test design identifies `unit`, `integration`, `end-to-end`, or `runtime-manual` evidence with priority `P0` through `P3`.
 
-The quality verdict is advisory with respect to product confidence but machine-enforced for admission: `FAIL` blocks; `PASS` and `CONCERNS` proceed subject to all hard gates; `WAIVED` proceeds only with a complete durable waiver record. A waiver never changes runtime applicability or production authorization and never converts missing mandatory evidence into success.
+The quality verdict is advisory with respect to product confidence but machine-enforced for admission: `FAIL` blocks; `PASS` and `CONCERNS` proceed subject to all hard gates; `WAIVED` proceeds only with a complete durable waiver record. A waiver never changes runtime applicability or production authorization and never converts missing mandatory evidence into success. A quality `FAIL` is not itself a terminal interaction state; in-scope remediation continues unless an actual external/human boundary is reached.
 
 Production-equivalent deterministic deployment tests should execute the real repository-owned transaction entrypoint with isolated fake external/runtime boundaries. String-presence assertions are insufficient when the defect class is executable shell state/order/exit behavior.
 
