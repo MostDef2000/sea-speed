@@ -35,6 +35,8 @@ repository="MostDef2000/sea-speed"
 repository_url="https://github.com/MostDef2000/sea-speed.git"
 worker_service="sea-speed-worker.service"
 control_service="sea-speed-worker-control.service"
+test_mode="${SEA_SPEED_DEPLOY_TEST_MODE:-0}"
+systemd_unit_root="${SEA_SPEED_SYSTEMD_UNIT_ROOT:-/etc/systemd/system}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -48,7 +50,14 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[[ "$EUID" -eq 0 ]] || { echo "ERROR run as root" >&2; exit 1; }
+if [[ "$test_mode" == "1" ]]; then
+  [[ "$install_root" != "/opt/sea-speed-worker" && "$systemd_unit_root" != "/etc/systemd/system" ]] || {
+    echo "ERROR test mode requires sandbox install and systemd roots" >&2; exit 1;
+  }
+else
+  [[ "$EUID" -eq 0 ]] || { echo "ERROR run as root" >&2; exit 1; }
+  [[ "$systemd_unit_root" == "/etc/systemd/system" ]] || { echo "ERROR production systemd unit root is fixed" >&2; exit 1; }
+fi
 [[ "$target" =~ ^[0-9a-f]{40}$ ]] || { echo "ERROR target must be a lowercase 40-character SHA" >&2; exit 2; }
 [[ "$issue" =~ ^[1-9][0-9]*$ ]] || { echo "ERROR --issue must be a positive integer" >&2; exit 2; }
 [[ "$service_user" =~ ^[a-z_][a-z0-9_-]*$ ]] || { echo "ERROR invalid service user" >&2; exit 2; }
@@ -60,12 +69,18 @@ for command_name in git python3 systemctl stat install mktemp flock grep; do
   command -v "$command_name" >/dev/null 2>&1 || { echo "ERROR required command missing: $command_name" >&2; exit 4; }
 done
 [[ -f "$token_file" ]] || { echo "ERROR protected GitHub token missing: $token_file" >&2; exit 5; }
-[[ "$(stat -c '%u' "$token_file")" == "0" && "$(stat -c '%a' "$token_file")" == "600" ]] || {
-  echo "ERROR GitHub token must be root-owned mode 600" >&2; exit 5;
-}
+[[ "$(stat -c '%a' "$token_file")" == "600" ]] || { echo "ERROR GitHub token mode must be 600" >&2; exit 5; }
+if [[ "$test_mode" != "1" && "$(stat -c '%u' "$token_file")" != "0" ]]; then
+  echo "ERROR GitHub token must be owned by root" >&2
+  exit 5
+fi
 
 updater_root="$install_root/updater"
-install -d -o root -g root -m 0700 "$updater_root"
+if [[ "$test_mode" == "1" ]]; then
+  install -d -m 0700 "$updater_root"
+else
+  install -d -o root -g root -m 0700 "$updater_root"
+fi
 exec 8>"$updater_root/deploy-authorized.lock"
 chmod 0600 "$updater_root/deploy-authorized.lock"
 flock -n 8 || { echo "ERROR another authorized Ubuntu deployment is running" >&2; exit 6; }
@@ -119,6 +134,7 @@ previous="$(cat "$active_marker" 2>/dev/null || true)"
 desired_file="$install_root/shared/runtime/operator-desired-state"
 desired="$(cat "$desired_file" 2>/dev/null || echo running)"
 [[ "$desired" == "running" || "$desired" == "stopped" ]] || { echo "ERROR operator desired state is invalid" >&2; exit 9; }
+control_unit="$systemd_unit_root/$control_service"
 
 verify_active_target() {
   [[ "$(cat "$active_marker" 2>/dev/null || true)" == "$target" ]] || return 1
@@ -126,8 +142,8 @@ verify_active_target() {
   [[ "$target_runtime" =~ ^[0-9a-f]{64}$ ]] || return 1
   worker_exec="$(systemctl show -p ExecStart --value "$worker_service" 2>/dev/null || true)"
   [[ "$worker_exec" == *"$target"* && "$worker_exec" == *"/runtimes/$target_runtime/venv/bin/python"* ]] || return 1
-  [[ -f "/etc/systemd/system/$control_service" ]] || return 1
-  grep -Fq "$target" "/etc/systemd/system/$control_service" || return 1
+  [[ -f "$control_unit" ]] || return 1
+  grep -Fq "$target" "$control_unit" || return 1
   systemctl is-active --quiet "$control_service" || return 1
   control_exec="$(systemctl show -p ExecStart --value "$control_service" 2>/dev/null || true)"
   [[ "$control_exec" == *"$target"* ]] || return 1
@@ -142,7 +158,8 @@ verify_active_target() {
 rolled_back=false
 if [[ "$previous" != "$target" ]]; then
   echo "DEPLOY_MUTATION target=$target previous=$previous desired_state=$desired"
-  if ! bash "$stage/deploy/worker/ubuntu/update-exact.sh" \
+  if ! SEA_SPEED_SYSTEMD_UNIT_ROOT="$systemd_unit_root" SEA_SPEED_DEPLOY_TEST_MODE="$test_mode" \
+      bash "$stage/deploy/worker/ubuntu/update-exact.sh" \
       "$target" \
       --install-root "$install_root" \
       --service-user "$service_user" \
@@ -156,7 +173,8 @@ fi
 if ! verify_active_target; then
   echo "ERROR post-activation exact identity verification failed" >&2
   if [[ "$previous" != "$target" && "$(cat "$active_marker" 2>/dev/null || true)" == "$target" ]]; then
-    if bash "$stage/deploy/worker/ubuntu/rollback-exact.sh" \
+    if SEA_SPEED_SYSTEMD_UNIT_ROOT="$systemd_unit_root" SEA_SPEED_DEPLOY_TEST_MODE="$test_mode" \
+        bash "$stage/deploy/worker/ubuntu/rollback-exact.sh" \
         "$previous" \
         --install-root "$install_root" \
         --service-user "$service_user" \
