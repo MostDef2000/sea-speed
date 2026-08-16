@@ -2,7 +2,7 @@
 
 - Feature: 015-worker-operator-control
 - Issue: #178
-- Status: Ubuntu updater/legacy-control rollback remediation validation
+- Status: Ubuntu updater cleanup-exit remediation validation
 - Owner outcome: Allow an authenticated Sea Speed operator to start and stop only the Ubuntu AI worker while Camera 1 live HLS remains independent and uninterrupted.
 
 ## Product outcome
@@ -44,6 +44,7 @@ Given the VPS cannot reach, authenticate to, or confirm the fixed protocol versi
 - FR-017: After candidate activation, origin/public verification and persistence of the current/previous release identities plus deployment manifest have succeeded, pruning releases that are neither current nor previous MUST be best-effort. A stale-release removal failure MUST emit a warning and MUST NOT invalidate the already verified deployment; current and previous release identities MUST never be pruning targets.
 - FR-018: Ubuntu `update-exact.sh` MUST invoke `scripts/quality/verify_quality_status.py` only through its supported exact-workflow CLI (`--workflow-file quality-integration.yml`) and MUST NOT pass the unsupported `--required-name` option. Regression evidence MUST execute the verifier help/parser surface rather than merely assert an invented argument string.
 - FR-019: Ubuntu activation and explicit rollback MUST treat worker-control unit topology as part of exact release state. Failed activation MUST restore whether the previous control unit was present, enabled and active; rollback to a legacy target that predates worker control MUST stop/disable/remove the newer control unit and prove it absent; a target with only partial worker-control components MUST fail closed before acceptance.
+- FR-020: Ubuntu updater `EXIT` housekeeping MUST preserve the primary updater exit status. Successful preparation/activation MUST remain exit 0 even when optional temporary cleanup has nothing to remove or a cleanup attempt fails; a primary updater failure MUST retain its original nonzero status. Cleanup MUST still attempt staging and all populated temporary backup/marker removals without changing protected release/runtime/shared state.
 
 ## Acceptance criteria
 
@@ -66,6 +67,7 @@ Given the VPS cannot reach, authenticate to, or confirm the fixed protocol versi
 - AC-017: Source regression evidence proves `prune_releases` excludes both current and previous identities, wraps stale `rm -rf` in a non-fatal conditional with an explicit warning on failure, and successful deployment persists previous/current state plus the runtime-verified deployment manifest before pruning begins.
 - AC-018: Focused updater regression evidence runs the real quality-verifier CLI help/parser surface, requires `--workflow-file quality-integration.yml`, forbids `--required-name`, and retains the protected-token/exact-main checks.
 - AC-019: Focused updater/rollback regression evidence proves a failed modern activation can restore a legacy no-control baseline, a successful rollback to a legacy target removes the modern control service, modern targets still require an exact active control unit, and incomplete target control components are rejected.
+- AC-020: Focused updater regression evidence executes the real `cleanup()` function through an `EXIT` trap under `set -euo pipefail` and proves success remains 0, a primary failure retains its original status, cleanup failure does not override either result, and all populated temporary cleanup targets are still attempted.
 
 ## NFR assessment
 
@@ -79,6 +81,7 @@ Given the VPS cannot reach, authenticate to, or confirm the fixed protocol versi
 - NFR-008 | Area: RELIABILITY | Target: Deploy VPS first-parent admission accepts a valid current-main/first-parent SHA without `pipefail` SIGPIPE false-negatives while preserving rejection of non-first-parent commits | Validation: workflow architecture regression plus exact-head CI | Evidence: tests/quality/test_quality_architecture.py | Status: PASS
 - NFR-009 | Area: RELIABILITY | Target: stale-release cleanup permission failures cannot overturn an already persisted, runtime-verified VPS deployment, while current and previous rollback identities remain protected from pruning | Validation: deploy-script regression contract plus exact-head CI | Evidence: tests/test_vps_deploy_origin_health.py | Status: PASS
 - NFR-010 | Area: RELIABILITY | Target: Ubuntu release admission uses an executable caller/verifier CLI contract and activation/rollback can restore the exact legacy-or-modern control-service topology without changing the active marker before acceptance | Validation: shell syntax plus real verifier CLI help and updater/rollback topology regression contracts | Evidence: tests/test_ubuntu_worker_exact_updater.py and tests/test_ubuntu_worker_rollback.py | Status: PASS
+- NFR-011 | Area: RELIABILITY | Target: updater housekeeping is status-neutral and cannot convert a completed preparation into failure or mask the original fatal status | Validation: executable EXIT-trap cleanup regression under `set -euo pipefail` | Evidence: tests/test_ubuntu_worker_exact_updater.py | Status: PASS
 
 ## Compatibility and boundaries
 
@@ -92,17 +95,19 @@ Given the VPS cannot reach, authenticate to, or confirm the fixed protocol versi
 - VPS release retention: current and previous releases form the protected rollback pair; older release cleanup is post-verification housekeeping.
 - Ubuntu release admission: `verify_quality_status.py --workflow-file quality-integration.yml` is the supported exact-workflow caller contract; unsupported aliases are forbidden.
 - Ubuntu rollback topology: modern releases include the independent control unit; legacy releases may intentionally have no control unit, and that absence is part of rollback state rather than a missing-file error.
+- Ubuntu updater housekeeping: temporary cleanup is best-effort and must preserve the primary updater status; it never deletes protected release/runtime/shared state.
 - Release evidence: deterministic exact provenance retains `vps`, release-specific `ubuntu-worker`, and legacy `edge` inventory as already established.
 - Out of scope: MediaMTX/relay lifecycle, Camera 2, Windows Worker, browser SSH, arbitrary systemd control, new credentials, secret migration, AI algorithm changes.
 
 ## Runtime feedback
 
 - Runtime acceptance: VPS contour ACCEPTED on exact release `e2a4f39eab80849882a42cf6e892bba127223649`; Ubuntu worker-control/HLS acceptance remains pending.
-- Current independently observed Ubuntu baseline before this remediation: active source `efdbdfd9612d425bf34a81384298e091de06ec15`, runtime ID `a9a9aaccd97e5c824ccc568504ad146936a4a69b5f8fe1ff36451ecd7317f88b`, worker active/enabled, `sea-speed-worker-control.service` absent/not installed, protected GitHub token root-owned mode 0600.
+- Current independently observed Ubuntu baseline: active source `efdbdfd9612d425bf34a81384298e091de06ec15`, runtime ID `a9a9aaccd97e5c824ccc568504ad146936a4a69b5f8fe1ff36451ecd7317f88b`, worker active/enabled, `sea-speed-worker-control.service` absent/not installed, protected GitHub token root-owned mode 0600.
 - Regressions/learning #1: pre-production release admission for merged PR #179 exposed missing Ubuntu exact provenance; PR #180 remediated it.
 - Regressions/learning #2: Deploy VPS run #25 exposed stale loopback port 8000; PR #181 corrected the accepted origin to 8010.
 - Regressions/learning #3: Deploy VPS run #26 exposed `grep -q`/`pipefail` first-parent false-negative; PR #182 corrected admission.
 - Regressions/learning #4: Deploy VPS run #27 exposed fatal post-verification stale-release pruning; PR #183 made pruning warning-only and a later exact authorized deployment completed successfully with evidence.
-- Regressions/learning #5: first Ubuntu preparation attempt for `1d0aa285d5f30165980c4d628a97da7e23b66ffe` stopped before release preparation because `update-exact.sh` passed unsupported `--required-name quality-integration` to the exact target's `verify_quality_status.py`. Adjacent-stage review then found that forward activation/explicit rollback did not correctly model the real legacy baseline where the control service is absent.
-- Corrective action: current separately approved 9-path Ubuntu remediation aligns the caller with `--workflow-file quality-integration.yml`, adds executable CLI compatibility evidence, and makes control-service presence/absence transactional across failed activation and explicit rollback.
-- Production authorization impact: no prior `PRODUCTION APPROVED` line transfers to the new Ubuntu-affecting remediation merge SHA. A fresh exact-SHA production safety envelope is required before preparation/activation continues.
+- Regressions/learning #5: first Ubuntu preparation attempt for `1d0aa285d5f30165980c4d628a97da7e23b66ffe` stopped before release preparation because `update-exact.sh` passed unsupported `--required-name quality-integration` to the exact target's `verify_quality_status.py`. Adjacent-stage review then found that forward activation/explicit rollback did not correctly model the real legacy baseline where the control service is absent. PR #186 remediated both defects.
+- Regressions/learning #6: authorized preparation of `6b948ef40a2e6d13c3a7fde8a63d7b4ef937176f` passed exact quality, emitted `RUNTIME_REUSED`, created the exact release/quality marker and emitted `NOT_ACTIVATED`, but the process exited 1 because the `EXIT` cleanup function under `set -e` ended on a false optional-state test. No activation/systemd mutation was requested.
+- Corrective action: current separately approved 5-path remediation captures the primary status at cleanup entry, treats temporary cleanup attempts as best-effort, returns the original status, and executes the real cleanup function through an EXIT-trap regression for success, original failure and cleanup-failure cases.
+- Production authorization impact: `PRODUCTION APPROVED 6b948ef...` does not transfer to the cleanup-remediation merge SHA. A fresh exact-SHA production safety envelope is required before Ubuntu preparation/activation continues.

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import shlex
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -15,6 +17,62 @@ DOC = ROOT / "docs/operations/UBUNTU_WORKER_EXACT_UPDATE.md"
 class UbuntuWorkerExactUpdaterTests(unittest.TestCase):
     def setUp(self) -> None:
         self.source = UPDATER.read_text(encoding="utf-8")
+
+    def _cleanup_definition(self) -> str:
+        start = self.source.index("cleanup() {")
+        marker = "\n}\ntrap cleanup EXIT"
+        end = self.source.index(marker, start) + 2
+        return self.source[start:end]
+
+    def _run_cleanup_exit_trap(
+        self,
+        primary_status: int,
+        *,
+        fail_cleanup: bool,
+    ) -> tuple[int, list[str], dict[str, Path]]:
+        cleanup_definition = self._cleanup_definition()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            staging = root / "staging"
+            staging.mkdir()
+            unit_backup = root / "unit-backup"
+            control_backup = root / "control-unit-backup"
+            marker_tmp = root / "active-marker"
+            for path in (unit_backup, control_backup, marker_tmp):
+                path.write_text("temporary\n", encoding="utf-8")
+            rm_log = root / "rm.log"
+
+            rm_override = ""
+            if fail_cleanup:
+                rm_override = (
+                    "rm() {\n"
+                    f"  printf '%s\\n' \"$*\" >> {shlex.quote(str(rm_log))}\n"
+                    "  return 91\n"
+                    "}\n"
+                )
+
+            script = f"""set -euo pipefail
+staging_root={shlex.quote(str(staging))}
+unit_backup={shlex.quote(str(unit_backup))}
+control_unit_backup={shlex.quote(str(control_backup))}
+marker_tmp={shlex.quote(str(marker_tmp))}
+{rm_override}{cleanup_definition}
+trap cleanup EXIT
+exit {primary_status}
+"""
+            result = subprocess.run(["bash"], input=script, text=True, check=False)
+            attempts = (
+                rm_log.read_text(encoding="utf-8").splitlines()
+                if rm_log.exists()
+                else []
+            )
+            exists = {
+                "staging": staging.exists(),
+                "unit": unit_backup.exists(),
+                "control": control_backup.exists(),
+                "marker": marker_tmp.exists(),
+            }
+            return result.returncode, attempts, exists
 
     def test_shell_syntax_is_valid(self) -> None:
         subprocess.run(["bash", "-n", str(UPDATER)], check=True)
@@ -51,6 +109,40 @@ class UbuntuWorkerExactUpdaterTests(unittest.TestCase):
         self.assertIn("trap cleanup EXIT", self.source)
         self.assertIn('cd "$staging_root"', self.source)
         self.assertIn("install-manual.sh", self.source)
+
+    def test_cleanup_preserves_primary_exit_status_and_is_best_effort(self) -> None:
+        success_rc, success_attempts, success_exists = self._run_cleanup_exit_trap(
+            0,
+            fail_cleanup=False,
+        )
+        self.assertEqual(success_rc, 0)
+        self.assertEqual(success_attempts, [])
+        self.assertEqual(success_exists, {"staging": False, "unit": False, "control": False, "marker": False})
+
+        failure_rc, _, failure_exists = self._run_cleanup_exit_trap(
+            37,
+            fail_cleanup=False,
+        )
+        self.assertEqual(failure_rc, 37)
+        self.assertEqual(failure_exists, {"staging": False, "unit": False, "control": False, "marker": False})
+
+        cleanup_failure_rc, cleanup_attempts, cleanup_failure_exists = self._run_cleanup_exit_trap(
+            0,
+            fail_cleanup=True,
+        )
+        self.assertEqual(cleanup_failure_rc, 0)
+        self.assertEqual(len(cleanup_attempts), 4)
+        self.assertEqual(
+            cleanup_failure_exists,
+            {"staging": True, "unit": True, "control": True, "marker": True},
+        )
+
+        primary_failure_rc, primary_failure_attempts, _ = self._run_cleanup_exit_trap(
+            37,
+            fail_cleanup=True,
+        )
+        self.assertEqual(primary_failure_rc, 37)
+        self.assertEqual(len(primary_failure_attempts), 4)
 
     def test_updater_binds_prepared_shared_runtime_without_installing_packages(self) -> None:
         self.assertIn('runtime_id_file="$release_root/runtime-id"', self.source)
