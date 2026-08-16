@@ -18,12 +18,18 @@ POLICY_PATH = ROOT / "data/contracts/change-control-policy-v1.json"
 FIELD_PATTERN = re.compile(r"^- ([A-Za-z][A-Za-z0-9 /_-]*):\s*(.*?)\s*$", re.MULTILINE)
 HEADING_PATTERN = re.compile(r"^##\s+(.+?)\s*$", re.MULTILINE)
 DECLARED_PATH_PATTERN = re.compile(r"^\s{2}- `([^`]+)`\s*$", re.MULTILINE)
-PLACEHOLDERS = {"", "TBD", "TODO", "TBC", "YES/NO", "NO/YES", "REQUIRED / NOT REQUIRED", "NONE / CONTROL_PLANE / VPS / UBUNTU_WORKER / WINDOWS_WORKER / MIXED", "PASS / CONCERNS / FAIL / WAIVED"}
+PLACEHOLDERS = {"", "TBD", "TODO", "TBC", "YES/NO", "NO/YES", "REQUIRED / NOT REQUIRED", "NONE / CONTROL_PLANE / VPS / UBUNTU_WORKER / WINDOWS_WORKER / MIXED", "PASS / CONCERNS / FAIL / WAIVED", "CONNECTOR / ONE_COMMAND_FALLBACK / MISSING / NOT APPLICABLE"}
 SOURCE_AUTHORIZATIONS = {"OUTCOME APPROVED"}
 RUNTIME_IMPACTS = {"VPS", "UBUNTU_WORKER", "WINDOWS_WORKER"}
 RISK_PROFILE_VALUES = {"REQUIRED", "NOT REQUIRED"}
 QUALITY_VERDICTS = {"PASS", "CONCERNS", "FAIL", "WAIVED"}
 NONE_LIKE = {"NONE", "NO", "N/A", "NOT APPLICABLE", "NOT REQUIRED"}
+EXECUTION_CAPABILITIES = {"CONNECTOR", "ONE_COMMAND_FALLBACK", "MISSING", "NOT APPLICABLE"}
+EXECUTION_FIELDS = {
+    "VPS": "VPS execution capability",
+    "UBUNTU_WORKER": "Ubuntu worker execution capability",
+    "WINDOWS_WORKER": "Windows worker execution capability",
+}
 
 
 class ContractError(ValueError):
@@ -143,6 +149,31 @@ def validate_deployment_fields(expected_contours: set[str], fields: dict[str, st
         raise ContractError("non-runtime impact must declare Production safety envelope NOT REQUIRED")
 
 
+def validate_execution_capabilities(expected_contours: set[str], fields: dict[str, str]) -> None:
+    fallback_count = 0
+    for contour, field_name in EXECUTION_FIELDS.items():
+        capability = require_value(fields, field_name).upper()
+        if capability not in EXECUTION_CAPABILITIES:
+            raise ContractError(f"{field_name} must be one of {sorted(EXECUTION_CAPABILITIES)}")
+        if contour in expected_contours:
+            if capability in {"MISSING", "NOT APPLICABLE"}:
+                raise ContractError(f"required runtime contour {contour} cannot declare execution capability {capability}")
+            if capability == "ONE_COMMAND_FALLBACK":
+                fallback_count += 1
+        elif capability != "NOT APPLICABLE":
+            raise ContractError(f"non-applicable runtime contour {contour} must declare execution capability NOT APPLICABLE")
+
+    raw_actions = require_value(fields, "Operator actions expected")
+    if not re.fullmatch(r"0|[1-9][0-9]*", raw_actions):
+        raise ContractError("Operator actions expected must be a non-negative integer")
+    actions = int(raw_actions)
+    if actions != fallback_count:
+        raise ContractError(
+            "Operator actions expected must equal the number of required ONE_COMMAND_FALLBACK contours; "
+            f"expected {fallback_count}, got {actions}"
+        )
+
+
 def requires_full_risk_profile(fields: dict[str, str], impact: str) -> bool:
     security = require_value(fields, "Security impact")
     schema = require_value(fields, "API/event/state/storage schema impact")
@@ -212,6 +243,7 @@ def validate_contract(body: str, changed_files: Iterable[str], policy: dict | No
     if declared_impact != impact:
         raise ContractError(f"declared Production impact {declared_impact} does not match derived {impact}")
     validate_deployment_fields(contours, fields)
+    validate_execution_capabilities(contours, fields)
     validate_quality_fields(fields, impact)
     return impact
 
