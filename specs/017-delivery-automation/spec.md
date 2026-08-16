@@ -5,23 +5,27 @@
 
 ## Product outcome
 
-Sea Speed delivery should require the operator to make only the decisions that are genuinely protected: one source-outcome authorization and, for each exact production release, one authorization carrying explicit execution intent. Deterministic branch/PR/CI/merge/deployment sub-stages must be repository-owned, fail closed, and automated where capability exists. Ubuntu Worker deployment must have a protected reusable workflow and one target-side transaction so preparation, activation, verification, evidence and rollback are not exposed as serial confirmation prompts.
+Sea Speed delivery should require the operator to make only the decisions that are genuinely protected: one source-outcome authorization and, for each exact production release, one authorization carrying explicit execution intent. Deterministic branch/PR/CI/merge/deployment sub-stages must be repository-owned, fail closed, and automated where capability exists. Ubuntu Worker deployment must have a protected reusable workflow and one target-side transaction so preparation, activation, verification, evidence and rollback are not exposed as serial confirmation prompts. The single source-authorization decision must always be preceded by a visible, exact scope presentation so the operator knows precisely what `OUTCOME APPROVED` will authorize.
 
 ## User scenarios
 
-### Scenario 1 - Source delivery continues after one approval
+### Scenario 1 - Scope is visible before source approval
 
-After the operator supplies `OUTCOME APPROVED` for an exact Implementation Scope Check, the Delivery Orchestrator creates the branch, implements the bounded outcome, repairs PR metadata, remediates CI inside the approved paths and merges the exact green head without requesting another routine source approval.
+Before the Delivery Orchestrator asks the operator for `OUTCOME APPROVED`, it displays a concrete Scope block containing the product outcome, exact repository paths, protected/out-of-scope boundaries, runtime/production impact and acceptance evidence. If a later material change requires re-authorization, the revised scope is displayed before the fresh approval request.
 
-### Scenario 2 - One production decision can authorize and execute
+### Scenario 2 - Source delivery continues after one approval
+
+After the operator supplies `OUTCOME APPROVED` for the displayed exact Implementation Scope Check, the Delivery Orchestrator creates the branch, implements the bounded outcome, repairs PR metadata, remediates CI inside the approved paths and merges the exact green head without requesting another routine source approval.
+
+### Scenario 3 - One production decision can authorize and execute
 
 The operator may post exactly three lines on the canonical Issue: `PRODUCTION APPROVED <sha>`, the current authorization fingerprint, and `Execution-Intent: EXECUTE`. Repository-owned request tooling treats the first two lines as authority and the third as execution intent, independently verifies the complete envelope, derives the exact required runtime contours and routes only those contours.
 
-### Scenario 3 - Ubuntu deployment is one transaction
+### Scenario 4 - Ubuntu deployment is one transaction
 
 When Ubuntu Worker/relay deployment is required, the protected Ubuntu workflow validates exact-main quality/provenance and then either uses a separately provisioned restricted Connector transport or emits one exact server-pull bootstrap. The target-side `deploy-authorized.sh` performs exact staging, authorization/execution-intent verification, updater activation, exact identity verification, evidence and rollback as one transaction.
 
-### Scenario 4 - Missing runtime execution capability fails before release
+### Scenario 5 - Missing runtime execution capability fails before release
 
 A runtime-impacting PR must declare execution capability for VPS, Ubuntu Worker/relay and Windows AI Worker plus the expected manual-action count. A required contour cannot be admitted with `MISSING`; a one-command fallback is explicit and counted.
 
@@ -41,6 +45,7 @@ A runtime-impacting PR must declare execution capability for VPS, Ubuntu Worker/
 - FR-012: If a restricted zero-touch Ubuntu transport is not independently provisioned, the protected workflow MUST emit one exact server-pull bootstrap and remain non-successful until runtime mutation actually occurs; it MUST NOT decompose fallback into separate prepare/activate approvals.
 - FR-013: Production-equivalent CI MUST execute the real Ubuntu deployment entrypoint in an isolated sandbox with fake Git/systemd/runtime boundaries and cover running-state success, intentional stopped state, authorization failure before mutation and post-activation verification failure/rollback.
 - FR-014: Existing exact-SHA provenance, production fingerprint semantics, rollback, Authentik/M2M boundaries, Camera 1/MediaMTX behavior, AI algorithms, credentials and Windows runtime behavior MUST NOT be weakened or changed by this outcome.
+- FR-015: Before every request for `OUTCOME APPROVED`, including re-authorization, the Delivery Orchestrator MUST first render an operator-visible Scope block with product outcome, exact repository paths, protected/out-of-scope boundaries, runtime/production impact and acceptance evidence. A bare approval prompt without that visible scope MUST be treated as an invalid authorization request sequence.
 
 ## Acceptance criteria
 
@@ -58,6 +63,7 @@ A runtime-impacting PR must declare execution capability for VPS, Ubuntu Worker/
 - AC-012: Deterministic `ubuntu-worker` exact artifact bytes include `deploy/worker/ubuntu/deploy-authorized.sh`.
 - AC-013: PR Validation and aggregate Quality integration succeed on the exact final head; merge uses a fresh main/head/scope/review check and expected-head protection.
 - AC-014: This source task changes no API/frontend/media/AI algorithm/credential/sudoers/runtime secret behavior and performs no production mutation before a fresh exact-SHA production envelope for the merge commit.
+- AC-015: `AGENTS.md`, canonical governance, task runtime and Delivery Orchestrator contract all require the visible Scope-before-approval order, define the minimum scope fields, prohibit a standalone `OUTCOME APPROVED` prompt, and require revised scope presentation before re-authorization.
 
 ## NFR assessment
 
@@ -67,6 +73,7 @@ A runtime-impacting PR must declare execution capability for VPS, Ubuntu Worker/
 - NFR-004 | Area: Provenance | Target: Ubuntu deployment launcher is included in deterministic exact artifact and exact-main/release admission precedes transport | Validation: exact-artifact and workflow architecture tests | Evidence: `scripts/quality/build_exact_artifacts.py`, `tests/quality/test_quality_architecture.py` | Status: PASS
 - NFR-005 | Area: Safety | Target: Required runtime contour cannot be admitted with missing execution capability; manual action count is machine-consistent | Validation: Change Contract unit tests | Evidence: `scripts/ci/validate_change_contract.py`, `tests/test_change_contract.py` | Status: PASS
 - NFR-006 | Area: Compatibility | Target: Legacy `DEPLOY VPS <sha>` and two-line production authorization remain readable/usable under their existing semantics | Validation: unchanged legacy request workflow plus authorization verifier behavior | Evidence: `.github/workflows/deploy-vps-request.yml`, `scripts/release/verify_production_authorization.py` | Status: PASS
+- NFR-007 | Area: Operator comprehension | Target: Every source-authorization request is preceded by an explicit exact scope presentation, including re-authorization | Validation: governance/agent/task-runtime/PM contract review and exact diff | Evidence: `AGENTS.md`, `contracts/SEA_SPEED_GOVERNANCE.md`, `contracts/runtime/SEA_SPEED_TASK_RUNTIME.md`, `contracts/branches/project-manager.md` | Status: PASS
 
 ## Runtime feedback
 
