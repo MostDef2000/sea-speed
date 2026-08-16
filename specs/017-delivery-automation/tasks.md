@@ -24,6 +24,7 @@
 - TASK-016: After merge, obtain one fresh exact-release production approval carrying `Execution-Intent: EXECUTE`; do not ask separately for prepare/activate execution intent.
 - TASK-017: Route the authorized Ubuntu release through the protected workflow. Until restricted zero-touch transport is independently provisioned, expose only the single exact fallback action and then collect deployment/runtime evidence.
 - TASK-018: Complete parent Issue #178 product acceptance only after exact Ubuntu deployment plus worker Stop/Start behavior and continuous Camera 1 HLS evidence are proven.
+- TASK-019: Require an explicit operator-visible six-field Scope block before every `OUTCOME APPROVED` request or re-authorization request; update agent/governance/task-runtime/PM contracts so a bare approval prompt is invalid and scope cannot be left implicit.
 
 ## Requirements traceability
 
@@ -41,20 +42,22 @@
 - AC-012 | Task: TASK-009 | Evidence: `scripts/quality/build_exact_artifacts.py` plus deterministic artifact architecture test | Coverage: COVERED
 - AC-013 | Task: TASK-013,TASK-014,TASK-015 | Evidence: exact 23-path PR, exact-head PR Validation/Quality integration, fresh merge gate and post-merge push/main evidence | Coverage: COVERED
 - AC-014 | Task: TASK-001,TASK-015,TASK-016 | Evidence: exact diff exclusions plus separate fresh production envelope after source merge | Coverage: COVERED
+- AC-015 | Task: TASK-019 | Evidence: `AGENTS.md`, `contracts/SEA_SPEED_GOVERNANCE.md`, `contracts/runtime/SEA_SPEED_TASK_RUNTIME.md`, `contracts/branches/project-manager.md`, plus feature 017 SDD | Coverage: COVERED
 
 ## Definition of Done
 
 - [x] Issue/spec/plan/tasks current: Issue #178 carries the approved 23-path automation scope and feature 017 captures the accepted architecture.
-- [ ] Exact changed-file scope verified: final branch diff must equal the 23 approved paths with no protected product/runtime expansion.
-- [ ] Required tests and evidence complete: request parser, production verifier, Change Contract, workflow policy/architecture, real Ubuntu transaction sandbox and exact-artifact tests pass.
+- [ ] Exact changed-file scope verified: every active remediation diff remains within the 23 approved paths with no protected product/runtime expansion.
+- [ ] Required tests and evidence complete: request parser, production verifier, Change Contract, workflow policy/architecture, real Ubuntu transaction sandbox, exact-artifact tests and contract scope-presentation checks pass.
 - [ ] Required CI green: PR Validation and aggregate Quality integration succeed on the same exact final head.
 - [ ] Exact-green-head merge complete: fresh main/head/scope/review gate passes and merge uses expected-head protection.
-- [ ] Deployment state resolved: after merge, exact Ubuntu hardening release is deployed or an exact truthful fallback blocker is recorded under a fresh production envelope.
-- [ ] Runtime acceptance resolved: exact Ubuntu runtime identity plus parent #178 Stop/Start and continuous Camera 1 HLS evidence are accepted before product completion.
+- [x] Deployment state resolved for the original hardening release: exact Ubuntu target `8dc74762a344dbf763d3ce1e7ecb1bac6872affb` was deployed through the one-command fallback and accepted.
+- [x] Runtime acceptance resolved for the original worker-control outcome: worker Stop/Start was confirmed independent from continuously available Camera 1 HLS.
 - [x] Deferred work recorded: provisioning a restricted zero-touch Ubuntu transport and Windows production automation are separate future capabilities; this task provides safe one-command Ubuntu fallback and fail-closed Windows routing.
-- [ ] Risks resolved or explicitly accepted: RISK-001 through RISK-006 require exact-head CI and runtime evidence where applicable.
+- [ ] Scope-before-approval remediation merged: agent/governance/task-runtime/PM contracts and SDD require visible exact scope before every approval request.
+- [ ] Risks resolved or explicitly accepted: RISK-001 through RISK-007 require exact-head CI and runtime evidence where applicable.
 - [x] Waivers resolved or current: no quality waiver is requested; all hard gates remain mandatory.
 
 ## Completion gate
 
-Source integration is complete only after the exact 23-path green head is merged and exact push/main quality/artifact evidence is recorded. The process-hardening outcome reaches runtime completion only after a fresh exact-SHA production authorization with `Execution-Intent: EXECUTE` drives the Ubuntu contour through the protected workflow/one-command fallback and runtime evidence is valid. Parent Issue #178 reaches `COMPLETE` only after worker Stop/Start is proven independent from continuously available Camera 1 HLS.
+The delivery-automation hardening remains valid only while every source-authorization interaction follows **Scope first, approval second**. For new work or material re-authorization, the Orchestrator must display the six-field exact Scope block before requesting `OUTCOME APPROVED`. Once this in-scope contract remediation is merged and post-merge quality is green, future tasks inherit that requirement without adding a new approval interaction.
