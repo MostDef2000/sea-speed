@@ -1,6 +1,6 @@
 # Sea Speed Release Readiness Gate
 
-Version: 1.6.0
+Version: 1.7.0
 Status: Active
 
 ## Gate
@@ -18,6 +18,8 @@ Release Readiness Gate
 - Aggregate quality push run on main successful for exact commit: YES/NO
 - SDD linkage valid for significant change: YES/NO/NOT APPLICABLE
 - Delivery quality layer valid: YES/NO/NOT APPLICABLE
+- Deployment transaction audit valid: YES/NO/NOT APPLICABLE
+- Production-learning adjacent-stage review complete: YES/NO/NOT APPLICABLE
 - Risk profile applicability correct: YES/NO/NOT APPLICABLE
 - Quality verdict: PASS/CONCERNS/WAIVED/NOT APPLICABLE
 - Secrets/runtime artifacts absent: YES/NO
@@ -41,6 +43,8 @@ Release Readiness Gate
 
 Before implementation begins, verify the complete approved file set and delivery lifecycle. Do not accept partial delivery as a substitute for a blocked mandatory path.
 
+For a VPS runtime contour, the normal GitHub execution capability is a connected-Connector write of the exact `DEPLOY VPS <sha>` command to the open canonical Issue after the durable production authorization is current. The Issue-comment request workflow must exist on `main` before this path can be used. Manual `workflow_dispatch` is fallback-only. If neither path is available, stop before runtime mutation instead of asking for ad hoc GitHub writes or bypassing the protected workflow.
+
 ## Aggregate quality gate
 
 The merge-facing context remains `Quality integration gate / quality-integration`. It succeeds only when all required independent domains succeed. The static/contract domain executes `scripts/ci/validate_sdd.py` for PR events, so a significant PR without valid linked SDD cannot produce aggregate success. The existing docs/spec lightweight exception remains in the validator. A skipped, cancelled or failed dependency is not success.
@@ -50,6 +54,8 @@ This workflow is the canonical repository gate; it does not imply that GitHub br
 ## Delivery quality gate
 
 For a significant PR, `scripts/ci/validate_sdd.py` validates the current linked feature's NFR assessment, risk profile/test design/correct-course sections, acceptance traceability and Definition of Done. Historical feature directories remain repository-valid without retrofit until they become the active linked significant work.
+
+When a significant PR affects deployment/release execution, a deployment workflow, declares a runtime deployment `REQUIRED`, or carries `PRODUCTION_LEARNING`, the same validator also requires the full Deployment Transaction Audit. A production learning must record the root cause and a completed adjacent-stage review before the next production retry is proposed.
 
 `scripts/ci/validate_change_contract.py` derives whether a full risk profile is required from security impact, API/event/state/storage schema impact, destructive/data migration, `MIXED` runtime impact, and an explicit other high-risk trigger. It rejects a mismatched declaration, rejects quality verdict `FAIL`, and admits `WAIVED` only with a complete durable waiver record.
 
@@ -65,7 +71,7 @@ Package creation is not deployment evidence.
 
 ## Production authorization gate
 
-Production must not run because of a pull request, push, merge or source Outcome Authorization alone.
+Production must not run because of a pull request, push, merge, source Outcome Authorization, or deployment-request comment alone.
 
 A production safety envelope must be separately recorded. Durable authorization is canonical Issue evidence from a source-controlled authorized actor. It must bind the canonical Issue, applicable merged PR, exact source SHA, Outcome Contract, exact runtime contour set, security impact, deployment target and rollback target. Material change to any bound semantic makes the previous authorization stale.
 
@@ -84,7 +90,19 @@ GitHub/API errors, missing linkage, ambiguity or stale fingerprints fail closed.
 
 ## VPS gate
 
-When VPS deployment is required, `deploy-vps.yml` remains manually dispatched. Verify authorized automation ran from the main workflow definition, deployment identity matches the exact bound first-parent main commit, health/source identity is correct, applicable frontend/storage checks pass and rollback target remains known.
+When VPS deployment is required, `.github/workflows/deploy-vps.yml` remains the single protected deployment implementation and retains `environment: production`. It supports `workflow_call` for the canonical Issue-request path and `workflow_dispatch` as an emergency/operator fallback.
+
+Normal Delivery Orchestrator execution is:
+
+```text
+connected GitHub Connector writes `DEPLOY VPS <exact-sha>` on the open canonical Issue
+-> deploy-vps-request.yml handles only the created Issue comment
+-> repository-owned parser verifies exact command, Issue context and authorized actor
+-> reusable deploy-vps.yml re-verifies exact-main quality, durable production authorization and provenance
+-> SSH/runtime mutation begins only after all gates pass
+```
+
+The request comment is not production authorization. Verify the called workflow ran from the default/main workflow definition, deployment identity matches the exact bound first-parent main commit, health/source identity is correct, applicable frontend/storage checks pass and rollback target remains known.
 
 ## Ubuntu Worker/relay gate
 
@@ -92,7 +110,7 @@ When Ubuntu Worker/relay update is required, verify exact source/package/runtime
 
 ## Windows AI Worker gate
 
-When Windows AI Worker update is required, verify exact package/install identity, preservation of local protected state, valid deployment evidence, restart, matching worker source identity, freshness/frame advancement and applicable telemetry semantics.
+When Windows AI Worker update is required, verify exact package/install identity, preservation of local protected state, valid deployment evidence, restart, matching worker source identity, freshness and applicable telemetry.
 
 GitHub-hosted CI does not prove physical camera/GPU/runtime behavior.
 
@@ -107,6 +125,12 @@ The active `mvp_v1` and target `edge_v2` storage boundary remain unchanged; acti
 ## Evidence review gate
 
 After runtime verification, return exactly one product verdict: `accepted`, `regressed`, or `insufficient_evidence`. A regression requires a linked Issue and rollback decision unless the exact safe rollback was already included in the active production envelope.
+
+## Deployment transaction gate
+
+Before merging deployment-affecting work, inspect the full transaction rather than the latest failure only. The linked plan must cover `ADMISSION`, `PRE-MUTATION`, `MUTATION`, `VERIFICATION`, `STATE-COMMIT`, `HOUSEKEEPING`, `EVIDENCE`, and `ROLLBACK`, including mutation possibility, fatal/best-effort/conditional failure disposition, state after failure, safe retry, rollback and evidence.
+
+After a production failure, do not issue the next retry merely because the final error line was patched. Require a concrete root cause plus adjacent-stage findings and execute deterministic fault-path tests where the repository can model the transaction without touching production. Any newly discovered source defect outside the approved scope returns to normal scope/authorization rather than being hidden in the current remediation.
 
 ## Documentation/control-plane rule
 
