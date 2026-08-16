@@ -1,9 +1,9 @@
 # Sea Speed Task Runtime
 
-Version: 1.9.0
+Version: 1.10.0
 Status: Active
 
-## Active states
+## Active phases
 
 ```text
 DISCUSSION
@@ -14,23 +14,35 @@ ACTIONS_REQUIRED
 ACTIONS_RUNNING
 ACTIONS_COMPLETED
 RUNTIME_ACCEPTANCE
-COMPLETE
-BLOCKED
-FAILED
 ```
 
-Historical evidence may contain `HANDOFF_VALIDATED` or `CORE_RELEASE_INTEGRATING`; new tasks do not emit those states because Delivery Orchestrator retains one task context instead of handing lifecycle ownership to another orchestrator.
+These are internal lifecycle phases, not permission to return control to the operator. Historical evidence may contain `HANDOFF_VALIDATED`, `CORE_RELEASE_INTEGRATING`, `COMPLETE`, or `FAILED`; new tasks do not emit those as terminal interaction states because Delivery Orchestrator retains one task context instead of handing lifecycle ownership to another orchestrator.
 
-## Semantics
+## Terminal interaction states
+
+The only valid terminal interaction states are:
+
+```text
+DONE
+BLOCKED
+HUMAN DECISION REQUIRED
+```
+
+- `DONE`: the approved Outcome is complete and all mandatory source, quality, runtime and acceptance evidence applicable to it is satisfied.
+- `BLOCKED`: continuation is objectively impossible because of a concrete external blocker outside the Orchestrator's currently authorized deterministic control. The terminal response records blocker evidence, the unblock condition and the next admissible action. A remediable source/test/CI/PR-metadata defect is not `BLOCKED`.
+- `HUMAN DECISION REQUIRED`: continuation requires a genuine operator decision, authorization, protected input, configured environment review, or irreversible/high-risk choice. The terminal response records the exact decision, bounded options and consequences when alternatives exist, and the exact reply/authorization form. After the operator decides, execution resumes automatically.
+
+`FAILED` is an internal event, not a terminal interaction state. A failure is remediated automatically when possible; otherwise the Orchestrator classifies the situation as `BLOCKED` or `HUMAN DECISION REQUIRED`. A progress update such as PR creation, queued/running CI, merge readiness, deployment preparation or deployment start is never terminal while a safe authorized next action remains.
+
+## Phase semantics
 
 - `DISCUSSION`: read-only Task Intake, repository discovery, Task Brief, Outcome Contract preparation and operator-visible Scope presentation. Invalid or misordered source-authorization attempts remain in or return to this state.
 - `READY_FOR_IMPLEMENTATION`: the complete visible Scope block was the last substantive assistant content before the approval request, `OUTCOME APPROVED` arrived in the immediately following user turn, scope is locked, fail-closed source admission is open and capability preflight passed.
 - `IMPLEMENTING`: bounded source/SDD work and in-scope CI remediation.
-- `SOURCE_INTEGRATED`: exact approved source verified on `main`; not production evidence.
-- `ACTIONS_REQUIRED`: one explicit protected fallback action is genuinely required because a declared contour capability is `ONE_COMMAND_FALLBACK`; do not use this state for deterministic internal preparation/activation checkpoints.
-- `ACTIONS_RUNNING` / `ACTIONS_COMPLETED`: runtime operation state; not acceptance by itself.
+- `SOURCE_INTEGRATED`: exact approved source verified on `main`; not production evidence and not a terminal interaction state when runtime or acceptance remains.
+- `ACTIONS_REQUIRED`: one explicit protected fallback action is genuinely required because a declared contour capability is `ONE_COMMAND_FALLBACK`; when that fallback requires the operator, the return-control state is `HUMAN DECISION REQUIRED`, not a generic progress handoff.
+- `ACTIONS_RUNNING` / `ACTIONS_COMPLETED`: runtime operation phases; not acceptance and not terminal interaction states by themselves.
 - `RUNTIME_ACCEPTANCE`: provenance, health, freshness/telemetry and product evidence are being verified for applicable contours.
-- terminal states: `COMPLETE`, `BLOCKED`, `FAILED` only.
 
 ## Canonical owner
 
@@ -115,8 +127,10 @@ Sea Speed Task Runtime
 - Runtime telemetry: NOT REQUIRED/PENDING/VALID/INVALID
 - Evidence verdict: NOT REQUIRED/PENDING/accepted/regressed/insufficient_evidence
 - User action:
-- Final state: PENDING/COMPLETE/BLOCKED/FAILED
+- Terminal interaction state: PENDING/DONE/BLOCKED/HUMAN DECISION REQUIRED
 ```
+
+The `FAILED` values in component/package/deployment fields above are observations about a sub-operation, not task-terminal states. The Orchestrator must remediate or classify them under the terminal interaction contract instead of returning a bare failure status.
 
 `Scope presented to operator: YES`, `Scope immediately precedes authorization: YES`, and `Source authorization admission: OPEN` are hard prerequisites for `Source authorization: OUTCOME APPROVED` to move new work into `READY_FOR_IMPLEMENTATION`. If any prerequisite is `NO`, `BLOCKED`, unknown or stale, the task remains `DISCUSSION` and repository writes are not permitted.
 
@@ -130,7 +144,9 @@ For every required contour the Change Contract declares `CONNECTOR` or `ONE_COMM
 
 After a validly admitted `OUTCOME APPROVED`, continue automatically through deterministic safe repository transitions: implementation, integrity checks, PR, metadata repair, CI, in-scope CI remediation and exact-green-head merge. New source authorization is required only when outcome/scope/protected boundaries materially change. A newly discovered bug inside the approved path set is not a reason to ask for `OUTCOME APPROVED` again.
 
-When new source authorization really is required, return to `DISCUSSION`, present the updated visible Scope block as the last substantive assistant block before the approval request, and only then request the fresh approval. Misordered approval leaves admission blocked and does not authorize source writes.
+The Orchestrator must also continue through deterministic post-merge and runtime transitions that are already authorized. It may not return control merely to report that a stage completed, is queued/running, or failed in a remediable way. Return control only as `DONE`, `BLOCKED`, or `HUMAN DECISION REQUIRED`.
+
+When new source authorization really is required, return to `DISCUSSION`, present the updated visible Scope block as the last substantive assistant block before the approval request, and only then request the fresh approval. The resulting operator interaction is `HUMAN DECISION REQUIRED`; misordered approval leaves admission blocked and does not authorize source writes.
 
 Production remains separate. The normal production decision may combine durable authorization and explicit execution intent in one exact three-line Issue record:
 
@@ -140,7 +156,7 @@ Authorization-Fingerprint: <fingerprint>
 Execution-Intent: EXECUTE
 ```
 
-A two-line approval means `AUTHORIZE_ONLY`. A three-line approval may move directly from release readiness into `ACTIONS_RUNNING` through repository-owned routing; do not insert a second execution-confirmation prompt. When a contour is `ONE_COMMAND_FALLBACK`, expose one largest-safe command/action only after all machine-observable gates have completed.
+A two-line approval means `AUTHORIZE_ONLY`. A three-line approval may move directly from release readiness into `ACTIONS_RUNNING` through repository-owned routing; do not insert a second execution-confirmation prompt. When a contour is `ONE_COMMAND_FALLBACK`, expose one largest-safe command/action only after all machine-observable gates have completed and classify that required handoff as `HUMAN DECISION REQUIRED`.
 
 ## Interaction budget
 
@@ -164,7 +180,7 @@ After writes validate complete files, syntax/structure, exact diff, scope, branc
 
 For linked significant work, `IMPLEMENTING` includes keeping NFR assessment, risk/test design, correct-course check, acceptance traceability and Definition of Done aligned with the exact implementation. The Change Contract's `Risk profile` declaration must match the derived high-risk triggers.
 
-A quality verdict of `FAIL` cannot advance to source integration. `WAIVED` requires the complete waiver record defined by the delivery policy and does not alter any hard gate. `CONCERNS` remains visible as delivery evidence and may advance only while mandatory authorization, scope, CI and runtime gates are independently satisfied.
+A quality verdict of `FAIL` cannot advance to source integration. `WAIVED` requires the complete waiver record defined by the delivery policy and does not alter any hard gate. `CONCERNS` remains visible as delivery evidence and may advance only while mandatory authorization, scope, CI and runtime gates are independently satisfied. Quality `FAIL` is not a terminal interaction state; remediate in scope or classify the actual external/human boundary.
 
 When production learning, an architecture pivot or a material scope change changes the accepted design, execute the correct-course check before continuing. If it changes the Outcome Contract, protected boundary or approved repository scope, return to `DISCUSSION`, show the revised Scope block, and then follow the fail-closed reauthorization boundary. Otherwise continue automatically after in-scope remediation and exact-green-head merge; do not create a synthetic approval checkpoint.
 
@@ -186,6 +202,7 @@ operator-visible scope presentation
 -> runtime source identity/health
 -> freshness/telemetry where applicable
 -> product evidence verdict
+-> terminal interaction state
 ```
 
-Governance/control-plane-only work may mark runtime acceptance `NOT REQUIRED` after exact merge and post-merge quality verification.
+Governance/control-plane-only work may resolve runtime acceptance `NOT REQUIRED` after exact merge and post-merge quality verification, then return `DONE` only when all control-plane acceptance evidence is complete.
