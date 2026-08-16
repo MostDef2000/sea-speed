@@ -2,7 +2,7 @@
 
 - Specification: specs/015-worker-operator-control/spec.md
 - Issue: #178
-- Status: Ubuntu updater cleanup-exit remediation validation
+- Status: Operator control UI polish
 
 ## Architecture
 
@@ -18,9 +18,7 @@ Authenticated browser
   -> fixed systemctl operation for sea-speed-worker.service only
 ```
 
-The VPS contour is runtime-accepted at exact source `e2a4f39eab80849882a42cf6e892bba127223649`. Ubuntu remains pending final exact-source activation and Stop/HLS/Start/HLS acceptance. The current accepted Ubuntu baseline is `efdbdfd9612d425bf34a81384298e091de06ec15`, immutable runtime `a9a9aaccd97e5c824ccc568504ad146936a4a69b5f8fe1ff36451ecd7317f88b`, worker active/enabled, and no worker-control unit.
-
-Ubuntu release preparation/activation remains repository-owned server-pull. `update-exact.sh` stages one exact SHA, verifies the exact push/main quality workflow, binds the release to the immutable runtime, and only mutates systemd with explicit `--activate`. The cleanup trap is housekeeping around that transaction and must never redefine the primary operation result.
+The runtime product path is already accepted: Ubuntu exact source `8dc74762a344dbf763d3ce1e7ecb1bac6872affb` proved worker Stop/Start while Camera 1 HLS remained continuously available. The active continuation changes only the VPS-hosted Operator UI presentation: Worker remains a top-strip control, Stream Play/Stop moves from the Live camera card into the top Stream status item, and worker Stop no longer opens a confirmation dialog. No API, worker agent, MediaMTX/relay, systemd or credential boundary changes.
 
 ## Decisions
 
@@ -77,98 +75,89 @@ Ubuntu release preparation/activation remains repository-owned server-pull. `upd
 - Reason: authorized preparation of `6b948ef...` completed all preparation gates but exited 1 because an empty optional cleanup predicate became the trap result under `set -e`.
 - Alternatives rejected: ignore updater exit status in the operator wrapper, remove `set -e`, suppress only the final predicate, or manually accept preparation despite a nonzero process result.
 
+### D-014 - Compact status-strip controls are the single operator control surface
+- Decision: Keep Worker control in its current top status item as an icon-only toggle, move Stream Play/Stop icons into the top Stream status item, and remove duplicate stream controls from the Live camera card. Worker Stop executes immediately without `confirm(...)`; accessible labels remain explicit.
+- Reason: the operator has already accepted the worker/HLS independence semantics, so a second modal confirmation adds friction without adding a new authorization or safety boundary. One compact status surface makes Stream and Worker state/actions visible together.
+- Alternatives rejected: keep text labels beside icons, retain duplicate Live camera controls, or preserve the worker confirmation popup.
+
 ## Affected contours
 
-Parent feature runtime acceptance:
-- VPS: ACCEPTED at `e2a4f39eab80849882a42cf6e892bba127223649`.
-- Ubuntu Worker/relay: YES — pending corrected exact source preparation/activation and runtime acceptance.
-- Windows AI Worker: NO.
-
-Current 5-path remediation:
-- Derived Change Contract production impact: `UBUNTU_WORKER`.
-- VPS deployment: NOT REQUIRED.
-- Ubuntu worker/relay update: REQUIRED after exact-green merge and fresh exact-SHA production authorization.
+Current five-path UI continuation:
+- Derived Change Contract production impact: `VPS`.
+- VPS deployment: REQUIRED after exact-green merge and fresh exact-SHA production authorization/execution intent.
+- Ubuntu worker/relay update: NOT REQUIRED.
 - Windows worker update: NOT REQUIRED.
-- Production safety envelope: REQUIRED.
+- Production safety envelope: REQUIRED for VPS only.
 - Security impact: NONE.
 - API/event/state/storage schema impact: NONE.
 - Destructive/data migration impact: NO.
-- Other high-risk trigger: YES — production updater exit/housekeeping semantics affect safe admission to activation.
+- Other high-risk trigger: YES — this moves live runtime controls in the operator surface, so explicit regression evidence and runtime UI smoke remain required even though backend semantics are unchanged.
 
 ## Validation
 
-- `tests/test_ubuntu_worker_exact_updater.py`: shell syntax; exact-main admission; real verifier CLI compatibility; shared runtime binding; control topology; and executable cleanup/EXIT semantics.
-- Cleanup regression extracts the actual `cleanup()` implementation from `update-exact.sh` and runs it through an `EXIT` trap under `set -euo pipefail` for primary status 0 and 37, with both successful and deliberately failing cleanup operations.
-- Existing worker-control, media, API, security, systemd and rollback tests remain authoritative through aggregate Quality integration.
-- Exact source delivery requires PR Validation + aggregate Quality integration on one final 5-path head.
-- Runtime-manual after merge requires a fresh production envelope, expected `RUNTIME_REUSED`, exact activation identity, then Stop -> HLS continuity -> Start -> HLS continuity.
+- `tests/test_frontend_contract.py` proves Worker control remains separate from HLS semantics, contains no worker `confirm(...)`, renders only `▶`/`■` action glyphs with dynamic accessible labels, places `connectBtn`/`disconnectBtn` inside the top status strip, and removes those IDs from the Live camera card.
+- Existing HLS retry/recovery/autoconnect tests remain unchanged and authoritative.
+- Existing worker-control API/security/systemd/update/rollback tests remain authoritative through aggregate Quality integration.
+- Exact source delivery requires PR Validation + aggregate Quality integration on one final five-path head.
+- Runtime after merge requires only VPS deployment plus browser smoke: top-strip Stream and Worker icons present, no Stop confirmation popup, worker Stop/Start still leaves HLS uninterrupted.
 
 ## Risk profile
 
 - Risk profile: REQUIRED
 
-- RISK-001 | Category: TECH | Probability: 2 | Impact: 5 | Score: 10 | Mitigation: bind updater to the real quality-verifier CLI and execute its parser surface | Validation: tests/test_ubuntu_worker_exact_updater.py | Residual risk: future interface drift must fail CI before production | Owner: Delivery Orchestrator | Status: MITIGATED
-- RISK-002 | Category: OPS | Probability: 2 | Impact: 5 | Score: 10 | Mitigation: preserve exact legacy/modern control topology on activation failure and rollback | Validation: updater/rollback regression plus read-only runtime preflight | Residual risk: physical systemd state still requires runtime readback | Owner: Delivery Orchestrator | Status: MITIGATED
-- RISK-003 | Category: OPS | Probability: 2 | Impact: 4 | Score: 8 | Mitigation: cleanup captures and returns primary status while every cleanup operation is guarded best-effort | Validation: executable EXIT-trap cleanup regression with forced rm failures | Residual risk: failed temporary cleanup may leave root-only staging/backups for later housekeeping but cannot redefine deployment result | Owner: Delivery Orchestrator | Status: MITIGATED
-- RISK-004 | Category: DATA | Probability: 1 | Impact: 5 | Score: 5 | Mitigation: cleanup scope remains only root-only staging/unit-backup/control-backup/marker temp paths; releases/runtimes/shared state remain excluded | Validation: source assertions and exact diff review | Residual risk: local temporary artifacts may require later manual cleanup if filesystem removal fails | Owner: Delivery Orchestrator | Status: MITIGATED
+- RISK-001 | Category: TECH | Probability: 2 | Impact: 5 | Score: 10 | Mitigation: bind updater to the real quality-verifier CLI and execute its parser surface | Validation: tests/test_ubuntu_worker_exact_updater.py | Residual risk: historical Ubuntu release risk is regression-protected | Owner: Delivery Orchestrator | Status: MITIGATED
+- RISK-002 | Category: OPS | Probability: 2 | Impact: 5 | Score: 10 | Mitigation: preserve exact legacy/modern control topology on activation failure and rollback | Validation: updater/rollback regression plus accepted runtime evidence | Residual risk: historical systemd risk is regression-protected | Owner: Delivery Orchestrator | Status: MITIGATED
+- RISK-003 | Category: OPS | Probability: 2 | Impact: 4 | Score: 8 | Mitigation: updater cleanup preserves primary status while every cleanup operation is guarded best-effort | Validation: executable EXIT-trap cleanup regression | Residual risk: historical housekeeping risk is regression-protected | Owner: Delivery Orchestrator | Status: MITIGATED
+- RISK-004 | Category: DATA | Probability: 1 | Impact: 5 | Score: 5 | Mitigation: updater cleanup excludes protected release/runtime/shared state | Validation: source assertions and accepted Ubuntu runtime | Residual risk: historical temporary-artifact risk only | Owner: Delivery Orchestrator | Status: MITIGATED
+- RISK-005 | Category: OPS | Probability: 2 | Impact: 3 | Score: 6 | Mitigation: frontend contract parses both top status strip and Live camera card, proves unique IDs/icon-only actions/no worker confirm, and aggregate CI re-runs HLS lifecycle contracts | Validation: tests/test_frontend_contract.py plus production browser smoke | Residual risk: visual spacing varies by browser width but controls remain accessible through labels/titles | Owner: Delivery Orchestrator | Status: MITIGATED
 
 ## Test design
 
 - TEST-001 | Covers: AC-002,AC-003,AC-004,AC-005,AC-006 | Level: unit | Priority: P0 | Evidence: tests/test_worker_operator_control.py
-- TEST-002 | Covers: AC-001,AC-010 | Level: integration | Priority: P1 | Evidence: tests/test_frontend_contract.py
+- TEST-002 | Covers: AC-001,AC-010,AC-021 | Level: integration | Priority: P0 | Evidence: tests/test_frontend_contract.py
 - TEST-003 | Covers: AC-007 | Level: integration | Priority: P0 | Evidence: tests/test_ubuntu_worker_systemd.py
-- TEST-004 | Covers: AC-008,AC-018,AC-019 | Level: integration | Priority: P0 | Evidence: tests/test_ubuntu_worker_exact_updater.py and tests/test_ubuntu_worker_rollback.py
+- TEST-004 | Covers: AC-008,AC-018,AC-019,AC-020 | Level: integration | Priority: P0 | Evidence: tests/test_ubuntu_worker_exact_updater.py and tests/test_ubuntu_worker_rollback.py
 - TEST-005 | Covers: AC-009 | Level: integration | Priority: P0 | Evidence: tests/test_sea_speed_auth_v1.py
 - TEST-006 | Covers: AC-011 | Level: end-to-end | Priority: P0 | Evidence: exact-head PR Validation + Quality integration
-- TEST-007 | Covers: AC-012 | Level: runtime-manual | Priority: P0 | Evidence: production service status plus continuous Camera 1 HLS playback before/during/after stop/start
+- TEST-007 | Covers: AC-012,AC-021 | Level: runtime-manual | Priority: P0 | Evidence: production Operator UI Stop/Start with continuous Camera 1 HLS and no confirmation popup after VPS-only deploy
 - TEST-008 | Covers: AC-013 | Level: unit | Priority: P0 | Evidence: tests/test_worker_operator_control.py
-- TEST-009 | Covers: AC-014 | Level: end-to-end | Priority: P0 | Evidence: tests/quality/test_quality_architecture.py plus exact-artifact/release-evidence jobs
-- TEST-010 | Covers: AC-015,AC-017 | Level: integration | Priority: P0 | Evidence: tests/test_vps_deploy_origin_health.py plus accepted VPS evidence
-- TEST-011 | Covers: AC-016 | Level: integration | Priority: P0 | Evidence: tests/quality/test_quality_architecture.py plus accepted VPS admission evidence
-- TEST-012 | Covers: AC-020,RISK-003,RISK-004 | Level: integration | Priority: P0 | Evidence: tests/test_ubuntu_worker_exact_updater.py executable cleanup EXIT-trap cases
+- TEST-009 | Covers: AC-014 | Level: end-to-end | Priority: P1 | Evidence: aggregate exact-artifact/release-evidence jobs
+- TEST-010 | Covers: AC-015,AC-017 | Level: integration | Priority: P1 | Evidence: tests/test_vps_deploy_origin_health.py plus accepted VPS deployment evidence
+- TEST-011 | Covers: AC-016 | Level: integration | Priority: P1 | Evidence: tests/quality/test_quality_architecture.py
 
 ## Correct-course check
 
-- Trigger: PRODUCTION_LEARNING
-- Issue impact: Issue #178 records production learning #6: authorized preparation reached `RUNTIME_REUSED`, exact release/quality preparation and `NOT_ACTIVATED`, then process exit became 1 in cleanup; activation did not run.
-- Specification impact: adds FR-020, AC-020, NFR-011 and runtime-learning #6 without changing operator/media/AI behavior.
-- Plan impact: adds D-013, cleanup-specific risk/test evidence and updates the transaction audit housekeeping semantics.
-- Tasks impact: active source gate becomes exact 5 paths for updater, executable regression and SDD synchronization before a fresh production envelope.
-- Authorization impact: fresh `OUTCOME APPROVED` is recorded for this exact 5-path remediation; the production authorization for `6b948ef...` is stale for the remediation merge SHA.
-- Follow-up: merge only an exact-green 5-path head, verify push/main quality/artifacts, obtain fresh production authorization, re-read the actual worker baseline/prepared state, prepare the new exact SHA with expected runtime reuse, then activate and finish Stop/HLS/Start/HLS acceptance.
+- Trigger: NONE
+- Issue impact: Issue #178 remains the canonical worker-control task; this is an in-scope UI usability continuation after successful runtime acceptance.
+- Specification impact: adds Scenario 4, FR-021, AC-021 and NFR-012 while preserving worker/HLS separation and all protected runtime semantics.
+- Plan impact: adds D-014 and updates the active contour, validation, VPS transaction audit and rollout to the frontend-only continuation.
+- Tasks impact: adds the five-path UI-polish source gate, frontend regression evidence and VPS-only production acceptance step.
+- Authorization impact: operator supplied `OUTCOME APPROVED` after the visible five-path UI scope; no new backend/runtime/security scope was added.
+- Follow-up: merge only exact-green five-path source, then obtain one exact-release VPS production authorization carrying execution intent and complete the UI smoke.
 
 ## Deployment transaction audit
 
-This audit models Ubuntu exact-release preparation/activation after production learning #6.
+This audit models the VPS-only rollout of the compact Operator UI; it does not redeploy Ubuntu or Windows.
 
-- TX-001 | Stage: ADMISSION | Mutation: NO | Failure disposition: FATAL | State after failure: active worker source/runtime/control topology unchanged | Retry: correct exact SHA, quality/provenance or production envelope then retry from trusted exact checkout | Rollback: NOT REQUIRED before release/systemd mutation | Evidence: exact SHA ancestry, exact push/main quality, authorization and provenance
-- TX-002 | Stage: PRE-MUTATION | Mutation: POSSIBLE | Failure disposition: FATAL | State after failure: immutable target release/quality marker may exist while active systemd/source state remains baseline | Retry: verify prepared release/runtime and re-read active topology before retry | Rollback: NOT REQUIRED for preparation-only state | Evidence: source-commit, quality-approved, runtime-id, `RUNTIME_REUSED` and active topology readback
-- TX-003 | Stage: MUTATION | Mutation: YES | Failure disposition: FATAL | State after failure: target worker/control units may be partially installed while active marker remains previous source | Retry: only after automatic restoration proves the prior topology or separately authorized recovery | Rollback: restore previous worker/runtime plus exact previous control topology | Evidence: install/control/worker logs and root-only unit backups
-- TX-004 | Stage: VERIFICATION | Mutation: POSSIBLE | Failure disposition: FATAL | State after failure: target not accepted and automatic restoration is attempted while active marker remains previous source | Retry: resolve verification failure and confirm restored state read-only | Rollback: exact previous worker/runtime/control topology and desired worker state | Evidence: control/worker ExecStart, service states and runtime progression gate
-- TX-005 | Stage: STATE-COMMIT | Mutation: YES | Failure disposition: FATAL | State after failure: unresolved if verified target cannot atomically write active-source marker; automated mutation stops | Retry: read actual service/unit/marker state before any retry | Rollback: use the previous exact source/runtime/topology from pre-mutation evidence when recovery is required | Evidence: active-source marker atomic write only after target verification
-- TX-006 | Stage: HOUSEKEEPING | Mutation: POSSIBLE | Failure disposition: BEST-EFFORT | State after failure: root-only staging/backups/temporary marker may remain, but primary updater status and accepted/prepared state are unchanged | Retry: remove leftover temporary artifacts independently when safe | Rollback: NOT REQUIRED solely for temporary cleanup failure | Evidence: cleanup captures `$?`, guards every removal best-effort, returns original status, and executable fault-path regression proves 0/nonzero preservation
-- TX-007 | Stage: EVIDENCE | Mutation: NO | Failure disposition: CONDITIONAL | State after failure: runtime/preparation may be healthy but Issue #178 acceptance remains incomplete until exact evidence is recorded | Retry: recollect sanitized read-only evidence without unnecessary mutation | Rollback: decide from actual runtime state, not evidence-copy failure alone | Evidence: updater outputs, source/runtime/control identities and HLS observations
-- TX-008 | Stage: ROLLBACK | Mutation: YES | Failure disposition: FATAL | State after failure: unknown if exact previous/target topology cannot be verified; automated mutation stops | Retry: recover actual worker/control/source/runtime state read-only and use separately authorized recovery | Rollback: modern target requires exact active control; legacy target requires control absent; source marker changes only after acceptance | Evidence: `RESTORED`, `ACTIVATION_ABORTED` or `ROLLED_BACK` plus exact runtime readback
-
-- Adjacent-stage review: COMPLETE
-- Production-learning root cause: under `set -euo pipefail`, `update-exact.sh` `cleanup()` ended on `[[ -n "$marker_tmp" ]] && rm -f "$marker_tmp"`; in successful preparation optional temp variables were empty, so the EXIT trap returned 1 and converted a completed preparation process into failure.
-- Production-learning adjacent-stage findings: admission and preparation were successful; no activation/systemd mutation started; prepared exact release and runtime reuse evidence remain valid as historical state only; the active marker/topology must be re-read before the next attempt; housekeeping must preserve primary success/failure and attempt all populated cleanup targets; outer orchestration must continue to trust process status rather than infer success from log strings; legacy-control rollback semantics from PR #186 remain unchanged and still require runtime verification before activation.
+- TX-001 | Stage: ADMISSION | Mutation: NO | Failure disposition: FATAL | State after failure: production VPS remains on the accepted previous release | Retry: correct exact SHA/quality/authorization evidence then re-enter the existing protected VPS deploy workflow | Rollback: NOT REQUIRED before mutation | Evidence: exact first-parent SHA, push/main Quality integration, canonical Issue production authorization and execution intent
+- TX-002 | Stage: PRE-MUTATION | Mutation: POSSIBLE | Failure disposition: FATAL | State after failure: candidate release may be staged while current VPS release remains active | Retry: verify staged exact release and previous/current identities then retry | Rollback: NOT REQUIRED while active release is unchanged | Evidence: exact VPS artifact/release manifest and current/previous release markers
+- TX-003 | Stage: MUTATION | Mutation: YES | Failure disposition: FATAL | State after failure: candidate VPS release may be active but is not accepted until verification succeeds | Retry: only after existing deploy transaction restores or proves a coherent current release | Rollback: existing VPS deploy rollback restores previous exact release | Evidence: repository-owned deploy-vps activation logs
+- TX-004 | Stage: VERIFICATION | Mutation: POSSIBLE | Failure disposition: FATAL | State after failure: candidate is not accepted | Retry: resolve health/public-smoke failure after actual current release is known | Rollback: automatic previous-release verification through accepted loopback origin and protected public smoke | Evidence: origin health on 127.0.0.1:8010, public smoke, exact frontend release identity
+- TX-005 | Stage: STATE-COMMIT | Mutation: YES | Failure disposition: FATAL | State after failure: deployment evidence is incomplete and completion is forbidden | Retry: verify actual runtime before persisting evidence | Rollback: previous exact VPS release remains the declared rollback target | Evidence: current/previous markers plus runtime-verified deployment manifest
+- TX-006 | Stage: HOUSEKEEPING | Mutation: POSSIBLE | Failure disposition: BEST-EFFORT | State after failure: verified runtime remains valid while stale release cleanup may remain pending | Retry: clean stale non-current/non-previous releases independently | Rollback: NOT REQUIRED solely for stale cleanup failure | Evidence: warning-only pruning behavior already regression-protected
+- TX-007 | Stage: EVIDENCE | Mutation: NO | Failure disposition: CONDITIONAL | State after failure: deployed runtime may be healthy but UI acceptance remains incomplete | Retry: recollect browser smoke without redeployment when exact runtime identity is unchanged | Rollback: decide from actual UI/runtime behavior, not evidence upload alone | Evidence: deployment manifest plus Operator UI icon placement/no-popup/HLS continuity smoke
+- TX-008 | Stage: ROLLBACK | Mutation: YES | Failure disposition: FATAL | State after failure: if previous exact release cannot be restored/verified, stop automated mutation and recover actual VPS state | Retry: read current/previous/runtime evidence before any new mutation | Rollback: no guessed secondary target; use the protected previous exact VPS release | Evidence: existing VPS rollback logs and verified origin/public health
 
 ## Rollout and rollback
 
-- Source rollout: merge only exact green 5-path remediation after fresh base/head/scope/review verification and expected-head protection.
-- Production checkpoint: exact push/main Quality integration + exact artifact evidence for the merge SHA, then a fresh Ubuntu production fingerprint/authorization.
-- Preparation: use exact target updater without `--activate`; require exact quality, `RUNTIME_REUSED` for unchanged runtime definition, preparation outputs, and process exit 0.
-- Activation: re-read active source/runtime/control topology, then run exact updater with `--activate`; require exact control source, worker source/runtime and runtime progression.
-- Automatic rollback: failed activation before marker commit restores previous worker/runtime/control topology; current legacy baseline returns to no control unit.
-- Product acceptance: Stop worker while Camera 1 HLS remains playable, then Start worker while HLS remains playable and worker progression resumes.
-- Production mutation during this source remediation lifecycle: NONE.
+- Source rollout: merge only the exact green five-path UI continuation after fresh base/head/scope/review verification and expected-head protection.
+- Production checkpoint: exact push/main Quality integration + exact VPS artifact evidence for the merge SHA, then one fresh VPS production authorization with `Execution-Intent: EXECUTE`.
+- Deployment: existing repository-owned VPS deploy workflow only; Ubuntu Worker and Windows Worker are not redeployed.
+- Product acceptance: verify top-strip Stream Play/Stop and Worker `▶`/`■`, no worker confirmation popup, no duplicate Stream controls in Live camera, and HLS continuity across worker Stop/Start.
+- Rollback: existing VPS previous exact release through the protected deployment transaction.
 
 ## Runtime feedback
 
-- Actual architecture after acceptance: VPS accepted; Ubuntu pending cleanup-remediation source integration and final production acceptance.
-- Observed Ubuntu baseline before preparation: `efdbdfd9612d425bf34a81384298e091de06ec15` + runtime `a9a9aaccd97e5c824ccc568504ad146936a4a69b5f8fe1ff36451ecd7317f88b`, worker active/enabled, control unit absent.
-- Production learning #5: verifier CLI mismatch exposed legacy-control rollback topology debt; PR #186 remediated both before activation.
-- Production learning #6: preparation of `6b948ef40a2e6d13c3a7fde8a63d7b4ef937176f` passed quality/runtime/release preparation and emitted `NOT_ACTIVATED`, but EXIT cleanup returned 1 because optional temp variables were empty under `set -e`.
-- Current corrective source task: exact 5-path cleanup-status remediation with executable EXIT-trap fault cases.
-- Deferred work: exact-head CI/merge, post-merge quality/artifact evidence, fresh production authorization, read-only runtime reconciliation, exact preparation/activation, control protocol/status check, Stop/HLS/Start/HLS evidence, then Issue #178 completion decision.
+- Worker-control runtime outcome is accepted on Ubuntu exact source `8dc74762a344dbf763d3ce1e7ecb1bac6872affb`; Stop/Start did not interrupt Camera 1 HLS.
+- Current continuation changes presentation only and requires VPS deployment after merge; Ubuntu and Windows remain unchanged.
+- Source authorization and exact scope are recorded on Issue #178 comment `5306717626`.
