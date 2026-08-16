@@ -1,6 +1,6 @@
 # Sea Speed Governance
 
-Version: 1.10.0
+Version: 1.11.0
 Status: Active
 Source of truth: GitHub `main`
 
@@ -12,7 +12,8 @@ Source of truth: GitHub `main`
 - All GitHub repository lifecycle writes use the connected GitHub Connector. GitHub CLI `gh`, local GitHub authentication, `git push`, and direct local publication are not part of the Sea Speed delivery workflow.
 - VPS and worker hosts are runtime environments, not editable source stores.
 - Task Intake is read-only and produces a canonical Task Brief plus an Outcome Contract before implementation.
-- New repository work requires `OUTCOME APPROVED` issued after the Implementation Scope Check. Historical `COMMIT APPROVED` / `MERGE APPROVED` records remain valid audit evidence for the tasks that used them, but are not accepted as the source-authorization declaration of a new pull request.
+- Before asking the operator to issue `OUTCOME APPROVED`, the Delivery Orchestrator MUST first present a visible Scope block containing the product outcome, exact repository paths, protected/out-of-scope boundaries, runtime/production impact and acceptance evidence. A bare approval prompt without that displayed scope is not valid Task Intake completion.
+- New repository work requires `OUTCOME APPROVED` issued after the displayed Implementation Scope Check. Historical `COMMIT APPROVED` / `MERGE APPROVED` records remain valid audit evidence for the tasks that used them, but are not accepted as the source-authorization declaration of a new pull request.
 - Changes under `skills/**` additionally require `SKILL UPDATE APPROVED`.
 - Every task uses a fresh branch created from current `main`.
 - Material product-scope expansion, destructive action, secret use/security-boundary change, protected behavior change, schema incompatibility, data migration, or behavior redesign requires fresh authorization.
@@ -24,7 +25,7 @@ The single active delivery role is **Sea Speed Delivery Orchestrator**. It owns 
 
 ```text
 read-only Task Intake
--> Outcome Contract / Implementation Scope Check
+-> Outcome Contract / visible Implementation Scope Check
 -> source authorization
 -> capability preflight
 -> fresh branch
@@ -43,7 +44,21 @@ read-only Task Intake
 
 ## 3. Outcome Contract and source authorization
 
-Before source authorization, the Delivery Orchestrator records a concise Outcome Contract in the canonical Issue or equivalent durable task record:
+Before source authorization, the Delivery Orchestrator records a concise Outcome Contract in the canonical Issue or equivalent durable task record and presents the same bounded scope visibly to the operator before requesting approval:
+
+```text
+Scope
+- Product outcome:
+- Exact repository paths:
+- Protected / out of scope:
+- Runtime contour:
+- Production impact:
+- Acceptance evidence:
+```
+
+The visible Scope block is mandatory immediately before the authorization request. The Orchestrator MUST NOT request `OUTCOME APPROVED` by itself, MUST NOT rely on unshown internal reasoning as the scope, and MUST NOT ask the operator to infer the approved paths from prior discussion. If a re-authorization trigger changes the outcome, path set, runtime contour or protected boundary, the updated Scope block MUST be shown before requesting a fresh `OUTCOME APPROVED`.
+
+The durable Outcome Contract remains:
 
 ```text
 Outcome Contract
@@ -79,7 +94,7 @@ After valid source authorization, the Delivery Orchestrator continues through ev
 The normal interaction budget is:
 
 ```text
-source intent: one OUTCOME APPROVED
+source intent: one OUTCOME APPROVED, requested only after a visible Scope block
 production intent: one exact-release authorization carrying Execution-Intent: EXECUTE
 manual runtime action: zero target; at most one fallback action per required contour
 intermediate deterministic confirmations: none
@@ -116,6 +131,8 @@ Domain review lenses inspect only the approved task scope. Cross-domain changes 
 ## 7. Protected behavior and re-authorization triggers
 
 Fresh authorization is mandatory before material outcome/scope expansion; destructive or irreversible work outside the Outcome Contract; secret disclosure/use outside an already approved protected runtime mechanism; security-boundary weakening or credential-handling redesign; protected camera/runtime behavior change; incompatible API/state/storage/session schema change; data migration; detection/tracking/scoring/speed/calibration or event-semantics redesign; deployment-target redesign; or unauthorized `skills/**` edits.
+
+Before requesting that fresh authorization, the Delivery Orchestrator must present the updated visible Scope block that caused the re-authorization boundary.
 
 Ordinary bug fixes, test corrections, PR metadata repair and CI remediation that remain inside the Outcome Contract do not require re-authorization.
 
