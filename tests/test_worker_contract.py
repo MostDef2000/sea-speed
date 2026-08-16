@@ -95,8 +95,11 @@ class WorkerContractTests(unittest.TestCase):
     def test_no_profile_environment_keeps_legacy_windows_defaults(self) -> None:
         source = SOURCE.read_text(encoding="utf-8-sig")
         self.assertIn('profile_name = env_str("ANALYTICS_PROFILE", "").strip()', source)
+        self.assertIn('profile = get_profile(profile_name) if profile_name else None', source)
         self.assertIn('confidence_default = 0.25', source)
-        self.assertIn('profile.model_name if profile_is_explicit() else "yolo11s.pt"', source)
+        self.assertIn('model_name = env_str("MODEL_NAME", profile.model_name if profile else "yolo11s.pt")', source)
+        self.assertIn('profile.tracker if profile else "bytetrack.yaml"', source)
+        self.assertIn('profile.default_camera_id if profile else "cam1_road_test"', source)
 
 
 if __name__ == "__main__":
