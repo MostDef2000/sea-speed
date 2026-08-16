@@ -13,6 +13,7 @@ API_TARGET="${SEA_SPEED_API_TARGET:-/opt/sea-speed-api/app/main.py}"
 FRONTEND_TARGET="${SEA_SPEED_FRONTEND_TARGET:-/var/www/mostdef.ru/sea-speed/index.html}"
 OBJECTS_FRONTEND_TARGET="${SEA_SPEED_OBJECTS_FRONTEND_TARGET:-/var/www/mostdef.ru/sea-speed/objects/index.html}"
 CAMERAS_FRONTEND_TARGET="${SEA_SPEED_CAMERAS_FRONTEND_TARGET:-/var/www/mostdef.ru/sea-speed/cameras/index.html}"
+ROAD_FRONTEND_TARGET="${SEA_SPEED_ROAD_FRONTEND_TARGET:-/var/www/mostdef.ru/sea-speed/road/index.html}"
 ROOT_FRONTEND_TARGET="${SEA_SPEED_ROOT_FRONTEND_TARGET:-/var/www/mostdef.ru/index.html}"
 SERVICE_NAME="sea-speed-api"
 SYSTEMCTL_BIN="${SEA_SPEED_SYSTEMCTL_BIN:-/usr/bin/systemctl}"
@@ -21,6 +22,7 @@ PUBLIC_HEALTH_URL="${SEA_SPEED_HEALTH_URL:-https://mostdef.ru/sea-speed/api/heal
 FRONTEND_URL="${SEA_SPEED_FRONTEND_URL:-https://mostdef.ru/sea-speed/}"
 OBJECTS_FRONTEND_URL="${SEA_SPEED_OBJECTS_FRONTEND_URL:-https://mostdef.ru/sea-speed/objects/}"
 CAMERAS_FRONTEND_URL="${SEA_SPEED_CAMERAS_FRONTEND_URL:-https://mostdef.ru/sea-speed/cameras/}"
+ROAD_FRONTEND_URL="${SEA_SPEED_ROAD_FRONTEND_URL:-https://mostdef.ru/sea-speed/road/}"
 ROOT_FRONTEND_URL="${SEA_SPEED_ROOT_FRONTEND_URL:-https://mostdef.ru/}"
 RELEASES_DIR="${DEPLOY_ROOT}/releases"
 STATE_DIR="${DEPLOY_ROOT}/state"
@@ -51,7 +53,7 @@ validate_runtime_access() {
 }
 
 ensure_layout() {
-  mkdir -p "$RELEASES_DIR" "$STATE_DIR" "$(dirname "$OBJECTS_FRONTEND_TARGET")" "$(dirname "$CAMERAS_FRONTEND_TARGET")"
+  mkdir -p "$RELEASES_DIR" "$STATE_DIR" "$(dirname "$OBJECTS_FRONTEND_TARGET")" "$(dirname "$CAMERAS_FRONTEND_TARGET")" "$(dirname "$ROAD_FRONTEND_TARGET")"
 }
 
 download_release() {
@@ -59,6 +61,7 @@ download_release() {
         -f "$TARGET_RELEASE/frontend/sea-speed/index.html" && \
         -f "$TARGET_RELEASE/frontend/sea-speed/objects/index.html" && \
         -f "$TARGET_RELEASE/frontend/sea-speed/cameras/index.html" && \
+        -f "$TARGET_RELEASE/frontend/sea-speed/road/index.html" && \
         -f "$TARGET_RELEASE/frontend/root/index.html" ]]; then
     log "Release ${COMMIT_SHA} already exists"
     return
@@ -80,14 +83,16 @@ download_release() {
   [[ -f "$extracted/frontend/sea-speed/index.html" ]] || { echo "Release does not contain frontend/sea-speed/index.html" >&2; exit 1; }
   [[ -f "$extracted/frontend/sea-speed/objects/index.html" ]] || { echo "Release does not contain frontend/sea-speed/objects/index.html" >&2; exit 1; }
   [[ -f "$extracted/frontend/sea-speed/cameras/index.html" ]] || { echo "Release does not contain frontend/sea-speed/cameras/index.html" >&2; exit 1; }
+  [[ -f "$extracted/frontend/sea-speed/road/index.html" ]] || { echo "Release does not contain frontend/sea-speed/road/index.html" >&2; exit 1; }
   [[ -f "$extracted/frontend/root/index.html" ]] || { echo "Release does not contain frontend/root/index.html" >&2; exit 1; }
 
   rm -rf "$TARGET_RELEASE"
-  mkdir -p "$TARGET_RELEASE/api/app" "$TARGET_RELEASE/frontend/sea-speed/objects" "$TARGET_RELEASE/frontend/sea-speed/cameras" "$TARGET_RELEASE/frontend/root"
+  mkdir -p "$TARGET_RELEASE/api/app" "$TARGET_RELEASE/frontend/sea-speed/objects" "$TARGET_RELEASE/frontend/sea-speed/cameras" "$TARGET_RELEASE/frontend/sea-speed/road" "$TARGET_RELEASE/frontend/root"
   install -m 0644 "$extracted/api/app/main.py" "$TARGET_RELEASE/api/app/main.py"
   install -m 0644 "$extracted/frontend/sea-speed/index.html" "$TARGET_RELEASE/frontend/sea-speed/index.html"
   install -m 0644 "$extracted/frontend/sea-speed/objects/index.html" "$TARGET_RELEASE/frontend/sea-speed/objects/index.html"
   install -m 0644 "$extracted/frontend/sea-speed/cameras/index.html" "$TARGET_RELEASE/frontend/sea-speed/cameras/index.html"
+  install -m 0644 "$extracted/frontend/sea-speed/road/index.html" "$TARGET_RELEASE/frontend/sea-speed/road/index.html"
   install -m 0644 "$extracted/frontend/root/index.html" "$TARGET_RELEASE/frontend/root/index.html"
   printf '%s\n' "$COMMIT_SHA" > "$TARGET_RELEASE/commit-sha"
   printf '%s\n' "$archive_sha" > "$TARGET_RELEASE/archive-sha256"
@@ -103,7 +108,7 @@ bootstrap_current_release() {
   local bootstrap_name="bootstrap-$(date -u +%Y%m%dT%H%M%SZ)"
   local bootstrap_release="$RELEASES_DIR/$bootstrap_name"
   log "Capturing the existing live code once as bootstrap rollback"
-  mkdir -p "$bootstrap_release/api/app" "$bootstrap_release/frontend/sea-speed/objects" "$bootstrap_release/frontend/sea-speed/cameras" "$bootstrap_release/frontend/root"
+  mkdir -p "$bootstrap_release/api/app" "$bootstrap_release/frontend/sea-speed/objects" "$bootstrap_release/frontend/sea-speed/cameras" "$bootstrap_release/frontend/sea-speed/road" "$bootstrap_release/frontend/root"
   install -m 0644 "$API_TARGET" "$bootstrap_release/api/app/main.py"
   install -m 0644 "$FRONTEND_TARGET" "$bootstrap_release/frontend/sea-speed/index.html"
   if [[ -f "$OBJECTS_FRONTEND_TARGET" ]]; then
@@ -115,6 +120,11 @@ bootstrap_current_release() {
     install -m 0644 "$CAMERAS_FRONTEND_TARGET" "$bootstrap_release/frontend/sea-speed/cameras/index.html"
   else
     touch "$bootstrap_release/frontend/sea-speed/cameras/.absent"
+  fi
+  if [[ -f "$ROAD_FRONTEND_TARGET" ]]; then
+    install -m 0644 "$ROAD_FRONTEND_TARGET" "$bootstrap_release/frontend/sea-speed/road/index.html"
+  else
+    touch "$bootstrap_release/frontend/sea-speed/road/.absent"
   fi
   install -m 0644 "$ROOT_FRONTEND_TARGET" "$bootstrap_release/frontend/root/index.html"
   printf '%s\n' "$bootstrap_name" > "$bootstrap_release/commit-sha"
@@ -162,6 +172,21 @@ ensure_current_release_has_cameras_frontend() {
   fi
 }
 
+ensure_current_release_has_road_frontend() {
+  local current_name current_release road_release_dir
+  current_name="$(cat "$CURRENT_FILE")"
+  current_release="$RELEASES_DIR/$current_name"
+  road_release_dir="$current_release/frontend/sea-speed/road"
+  if [[ -f "$road_release_dir/index.html" || -f "$road_release_dir/.absent" ]]; then return; fi
+  log "Capturing current road frontend state for rollback release ${current_name}"
+  mkdir -p "$road_release_dir"
+  if [[ -f "$ROAD_FRONTEND_TARGET" ]]; then
+    install -m 0644 "$ROAD_FRONTEND_TARGET" "$road_release_dir/index.html"
+  else
+    touch "$road_release_dir/.absent"
+  fi
+}
+
 install_release() {
   local release_name="$1"
   local release_dir="$RELEASES_DIR/$release_name"
@@ -169,6 +194,7 @@ install_release() {
   [[ -f "$release_dir/frontend/sea-speed/index.html" ]] || { echo "Release ${release_name} has no operator frontend file" >&2; return 1; }
   [[ -f "$release_dir/frontend/sea-speed/objects/index.html" || -f "$release_dir/frontend/sea-speed/objects/.absent" ]] || { echo "Release ${release_name} has no objects frontend state" >&2; return 1; }
   [[ -f "$release_dir/frontend/sea-speed/cameras/index.html" || -f "$release_dir/frontend/sea-speed/cameras/.absent" ]] || { echo "Release ${release_name} has no cameras frontend state" >&2; return 1; }
+  [[ -f "$release_dir/frontend/sea-speed/road/index.html" || -f "$release_dir/frontend/sea-speed/road/.absent" ]] || { echo "Release ${release_name} has no road frontend state" >&2; return 1; }
   [[ -f "$release_dir/frontend/root/index.html" ]] || { echo "Release ${release_name} has no root frontend file" >&2; return 1; }
 
   install -m 0644 "$release_dir/api/app/main.py" "${API_TARGET}.next"
@@ -179,6 +205,9 @@ install_release() {
   fi
   if [[ -f "$release_dir/frontend/sea-speed/cameras/index.html" ]]; then
     install -m 0644 "$release_dir/frontend/sea-speed/cameras/index.html" "${CAMERAS_FRONTEND_TARGET}.next"
+  fi
+  if [[ -f "$release_dir/frontend/sea-speed/road/index.html" ]]; then
+    install -m 0644 "$release_dir/frontend/sea-speed/road/index.html" "${ROAD_FRONTEND_TARGET}.next"
   fi
 
   mv -f "${API_TARGET}.next" "$API_TARGET"
@@ -193,6 +222,11 @@ install_release() {
     mv -f "${CAMERAS_FRONTEND_TARGET}.next" "$CAMERAS_FRONTEND_TARGET"
   else
     rm -f "$CAMERAS_FRONTEND_TARGET" "${CAMERAS_FRONTEND_TARGET}.next"
+  fi
+  if [[ -f "$release_dir/frontend/sea-speed/road/index.html" ]]; then
+    mv -f "${ROAD_FRONTEND_TARGET}.next" "$ROAD_FRONTEND_TARGET"
+  else
+    rm -f "$ROAD_FRONTEND_TARGET" "${ROAD_FRONTEND_TARGET}.next"
   fi
 }
 
@@ -234,6 +268,12 @@ verify_frontends() {
     verify_public_url "Cameras frontend" "$CAMERAS_FRONTEND_URL"
   else
     log "Cameras frontend is absent in this rollback release"
+  fi
+  if [[ -f "$ROAD_FRONTEND_TARGET" ]]; then
+    [[ -s "$ROAD_FRONTEND_TARGET" ]] || { echo "Road frontend file is empty: ${ROAD_FRONTEND_TARGET}" >&2; return 1; }
+    verify_public_url "Road frontend" "$ROAD_FRONTEND_URL"
+  else
+    log "Road frontend is absent in this rollback release"
   fi
   verify_public_url "Root frontend" "$ROOT_FRONTEND_URL"
 }
@@ -284,6 +324,7 @@ payload = {
         {"name": "operator_frontend_smoke", "status": "passed"},
         {"name": "objects_frontend_release_state", "status": "passed"},
         {"name": "cameras_frontend_release_state", "status": "passed"},
+        {"name": "road_frontend_release_state", "status": "passed"},
         {"name": "root_frontend_smoke", "status": "passed"},
     ],
     "rollbackTarget": previous or None,
@@ -322,6 +363,7 @@ main() {
   ensure_current_release_has_root_frontend
   ensure_current_release_has_objects_frontend
   ensure_current_release_has_cameras_frontend
+  ensure_current_release_has_road_frontend
 
   local old_current previous
   old_current="$(cat "$CURRENT_FILE")"
