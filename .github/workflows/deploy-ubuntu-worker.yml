@@ -24,9 +24,41 @@ on:
 
 permissions:
   contents: read
+  actions: read
+  checks: read
+  issues: read
+  pull-requests: read
+
+concurrency:
+  group: sea-speed-ubuntu-worker-production
+  cancel-in-progress: false
 
 jobs:
-  compile-probe:
+  deploy:
+    name: Deploy exact main quality-approved Ubuntu release
     runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 30
     steps:
-      - run: echo compile-probe
+      - name: Require execution from main workflow definition
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == "refs/heads/main" ]] || { echo "Deploy Ubuntu Worker must execute from the main workflow definition" >&2; exit 1; }
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+      - name: Resolve exact main deployment commit
+        id: release
+        env:
+          INPUT_COMMIT: ${{ inputs.commit_sha }}
+        run: |
+          set -euo pipefail
+          DEPLOY_SHA="$INPUT_COMMIT"
+          [[ "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "Deployment commit must be a full lowercase 40-character SHA" >&2; exit 1; }
+          echo "sha=$DEPLOY_SHA" >> "$GITHUB_OUTPUT"
