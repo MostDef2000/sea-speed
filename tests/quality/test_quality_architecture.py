@@ -103,6 +103,18 @@ jobs:
         self.assertNotIn("VPS_SSH_PRIVATE_KEY", request)
         self.assertNotIn("ssh -i", request)
 
+    def test_windows_worker_package_is_pre_release_and_worker_scoped(self) -> None:
+        package = (ROOT / ".github/workflows/package-worker.yml").read_text(encoding="utf-8")
+        self.assertIn('- "worker/**"', package)
+        self.assertIn('- ".github/workflows/package-worker.yml"', package)
+        self.assertNotIn('"scripts/release/**"', package)
+        self.assertNotIn('"schemas/**"', package)
+        self.assertNotIn("build_release_manifest.py", package)
+        self.assertNotIn("release-manifest-windows-worker.json", package)
+        self.assertIn("commit-sha.txt", package)
+        self.assertIn("sea-speed-worker.zip.sha256", package)
+        self.assertIn("Production release manifest: `NOT BUILT`", package)
+
     def test_exact_artifacts_are_deterministic_and_valid(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             first = Path(temp_dir) / "first"
