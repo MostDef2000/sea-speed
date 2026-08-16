@@ -152,6 +152,10 @@ PY
         self.assertIn("deployment-manifest-ubuntu-worker.json", deploy)
         self.assertIn("<<'PY'\n          import json", deploy)
         self.assertNotIn("<<'PY'\nimport json", deploy)
+        self.assertIn(r'STAGE="\$(mktemp -d "\$ROOT/updater/bootstrap.XXXXXX")"', deploy)
+        self.assertNotIn(r'mktemp -d \"\$ROOT/updater/bootstrap.XXXXXX\"', deploy)
+        self.assertIn(r'bash "\$STAGE/deploy/worker/ubuntu/deploy-authorized.sh"', deploy)
+        self.assertNotIn(r'exec bash "\$STAGE/deploy/worker/ubuntu/deploy-authorized.sh"', deploy)
 
     def test_windows_worker_package_is_pre_release_and_worker_scoped(self) -> None:
         package = (ROOT / ".github/workflows/package-worker.yml").read_text(encoding="utf-8")
