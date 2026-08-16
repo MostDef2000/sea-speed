@@ -47,8 +47,11 @@ def main() -> int:
     root = repository_root()
     quality_path = root / ".github/workflows/quality-integration.yml"
     deploy_path = root / ".github/workflows/deploy-vps.yml"
+    request_path = root / ".github/workflows/deploy-vps-request.yml"
     quality = quality_path.read_text(encoding="utf-8-sig")
     deploy = deploy_path.read_text(encoding="utf-8-sig")
+    request = request_path.read_text(encoding="utf-8-sig")
+
     for marker in (
         "name: Quality integration gate", "pull_request:", "push:", "workflow_dispatch:", "contents: read",
         "static-contract-security:", "property-fuzz-reliability:", "exact-artifact-e2e:",
@@ -64,10 +67,11 @@ def main() -> int:
             fail(f"aggregate job does not depend on {dependency}")
 
     on_block = deploy.split("permissions:", 1)[0]
-    if "workflow_dispatch:" not in on_block:
-        fail("VPS deployment must be manually dispatched")
-    if re.search(r"^\s{2}(push|pull_request):", on_block, re.MULTILINE):
-        fail("VPS production deployment must not run on push or pull request")
+    for marker in ("workflow_dispatch:", "workflow_call:"):
+        if marker not in on_block:
+            fail(f"VPS deployment must support {marker.rstrip(':')}")
+    if re.search(r"^\s{2}(push|pull_request|issue_comment):", on_block, re.MULTILINE):
+        fail("VPS deployment implementation must not run directly from push, pull_request, or issue_comment")
     for marker in (
         "commit_sha:", "canonical_issue:", "environment: production", "issues: read", "pull-requests: read",
         "refs/heads/main", "--first-parent", "verify_quality_status.py", "--workflow-file quality-integration.yml",
@@ -83,12 +87,35 @@ def main() -> int:
     if deploy.index("verify_quality_status.py") > deploy.index("Configure SSH"):
         fail("quality evidence must be verified before SSH configuration")
 
+    request_on_block = request.split("permissions:", 1)[0]
+    if "issue_comment:" not in request_on_block or "types: [created]" not in request_on_block:
+        fail("VPS deployment request workflow must trigger only from created issue_comment events")
+    if re.search(r"^\s{2}(push|pull_request|workflow_dispatch):", request_on_block, re.MULTILINE):
+        fail("VPS deployment request workflow must not run from push, pull_request, or workflow_dispatch")
+    for marker in (
+        "startsWith(github.event.comment.body, 'DEPLOY VPS ')",
+        "!github.event.issue.pull_request",
+        "scripts/release/parse_deployment_request.py",
+        "uses: ./.github/workflows/deploy-vps.yml",
+        "secrets: inherit",
+        "canonical_issue:",
+        "commit_sha:",
+    ):
+        if marker not in request:
+            fail(f"VPS deployment request marker missing: {marker}")
+    for forbidden in ("environment: production", "Configure SSH", "VPS_SSH_PRIVATE_KEY", "VPS_HOST", "ssh -i"):
+        if forbidden in request:
+            fail(f"VPS request workflow must delegate protected execution; forbidden marker: {forbidden}")
+
     for workflow_path in sorted((root / ".github/workflows").glob("*.y*ml")):
         try:
             validate_workflow_source(workflow_path.read_text(encoding="utf-8-sig"), str(workflow_path.relative_to(root)))
         except ValueError as exc:
             fail(str(exc))
-    print("Workflow policy valid: immutable actions, aggregate SDD gate, exact-main admission, durable authorization")
+    print(
+        "Workflow policy valid: immutable actions, aggregate SDD gate, reusable exact-main deployment, "
+        "Connector-addressable Issue request, durable authorization"
+    )
     return 0
 
 
