@@ -139,12 +139,12 @@ jobs:
             --evidence dist/quality-evidence.json \
             --artifacts-manifest dist/exact/exact-artifacts.json
           ARTIFACT_SHA="$(python - <<'PY'
-import json
-m=json.load(open('dist/exact/exact-artifacts.json', encoding='utf-8'))
-u=next(a for a in m['release_artifacts'] if a['component']=='ubuntu-worker')
-print(u['sha256'])
-PY
-)"
+          import json
+          m=json.load(open('dist/exact/exact-artifacts.json', encoding='utf-8'))
+          u=next(a for a in m['release_artifacts'] if a['component']=='ubuntu-worker')
+          print(u['sha256'])
+          PY
+          )"
           echo "artifact_sha256=$ARTIFACT_SHA" >> "$GITHUB_OUTPUT"
           BASE_SHA="$(git rev-parse "${DEPLOY_SHA}^")"
           python scripts/release/build_release_manifest.py \
