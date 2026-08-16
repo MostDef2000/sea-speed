@@ -30,7 +30,7 @@
 - AC-001 | Task: TASK-002 | Evidence: `AGENTS.md`, `contracts/SEA_SPEED_GOVERNANCE.md`, `contracts/SEA_SPEED_DELIVERY_POLICY.md`, `contracts/runtime/SEA_SPEED_TASK_RUNTIME.md`, `contracts/branches/project-manager.md` | Coverage: COVERED
 - AC-002 | Task: TASK-002,TASK-014 | Evidence: governance/PM continuation rules and exact-scope CI remediation policy | Coverage: COVERED
 - AC-003 | Task: TASK-004 | Evidence: `scripts/release/parse_runtime_execution_request.py`, `tests/test_runtime_execution_request.py` | Coverage: COVERED
-- AC-004 | Task: TASK-005 | Evidence: `scripts/release/verify_production_authorization.py`, production authorization tests/CI | Coverage: COVERED
+- AC-004 | Task: TASK-005 | Evidence: `scripts/release/verify_production_authorization.py` plus execution-intent unit coverage in `tests/test_runtime_execution_request.py` | Coverage: COVERED
 - AC-005 | Task: TASK-006 | Evidence: `.github/workflows/deploy-runtime-request.yml`, workflow architecture/policy tests | Coverage: COVERED
 - AC-006 | Task: TASK-003 | Evidence: `.github/pull_request_template.md`, `scripts/ci/validate_change_contract.py`, `tests/test_change_contract.py` | Coverage: COVERED
 - AC-007 | Task: TASK-007 | Evidence: `.github/workflows/deploy-ubuntu-worker.yml`, `scripts/quality/validate_workflow_policy.py`, `tests/quality/test_quality_architecture.py` | Coverage: COVERED
