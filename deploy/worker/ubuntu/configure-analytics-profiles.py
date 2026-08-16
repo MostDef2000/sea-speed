@@ -20,6 +20,10 @@ PROFILE_KEYS = {
     "YOLO_CONFIDENCE",
     "SAMPLE_FPS",
 }
+PRIVATE_NETWORKS = tuple(
+    ipaddress.ip_network(value)
+    for value in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+)
 
 
 def read_env(path: Path) -> dict[str, str]:
@@ -57,12 +61,42 @@ def road_relay_source(catalog_path: Path) -> str:
         port = parsed.port
     except (TypeError, ValueError) as exc:
         raise SystemExit("ERROR road1 catalog source must use a private IPv4 relay") from exc
-    private = any(address in ipaddress.ip_network(value) for value in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"))
+    private = any(address in network for network in PRIVATE_NETWORKS)
     if parsed.scheme != "rtsp" or address.version != 4 or not private or port is None or parsed.username is not None or parsed.password is not None:
-        raise SystemExit("ERROR road1 catalog source must be a sanitized private RTSP relay URL")
+        raise SystemExit("ERROR road1 catalog source must use a sanitized private RTSP relay URL")
     if parsed.path.rstrip("/") != "/preview_road1" or parsed.query or parsed.fragment:
         raise SystemExit("ERROR road1 catalog source path mismatch")
     return source
+
+
+def road_worker_api_urls(water: dict[str, str]) -> tuple[str, str]:
+    """Derive road1 M2M URLs only from the protected Camera 1 private ingress."""
+    raw = water.get("SEA_SPEED_API_URL", "").strip()
+    parsed = urlsplit(raw)
+    try:
+        address = ipaddress.ip_address(parsed.hostname or "")
+        port = parsed.port
+    except (TypeError, ValueError) as exc:
+        raise SystemExit("ERROR protected SEA_SPEED_API_URL must use the private worker M2M ingress") from exc
+    private = any(address in network for network in PRIVATE_NETWORKS)
+    if (
+        parsed.scheme != "http"
+        or address.version != 4
+        or address.is_loopback
+        or not private
+        or port is None
+        or not 1024 <= port <= 65535
+        or parsed.username is not None
+        or parsed.password is not None
+    ):
+        raise SystemExit("ERROR protected SEA_SPEED_API_URL must be credential-free private HTTP IPv4:port")
+    if parsed.path.rstrip("/") != "/api/cam1/state" or parsed.query or parsed.fragment:
+        raise SystemExit("ERROR protected SEA_SPEED_API_URL must target exact /api/cam1/state M2M path")
+    origin = f"http://{address}:{port}"
+    return (
+        f"{origin}/api/analytics/road1/state",
+        f"{origin}/api/analytics/road1/events",
+    )
 
 
 def main() -> int:
@@ -90,6 +124,7 @@ def main() -> int:
     if not token:
         raise SystemExit("ERROR protected SEA_SPEED_API_TOKEN is missing")
     road_source = road_relay_source(args.preview_catalog)
+    road_state_url, road_event_url = road_worker_api_urls(water)
     water.update(
         {
             "ANALYTICS_PROFILE": "water-v1",
@@ -105,8 +140,8 @@ def main() -> int:
         "ANALYTICS_PROFILE": "road-v1",
         "CAMERA_ID": "road1",
         "HLS_URL": road_source,
-        "SEA_SPEED_API_URL": "https://mostdef.ru/sea-speed/api/analytics/road1/state",
-        "SEA_SPEED_EVENT_API_URL": "https://mostdef.ru/sea-speed/api/analytics/road1/events",
+        "SEA_SPEED_API_URL": road_state_url,
+        "SEA_SPEED_EVENT_API_URL": road_event_url,
         "SEA_SPEED_API_TOKEN": token,
         "MODEL_NAME": "models/yolo26x.pt",
         "YOLO_TRACKER": "bytetrack.yaml",
@@ -121,6 +156,7 @@ def main() -> int:
     print("ANALYTICS_PROFILES_CONFIGURED=YES")
     print("WATER_PROFILE=water-v1 CAMERA_ID=cam1")
     print("ROAD_PROFILE=road-v1 CAMERA_ID=road1 SOURCE=protected_preview_relay")
+    print("ROAD_API=protected_private_worker_ingress")
     print("SECRETS_DISPLAYED=NO")
     return 0
 
