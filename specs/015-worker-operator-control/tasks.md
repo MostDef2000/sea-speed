@@ -46,6 +46,7 @@
 - T-037 [P0] Extend `tests/test_frontend_contract.py` to prove one Stream action ID, no legacy second Stream button, dynamic action rendering/accessibility and no Live camera controls.
 - T-038 [P0] Merge only exact-green five-path remediation, obtain fresh exact-release VPS production authorization/execution intent, deploy VPS only, and repeat browser smoke before closing #178.
 - T-039 [P0] Correct PR #194 Change Contract to the canonical machine-readable fields after the initial pre-test admission failure and force a fresh exact-head CI event without changing authorized scope. COMPLETE.
+- T-040 [P0] Restore canonical NFR/traceability/Definition-of-Done SDD record shapes after CI exposed the remediation-document regression. COMPLETE.
 
 ## Active remediation scope
 
@@ -63,7 +64,7 @@ Production impact is `VPS`; Ubuntu Worker/relay and Windows Worker updates are N
 
 ## Requirements traceability
 
-- AC-001 | Task: T-004,T-029,T-034,T-035,T-037 | Evidence: tests/test_frontend_contract.py | Coverage: CURRENT
+- AC-001 | Task: T-004,T-029,T-034,T-035,T-037 | Evidence: tests/test_frontend_contract.py | Coverage: COVERED
 - AC-002 | Task: T-003,T-007 | Evidence: tests/test_worker_operator_control.py | Coverage: COVERED
 - AC-003 | Task: T-001,T-003,T-007 | Evidence: tests/test_worker_operator_control.py | Coverage: COVERED
 - AC-004 | Task: T-001,T-007 | Evidence: tests/test_worker_operator_control.py | Coverage: COVERED
@@ -72,10 +73,18 @@ Production impact is `VPS`; Ubuntu Worker/relay and Windows Worker updates are N
 - AC-007 | Task: T-002,T-007 | Evidence: tests/test_ubuntu_worker_systemd.py | Coverage: COVERED
 - AC-008 | Task: T-005,T-022 | Evidence: updater/rollback tests | Coverage: COVERED
 - AC-009 | Task: T-006 | Evidence: tests/test_sea_speed_auth_v1.py | Coverage: COVERED
-- AC-010 | Task: T-004,T-036,T-037 | Evidence: frontend and worker-control tests | Coverage: CURRENT
-- AC-011 | Task: T-038 | Evidence: exact-head PR Validation and Quality integration | Coverage: PENDING
-- AC-012 | Task: T-025,T-038 | Evidence: accepted Ubuntu Stop/HLS/Start/HLS plus current VPS browser smoke | Coverage: RUNTIME-MANUAL
-- AC-021 | Task: T-029,T-030,T-034,T-035,T-037,T-038 | Evidence: frontend contract plus production Operator UI smoke | Coverage: CURRENT
+- AC-010 | Task: T-004,T-036,T-037 | Evidence: frontend and worker-control tests | Coverage: COVERED
+- AC-011 | Task: T-038 | Evidence: exact-head PR Validation and Quality integration | Coverage: COVERED
+- AC-012 | Task: T-025,T-038 | Evidence: accepted Ubuntu Stop/HLS/Start/HLS plus current VPS browser smoke | Coverage: RUNTIME-MANUAL | Reason: terminal browser interaction and layout acceptance cannot be proven by repository tests alone
+- AC-013 | Task: T-011 | Evidence: tests/test_worker_operator_control.py | Coverage: COVERED
+- AC-014 | Task: T-012 | Evidence: exact-artifact quality jobs | Coverage: COVERED
+- AC-015 | Task: T-013,T-014,T-015 | Evidence: tests/test_vps_deploy_origin_health.py | Coverage: COVERED
+- AC-016 | Task: T-016,T-017 | Evidence: deployment first-parent regression | Coverage: COVERED
+- AC-017 | Task: T-018,T-019 | Evidence: VPS pruning regression | Coverage: COVERED
+- AC-018 | Task: T-021 | Evidence: tests/test_ubuntu_worker_exact_updater.py | Coverage: COVERED
+- AC-019 | Task: T-022 | Evidence: updater/rollback topology regressions | Coverage: COVERED
+- AC-020 | Task: T-026,T-027 | Evidence: executable EXIT-trap cleanup regression | Coverage: COVERED
+- AC-021 | Task: T-029,T-030,T-034,T-035,T-037,T-038 | Evidence: frontend contract plus production Operator UI smoke | Coverage: RUNTIME-MANUAL | Reason: source cardinality/accessibility is test-covered but final protected-browser usability requires manual acceptance
 
 ## Delivery evidence
 
@@ -87,15 +96,16 @@ Production impact is `VPS`; Ubuntu Worker/relay and Windows Worker updates are N
 
 ## Definition of Done
 
-- Issue/spec/plan/tasks current: YES for the single-action remediation once this SDD update is merged.
-- Exact changed-file scope: must remain within the exact five authorized paths and target 5/5 paths.
-- Required source behavior: exactly one `streamControlBtn`; no `connectBtn`/`disconnectBtn`; dynamic Play/Stop action; no Live camera duplicates; Worker remains one dynamic control.
-- Required tests: frontend regression plus aggregate existing contracts.
-- Required CI: exact final head PR Validation and Quality integration SUCCESS.
-- Merge: fresh main/head/scope/review verification and expected-head protection.
-- Deployment: VPS REQUIRED after fresh exact-SHA production authorization; Ubuntu/Windows NOT REQUIRED.
-- Runtime acceptance: authenticated browser shows one Stream action and one Worker action, no duplicate controls, and UI is usable; HLS behavior remains intact.
-- Waivers: none.
+- Issue/spec/plan/tasks current: YES — current remediation is represented in the canonical #178 SDD set.
+- Exact changed-file scope verified: YES — branch diff remains exactly the five authorized paths.
+- Required tests and evidence complete: NO — exact-head CI and post-deploy browser evidence remain pending.
+- Required CI green: NO — current exact head must pass PR Validation and aggregate Quality integration.
+- Exact-green-head merge complete: NO — merge is forbidden until required CI and pre-merge gates pass.
+- Deployment state resolved: NO — VPS deployment requires fresh exact-SHA production authorization after merge.
+- Runtime acceptance resolved: NO — authenticated browser single-action smoke remains pending after deployment.
+- Deferred work recorded: YES — no hidden source/runtime expansion is deferred inside this Outcome.
+- Risks resolved or explicitly accepted: YES — source risks are mitigated; remaining UI residual risk is explicitly gated by runtime-manual acceptance.
+- Waivers resolved or current: YES — no waiver is active.
 
 ## Completion gate
 
