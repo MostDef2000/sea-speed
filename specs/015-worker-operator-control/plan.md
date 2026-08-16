@@ -2,7 +2,7 @@
 
 - Specification: specs/015-worker-operator-control/spec.md
 - Issue: #178
-- Status: VPS release-pruning remediation validation
+- Status: Ubuntu updater/legacy-control rollback remediation validation
 
 ## Architecture
 
@@ -18,13 +18,11 @@ Authenticated browser
   -> fixed systemctl operation for sea-speed-worker.service only
 ```
 
-The Ubuntu control agent remains a separate systemd service. The AI worker is the only controlled service; Camera relay/MediaMTX are not referenced by the control operation. The worker desired-state marker (`running|stopped`) remains independent of heartbeat freshness so exact updater/rollback semantics can preserve an intentional stop.
+The VPS contour is now runtime-accepted at exact source `e2a4f39eab80849882a42cf6e892bba127223649`. The remaining parent outcome is the Ubuntu installation and runtime-manual stop/start + HLS continuity proof.
 
-Release provenance remains as established by merged PR #180: quality evidence keeps `vps` and legacy `edge`, while the deterministic exact-artifacts manifest also carries a release-specific `ubuntu-worker` archive that release-manifest v2 can bind directly.
+Ubuntu release preparation and activation remain repository-owned server-pull operations. `update-exact.sh` stages the exact requested SHA, uses `verify_quality_status.py --workflow-file quality-integration.yml`, binds the release to the immutable shared runtime, and mutates systemd only when `--activate` is explicit. The real current baseline `efdbdfd9612d425bf34a81384298e091de06ec15` uses runtime `a9a9aaccd97e5c824ccc568504ad146936a4a69b5f8fe1ff36451ecd7317f88b` and predates `sea-speed-worker-control.service`.
 
-Merged PR #181 corrected the VPS origin-health verifier to the accepted Auth v1 FastAPI loopback origin `127.0.0.1:8010`. Merged PR #182 corrected the Deploy VPS first-parent admission false-negative without weakening first-parent membership. Deploy VPS run #27 then passed admission, quality, authorization, provenance, SSH, candidate origin health and all public smoke checks, but returned failure during post-verification cleanup because an older release tree was not removable by the deploy user.
-
-The current correct-course change is VPS deployment hardening: current and previous releases remain the protected rollback pair, while deletion of any older release is best-effort housekeeping after verified state and deployment evidence are persisted. A stale-release permission failure must be visible as a warning but must not convert a verified deployment into a failed deployment.
+Control-service topology is therefore part of exact operational state. Forward activation to a modern release may introduce the independent control unit, but a failed activation must restore a legacy baseline to no control unit. Explicit rollback must likewise distinguish modern targets from legacy targets rather than assuming every release has control components.
 
 ## Decisions
 
@@ -60,65 +58,71 @@ The current correct-course change is VPS deployment hardening: current and previ
 
 ### D-007 - First-class Ubuntu release artifact
 
-- Decision: deterministic exact-artifact tooling carries a release-specific `ubuntu-worker` archive while retaining quality-evidence v1 compatibility for `vps`/legacy `edge`.
-- Reason: release-manifest v2 requires exact Ubuntu provenance for the pending worker-control rollout.
+- Decision: deterministic exact-artifact tooling carries a release-specific `ubuntu-worker` archive while retaining quality-evidence compatibility for `vps`/legacy `edge`.
+- Reason: release-manifest v2 requires exact Ubuntu provenance.
 
 ### D-008 - Canonical VPS origin-health identity is port 8010
 
-- Decision: `deploy/vps/deploy.sh` defaults `SEA_SPEED_ORIGIN_HEALTH_URL` to `http://127.0.0.1:8010/api/health`; candidate deployment and automatic rollback verification use that single verifier.
-- Reason: accepted Auth v1 runtime evidence and delivery policy identify `127.0.0.1:8010` as the FastAPI origin. Deploy run #25 proved the former `8000` default creates a false-negative for both candidate and rollback verification.
-- Alternatives rejected: environment-only override of a wrong source default, public Authentik-protected URL as origin health, rollback without origin health, or moving the working API back to port 8000.
+- Decision: VPS deployment/rollback health uses `http://127.0.0.1:8010/api/health`.
+- Reason: run #25 proved the former 8000 default was a false-negative.
 
 ### D-009 - Pipefail-safe first-parent admission
 
-- Decision: Deploy VPS enumerates `git rev-list --first-parent origin/main` through a full-consumption read loop, records an explicit match flag, and rejects the target unless the flag is set; it does not pipe `git rev-list` into an early-exit `grep -q`.
-- Reason: run #26 proved that current-main itself can be falsely rejected when `grep -q` exits after the first match and `pipefail` propagates the resulting upstream SIGPIPE. Full consumption preserves the exact first-parent requirement without weakening it to generic ancestry.
-- Alternatives rejected: disabling `pipefail`, ignoring exit 141, using generic `git merge-base --is-ancestor` that can admit second-parent ancestry, normalizing/guessing a different SHA, or bypassing the first-parent gate.
+- Decision: Deploy VPS uses full-consumption first-parent matching instead of `git rev-list | grep -q` under pipefail.
+- Reason: run #26 proved the old pipeline could reject a valid first-line match.
 
 ### D-010 - Stale release pruning is best-effort after verified persistence
 
-- Decision: `prune_releases` never targets the names stored in `current-release` or `previous-release`; deletion of any other release runs inside an explicit conditional. Success may be logged, while removal failure logs a warning and returns control without changing the verified deployment result.
-- Reason: run #27 proved candidate activation and runtime verification can succeed while an unrelated older release has filesystem ownership that prevents cleanup. Current/previous state and the runtime-verified manifest are persisted before pruning, so stale cleanup is housekeeping rather than an acceptance condition.
-- Alternatives rejected: granting broad delete privileges merely to make pruning fatal, deleting current/previous release trees, moving pruning ahead of runtime verification/state persistence, suppressing the warning entirely, or interpreting stale cleanup failure as candidate-health failure.
+- Decision: VPS current/previous releases are protected and older-release removal failures only warn after verified state persistence.
+- Reason: run #27 proved stale permissions are housekeeping, not candidate health.
+
+### D-011 - Ubuntu quality verification uses the verifier's actual workflow-file CLI
+
+- Decision: `update-exact.sh` calls `verify_quality_status.py` with `--workflow-file quality-integration.yml`; focused tests execute the verifier `--help` parser surface and forbid the unsupported `--required-name` caller.
+- Reason: the first Ubuntu production preparation attempt stopped before mutation because CI had asserted a caller argument that the exact verifier did not implement.
+- Alternatives rejected: add a redundant `--required-name` compatibility alias to the verifier, bypass exact quality verification, or manually create a quality marker.
+
+### D-012 - Control-service presence/absence is exact rollback state
+
+- Decision: updater and explicit rollback snapshot whether the current control unit exists and, when present, its enabled/active state. Failed forward activation restores that exact topology. A legacy rollback target with no control components explicitly stops/disables/removes a newer control service and verifies absence; partial target control components fail closed.
+- Reason: the real accepted Ubuntu baseline predates the control service. Restoring only the worker unit would leave newly introduced runtime authority behind and would not be an exact rollback.
+- Alternatives rejected: require a control unit on every historical target, leave a modern control unit running after legacy rollback, manually clean systemd after failure, or broaden rollback to arbitrary units.
 
 ## Affected contours
 
 Parent feature runtime acceptance remains:
-- VPS: YES — Operator frontend/API plus correct exact-deployment health and retention semantics.
-- Ubuntu Worker/relay: YES — worker/control source and exact artifact from merged PR #180 remain pending production installation/acceptance.
+- VPS: ACCEPTED at `e2a4f39eab80849882a42cf6e892bba127223649`.
+- Ubuntu Worker/relay: YES — pending exact source preparation/activation and worker-control acceptance.
 - Windows AI Worker: NO.
-- Parent outcome summary: MIXED.
 
-Current 5-path source remediation is narrower:
-- Derived Change Contract production impact: VPS.
-- VPS deployment from this diff: REQUIRED after exact-green merge and fresh production authorization.
-- Ubuntu worker/relay update from this diff: NOT REQUIRED.
-- Windows AI Worker update from this diff: NOT REQUIRED.
-- Production safety envelope for this source diff: REQUIRED before deployment because `deploy/vps/deploy.sh` is runtime-affecting VPS source.
+Current 9-path remediation:
+- Derived Change Contract production impact: Ubuntu Worker/relay.
+- VPS deployment: NOT REQUIRED.
+- Ubuntu worker/relay update: REQUIRED after exact-green merge and fresh exact-SHA production authorization.
+- Windows worker update: NOT REQUIRED.
+- Production safety envelope: REQUIRED.
 - API/event/state/storage schema impact: NONE.
-- Security impact: NONE.
+- Security impact: NONE — no new browser/M2M/service authority; rollback removes unintended new control authority when returning to legacy state.
 - Destructive/data migration impact: NO.
-- Other high-risk trigger: YES — release deletion/rollback-retention logic is changing.
-
-The new remediation merge SHA becomes the next VPS release identity because Deploy VPS checks out the exact authorized target before invoking `deploy/vps/deploy.sh`. The earlier authorization for `1d7c8478a467f28f4519111bae06f5d2f7fa5e61` cannot transfer to the new merge SHA. The parent product verdict still requires accepted VPS runtime evidence and the pending Ubuntu worker-control acceptance.
+- Other high-risk trigger: YES — production update/rollback and systemd control-topology semantics change.
 
 ## Validation
 
-- Stale release pruning: `tests/test_vps_deploy_origin_health.py` requires explicit current/previous exclusion, conditional `rm -rf -- "$path"`, a warning path on removal failure, and ordering that persists previous/current plus the runtime-verified manifest before pruning.
-- Existing control-plane admission: `tests/quality/test_quality_architecture.py` continues to reject the unsafe `git rev-list --first-parent origin/main | grep -Fxq "$DEPLOY_SHA"` pattern and requires the explicit full-consumption first-parent match guard.
-- Existing VPS origin-health evidence: `tests/test_vps_deploy_origin_health.py`, `tests/test_camera_preview_gallery.py`, and `tests/test_sea_speed_auth_v1.py` retain canonical 8010 deployment/rollback assertions from PR #181.
-- Existing product/security tests from PR #179/#180 remain authoritative and are re-run by aggregate CI.
-- Release provenance: deterministic `vps`, release-specific `ubuntu-worker`, and legacy `edge` artifacts remain covered by Quality integration.
-- End-to-end: exact PR Validation + Quality integration on the final 5-path VPS remediation head.
-- Runtime-manual after merge: obtain fresh exact-SHA production authorization for the new merge SHA, manually dispatch Deploy VPS from current `main`, and require successful deployment evidence upload. Before any further runtime mutation, re-read the actual post-run #27 current/previous/runtime state because run #27 skipped formal evidence collection after pruning failed.
+- `tests/test_ubuntu_worker_exact_updater.py`: shell syntax, exact-main admission, real verifier `--help` compatibility, supported `--workflow-file` caller, forbidden `--required-name`, shared-runtime binding, desired-state preservation, target control completeness, legacy no-control automatic restoration and active-marker ordering.
+- `tests/test_ubuntu_worker_rollback.py`: shell syntax, exact current/target/quality/runtime identity, modern-vs-legacy target control classification, partial-target rejection, exact current control snapshot, legacy target control removal, modern control exact-source verification and failed-target restoration.
+- Documentation: exact update/rollback runbooks describe the production quality CLI and legacy/modern topology semantics without secrets.
+- Existing product/media/security tests remain authoritative and are re-run by aggregate Quality integration.
+- End-to-end source: exact PR Validation + aggregate Quality integration on one final 9-path head.
+- Runtime-manual after merge: fresh exact-SHA production authorization, server-pull preparation from an exact trusted checkout, expected `RUNTIME_REUSED` for unchanged runtime ID, activation, exact worker/control identity, then Stop -> HLS continuity -> Start -> HLS continuity.
 
 ## Risk profile
 
 - Risk profile: REQUIRED
 
-- RISK-001 | Category: OPS | Probability: 2 | Impact: 5 | Score: 10 | Mitigation: current and previous release names remain explicit exclusions and pruning occurs only after runtime verification/state persistence | Validation: tests/test_vps_deploy_origin_health.py plus exact-head CI and next production deployment evidence | Residual risk: filesystem ownership can continue to leave stale release directories, consuming disk until separately cleaned with appropriate permissions | Owner: Delivery Orchestrator | Status: MITIGATED
-- RISK-002 | Category: DATA | Probability: 2 | Impact: 5 | Score: 10 | Mitigation: pruning is constrained to directories under the release root whose basename is neither current nor previous; no widening of path selection or privileged recursive deletion is introduced | Validation: static regression contract and exact diff review | Residual risk: incorrect state-file contents could protect the wrong pair, so deployment state must remain exact and evidence-backed | Owner: Delivery Orchestrator | Status: MITIGATED
-- RISK-003 | Category: OPS | Probability: 2 | Impact: 4 | Score: 8 | Mitigation: failed cleanup emits an explicit warning so housekeeping debt is observable without changing the verified deployment result | Validation: source assertion for warning path and next production log evidence | Residual risk: repeated warnings can accumulate stale releases and should lead to a separate maintenance/ownership remediation rather than broadening deploy privileges | Owner: Delivery Orchestrator | Status: MITIGATED
+- RISK-001 | Category: TECH | Probability: 2 | Impact: 5 | Score: 10 | Mitigation: bind updater to the verifier's existing `--workflow-file` CLI and execute the real verifier parser surface in focused tests | Validation: tests/test_ubuntu_worker_exact_updater.py plus exact-head CI | Residual risk: future caller/verifier drift must fail focused CI before production | Owner: Delivery Orchestrator | Status: MITIGATED
+- RISK-002 | Category: OPS | Probability: 2 | Impact: 5 | Score: 10 | Mitigation: snapshot legacy/modern control topology before mutation and restore exact presence/enabled/active state on failed activation | Validation: updater topology regression plus read-only preflight before production activation | Residual risk: physical systemd state can still diverge outside repository control and therefore must be re-read before mutation | Owner: Delivery Orchestrator | Status: MITIGATED
+- RISK-003 | Category: OPS | Probability: 2 | Impact: 5 | Score: 10 | Mitigation: explicit rollback classifies target control capability, removes control for legacy targets, requires exact active control for modern targets and rejects partial components | Validation: tests/test_ubuntu_worker_rollback.py plus separately authorized runtime rollback evidence if exercised | Residual risk: hosted CI cannot execute real systemd on the production host | Owner: Delivery Orchestrator | Status: MITIGATED
+- RISK-004 | Category: DATA | Probability: 1 | Impact: 5 | Score: 5 | Mitigation: no shared config/model/dataset/output/release/runtime deletion is introduced; only the fixed control-unit file may be removed when exact target topology requires absence | Validation: source regression assertions and exact diff review | Residual risk: operator-controlled files outside the declared install/systemd paths are not modified by this remediation | Owner: Delivery Orchestrator | Status: MITIGATED
 
 ## Test design
 
@@ -131,41 +135,55 @@ The new remediation merge SHA becomes the next VPS release identity because Depl
 - TEST-007 | Covers: AC-012 | Level: runtime-manual | Priority: P0 | Evidence: production service status plus continuous Camera 1 HLS playback before/during/after stop/start, recorded on Issue #178
 - TEST-008 | Covers: AC-013 | Level: unit | Priority: P0 | Evidence: tests/test_worker_operator_control.py
 - TEST-009 | Covers: AC-014 | Level: end-to-end | Priority: P0 | Evidence: tests/quality/test_quality_architecture.py plus Quality integration exact-artifact/release-evidence jobs
-- TEST-010 | Covers: AC-015 | Level: integration | Priority: P0 | Evidence: tests/test_vps_deploy_origin_health.py, tests/test_camera_preview_gallery.py, tests/test_sea_speed_auth_v1.py, plus later runtime origin-health/source verification on 8010
-- TEST-011 | Covers: AC-016 | Level: integration | Priority: P0 | Evidence: tests/quality/test_quality_architecture.py plus workflow_dispatch admission evidence from run #27
-- TEST-012 | Covers: AC-017 | Level: integration | Priority: P0 | Evidence: tests/test_vps_deploy_origin_health.py plus next Deploy VPS log/evidence showing stale cleanup warning cannot fail verified deployment
+- TEST-010 | Covers: AC-015 | Level: integration | Priority: P0 | Evidence: tests/test_vps_deploy_origin_health.py plus accepted VPS runtime evidence
+- TEST-011 | Covers: AC-016 | Level: integration | Priority: P0 | Evidence: tests/quality/test_quality_architecture.py plus successful later deployment admission
+- TEST-012 | Covers: AC-017 | Level: integration | Priority: P0 | Evidence: tests/test_vps_deploy_origin_health.py plus accepted VPS deployment evidence
+- TEST-013 | Covers: AC-018,RISK-001 | Level: integration | Priority: P0 | Evidence: tests/test_ubuntu_worker_exact_updater.py executing verifier CLI help/parser and caller source contract
+- TEST-014 | Covers: AC-019,RISK-002,RISK-003,RISK-004 | Level: integration | Priority: P0 | Evidence: tests/test_ubuntu_worker_exact_updater.py and tests/test_ubuntu_worker_rollback.py
 
 ## Correct-course check
 
 - Trigger: PRODUCTION_LEARNING
-- Prior evidence: release admission for merged PR #179 / `dc0fd44dbea5ba38f8e18a4ba6ed3eeb93db3d11` exposed missing Ubuntu exact provenance; PR #180 closed that gap. Deploy run #25 exposed the stale port-8000 origin probe; PR #181 / `1d7c8478a467f28f4519111bae06f5d2f7fa5e61` corrected the origin to 8010. Deploy run #26 exposed the `grep -q`/`pipefail` first-parent false-negative; PR #182 / `c87969a0b4184b253cc133e9d5c1d8632646fb15` corrected the control-plane guard.
-- Current observed evidence: Deploy VPS run #27 used workflow definition `c87969a0b4184b253cc133e9d5c1d8632646fb15` and target `1d7c8478a467f28f4519111bae06f5d2f7fa5e61`. Admission, exact quality, durable production authorization, release provenance and SSH all passed. Candidate API origin health on 8010 and all configured public smoke checks passed. The deploy script then failed when pruning older release `8248fd6ff54bb4fd197dfef45a31c75f3b39ace5` returned permission denied. Formal deployment-evidence collection/upload was skipped because the step exited 1.
-- Issue impact: Issue #178 carries the durable 5-path VPS remediation Implementation Scope Check and `OUTCOME APPROVED`; historical scopes remain immutable audit history.
-- Specification impact: adds FR-017, AC-017, NFR-009 and production-learning #4 without changing operator-control/media behavior.
-- Plan impact: adds D-010, TEST-012 and a REQUIRED risk profile focused on release retention/deletion boundaries.
-- Tasks impact: active source gate becomes exactly the approved 5 VPS/SDD paths.
-- Authorization impact: fresh `OUTCOME APPROVED` obtained for the exact 5-path VPS remediation on 2026-08-16. After merge, a fresh exact-SHA `PRODUCTION APPROVED` is required because the remediation changes deployable VPS source.
-- Protected boundaries: unchanged — current/previous releases remain rollback-protected; no API/frontend/media ownership, credential, Authentik/private-M2M, worker command surface, Windows Worker or AI-semantic change.
-- Follow-up: merge only an exact-green 5-path VPS head; verify post-merge push/main quality; re-read actual VPS state; obtain fresh production authorization for the new merge SHA; then manually dispatch Deploy VPS and require complete deployment evidence before continuing to Ubuntu.
+- Issue impact: Issue #178 records the failed pre-mutation Ubuntu preparation, real baseline source/runtime/control topology, adjacent-stage rollback finding and exact 9-path remediation authorization.
+- Specification impact: adds FR-018/FR-019, AC-018/AC-019, NFR-010 and production-learning #5 without changing operator/media/AI behavior.
+- Plan impact: adds D-011/D-012, current Ubuntu risk/test design and the complete eight-stage Ubuntu deployment transaction audit.
+- Tasks impact: active source gate becomes the exact 9 updater/rollback/test/doc/SDD paths, then a fresh Ubuntu production gate before runtime continuation.
+- Authorization impact: fresh `OUTCOME APPROVED` was obtained for the exact 9-path remediation; all older production authorizations are stale for the remediation merge SHA.
+- Follow-up: merge only an exact-green 9-path head, verify post-merge push/main quality, obtain a fresh production authorization/fingerprint, prepare the exact release from an exact trusted checkout, require runtime reuse, activate, then execute bounded Stop/HLS/Start/HLS acceptance.
+
+## Deployment transaction audit
+
+This audit models the pending Ubuntu exact-release preparation/activation transaction and the explicit rollback path against the currently observed legacy no-control baseline.
+
+- TX-001 | Stage: ADMISSION | Mutation: NO | Failure disposition: FATAL | State after failure: active worker source/runtime/control topology unchanged | Retry: correct exact SHA/main history/quality CLI or production envelope, then retry from a trusted exact checkout | Rollback: NOT REQUIRED because systemd/release mutation has not started | Evidence: exact SHA ancestry, supported quality verifier result, authorization and source artifact/provenance evidence
+- TX-002 | Stage: PRE-MUTATION | Mutation: POSSIBLE | Failure disposition: FATAL | State after failure: preparation may have created an immutable target release/quality marker but active worker/control topology remains unchanged until activation | Retry: verify prepared release/runtime plus actual active marker, worker ExecStart and control presence/enabled/active state before activation | Rollback: NOT REQUIRED for preparation-only state; prepared immutable release may remain | Evidence: source-commit, quality-approved, runtime-id, RUNTIME_REUSED/CREATED output and read-only active topology
+- TX-003 | Stage: MUTATION | Mutation: YES | Failure disposition: FATAL | State after failure: target worker/control unit files or enablement may be partially installed while active marker still identifies previous release | Retry: only after automatic restoration proves previous exact worker/runtime/control topology or after separately authorized recovery | Rollback: restore backed-up previous worker unit and exact previous control presence/enabled/active state | Evidence: updater install/control/worker logs and pre-mutation unit backups
+- TX-004 | Stage: VERIFICATION | Mutation: POSSIBLE | Failure disposition: FATAL | State after failure: target is not accepted; automatic restoration is attempted while active marker remains previous source | Retry: resolve control/worker/runtime progression failure, confirm actual restored state read-only, then issue a new authorized activation attempt | Rollback: exact previous worker/runtime plus legacy-or-modern control topology and desired worker state | Evidence: control ExecStart/status, worker ExecStart/status, runtime progression or intentional-stopped gate
+- TX-005 | Stage: STATE-COMMIT | Mutation: YES | Failure disposition: FATAL | State after failure: if active-source marker cannot be atomically written after verification, target acceptance is unresolved and further mutation stops | Retry: read actual service/unit/marker state before any retry | Rollback: use previous exact source/runtime/topology identified by pre-mutation evidence when recovery is required | Evidence: atomic active-source-commit write after all target verification
+- TX-006 | Stage: HOUSEKEEPING | Mutation: POSSIBLE | Failure disposition: BEST-EFFORT | State after failure: temporary staging/backups may remain but protected releases/runtimes/shared data and accepted service identity must not be deleted | Retry: remove root-only temporary updater artifacts independently when safe | Rollback: NOT REQUIRED solely for temporary-file cleanup failure | Evidence: cleanup trap scope plus source assertions forbidding release/runtime/shared deletion
+- TX-007 | Stage: EVIDENCE | Mutation: NO | Failure disposition: CONDITIONAL | State after failure: runtime may be healthy but Issue #178 acceptance remains incomplete until exact source/runtime/control/HLS evidence is recorded | Retry: recollect sanitized read-only evidence without unnecessary runtime mutation | Rollback: decide from actual runtime state, not evidence-copy failure alone | Evidence: prepared/activated outputs, systemd identities, runtime ID, worker state and continuous HLS observations
+- TX-008 | Stage: ROLLBACK | Mutation: YES | Failure disposition: FATAL | State after failure: if exact previous topology or explicit target rollback cannot be verified, runtime state is unknown and automated mutation stops | Retry: recover actual worker/control/source/runtime state read-only and use separately authorized recovery | Rollback: modern target requires exact active control; legacy target requires control service absent; current source marker changes only after target acceptance | Evidence: ROLLBACK_ABORTED/RESTORED or ROLLED_BACK output plus exact worker/control/source/runtime readback
+
+- Adjacent-stage review: COMPLETE
+- Production-learning root cause: Ubuntu `update-exact.sh` and `verify_quality_status.py` had an unexecuted CLI contract mismatch: CI asserted the unsupported `--required-name` string instead of exercising the real verifier parser, so production preparation failed before release mutation.
+- Production-learning adjacent-stage findings: admission must execute the real quality-verifier interface; preparation remains safe before activation; the real baseline has no control unit; forward installer introduces/enables a control unit; automatic rollback must remove that unit when restoring a legacy baseline; explicit rollback must classify modern versus legacy targets and reject partial control components; active-source commit remains post-verification state commit; shared releases/runtimes/data remain protected; final evidence must separately prove HLS continuity across worker stop/start.
 
 ## Rollout and rollback
 
-- Source rollout: merge only the exact green 5-path VPS remediation head after fresh base/head/scope/review verification.
-- Production checkpoint: after merge, compute the new exact merge SHA and obtain a fresh production authorization/fingerprint before runtime mutation.
-- Runtime continuation: before the next deploy, read current-release, previous-release, service health/source identity and listeners to resolve the post-run #27 state. Then dispatch `Deploy VPS` from current `main` targeting the newly authorized merge SHA and Issue #178.
-- Success semantics: candidate origin health and public smoke checks must pass; previous/current state and runtime-verified deployment manifest must be persisted; stale-release pruning may warn but cannot fail the deployment solely because an older unprotected directory is not removable.
-- Runtime rollback: if candidate activation or verification fails before verified state is committed, automatic rollback to the current accepted release remains mandatory and must pass the same 8010 verifier. Pruning behavior does not weaken rollback.
-- Source rollback: if best-effort pruning logic fails CI or violates retention boundaries, do not deploy it; revert through normal source governance.
-- Parent Outcome continuation: after VPS acceptance, re-verify the eligible exact Ubuntu worker-control source/authorization (or create a later Ubuntu-affecting authorized merge as required by policy), install the compatible Ubuntu release/control service, verify protocol/status, then perform bounded stop/start while monitoring HLS.
+- Source rollout: merge only the exact green 9-path remediation head after fresh base/head/scope/review verification and expected-head protection.
+- Production checkpoint: verify exact push/main Quality integration for the merge SHA, compute the current authorization fingerprint with Ubuntu Worker/relay `REQUIRED`, and obtain fresh `PRODUCTION APPROVED <merge-sha>` before any worker filesystem/systemd mutation.
+- Preparation: use a short server-pull bootstrap to an exact trusted checkout of the authorized merge SHA, then run that exact checkout's `update-exact.sh` without `--activate`; require exact quality success and expected runtime reuse when the runtime definition remains unchanged.
+- Activation: re-read active source/runtime/control topology, then run the prepared exact updater with `--activate`; require exact control source, exact worker source/runtime and runtime progression while desired state is running.
+- Automatic rollback: any failed activation before active marker commit restores the previous exact worker/runtime plus previous control presence/enabled/active state; the currently observed legacy baseline therefore returns to no control service.
+- Explicit rollback: modern targets restore and verify exact control service; legacy targets stop/disable/remove the control service and verify absence. Partial control targets fail closed.
+- Product acceptance: after activation, use the Operator control path for Stop worker while Camera 1 HLS remains playable, then Start worker while HLS remains playable and worker progression resumes.
 - Camera relay/HLS has no source change to roll back.
-- Production mutation during this remediation source delivery: NONE.
+- Production mutation during this source remediation delivery: NONE.
 
 ## Runtime feedback
 
-- Actual architecture after acceptance: PENDING final production evidence.
-- Last independently read-only verified baseline before run #27: `6bf909c13d48df1d44b87a62d0686b61d8c3af45`, healthy on `127.0.0.1:8010`; Ubuntu rollout not started.
-- Production learning #2: run #25 showed deployment automation used a stale 8000 origin-health default; merged PR #181 corrected that source contract to 8010.
-- Production learning #3: run #26 showed the workflow's first-parent membership pipeline was not `pipefail` safe even when target SHA equaled current main; merged PR #182 corrected the admission guard.
-- Production learning #4: run #27 proved the corrected workflow reaches and verifies production successfully but a non-critical stale-release permission failure can still return exit 1 after verified state is persisted, suppressing formal evidence collection.
-- Corrective source task: active 5-path VPS remediation makes stale pruning best-effort, protects current/previous, preserves ordering and adds regression/risk evidence.
-- Deferred work: exact-head VPS remediation CI/merge, read-only state resolution, fresh production authorization for the new merge SHA, successful Deploy VPS with uploaded evidence, then pending Ubuntu worker-control installation and runtime-manual AC-012 acceptance.
+- Actual architecture after acceptance: VPS accepted; Ubuntu pending the current updater/rollback remediation and final production acceptance.
+- Observed Ubuntu baseline: `efdbdfd9612d425bf34a81384298e091de06ec15` + runtime `a9a9aaccd97e5c824ccc568504ad146936a4a69b5f8fe1ff36451ecd7317f88b`, worker active/enabled, control unit absent.
+- Production learning #5: preparation of `1d0aa285d5f30165980c4d628a97da7e23b66ffe` failed at the quality-verifier CLI before `install-manual.sh`; no activation occurred. Adjacent-stage audit found legacy-control rollback topology was not exact even if the CLI alone were fixed.
+- Corrective source task: exact 9-path remediation implements actual verifier CLI compatibility and legacy/modern control-topology rollback semantics with focused regression evidence and updated operator runbooks.
+- Deferred work: exact-head CI/merge, post-merge quality, fresh production authorization, exact preparation/activation, worker control protocol/status check, Stop/HLS/Start/HLS runtime evidence, then final Issue #178 completion decision.

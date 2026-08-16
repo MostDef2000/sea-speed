@@ -17,7 +17,7 @@ and its immutable shared runtime. With --activate, desired state `running`
 requires exact-SHA frame/state progression. Desired state `stopped` installs the
 exact worker/control units while keeping the AI worker intentionally inactive.
 Any activation failure restores the previous exact units and desired service
-state before returning.
+state, including the absence of a legacy control unit, before returning.
 USAGE
 }
 
@@ -163,7 +163,7 @@ GITHUB_TOKEN="$github_token" python3 \
   "$staging_root/scripts/quality/verify_quality_status.py" \
   --repository "$repository" \
   --commit "$source_commit" \
-  --required-name quality-integration
+  --workflow-file quality-integration.yml
 unset github_token
 
 (
@@ -213,6 +213,13 @@ control_unit_target="/etc/systemd/system/$control_service_name"
 active_marker="$install_root/shared/runtime/active-source-commit"
 heartbeat="$install_root/shared/runtime/worker-heartbeat.json"
 desired_state_file="$install_root/shared/runtime/operator-desired-state"
+target_control_template="$release_root/source/deploy/worker/ubuntu/sea-speed-worker-control.service.template"
+target_control_agent="$release_root/source/deploy/worker/ubuntu/worker-control-agent.py"
+if [[ ! -f "$target_control_template" || ! -f "$target_control_agent" ]]; then
+  echo "ERROR activation target lacks complete worker-control components; use rollback-exact.sh for a legacy target" >&2
+  exit 20
+fi
+
 desired_state="running"
 if [[ -f "$desired_state_file" ]]; then
   desired_state="$(cat "$desired_state_file")"
@@ -224,6 +231,9 @@ fi
 previous_commit=""
 previous_runtime_id=""
 previous_runtime_ready=false
+previous_control_present=false
+previous_control_enabled=false
+previous_control_active=false
 
 if [[ -f "$active_marker" ]]; then
   previous_commit="$(cat "$active_marker")"
@@ -262,11 +272,62 @@ if [[ -f "$active_marker" ]]; then
   unit_backup="$(mktemp "$updater_root/unit-backup.XXXXXX")"
   install -o root -g root -m 0600 "$unit_target" "$unit_backup"
   if [[ -f "$control_unit_target" ]]; then
+    previous_control_present=true
+    if ! grep -Fq "$previous_commit" "$control_unit_target"; then
+      echo "ERROR installed control unit and active source marker disagree" >&2
+      exit 20
+    fi
+    if systemctl is-enabled --quiet "$control_service_name"; then
+      previous_control_enabled=true
+    fi
+    if systemctl is-active --quiet "$control_service_name"; then
+      previous_control_active=true
+      previous_control_exec="$(systemctl show -p ExecStart --value "$control_service_name")"
+      if [[ "$previous_control_exec" != *"$previous_commit"* ]]; then
+        echo "ERROR running control service and active source marker disagree" >&2
+        exit 20
+      fi
+    fi
     control_unit_backup="$(mktemp "$updater_root/control-unit-backup.XXXXXX")"
     install -o root -g root -m 0600 "$control_unit_target" "$control_unit_backup"
+  elif systemctl is-active --quiet "$control_service_name" || systemctl is-enabled --quiet "$control_service_name"; then
+    echo "ERROR worker control service state exists without an installed control unit" >&2
+    exit 20
   fi
   previous_runtime_ready=true
 fi
+
+restore_previous_control() {
+  if [[ "$previous_control_present" == true ]]; then
+    [[ -n "$control_unit_backup" ]] || return 1
+    install -o root -g root -m 0644 "$control_unit_backup" "$control_unit_target" || return 1
+    systemctl daemon-reload || return 1
+    if [[ "$previous_control_enabled" == true ]]; then
+      systemctl enable "$control_service_name" >/dev/null || return 1
+    else
+      systemctl disable "$control_service_name" >/dev/null || return 1
+    fi
+    if [[ "$previous_control_active" == true ]]; then
+      systemctl restart "$control_service_name" || return 1
+      systemctl is-active --quiet "$control_service_name" || return 1
+      restored_control_exec="$(systemctl show -p ExecStart --value "$control_service_name")"
+      [[ "$restored_control_exec" == *"$previous_commit"* ]] || return 1
+    else
+      systemctl stop "$control_service_name" || return 1
+      ! systemctl is-active --quiet "$control_service_name" || return 1
+    fi
+    return 0
+  fi
+
+  systemctl stop "$control_service_name" >/dev/null 2>&1 || true
+  systemctl disable "$control_service_name" >/dev/null 2>&1 || true
+  rm -f "$control_unit_target" || return 1
+  systemctl daemon-reload || return 1
+  [[ ! -e "$control_unit_target" ]] || return 1
+  ! systemctl is-enabled --quiet "$control_service_name" || return 1
+  ! systemctl is-active --quiet "$control_service_name" || return 1
+  return 0
+}
 
 restore_previous() {
   if [[ "$previous_runtime_ready" != true ]] || [[ -z "$unit_backup" ]]; then
@@ -274,11 +335,8 @@ restore_previous() {
   fi
 
   echo "RESTORE previous_source_commit=$previous_commit desired_state=$desired_state" >&2
-  install -o root -g root -m 0644 "$unit_backup" "$unit_target"
-  if [[ -n "$control_unit_backup" ]]; then
-    install -o root -g root -m 0644 "$control_unit_backup" "$control_unit_target"
-  fi
-  systemctl daemon-reload
+  install -o root -g root -m 0644 "$unit_backup" "$unit_target" || return 1
+  restore_previous_control || return 1
   rm -f "$heartbeat"
   systemctl reset-failed "$service_name" || return 1
   if [[ "$desired_state" == "running" ]]; then
@@ -288,10 +346,6 @@ restore_previous() {
     systemctl stop "$service_name" || return 1
     ! systemctl is-active --quiet "$service_name" || return 1
   fi
-  if [[ -f "$control_unit_target" ]]; then
-    systemctl restart "$control_service_name" || return 1
-    systemctl is-active --quiet "$control_service_name" || return 1
-  fi
   restored_exec="$(systemctl show -p ExecStart --value "$service_name")"
   [[ "$restored_exec" == *"$previous_commit"* ]] || return 1
   if [[ -n "$previous_runtime_id" ]] && [[ "$restored_exec" != *"/runtimes/$previous_runtime_id/venv/bin/python"* ]]; then
@@ -299,8 +353,8 @@ restore_previous() {
   fi
   [[ "$(cat "$active_marker")" == "$previous_commit" ]] || return 1
 
-  printf 'RESTORED previous_source_commit=%s runtime_id=%s desired_state=%s\n' \
-    "$previous_commit" "${previous_runtime_id:-legacy-per-release}" "$desired_state"
+  printf 'RESTORED previous_source_commit=%s runtime_id=%s desired_state=%s control_present=%s\n' \
+    "$previous_commit" "${previous_runtime_id:-legacy-per-release}" "$desired_state" "$previous_control_present"
   return 0
 }
 
