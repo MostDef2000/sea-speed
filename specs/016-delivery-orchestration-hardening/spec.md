@@ -21,6 +21,10 @@ After exact-SHA `PRODUCTION APPROVED` evidence is current, the Delivery Orchestr
 
 Normal Issue discussion, pull-request comments, malformed commands, uppercase/short SHAs, closed-Issue commands and comments from unauthorized actors do not produce an admitted deployment request. Even an admitted request still fails closed unless the reusable deployment workflow independently verifies quality, provenance and durable production authorization.
 
+### Scenario 4 - Pre-release Windows packaging does not fabricate production provenance
+
+A Windows Worker source change can still produce an exact-commit ZIP and SHA-256 package during PR/main validation. Unrelated release-tool changes do not trigger Windows packaging, and ordinary packaging does not manufacture a production-bound release manifest without the production authorization evidence required by release-manifest v2.
+
 ## Requirements
 
 - FR-001: Linked significant deployment/release work MUST carry a machine-valid Deployment Transaction Audit covering `ADMISSION`, `PRE-MUTATION`, `MUTATION`, `VERIFICATION`, `STATE-COMMIT`, `HOUSEKEEPING`, `EVIDENCE`, and `ROLLBACK`.
@@ -32,6 +36,7 @@ Normal Issue discussion, pull-request comments, malformed commands, uppercase/sh
 - FR-007: Manual `workflow_dispatch` MUST remain available as emergency/operator fallback but MUST NOT be the normal Delivery Orchestrator path when Connector Issue writes are available.
 - FR-008: A deployment-request comment MUST NOT itself count as `PRODUCTION APPROVED` or bypass fingerprint verification.
 - FR-009: This process-hardening source task MUST remain `CONTROL_PLANE`; it performs no production/runtime mutation and does not modify `deploy/vps/deploy.sh` behavior.
+- FR-010: Ordinary Windows Worker package validation MUST be scoped to Windows Worker/package-workflow changes, MUST bind the exact source SHA through the package contents/name/summary and SHA-256 sidecar, and MUST NOT build production release-manifest v2 without a real production safety envelope.
 
 ## Acceptance criteria
 
@@ -42,7 +47,8 @@ Normal Issue discussion, pull-request comments, malformed commands, uppercase/sh
 - AC-005: `deploy-vps-request.yml` delegates admitted requests to reusable `deploy-vps.yml`, while the request workflow contains no SSH or `environment: production` runtime mutation path.
 - AC-006: `deploy-vps.yml` supports both `workflow_call` and fallback `workflow_dispatch` while preserving `environment: production`, exact-main first-parent, exact push/main quality, durable authorization and provenance gates before SSH.
 - AC-007: Normal non-command Issue comments do not enter the request job, and a request command remains distinct from durable production authorization.
-- AC-008: The exact PR diff is limited to the approved 17 paths, derives `CONTROL_PLANE`, declares all runtime deployments `NOT REQUIRED`, and requires no production safety envelope or runtime acceptance for this process PR.
+- AC-008: The exact PR diff is limited to the approved 18 paths, derives `CONTROL_PLANE`, declares all runtime deployments `NOT REQUIRED`, and requires no production safety envelope or runtime acceptance for this process PR.
+- AC-009: `Package Windows Worker` does not trigger on unrelated `scripts/release/**` or schema-only changes and its ordinary package job emits exact worker ZIP/SHA provenance without invoking `build_release_manifest.py` or producing a production release manifest.
 
 ## NFR assessment
 
@@ -51,10 +57,12 @@ Normal Issue discussion, pull-request comments, malformed commands, uppercase/sh
 - NFR-003 | Area: Operator UX | Target: Normal authorized VPS execution requires no manual GitHub Actions click when Connector Issue writes are available | Validation: Issue-comment trigger delegates to reusable deployment workflow | Evidence: `.github/workflows/deploy-vps-request.yml` | Status: PASS
 - NFR-004 | Area: Maintainability | Target: Production-learning review requirements are machine-enforced from the linked SDD rather than retained only in chat convention | Validation: SDD validator and plan template | Evidence: `scripts/ci/validate_sdd.py`, `.specify/templates/overrides/plan-template.md` | Status: PASS
 - NFR-005 | Area: Safety | Target: This hardening PR performs zero runtime mutation and changes no runtime application/deploy-script behavior | Validation: exact changed-file scope and Change Contract | Evidence: Issue #184 Implementation Scope Check and PR diff | Status: PASS
+- NFR-006 | Area: Provenance | Target: Pre-release Windows packaging never fabricates production authorization or a release-manifest v2 | Validation: package-workflow architecture regression test | Evidence: `.github/workflows/package-worker.yml`, `tests/quality/test_quality_architecture.py` | Status: PASS
 
 ## Runtime feedback
 
 - Runtime acceptance: NOT REQUIRED for this CONTROL_PLANE task.
 - Production mutation during implementation: NONE.
 - Parent runtime task #178: intentionally paused until this hardening is merged and source integration evidence is green.
+- First PR CI learning: the new `scripts/release/**` request parser exposed pre-existing `Package Windows Worker` coupling to every release-tool change plus a stale release-manifest v2 invocation without authorization evidence. Scope was expanded from 17 to 18 paths after a fresh Implementation Scope Check and `OUTCOME APPROVED`; remediation separates pre-release package provenance from production release provenance.
 - Post-merge validation: exercise the new request path only under a separately current production envelope for the actual runtime task; do not manufacture a production deployment solely to test this process PR.
