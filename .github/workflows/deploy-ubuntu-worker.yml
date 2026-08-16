@@ -220,7 +220,7 @@ jobs:
           ROOT=/opt/sea-speed-worker
           [[ "\$EUID" -eq 0 ]] || { echo "ERROR run with sudo/root" >&2; exit 1; }
           install -d -o root -g root -m 0700 "\$ROOT/updater"
-          STAGE="\$(mktemp -d \"\$ROOT/updater/bootstrap.XXXXXX\")"
+          STAGE="\$(mktemp -d "\$ROOT/updater/bootstrap.XXXXXX")"
           cleanup() { status=\$?; rm -rf "\$STAGE" || true; return "\$status"; }
           trap cleanup EXIT
           git -C "\$STAGE" init -q
@@ -231,7 +231,7 @@ jobs:
           while IFS= read -r commit; do [[ "\$commit" == "\$TARGET" ]] && MATCH=1; done < <(git -C "\$STAGE" rev-list --first-parent refs/remotes/origin/main)
           [[ "\$MATCH" == 1 ]]
           git -C "\$STAGE" -c advice.detachedHead=false checkout --quiet --detach "\$TARGET"
-          exec bash "\$STAGE/deploy/worker/ubuntu/deploy-authorized.sh" "\$TARGET" --issue "\$ISSUE" --artifact-sha256 "\$ARTIFACT_SHA"
+          bash "\$STAGE/deploy/worker/ubuntu/deploy-authorized.sh" "\$TARGET" --issue "\$ISSUE" --artifact-sha256 "\$ARTIFACT_SHA"
           EOF
           sed -i 's/^          //' dist/ubuntu-worker-one-command.sh
           chmod 0755 dist/ubuntu-worker-one-command.sh
