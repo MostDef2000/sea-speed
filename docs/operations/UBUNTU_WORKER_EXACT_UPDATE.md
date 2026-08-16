@@ -102,7 +102,7 @@ The quality marker is stored at:
 /opt/sea-speed-worker/releases/<commit>/quality-approved
 ```
 
-Preparation mode is not a product acceptance milestone and is not a reason for a new user confirmation when the authorized `deploy-authorized.sh` transaction is available.
+Preparation mode is not a product acceptance milestone and is not a reason for a new user confirmation when the authorized `deploy-authorized.sh` transaction is available. Runtime remains `UNKNOWN` for a merely prepared release until separately authorized production activation and runtime acceptance prove the release.
 
 ## Low-level explicit activation
 
@@ -154,4 +154,4 @@ The root-only updater directory prevents the worker service account from modifyi
 
 Repository CI executes the real `deploy-authorized.sh` transaction in an isolated sandbox with fake Git/systemd/runtime boundaries. It covers normal running-state success, intentional stopped state, authorization failure before mutation and post-activation verification failure with rollback. This shifts deterministic transaction defects left without touching production.
 
-Hosted CI still does not prove physical GPU/camera behavior. Runtime remains incomplete for a new release until separately authorized production acceptance verifies exact source/runtime identity, NVIDIA/PyTorch/model readiness, worker progression when desired state is running, independent control protocol compatibility, bounded worker stop/start behavior, continuous Camera 1 HLS availability across worker transitions, and explicit rollback/restoration where applicable.
+Hosted CI still does not prove physical GPU/camera behavior. Runtime remains `UNKNOWN` for a new release until separately authorized production acceptance verifies exact source/runtime identity, NVIDIA/PyTorch/model readiness, worker progression when desired state is running, independent control protocol compatibility, bounded worker stop/start behavior, continuous Camera 1 HLS availability across worker transitions, and explicit rollback/restoration where applicable.
