@@ -303,7 +303,13 @@ prune_releases() {
   for path in "$RELEASES_DIR"/*; do
     [[ -d "$path" ]] || continue
     name="$(basename "$path")"
-    if [[ "$name" != "$current" && "$name" != "$previous" ]]; then rm -rf "$path"; fi
+    if [[ "$name" != "$current" && "$name" != "$previous" ]]; then
+      if rm -rf -- "$path"; then
+        log "Pruned stale release ${name}"
+      else
+        log "WARNING: unable to prune stale release ${name}; leaving remaining files in place"
+      fi
+    fi
   done
 }
 
