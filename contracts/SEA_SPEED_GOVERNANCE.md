@@ -1,6 +1,6 @@
 # Sea Speed Governance
 
-Version: 1.12.0
+Version: 1.13.0
 Status: Active
 Source of truth: GitHub `main`
 
@@ -20,6 +20,7 @@ Source of truth: GitHub `main`
 - Every task uses a fresh branch created from current `main`.
 - Material product-scope expansion, destructive action, secret use/security-boundary change, protected behavior change, schema incompatibility, data migration, or behavior redesign requires fresh authorization.
 - Secrets, credentials, runtime logs, snapshots, overlays, videos, model binaries, `.env`, and local virtual environments must never be committed.
+- The Delivery Orchestrator MUST NOT return control at an intermediate deterministic stage. While a safe authorized next action exists, it continues automatically until the terminal interaction contract in section 4 is satisfied.
 
 ## 2. Delivery Orchestrator ownership
 
@@ -113,7 +114,17 @@ Before the first repository write verify that the complete approved lifecycle is
 
 Every runtime-impacting Change Contract declares the execution capability for VPS, Ubuntu Worker/relay and Windows AI Worker using `CONNECTOR`, `ONE_COMMAND_FALLBACK`, `MISSING`, or `NOT APPLICABLE`, plus the exact number of operator actions expected after production intent. A contour marked `REQUIRED` may not be admitted with `MISSING` or `NOT APPLICABLE`. The operator-action count equals the number of required `ONE_COMMAND_FALLBACK` contours.
 
-If a mandatory Connector operation is unavailable but a repository-owned one-command runtime fallback exists, the task may continue with that declared fallback. If no safe execution path exists for a required contour, stop `BLOCKED` before partial delivery.
+If a mandatory Connector operation is unavailable but a repository-owned one-command runtime fallback exists, the task may continue with that declared fallback. If no safe execution path exists for a required contour, the Orchestrator may return `BLOCKED` before partial delivery only after recording the concrete external capability blocker and unblock condition.
+
+### Terminal interaction contract
+
+The Delivery Orchestrator may return control to the operator only in exactly one of these states:
+
+- `DONE`: the approved Outcome is actually complete and every mandatory gate/evidence item applicable to it is satisfied. A PR, green CI run, merge, artifact, deployment, or completion of one contour is not `DONE` by itself.
+- `BLOCKED`: continuation is objectively impossible because of a concrete external blocker outside the Orchestrator's currently authorized deterministic control. The terminal response MUST state the blocker, supporting evidence, unblock condition and next admissible action. Remediable in-scope source/test/CI/PR-metadata defects, transient deterministic failures, or queued/running checks are not blockers.
+- `HUMAN DECISION REQUIRED`: continuation requires a genuine operator decision, authorization, protected input, configured environment review, or irreversible/high-risk choice. The terminal response MUST state the exact decision, bounded options and consequences when alternatives exist, and the exact reply/authorization format. After the decision, deterministic execution resumes automatically.
+
+`FAILED` is an internal event and MUST NOT be used as a terminal interaction state. A failure is remediated automatically when possible; if it cannot be resolved without an external condition it becomes `BLOCKED`, and if it requires a protected human choice it becomes `HUMAN DECISION REQUIRED`. Status-only responses such as “PR created”, “CI is running”, “waiting for checks”, “merge ready”, or “deployment started” are forbidden terminal responses while a safe authorized next action exists.
 
 ## 5. Branch and merge policy
 
@@ -139,9 +150,9 @@ Domain review lenses inspect only the approved task scope. Cross-domain changes 
 
 Fresh authorization is mandatory before material outcome/scope expansion; destructive or irreversible work outside the Outcome Contract; secret disclosure/use outside an already approved protected runtime mechanism; security-boundary weakening or credential-handling redesign; protected camera/runtime behavior change; incompatible API/state/storage/session schema change; data migration; detection/tracking/scoring/speed/calibration or event-semantics redesign; deployment-target redesign; or unauthorized `skills/**` edits.
 
-Before requesting that fresh authorization, the Delivery Orchestrator must present the updated visible Scope block that caused the re-authorization boundary. The updated Scope must immediately precede the approval request and the fresh approval must be the next user decision; otherwise the re-authorization is not admitted for source execution.
+Before requesting that fresh authorization, the Delivery Orchestrator must present the updated visible Scope block that caused the re-authorization boundary. The updated Scope must immediately precede the approval request and the fresh approval must be the next user decision; otherwise the re-authorization is not admitted for source execution. That request is a `HUMAN DECISION REQUIRED` terminal interaction for the current turn.
 
-Ordinary bug fixes, test corrections, PR metadata repair and CI remediation that remain inside the Outcome Contract do not require re-authorization.
+Ordinary bug fixes, test corrections, PR metadata repair and CI remediation that remain inside the Outcome Contract do not require re-authorization and therefore must be continued automatically rather than surfaced as a terminal interaction.
 
 ## 8. Provenance and runtime identity
 
@@ -155,7 +166,7 @@ After writes and before PR creation fetch complete written files, validate synta
 
 Post-release review follows `docs/evidence/POST_RELEASE_REVIEW.md` and ends in `accepted`, `regressed`, or `insufficient_evidence`. A regression requires a linked Issue and rollback decision unless the exact rollback condition was already included in the active production envelope.
 
-Valid terminal task states are only `COMPLETE`, `BLOCKED`, and `FAILED`.
+The only valid terminal interaction states are `DONE`, `BLOCKED`, and `HUMAN DECISION REQUIRED`. `DONE` requires terminal Issue evidence proving the applicable acceptance contract; `BLOCKED` and `HUMAN DECISION REQUIRED` require the structured evidence defined in section 4.
 
 ## 10. Spec-Driven Development
 
