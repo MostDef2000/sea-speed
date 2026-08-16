@@ -2,7 +2,7 @@
 
 - Feature: 015-worker-operator-control
 - Issue: #178
-- Status: VPS release-pruning remediation validation
+- Status: Ubuntu updater/legacy-control rollback remediation validation
 - Owner outcome: Allow an authenticated Sea Speed operator to start and stop only the Ubuntu AI worker while Camera 1 live HLS remains independent and uninterrupted.
 
 ## Product outcome
@@ -35,13 +35,15 @@ Given the VPS cannot reach, authenticate to, or confirm the fixed protocol versi
 - FR-008: The dedicated worker-control service MUST remain independent of `sea-speed-worker.service` so an intentionally stopped AI worker can be started again remotely.
 - FR-009: Exact-release activation and rollback MUST preserve an intentional `stopped` desired state rather than treating the inactive worker as an automatic fault.
 - FR-010: Existing Camera 1 HLS URL `/sea-speed/media/cam1/index.m3u8`, MediaMTX/relay lifecycle and browser Play/Stop behavior MUST remain unchanged.
-- FR-011: Detection, tracking, speed, calibration and event semantics MUST remain unchanged; no `worker/**` source is modified by the operator-control feature implementation or its provenance remediation.
+- FR-011: Detection, tracking, speed, calibration and event semantics MUST remain unchanged; no `worker/**` source is modified by the operator-control feature implementation or its provenance/remediation changes.
 - FR-012: Source integration MUST NOT mutate production. VPS and Ubuntu runtime changes require a later exact-SHA production safety envelope.
 - FR-013: Every successful Ubuntu worker-control response MUST carry the fixed protocol marker `sea_speed_worker_control_v1`, and VPS FastAPI MUST reject a missing or different marker as an unavailable/incompatible control agent.
 - FR-014: Exact-artifact tooling MUST build and validate a deterministic `ubuntu-worker` source artifact as release-specific provenance while preserving the existing quality-evidence v1 `vps` and legacy `edge` component contract. Release-manifest v2 MUST be able to bind the Ubuntu archive digest directly plus the SHA-256 of the complete exact-artifacts manifest.
 - FR-015: VPS exact deployment and automatic rollback verification MUST use the accepted Auth v1 FastAPI loopback origin `http://127.0.0.1:8010/api/health` by default; the retired `127.0.0.1:8000` origin MUST NOT be the deployment health default.
 - FR-016: Deploy VPS admission MUST retain exact lowercase SHA and current-`main` first-parent membership checks without a producer-to-early-exit pipeline that can turn a valid match into a `pipefail`/SIGPIPE false-negative.
 - FR-017: After candidate activation, origin/public verification and persistence of the current/previous release identities plus deployment manifest have succeeded, pruning releases that are neither current nor previous MUST be best-effort. A stale-release removal failure MUST emit a warning and MUST NOT invalidate the already verified deployment; current and previous release identities MUST never be pruning targets.
+- FR-018: Ubuntu `update-exact.sh` MUST invoke `scripts/quality/verify_quality_status.py` only through its supported exact-workflow CLI (`--workflow-file quality-integration.yml`) and MUST NOT pass the unsupported `--required-name` option. Regression evidence MUST execute the verifier help/parser surface rather than merely assert an invented argument string.
+- FR-019: Ubuntu activation and explicit rollback MUST treat worker-control unit topology as part of exact release state. Failed activation MUST restore whether the previous control unit was present, enabled and active; rollback to a legacy target that predates worker control MUST stop/disable/remove the newer control unit and prove it absent; a target with only partial worker-control components MUST fail closed before acceptance.
 
 ## Acceptance criteria
 
@@ -62,6 +64,8 @@ Given the VPS cannot reach, authenticate to, or confirm the fixed protocol versi
 - AC-015: Source regression evidence proves `deploy/vps/deploy.sh` defaults `SEA_SPEED_ORIGIN_HEALTH_URL` to `http://127.0.0.1:8010/api/health`, contains no stale `http://127.0.0.1:8000/api/health` default, and uses the same origin verifier for both deployment and automatic rollback verification.
 - AC-016: Source regression evidence proves Deploy VPS no longer uses `git rev-list --first-parent origin/main | grep -q` under `pipefail`, still enumerates `origin/main` first-parent history, admits an exact matching SHA through an explicit membership result, and preserves fail-closed rejection when no first-parent match exists.
 - AC-017: Source regression evidence proves `prune_releases` excludes both current and previous identities, wraps stale `rm -rf` in a non-fatal conditional with an explicit warning on failure, and successful deployment persists previous/current state plus the runtime-verified deployment manifest before pruning begins.
+- AC-018: Focused updater regression evidence runs the real quality-verifier CLI help/parser surface, requires `--workflow-file quality-integration.yml`, forbids `--required-name`, and retains the protected-token/exact-main checks.
+- AC-019: Focused updater/rollback regression evidence proves a failed modern activation can restore a legacy no-control baseline, a successful rollback to a legacy target removes the modern control service, modern targets still require an exact active control unit, and incomplete target control components are rejected.
 
 ## NFR assessment
 
@@ -74,6 +78,7 @@ Given the VPS cannot reach, authenticate to, or confirm the fixed protocol versi
 - NFR-007 | Area: OPERABILITY | Target: VPS deployment and rollback health verification use the accepted FastAPI origin on loopback port 8010 and cannot silently regress to the retired port 8000 default | Validation: source contract regression tests plus exact-head CI | Evidence: tests/test_vps_deploy_origin_health.py, tests/test_camera_preview_gallery.py, and tests/test_sea_speed_auth_v1.py | Status: PASS
 - NFR-008 | Area: RELIABILITY | Target: Deploy VPS first-parent admission accepts a valid current-main/first-parent SHA without `pipefail` SIGPIPE false-negatives while preserving rejection of non-first-parent commits | Validation: workflow architecture regression plus exact-head CI | Evidence: tests/quality/test_quality_architecture.py | Status: PASS
 - NFR-009 | Area: RELIABILITY | Target: stale-release cleanup permission failures cannot overturn an already persisted, runtime-verified VPS deployment, while current and previous rollback identities remain protected from pruning | Validation: deploy-script regression contract plus exact-head CI | Evidence: tests/test_vps_deploy_origin_health.py | Status: PASS
+- NFR-010 | Area: RELIABILITY | Target: Ubuntu release admission uses an executable caller/verifier CLI contract and activation/rollback can restore the exact legacy-or-modern control-service topology without changing the active marker before acceptance | Validation: shell syntax plus real verifier CLI help and updater/rollback topology regression contracts | Evidence: tests/test_ubuntu_worker_exact_updater.py and tests/test_ubuntu_worker_rollback.py | Status: PASS
 
 ## Compatibility and boundaries
 
@@ -83,18 +88,21 @@ Given the VPS cannot reach, authenticate to, or confirm the fixed protocol versi
 - Private Ubuntu agent: fixed status/start/stop HTTP surface on a configured RFC1918 listener.
 - Private worker-control compatibility identity: `sea_speed_worker_control_v1`; mismatches fail closed rather than falling back.
 - VPS deployment origin identity: accepted FastAPI origin `127.0.0.1:8010`; public protected health remains an authentication-boundary smoke, not origin-health proof.
-- Deploy admission identity: exact lowercase 40-character target SHA must remain on current `main` first-parent history; implementation must not weaken that requirement while removing the `grep -q`/`pipefail` false-negative.
-- VPS release retention: current and previous releases form the protected rollback pair; older release cleanup is post-verification housekeeping and cannot revoke a verified deployment solely because stale files are not removable by the deploy user.
-- Release evidence: the exact-artifacts manifest retains `vps` and legacy `edge` in its quality-evidence-compatible inventory and adds `ubuntu-worker` as release-specific exact provenance. Release-manifest v2 directly binds the Ubuntu archive and the complete exact-manifest hash; this does not activate `edge_v2` or change media ownership.
+- Deploy admission identity: exact lowercase 40-character target SHA must remain on current `main` first-parent history.
+- VPS release retention: current and previous releases form the protected rollback pair; older release cleanup is post-verification housekeeping.
+- Ubuntu release admission: `verify_quality_status.py --workflow-file quality-integration.yml` is the supported exact-workflow caller contract; unsupported aliases are forbidden.
+- Ubuntu rollback topology: modern releases include the independent control unit; legacy releases may intentionally have no control unit, and that absence is part of rollback state rather than a missing-file error.
+- Release evidence: deterministic exact provenance retains `vps`, release-specific `ubuntu-worker`, and legacy `edge` inventory as already established.
 - Out of scope: MediaMTX/relay lifecycle, Camera 2, Windows Worker, browser SSH, arbitrary systemd control, new credentials, secret migration, AI algorithm changes.
 
 ## Runtime feedback
 
-- Runtime acceptance: PENDING corrected release-pruning deployment evidence, then pending Ubuntu worker-control/HLS acceptance.
-- Last independently read-only verified VPS baseline before run #27: `6bf909c13d48df1d44b87a62d0686b61d8c3af45`, `sea-speed-api` active and healthy on `127.0.0.1:8010`. Deploy VPS run #27 subsequently proved the candidate `1d7c8478a467f28f4519111bae06f5d2f7fa5e61` healthy on origin 8010 and passed all public smoke checks before failing in stale-release pruning; because post-deployment evidence upload was skipped, exact post-run state must be re-read before the next runtime mutation.
-- Regressions/learning #1: pre-production release admission for merged PR #179 stopped before any runtime write because exact-artifact tooling did not provide an `ubuntu-worker` artifact required by release-manifest v2 for the declared MIXED contour; PR #180 remediated that provenance gap.
-- Regressions/learning #2: authorized Deploy VPS run #25 for `1d0aa285d5f30165980c4d628a97da7e23b66ffe` reached production but both deployment and automatic rollback verification used stale loopback port 8000. Read-only operator evidence immediately after the run proved the restored release was healthy on the accepted port 8010, so the deployment result was a verifier false-negative rather than an API outage; PR #181 remediated the source default.
-- Regressions/learning #3: authorized Deploy VPS run #26 received exact `INPUT_COMMIT=1d7c8478a467f28f4519111bae06f5d2f7fa5e61` while runner `origin/main` was the same SHA, but the first-parent admission pipeline `git rev-list ... | grep -Fxq` failed under `set -o pipefail` because the early successful `grep -q` close caused `git rev-list` SIGPIPE. The run stopped before quality verification, authorization verification, SSH, or runtime mutation; PR #182 remediated the control-plane guard.
-- Regressions/learning #4: authorized Deploy VPS run #27 passed first-parent admission, exact quality, production authorization, release provenance and SSH; candidate origin health on 8010 plus Operator/private-health/Objects/Cameras/Root public smoke checks all passed. The script then returned exit 1 because `prune_releases` attempted `rm -rf` on older release `8248fd6ff54bb4fd197dfef45a31c75f3b39ace5` and the deploy user lacked permission. The success path had already written previous/current state and the runtime-verified deployment manifest before pruning, so cleanup failure is post-verification housekeeping rather than candidate-health failure.
-- Corrective action: current separately approved 5-path VPS remediation makes stale-release pruning warning-only while preserving current/previous protection, adds ordering/regression evidence, and updates this SDD. API/frontend/media/worker semantics are unchanged.
-- Production authorization impact: the run #27 envelope for `1d7c8478a467f28f4519111bae06f5d2f7fa5e61` cannot authorize the new VPS-affecting remediation merge SHA. After exact-green merge and post-merge quality, a fresh `PRODUCTION APPROVED <new-sha>` envelope is required before another VPS deployment.
+- Runtime acceptance: VPS contour ACCEPTED on exact release `e2a4f39eab80849882a42cf6e892bba127223649`; Ubuntu worker-control/HLS acceptance remains pending.
+- Current independently observed Ubuntu baseline before this remediation: active source `efdbdfd9612d425bf34a81384298e091de06ec15`, runtime ID `a9a9aaccd97e5c824ccc568504ad146936a4a69b5f8fe1ff36451ecd7317f88b`, worker active/enabled, `sea-speed-worker-control.service` absent/not installed, protected GitHub token root-owned mode 0600.
+- Regressions/learning #1: pre-production release admission for merged PR #179 exposed missing Ubuntu exact provenance; PR #180 remediated it.
+- Regressions/learning #2: Deploy VPS run #25 exposed stale loopback port 8000; PR #181 corrected the accepted origin to 8010.
+- Regressions/learning #3: Deploy VPS run #26 exposed `grep -q`/`pipefail` first-parent false-negative; PR #182 corrected admission.
+- Regressions/learning #4: Deploy VPS run #27 exposed fatal post-verification stale-release pruning; PR #183 made pruning warning-only and a later exact authorized deployment completed successfully with evidence.
+- Regressions/learning #5: first Ubuntu preparation attempt for `1d0aa285d5f30165980c4d628a97da7e23b66ffe` stopped before release preparation because `update-exact.sh` passed unsupported `--required-name quality-integration` to the exact target's `verify_quality_status.py`. Adjacent-stage review then found that forward activation/explicit rollback did not correctly model the real legacy baseline where the control service is absent.
+- Corrective action: current separately approved 9-path Ubuntu remediation aligns the caller with `--workflow-file quality-integration.yml`, adds executable CLI compatibility evidence, and makes control-service presence/absence transactional across failed activation and explicit rollback.
+- Production authorization impact: no prior `PRODUCTION APPROVED` line transfers to the new Ubuntu-affecting remediation merge SHA. A fresh exact-SHA production safety envelope is required before preparation/activation continues.
