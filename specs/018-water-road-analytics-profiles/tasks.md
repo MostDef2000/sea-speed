@@ -35,7 +35,7 @@
 - AC-010 | Task: TASK-008,TASK-010 | Evidence: VPS deploy transaction tests | Coverage: COVERED
 - AC-011 | Task: TASK-001,TASK-011 | Evidence: exact GitHub changed-file compare and repository binary/secret validation | Coverage: COVERED
 - AC-012 | Task: TASK-011,TASK-012,TASK-014 | Evidence: exact-head PR Validation/Quality/Package Windows Worker, expected-head merge, post-merge push/main quality | Coverage: COVERED
-- AC-013 | Task: TASK-013,TASK-014 | Evidence: runtime-manual exact model/Ubuntu workers/GPU/source-binding/Windows package-process-freshness/browser evidence after separate production authorization | Coverage: RUNTIME-MANUAL
+- AC-013 | Task: TASK-013,TASK-014 | Evidence: runtime-manual exact model/Ubuntu workers/GPU/source-binding/Windows package-process-freshness/browser evidence after separate production authorization | Coverage: RUNTIME-MANUAL | Reason: Hosted CI cannot prove physical CUDA/model execution, protected road source binding, production Windows install/process identity, or authenticated production browser behavior.
 
 ## Definition of Done
 
