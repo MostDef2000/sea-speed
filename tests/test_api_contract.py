@@ -117,15 +117,24 @@ class ApiContractTests(unittest.TestCase):
     def test_legacy_roi_and_speed_line_validation_is_preserved(self) -> None:
         writes: list[tuple[Path, dict[str, Any]]] = []
         ns = {
-            "Any": Any, "Dict": dict, "List": list, "HTTPException": HTTPExceptionStub,
-            "ROI_FILE": Path("roi.json"), "SPEED_LINES_FILE": Path("lines.json"),
+            "Any": Any, "Dict": dict, "List": list, "Path": Path, "HTTPException": HTTPExceptionStub,
+            "DATA_DIR": Path("data"), "STATE_FILE": Path("state.json"), "EVENTS_FILE": Path("events.json"),
+            "ROI_FILE": Path("roi.json"), "SPEED_CONFIG_FILE": Path("speed.json"), "SPEED_LINES_FILE": Path("lines.json"),
+            "ANALYTICS_IDENTITIES": {
+                "cam1": {"analytics_profile": "water-v1", "domain": "water"},
+                "road1": {"analytics_profile": "road-v1", "domain": "road"},
+            },
             "now_iso": lambda: "x", "write_json_file": lambda path, data: writes.append((path, data)),
         }
-        load_functions({"clean_points_list", "post_cam1_roi", "post_cam1_speed_lines"}, ns)
+        load_functions({
+            "clean_points_list", "analytics_identity", "analytics_data_file",
+            "post_analytics_roi", "post_analytics_speed_lines", "post_cam1_roi", "post_cam1_speed_lines",
+        }, ns)
         with self.assertRaises(HTTPExceptionStub):
             ns["post_cam1_roi"]({"enabled": True, "polygon": [{"x": 1, "y": 2}]})
         roi = ns["post_cam1_roi"]({"enabled": True, "polygon": [{"x": 1.2, "y": 2.7}, {"x": 10, "y": 20}, {"x": "30", "y": "40"}]})
         self.assertEqual(roi["polygon"][0], {"x": 1, "y": 3})
+        self.assertEqual(writes[-1][0], Path("roi.json"))
         with self.assertRaises(HTTPExceptionStub):
             ns["post_cam1_speed_lines"]({"enabled": True, "distance_m": 0, "line_a": [], "line_b": []})
 
