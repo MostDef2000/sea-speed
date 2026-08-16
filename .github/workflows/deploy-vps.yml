@@ -11,6 +11,16 @@ on:
         description: "Canonical GitHub Issue number carrying durable production authorization"
         required: true
         type: number
+  workflow_call:
+    inputs:
+      commit_sha:
+        description: "Exact lowercase 40-character main commit SHA"
+        required: true
+        type: string
+      canonical_issue:
+        description: "Canonical GitHub Issue number carrying durable production authorization"
+        required: true
+        type: number
 
 permissions:
   contents: read
@@ -31,10 +41,10 @@ jobs:
     timeout-minutes: 20
 
     steps:
-      - name: Require dispatch from main workflow definition
+      - name: Require execution from main workflow definition
         run: |
           set -euo pipefail
-          [[ "$GITHUB_REF" == "refs/heads/main" ]] || { echo "Deploy VPS must be dispatched from main" >&2; exit 1; }
+          [[ "$GITHUB_REF" == "refs/heads/main" ]] || { echo "Deploy VPS must execute from the main workflow definition" >&2; exit 1; }
 
       - name: Check out repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
