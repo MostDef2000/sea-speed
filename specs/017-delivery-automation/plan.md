@@ -8,7 +8,7 @@
 
 The change introduces one policy layer and three execution layers while retaining the existing exact-SHA provenance model.
 
-1. **Interaction policy**: governance, task-runtime, release-readiness and Delivery Orchestrator contracts define the two-intent budget and make ordinary in-scope remediation a continuation of the original `OUTCOME APPROVED` rather than a new approval event.
+1. **Interaction policy**: governance, task-runtime, release-readiness and Delivery Orchestrator contracts define the two-intent budget, require a visible exact Scope block before every source-authorization request, and make ordinary in-scope remediation a continuation of the original `OUTCOME APPROVED` rather than a new approval event.
 2. **Executable Change Contract**: every runtime-impacting PR declares per-contour execution capability and expected operator-action count. CI rejects required contours whose execution path is missing and rejects inconsistent manual-action budgets.
 3. **Connector-addressable runtime request**: `deploy-runtime-request.yml` accepts only the exact three-line production authorization carrying `Execution-Intent: EXECUTE`, validates the comment through repository code, independently re-verifies durable production authorization and routes only the required contours.
 4. **Ubuntu protected execution**: `deploy-ubuntu-worker.yml` owns hosted admission/provenance and selects either a separately provisioned restricted transport or one-command fallback. `deploy-authorized.sh` owns the target-side exact-source activation, verification, deployment evidence and rollback transaction.
@@ -60,6 +60,12 @@ The runtime request is not itself a new authority model. Durable production auth
 - Reason: Previous production defects were executable shell contract/order/exit defects that source-string assertions missed.
 - Rejected: test a Python model or only grep for expected shell lines.
 
+### D-008 - Scope presentation is a mandatory pre-authorization gate
+
+- Decision: The Orchestrator must render a visible `Scope` block before every request for `OUTCOME APPROVED`, with six minimum fields: product outcome, exact repository paths, protected/out-of-scope boundaries, runtime contour, production impact, and acceptance evidence. Re-authorization uses the revised block first.
+- Reason: A single source approval is only low-friction when the operator can see exactly what it authorizes. Scope cannot remain implicit in internal reasoning or scattered earlier discussion.
+- Rejected: bare approval prompts, scope shown only after approval, or requiring the operator to reconstruct the path set from chat history.
+
 ## Affected contours
 
 - Repository/control plane: governance, Change Contract, runtime request parser/workflows, quality architecture and feature 017 SDD.
@@ -73,10 +79,11 @@ The runtime request is not itself a new authority model. Durable production auth
 
 - Static: Python compile, shell syntax, repository/SDD validation, workflow policy, Change Contract tests.
 - Unit/integration: strict execution-request parser, production-authorization execution-intent behavior, execution-capability admission.
+- Contract UX: exact diff verifies `AGENTS.md`, canonical governance, task runtime and Delivery Orchestrator contract all require Scope-before-approval ordering and re-authorization scope refresh.
 - Transaction: execute real `deploy-authorized.sh` in isolated sandbox for success, desired stopped, authorization failure before mutation and post-activation verification failure with rollback.
 - Provenance: build deterministic exact artifacts twice and require `deploy-authorized.sh` inside `ubuntu-worker` release files.
 - Workflow architecture: request workflow has no SSH/environment production; Ubuntu workflow performs quality/auth/provenance before transport and has explicit one-command fallback.
-- PR: exact 23-path diff, PR Validation and aggregate Quality integration on one exact final head; fresh main/head/scope/review gate before expected-head merge.
+- PR: exact in-scope diff, PR Validation and aggregate Quality integration on one exact final head; fresh main/head/scope/review gate before expected-head merge.
 - Runtime after merge: fresh exact-SHA production approval plus execution intent; Ubuntu release deployment and parent #178 Stop/Start + continuous Camera 1 HLS acceptance remain separate runtime evidence.
 
 ## Risk profile
@@ -89,6 +96,7 @@ The runtime request is not itself a new authority model. Durable production auth
 - RISK-004 | Category: SEC | Probability: 2 | Impact: 5 | Score: 10 | Mitigation: zero-touch path requires separately provisioned restricted transport; source does not create credentials/sudoers/public runner; absent capability becomes one-command fallback | Validation: workflow policy plus explicit fallback path | Residual risk: LOW | Owner: Delivery Orchestrator | Status: MITIGATED
 - RISK-005 | Category: OPS | Probability: 2 | Impact: 4 | Score: 8 | Mitigation: target launcher captures previous exact source, updater owns pre-commit restoration, launcher invokes exact rollback on post-activation verification failure | Validation: real transaction rollback test | Residual risk: LOW | Owner: Delivery Orchestrator | Status: MITIGATED
 - RISK-006 | Category: TECH | Probability: 2 | Impact: 4 | Score: 8 | Mitigation: launcher is included in deterministic Ubuntu exact artifact and both workflow/target prove current-main exact SHA before mutation | Validation: exact-artifact architecture test and transaction staging guard | Residual risk: LOW | Owner: Delivery Orchestrator | Status: MITIGATED
+- RISK-007 | Category: OPS | Probability: 2 | Impact: 3 | Score: 6 | Mitigation: mandatory visible six-field Scope block before source authorization and before any material re-authorization | Validation: exact contract/SDD diff plus PR validation | Residual risk: LOW | Owner: Delivery Orchestrator | Status: MITIGATED
 
 ## Test design
 
@@ -100,17 +108,18 @@ The runtime request is not itself a new authority model. Durable production auth
 - TEST-006 | Covers: AC-009,AC-010,AC-011 | Level: integration | Priority: P0 | Evidence: `tests/test_ubuntu_worker_deploy_authorized.py`
 - TEST-007 | Covers: AC-012 | Level: integration | Priority: P0 | Evidence: deterministic exact-artifact test in `tests/quality/test_quality_architecture.py`
 - TEST-008 | Covers: AC-013 | Level: integration | Priority: P0 | Evidence: exact-head PR Validation, Quality integration, fresh merge gate and expected-head merge
-- TEST-009 | Covers: AC-014 | Level: integration | Priority: P1 | Evidence: exact 23-path diff plus Change Contract exclusions and post-merge runtime authorization boundary
+- TEST-009 | Covers: AC-014 | Level: integration | Priority: P1 | Evidence: exact approved diff plus Change Contract exclusions and post-merge runtime authorization boundary
+- TEST-010 | Covers: AC-015 | Level: integration | Priority: P0 | Evidence: exact content review of `AGENTS.md`, `contracts/SEA_SPEED_GOVERNANCE.md`, `contracts/runtime/SEA_SPEED_TASK_RUNTIME.md`, `contracts/branches/project-manager.md` plus SDD validation
 
 ## Correct-course check
 
 - Trigger: ARCHITECTURE_PIVOT
-- Issue impact: Issue #178 remains the product/runtime parent, while this correct-course adds a bounded delivery-automation sub-outcome prompted by operator feedback about excessive orchestration interactions.
-- Specification impact: Feature 017 defines two-intent delivery, machine runtime capability and one-transaction Ubuntu deployment without changing the worker-control product semantics.
-- Plan impact: Runtime orchestration changes from serial manual stage confirmations to a router plus protected contour workflows and target transaction.
-- Tasks impact: Adds governance, Change Contract, request/parser, Ubuntu workflow/launcher, real transaction tests and exact-artifact binding inside the approved 23 paths.
-- Authorization impact: Existing `OUTCOME APPROVED` covers this exact 23-path process-hardening outcome; production remains unauthorized until the merged exact SHA receives a fresh production envelope.
-- Follow-up: Merge only an exact-green head, verify push/main release evidence, then request one fresh exact-release production authorization with `Execution-Intent: EXECUTE`; resume #178 runtime acceptance through the new path.
+- Issue impact: Issue #178 remains the product/runtime parent, while this correct-course adds a bounded delivery-automation sub-outcome prompted by operator feedback about excessive orchestration interactions and ambiguous approval prompts.
+- Specification impact: Feature 017 defines two-intent delivery, machine runtime capability, one-transaction Ubuntu deployment and mandatory Scope-before-approval presentation without changing worker-control product semantics.
+- Plan impact: Runtime orchestration remains router plus protected contour workflows; source authorization UX is tightened so scope display is a hard prerequisite rather than an implied planning step.
+- Tasks impact: Adds explicit contract/SDD enforcement that every source authorization request is preceded by the six-field visible Scope block.
+- Authorization impact: Existing `OUTCOME APPROVED` covers this correction because all edited paths remain inside the exact 23-path process-hardening scope and the product/protected boundaries are unchanged.
+- Follow-up: merge only an exact-green in-scope head; future source tasks must show scope first and request approval second.
 
 ## Deployment transaction audit
 
@@ -125,7 +134,7 @@ The runtime request is not itself a new authority model. Durable production auth
 
 ## Runtime feedback
 
-- Actual production transport after source merge: PENDING independent capability verification; source does not claim restricted Ubuntu credentials exist.
-- Expected fallback until bootstrap provisioning: `ONE_COMMAND_FALLBACK`, one operator action for the Ubuntu contour.
-- Current Ubuntu parent runtime remains accepted legacy baseline until fresh exact-SHA production authorization for the hardening merge.
-- Product runtime acceptance for Issue #178 still requires worker Stop/Start through the operator control path while Camera 1 HLS remains continuously available.
+- Actual production transport after source merge: one-command fallback was used successfully for Issue #178 runtime target `8dc74762a344dbf763d3ce1e7ecb1bac6872affb`.
+- Restricted zero-touch Ubuntu transport remains separately unprovisioned; the repository still truthfully advertises one-command fallback when needed.
+- The scope-before-approval remediation is governance/control-plane only and performs no production mutation.
+- Product runtime acceptance for Issue #178 has already confirmed worker Stop/Start independence from Camera 1 HLS; remaining UI polish is a separate scoped source change.
