@@ -90,7 +90,7 @@ jobs:
         self.assertIn("done < <(git rev-list --first-parent origin/main)", deploy)
         self.assertIn('[[ "$FIRST_PARENT_MATCH" == "1" ]] || {', deploy)
 
-    def test_issue_request_delegates_to_reusable_deploy_without_runtime_mutation(self) -> None:
+    def test_legacy_vps_request_delegates_without_runtime_mutation(self) -> None:
         request = (ROOT / ".github/workflows/deploy-vps-request.yml").read_text(encoding="utf-8")
         self.assertIn("issue_comment:", request)
         self.assertIn("types: [created]", request)
@@ -102,6 +102,36 @@ jobs:
         self.assertNotIn("environment: production", request)
         self.assertNotIn("VPS_SSH_PRIVATE_KEY", request)
         self.assertNotIn("ssh -i", request)
+
+    def test_two_intent_runtime_request_reverifies_and_routes_without_mutation(self) -> None:
+        request = (ROOT / ".github/workflows/deploy-runtime-request.yml").read_text(encoding="utf-8")
+        self.assertIn("issue_comment:", request)
+        self.assertIn("types: [created]", request)
+        self.assertIn("Execution-Intent: EXECUTE", request)
+        self.assertIn("parse_runtime_execution_request.py", request)
+        self.assertIn("verify_production_authorization.py", request)
+        self.assertIn("--require-execution-intent", request)
+        self.assertIn("uses: ./.github/workflows/deploy-vps.yml", request)
+        self.assertIn("uses: ./.github/workflows/deploy-ubuntu-worker.yml", request)
+        self.assertIn("windows-worker-fallback:", request)
+        self.assertNotIn("environment: production", request)
+        self.assertNotIn("ssh -i", request)
+
+    def test_ubuntu_deploy_preserves_protected_admission_and_fallback(self) -> None:
+        deploy = (ROOT / ".github/workflows/deploy-ubuntu-worker.yml").read_text(encoding="utf-8")
+        capability = deploy.index("Resolve zero-touch execution capability")
+        for marker in (
+            "workflow_dispatch:", "workflow_call:", "environment: production", "refs/heads/main",
+            "--first-parent", "verify_quality_status.py", "verify_production_authorization.py",
+            "build_exact_artifacts.py", "Build release provenance", "deploy/worker/ubuntu/deploy-authorized.sh",
+        ):
+            self.assertLess(deploy.index(marker), capability, marker)
+        self.assertIn("UBUNTU_DEPLOY_SSH_PRIVATE_KEY", deploy)
+        self.assertIn("sea-speed-ubuntu-deploy-v1", deploy)
+        self.assertIn("Build one-command fallback", deploy)
+        self.assertIn("one-command-fallback", deploy)
+        self.assertIn("exit 42", deploy)
+        self.assertIn("deployment-manifest-ubuntu-worker.json", deploy)
 
     def test_windows_worker_package_is_pre_release_and_worker_scoped(self) -> None:
         package = (ROOT / ".github/workflows/package-worker.yml").read_text(encoding="utf-8")
@@ -126,14 +156,8 @@ jobs:
                 self.assertEqual((first / filename).read_bytes(), (second / filename).read_bytes())
             self.assertEqual((first / "exact-artifacts.json").read_bytes(), (second / "exact-artifacts.json").read_bytes())
             manifest = json.loads((first / "exact-artifacts.json").read_text(encoding="utf-8"))
-            self.assertEqual(
-                {artifact["component"] for artifact in manifest["artifacts"]},
-                {"vps", "edge"},
-            )
-            self.assertEqual(
-                {artifact["component"] for artifact in manifest["release_artifacts"]},
-                {"ubuntu-worker"},
-            )
+            self.assertEqual({artifact["component"] for artifact in manifest["artifacts"]}, {"vps", "edge"})
+            self.assertEqual({artifact["component"] for artifact in manifest["release_artifacts"]}, {"ubuntu-worker"})
             vps = next(artifact for artifact in manifest["artifacts"] if artifact["component"] == "vps")
             vps_paths = {entry["path"] for entry in vps["files"]}
             self.assertIn("frontend/sea-speed/cameras/index.html", vps_paths)
@@ -141,6 +165,7 @@ jobs:
             ubuntu_paths = {entry["path"] for entry in ubuntu["files"]}
             self.assertIn("deploy/worker/ubuntu/worker-control-agent.py", ubuntu_paths)
             self.assertIn("deploy/worker/ubuntu/update-exact.sh", ubuntu_paths)
+            self.assertIn("deploy/worker/ubuntu/deploy-authorized.sh", ubuntu_paths)
             self.assertIn("worker/hls_motion_yolo_worker_events.py", ubuntu_paths)
             self.run_script("scripts/quality/validate_exact_artifacts.py", "--manifest", str(first / "exact-artifacts.json"))
 
@@ -160,10 +185,7 @@ jobs:
             data = json.loads(evidence.read_text(encoding="utf-8"))
             manifest = json.loads((exact / "exact-artifacts.json").read_text(encoding="utf-8"))
             self.assertEqual(data["source_commit"], COMMIT)
-            self.assertEqual(
-                {artifact["component"] for artifact in data["artifacts"]},
-                {"vps", "edge"},
-            )
+            self.assertEqual({artifact["component"] for artifact in data["artifacts"]}, {"vps", "edge"})
             self.assertEqual(manifest["release_artifacts"][0]["component"], "ubuntu-worker")
             self.assertRegex(manifest["release_artifacts"][0]["sha256"], r"^[0-9a-f]{64}$")
             self.assertFalse(data["deployment"]["automatic_from_main"])
