@@ -101,7 +101,13 @@ jobs:
             --issue "$CANONICAL_ISSUE" \
             --github-output "$GITHUB_OUTPUT" \
             --evidence-output dist/production-authorization.json
-          [[ "${{ steps.authorization.outputs.ubuntu_worker_required }}" == "true" ]] || {
+
+      - name: Require Ubuntu contour in exact Change Contract
+        env:
+          UBUNTU_REQUIRED: ${{ steps.authorization.outputs.ubuntu_worker_required }}
+        run: |
+          set -euo pipefail
+          [[ "$UBUNTU_REQUIRED" == "true" ]] || {
             echo "Exact Change Contract does not require Ubuntu Worker deployment" >&2
             exit 1
           }
@@ -116,7 +122,7 @@ jobs:
           python scripts/quality/validate_quality_contracts.py
           python scripts/quality/validate_workflow_policy.py
 
-      - name: Build exact artifacts and Ubuntu provenance
+      - name: Build exact artifacts and Ubuntu release provenance
         id: exact
         env:
           DEPLOY_SHA: ${{ steps.release.outputs.sha }}
@@ -211,6 +217,8 @@ PY
           ISSUE='$CANONICAL_ISSUE'
           ARTIFACT_SHA='$ARTIFACT_SHA'
           ROOT=/opt/sea-speed-worker
+          [[ "\$EUID" -eq 0 ]] || { echo "ERROR run with sudo/root" >&2; exit 1; }
+          install -d -o root -g root -m 0700 "\$ROOT/updater"
           STAGE="\$(mktemp -d \"\$ROOT/updater/bootstrap.XXXXXX\")"
           cleanup() { status=\$?; rm -rf "\$STAGE" || true; return "\$status"; }
           trap cleanup EXIT
