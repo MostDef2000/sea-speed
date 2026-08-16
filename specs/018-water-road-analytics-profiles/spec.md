@@ -1,13 +1,15 @@
 # Specification: Water and road analytics profiles
 
 - Issue: #197
-- Status: In implementation
+- Status: Production remediation
 
 ## Product outcome
 
 Sea Speed MUST run one profile-driven analytics implementation across two isolated operator domains. The existing main operator contour becomes `water-v1`, using a locally staged `yolo26x.pt` baseline and normalizing model-native `boat` into canonical maritime object type `vessel`. A new authenticated `/sea-speed/road/` contour runs `road-v1` against logical camera `road1`, with separate worker process, tracking state, configuration, event/state files and overlay/output state. Both Ubuntu analytics workers reuse the same immutable Python runtime and shared read-only model store. Protected runtime configuration resolves `road1` to its private camera source without exposing source credentials or the physical source through Git/frontend/API.
 
-Because canonical delivery policy classifies shared `worker/**` runtime source as applicable to both Ubuntu and Windows workers, this Outcome also carries a Windows compatibility/update contour. No Windows-specific Road feature, UI or service is introduced; Windows must consume the changed shared worker source without regression under its existing package/runtime contract.
+The original PR #198 changed shared `worker/**`, so canonical delivery policy classified that historical source release as VPS + Ubuntu Worker + Windows Worker. Windows was compatibility/update only and no Windows-specific Road feature, UI or service was introduced. The production-learning remediation described below changes no shared `worker/**`; its exact runtime contours are VPS + Ubuntu Worker/relay only. The historical #198 applicability remains audit truth and Issue #199 separately owns removal of the unused Windows production contour from governance.
+
+Production acceptance of merged source `39cc330b61dc50aede4b809ee2dfc7a712b698d9` exposed a cross-boundary defect: the Road worker progressed frames and AI locally, but its generated state/event URLs targeted the public Authentik-protected `/sea-speed/**` surface while the dedicated private Worker-to-VPS ingress exposed only legacy Camera 1 paths. The corrective design routes Road worker M2M traffic through the existing exact-peer private ingress and extends that ingress only with exact logical `road1` analytics paths and methods.
 
 ## User scenarios
 
@@ -31,9 +33,13 @@ The registry retains historical records and can list/filter objects across camer
 
 The model binary is supplied only as protected local runtime input. A bounded preparation helper verifies the operator-supplied SHA-256, stages `yolo26x.pt` into the shared model store, and performs an exact runtime CUDA/Ultralytics inference self-test. No model binary enters Git/artifacts and no smaller model is selected silently if validation fails.
 
-### Scenario 6 - Shared worker source remains Windows-compatible
+### Scenario 6 - Historical shared worker compatibility remains auditable
 
-The final shared worker source is packaged through the existing Windows Worker pipeline. Windows receives no Road-specific service/configuration surface; acceptance proves exact package/source identity, preserved protected local state, process restart/freshness and applicable telemetry after separately authorized production execution.
+The original #198 shared worker source was packaged through the existing Windows Worker pipeline because the then-current canonical policy classified shared `worker/**` as mixed. This production-learning remediation does not edit shared worker source or add any Windows Road surface; Windows is therefore not an applicable runtime contour for the corrective diff.
+
+### Scenario 7 - Road Worker uses the private M2M boundary
+
+Protected Ubuntu configuration derives the Road state and event endpoints from the already-provisioned private Camera 1 Worker-to-VPS M2M endpoint. The public Authentik-protected `/sea-speed/**` surface remains browser/operator-facing and is never used as the Road worker write path. The VPS private listener remains exact-peer, deny-by-default and exact-path/exact-method only.
 
 ## Requirements
 
@@ -55,8 +61,11 @@ The final shared worker source is packaged through the existing Windows Worker p
 - FR-016: Main, Objects, Cameras and Road pages MUST expose consistent navigation containing Objects, Cameras and Road destinations.
 - FR-017: VPS exact release/install/rollback/smoke handling MUST include the Road page.
 - FR-018: VPS and Ubuntu exact artifacts MUST include the new profile/Road source assets and MUST reject model binaries as release inputs.
-- FR-019: Shared `worker/**` changes MUST remain compatible with the existing Windows Worker package/runtime contract; no Windows-specific Road feature, service or browser control is added.
-- FR-020: Source integration MUST NOT perform production mutation. VPS, Ubuntu Worker and Windows Worker activation/update require a later exact-merged-SHA production authorization and contour-specific runtime evidence.
+- FR-019: The original #198 shared `worker/**` changes MUST remain historically compatible with the existing Windows Worker package/runtime contract; this remediation MUST NOT add or modify Windows-specific Road behavior.
+- FR-020: Source integration MUST NOT perform production mutation. Every corrective VPS/Ubuntu activation requires a later exact-merged-SHA production authorization and contour-specific runtime evidence.
+- FR-021: `configure-analytics-profiles.py` MUST derive `road1` state and event URLs only from the protected Camera 1 private M2M `SEA_SPEED_API_URL`. It MUST require credential-free private HTTP on a literal non-loopback RFC1918 IPv4 with explicit port and exact `/api/cam1/state` path, and MUST fail closed for public, HTTPS, credential-bearing, loopback, missing-port, query/fragment or wrong-path values.
+- FR-022: The VPS private Worker ingress MUST add only exact `road1` worker paths: POST state, POST events, GET ROI, GET speed-config and GET speed-lines. It MUST preserve the exact peer allowlist, deny all other peers, reject all other paths through the catch-all, forward the bearer token, and MUST NOT expose generic `/api/analytics/**`, Objects, preview, browser worker-control or arbitrary service-control endpoints.
+- FR-023: Public `/sea-speed/**` MUST remain protected by Authentik and Camera 1 media/browser behavior MUST remain unchanged. The corrective diff MUST NOT change API/event/state/storage schemas, detection/tracking/calibration/speed formulas, physical camera binding, model input, ZeroTier topology or `worker/**` source. Windows Worker is NOT APPLICABLE to this corrective diff.
 
 ## Acceptance criteria
 
@@ -70,24 +79,31 @@ The final shared worker source is packaged through the existing Windows Worker p
 - AC-008: Ubuntu source defines an isolated road service/configuration path sharing the immutable runtime/model store and leaves existing control agent scoped to the main worker only.
 - AC-009: Model preparation verifies SHA-256 and CUDA model self-test and source/artifact policy prevents `.pt`/ONNX/engine binaries from entering Git/exact artifacts.
 - AC-010: VPS deploy transaction captures/installs/verifies/rolls back Road frontend state alongside existing frontends.
-- AC-011: Exact final PR changed-file set equals the authorized 42 paths; no physical road source/credential/model binary is present.
-- AC-012: PR Validation, Quality integration and Package Windows Worker succeed on one exact final head; merge uses fresh main/head/scope/review checks and post-merge push/main quality succeeds.
-- AC-013: Production acceptance, after separate exact-SHA authorization, records model digest/CUDA readiness, both Ubuntu worker exact identities/progression, dual-worker GPU headroom, protected `road1` source binding, exact Windows package/source/process/freshness evidence, and browser smoke for Main/Road.
+- AC-011: Historical PR #198 remains auditable as the original exact 42/42 source integration; the production-learning corrective PR changes exactly the separately authorized 10 remediation paths and no others.
+- AC-012: The corrective PR passes PR Validation and aggregate Quality integration on one exact final head; merge uses fresh main/head/scope/review checks and post-merge push/main quality succeeds. Windows packaging is not required for the corrective diff because no `worker/**` source changes.
+- AC-013: Production acceptance after separate authorization retains the previously established exact model/CUDA and protected road source evidence and verifies the corrected VPS + Ubuntu M2M path without requiring a Windows corrective rollout.
+- AC-014: Behavioral tests prove Road state/events URLs are derived from the exact private Camera 1 M2M endpoint and all public, credential-bearing, non-private, loopback, missing-port and wrong-path alternatives fail closed.
+- AC-015: Renderer/verifier tests prove the private ingress contains exactly the approved Camera 1 and Road worker endpoints with exact methods, exact peer restriction, no generic analytics route and no browser worker-control exposure while public Authentik protection remains intact.
+- AC-016: After a new exact-SHA production authorization, VPS private ingress is active, Road protected config uses the private M2M origin, `road1` state becomes fresh with the exact corrected source commit and advancing frame number, Road events/objects are observable, clean preview start/media/stop passes, and Camera 1/public Authentik regression checks remain green.
 
 ## NFR assessment
 
 - NFR-001 | Area: Security | Target: No physical road source, camera userinfo, API token or model binary is committed or returned to browser/API | Validation: repository secret/binary policy plus focused profile tests | Evidence: `scripts/ci/validate_repo.py`, `tests/test_analytics_profiles.py` | Status: PASS
 - NFR-002 | Area: Compatibility | Target: Legacy `/api/cam1/**` remains present and historical object rows require no destructive rewrite | Validation: API source/behavior tests and additive SQLite migration checks | Evidence: `tests/test_api_contract.py`, `api/app/main.py` | Status: PASS
 - NFR-003 | Area: Isolation | Target: water and road use distinct logical IDs, state/events/config files, service/heartbeat/output and tracker processes | Validation: API/worker/systemd contract tests | Evidence: `tests/test_analytics_profiles.py`, `tests/test_ubuntu_worker_systemd.py` | Status: PASS
-- NFR-004 | Area: Reliability | Target: Exact model activation is digest-bound, CUDA self-tested and has no silent fallback | Validation: model preparation source tests; runtime-manual gate after production authorization | Evidence: `deploy/worker/ubuntu/prepare-yolo-model.py` | Status: CONCERNS
-- NFR-005 | Area: Performance | Target: Both Ubuntu profiles request 960 input and 5 FPS, and simultaneous workers produce sustained frame/state/AI progression without OOM/degraded inference | Validation: source defaults plus runtime-manual dual-worker GPU acceptance | Evidence: `worker/analytics_profiles.py`; production runtime evidence pending | Status: CONCERNS
-- NFR-006 | Area: Operator UX | Target: Road destination is visible from all four Sea Speed pages and Road page exposes state/calibration/events/preview without arbitrary system control | Validation: frontend contract/browser smoke | Evidence: `tests/test_frontend_contract.py`, runtime browser smoke pending | Status: CONCERNS
-- NFR-007 | Area: Provenance | Target: VPS/Ubuntu exact artifacts contain every new source asset but no model binary; runtime remains exact-source bound | Validation: exact artifact build/validation and deployment tests | Evidence: `scripts/quality/build_exact_artifacts.py`, `scripts/quality/validate_exact_artifacts.py` | Status: PASS
-- NFR-008 | Area: Compatibility | Target: The final shared worker head produces a valid Windows package and preserves existing Windows runtime contract semantics | Validation: Package Windows Worker plus shared worker contract tests; runtime-manual exact package/process/freshness evidence after production authorization | Evidence: GitHub Package Windows Worker, `tests/test_worker_contract.py` | Status: CONCERNS
+- NFR-004 | Area: Reliability | Target: Exact model activation is digest-bound, CUDA self-tested and has no silent fallback | Validation: model preparation source tests plus already collected production model evidence | Evidence: `deploy/worker/ubuntu/prepare-yolo-model.py`, Issue #197 runtime evidence | Status: PASS
+- NFR-005 | Area: Performance | Target: Road Worker maintains advancing frames/AI under the corrected transport without OOM/degraded inference | Validation: source defaults plus runtime-manual corrected-state acceptance | Evidence: `worker/analytics_profiles.py`; corrected production runtime evidence pending | Status: CONCERNS
+- NFR-006 | Area: Operator UX | Target: Road destination remains authenticated and functional without exposing arbitrary system control | Validation: frontend contract and post-remediation browser smoke | Evidence: `tests/test_frontend_contract.py`, runtime browser smoke pending | Status: CONCERNS
+- NFR-007 | Area: Provenance | Target: Corrective VPS/Ubuntu release remains exact-source bound and contains no model binary or protected runtime inputs | Validation: exact artifact/release validation | Evidence: repository exact-artifact and release gates | Status: PASS
+- NFR-008 | Area: Compatibility | Target: Historical #198 Windows compatibility evidence remains unchanged; the corrective diff edits no shared Worker source and requires no Windows package mutation | Validation: exact changed-file compare against the 10-path corrective scope | Evidence: GitHub compare and Change Contract | Status: PASS
+- NFR-009 | Area: Security | Target: Road Worker machine-to-machine traffic bypasses the browser Authentik flow only through an exact-peer, exact-path, exact-method private ingress and cannot expand to arbitrary analytics/control APIs | Validation: renderer/verifier endpoint matrix plus protected-config behavioral tests | Evidence: `tests/test_sea_speed_auth_v1.py`, `tests/test_analytics_profiles.py` | Status: PASS
+- NFR-010 | Area: Reliability | Target: VPS API receives fresh Road state/events rather than redirect-mediated false-positive HTTP success | Validation: runtime-manual exact-SHA state freshness, source commit and frame progression checks | Evidence: post-remediation Issue #197 runtime acceptance | Status: CONCERNS
 
 ## Runtime feedback
 
-- Source stage: implementation/CI pending.
-- VPS production: REQUIRED by policy; NOT AUTHORIZED by source authorization.
-- Ubuntu production/model staging: REQUIRED by policy; NOT AUTHORIZED by source authorization.
-- Windows Worker: REQUIRED by shared `worker/**` policy classification; NOT AUTHORIZED by source authorization; no Windows-specific Road feature is introduced.
+- Original source integration: PR #198 merged as `39cc330b61dc50aede4b809ee2dfc7a712b698d9`; historical exact 42-path evidence remains unchanged.
+- Production learning: Road worker/media/model/AI progression was healthy, but VPS `road1` state remained empty because generated Road worker writes targeted the public Authentik boundary while the private M2M ingress lacked generic `road1` routes. Redirect-following HTTP behavior made worker-side POST success insufficient evidence of API state commit.
+- Corrective source authorization: a fresh six-field 10-path Scope was shown and immediately approved with `OUTCOME APPROVED` on 2026-08-17.
+- Corrective VPS production: REQUIRED after corrected source merge and fresh exact-SHA production authorization.
+- Corrective Ubuntu Worker/relay production: REQUIRED after corrected source merge and fresh exact-SHA production authorization.
+- Corrective Windows Worker production: NOT APPLICABLE because this remediation changes no `worker/**` source; Issue #199 remains the separate governance task for retiring the unused Windows contour.
