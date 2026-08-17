@@ -14,11 +14,11 @@ Options:
 This is the repository-owned Ubuntu production transaction. It requires the
 canonical Issue to contain the exact production authorization plus
 `Execution-Intent: EXECUTE`, stages the exact current-main source, reconciles
-protected water/road profile configuration from the protected private runtime
-inputs, activates it through that source's updater, verifies exact
-worker/control/road identity, records deployment evidence, and restores both
-protected configuration and the previously active exact release if a
-post-reconciliation activation or verification step fails.
+protected water/road profile configuration from protected private runtime
+inputs, preserves independent Water/Road operator desired states, activates it
+through that source's updater, verifies exact worker/control/road identity,
+records deployment evidence, and restores protected configuration plus the
+previously active exact release if post-reconciliation activation fails.
 EOF
 }
 
@@ -143,6 +143,9 @@ previous="$(cat "$active_marker" 2>/dev/null || true)"
 desired_file="$install_root/shared/runtime/operator-desired-state"
 desired="$(cat "$desired_file" 2>/dev/null || echo running)"
 [[ "$desired" == "running" || "$desired" == "stopped" ]] || { echo "ERROR operator desired state is invalid" >&2; exit 9; }
+road_desired_file="$install_root/shared/road-runtime/operator-desired-state"
+road_desired="$(cat "$road_desired_file" 2>/dev/null || echo running)"
+[[ "$road_desired" == "running" || "$road_desired" == "stopped" ]] || { echo "ERROR road operator desired state is invalid" >&2; exit 9; }
 control_unit="$systemd_unit_root/$control_service"
 road_unit="$systemd_unit_root/$road_service"
 worker_env="$install_root/shared/config/worker.env"
@@ -158,6 +161,14 @@ if [[ "$desired" == "running" && "$worker_was_active" != true ]]; then
 fi
 if [[ "$desired" == "stopped" && "$worker_was_active" == true ]]; then
   echo "ERROR desired stopped worker is active before protected configuration reconciliation" >&2
+  exit 9
+fi
+if [[ -f "$road_env" && "$road_desired" == "running" && "$road_was_active" != true ]]; then
+  echo "ERROR desired running road worker is not active before protected configuration reconciliation" >&2
+  exit 9
+fi
+if [[ -f "$road_env" && "$road_desired" == "stopped" && "$road_was_active" == true ]]; then
+  echo "ERROR desired stopped road worker is active before protected configuration reconciliation" >&2
   exit 9
 fi
 
@@ -280,9 +291,13 @@ verify_active_target() {
   [[ -f "$road_env" && "$(stat -c '%a' "$road_env")" == "600" ]] || return 1
   [[ -f "$road_unit" ]] || return 1
   grep -Fq "$target" "$road_unit" || return 1
-  systemctl is-active --quiet "$road_service" || return 1
   road_exec="$(systemctl show -p ExecStart --value "$road_service" 2>/dev/null || true)"
   [[ "$road_exec" == *"$target"* && "$road_exec" == *"/runtimes/$target_runtime/venv/bin/python"* ]] || return 1
+  if [[ "$road_desired" == "running" ]]; then
+    systemctl is-active --quiet "$road_service" || return 1
+  else
+    ! systemctl is-active --quiet "$road_service" || return 1
+  fi
   if [[ "$desired" == "running" ]]; then
     systemctl is-active --quiet "$worker_service" || return 1
   else
@@ -292,7 +307,7 @@ verify_active_target() {
 }
 
 rolled_back=false
-echo "DEPLOY_MUTATION target=$target previous=$previous desired_state=$desired protected_config_reconciled=$protected_config_reconciled"
+echo "DEPLOY_MUTATION target=$target previous=$previous desired_state=$desired road_desired_state=$road_desired protected_config_reconciled=$protected_config_reconciled"
 if ! SEA_SPEED_SYSTEMD_UNIT_ROOT="$systemd_unit_root" SEA_SPEED_DEPLOY_TEST_MODE="$test_mode" \
     bash "$stage/deploy/worker/ubuntu/update-exact.sh" \
     "$target" \
@@ -340,7 +355,7 @@ fi
 runtime_id="$(cat "$install_root/releases/$target/runtime-id")"
 manifest="$updater_root/deployment-manifest-ubuntu-worker.json"
 road_configured=true
-TARGET="$target" PREVIOUS="$previous" RUNTIME_ID="$runtime_id" DESIRED="$desired" ROAD_CONFIGURED="$road_configured" \
+TARGET="$target" PREVIOUS="$previous" RUNTIME_ID="$runtime_id" DESIRED="$desired" ROAD_DESIRED="$road_desired" ROAD_CONFIGURED="$road_configured" \
 PROTECTED_CONFIG_RECONCILED="$protected_config_reconciled" ARTIFACT_SHA256="$artifact_sha256" MANIFEST="$manifest" ROLLED_BACK="$rolled_back" python3 - <<'PY'
 import json, os
 from datetime import datetime, timezone
@@ -360,7 +375,7 @@ payload = {
         {"name": "protected-road-profile-config-reconciled", "status": "passed" if os.environ["PROTECTED_CONFIG_RECONCILED"] == "true" else "failed"},
         {"name": "exact-worker-source-runtime", "status": "passed"},
         {"name": "worker-control-service", "status": "passed"},
-        {"name": "road-worker-active", "status": "passed"},
+        {"name": "road-worker-desired-state-" + os.environ["ROAD_DESIRED"], "status": "passed"},
         {"name": "operator-desired-state-" + os.environ["DESIRED"], "status": "passed"},
     ],
     "rollbackTarget": os.environ["PREVIOUS"],
@@ -371,6 +386,6 @@ Path(os.environ["MANIFEST"]).write_text(json.dumps(payload, indent=2, sort_keys=
 PY
 chmod 0600 "$manifest"
 
-printf 'DEPLOYMENT_ACCEPTED target=%s previous=%s runtime_id=%s desired_state=%s road_configured=%s protected_config_reconciled=%s\n' \
-  "$target" "$previous" "$runtime_id" "$desired" "$road_configured" "$protected_config_reconciled"
+printf 'DEPLOYMENT_ACCEPTED target=%s previous=%s runtime_id=%s desired_state=%s road_desired_state=%s road_configured=%s protected_config_reconciled=%s\n' \
+  "$target" "$previous" "$runtime_id" "$desired" "$road_desired" "$road_configured" "$protected_config_reconciled"
 printf 'DEPLOYMENT_MANIFEST path=%s\n' "$manifest"
