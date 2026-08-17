@@ -24,6 +24,10 @@ OBJECTS_FRONTEND_URL="${SEA_SPEED_OBJECTS_FRONTEND_URL:-https://mostdef.ru/sea-s
 CAMERAS_FRONTEND_URL="${SEA_SPEED_CAMERAS_FRONTEND_URL:-https://mostdef.ru/sea-speed/cameras/}"
 ROAD_FRONTEND_URL="${SEA_SPEED_ROAD_FRONTEND_URL:-https://mostdef.ru/sea-speed/road/}"
 ROOT_FRONTEND_URL="${SEA_SPEED_ROOT_FRONTEND_URL:-https://mostdef.ru/}"
+AUTH_BOUNDARY_REQUIRED="${SEA_SPEED_REQUIRE_AUTH_BOUNDARY:-0}"
+AUTHENTIK_UPSTREAM="${SEA_SPEED_AUTHENTIK_UPSTREAM:-}"
+WORKER_PRIVATE_LISTEN="${SEA_SPEED_WORKER_PRIVATE_LISTEN:-}"
+WORKER_PRIVATE_PEER="${SEA_SPEED_WORKER_PRIVATE_PEER:-}"
 RELEASES_DIR="${DEPLOY_ROOT}/releases"
 STATE_DIR="${DEPLOY_ROOT}/state"
 CURRENT_FILE="${STATE_DIR}/current-release"
@@ -31,6 +35,7 @@ PREVIOUS_FILE="${STATE_DIR}/previous-release"
 DEPLOYMENT_MANIFEST_FILE="${STATE_DIR}/deployment-manifest.json"
 TARGET_RELEASE="${RELEASES_DIR}/${COMMIT_SHA}"
 TEMP_DIR="$(mktemp -d)"
+AUTH_BOUNDARY_VERIFIED=false
 
 cleanup() { rm -rf "$TEMP_DIR"; }
 trap cleanup EXIT
@@ -42,6 +47,29 @@ validate_sha() {
     echo "Commit SHA must contain exactly 40 hexadecimal characters" >&2
     exit 2
   }
+}
+
+validate_auth_boundary_inputs() {
+  [[ "$AUTH_BOUNDARY_REQUIRED" == "0" || "$AUTH_BOUNDARY_REQUIRED" == "1" ]] || {
+    echo "SEA_SPEED_REQUIRE_AUTH_BOUNDARY must be 0 or 1" >&2
+    exit 2
+  }
+  if [[ "$AUTH_BOUNDARY_REQUIRED" == "1" ]]; then
+    [[ -n "$AUTHENTIK_UPSTREAM" ]] || { echo "SEA_SPEED_AUTHENTIK_UPSTREAM is required" >&2; exit 2; }
+    [[ -n "$WORKER_PRIVATE_LISTEN" ]] || { echo "SEA_SPEED_WORKER_PRIVATE_LISTEN is required" >&2; exit 2; }
+    [[ -n "$WORKER_PRIVATE_PEER" ]] || { echo "SEA_SPEED_WORKER_PRIVATE_PEER is required" >&2; exit 2; }
+    if [[ "$EUID" -ne 0 ]]; then
+      command -v sudo >/dev/null 2>&1 || { echo "sudo is required for protected VPS boundary activation" >&2; exit 4; }
+    fi
+  fi
+}
+
+run_root() {
+  if [[ "$EUID" -eq 0 ]]; then
+    "$@"
+  else
+    sudo -n "$@"
+  fi
 }
 
 validate_runtime_access() {
@@ -56,13 +84,21 @@ ensure_layout() {
   mkdir -p "$RELEASES_DIR" "$STATE_DIR" "$(dirname "$OBJECTS_FRONTEND_TARGET")" "$(dirname "$CAMERAS_FRONTEND_TARGET")" "$(dirname "$ROAD_FRONTEND_TARGET")"
 }
 
+release_complete() {
+  local root="$1"
+  [[ -f "$root/api/app/main.py" && \
+     -f "$root/frontend/sea-speed/index.html" && \
+     -f "$root/frontend/sea-speed/objects/index.html" && \
+     -f "$root/frontend/sea-speed/cameras/index.html" && \
+     -f "$root/frontend/sea-speed/road/index.html" && \
+     -f "$root/frontend/root/index.html" && \
+     -f "$root/deploy/vps/sea-speed-auth-cutover.sh" && \
+     -f "$root/scripts/operations/nginx_cam1_direct_h264.py" && \
+     -f "$root/scripts/operations/nginx_sea_speed_auth.py" ]]
+}
+
 download_release() {
-  if [[ -f "$TARGET_RELEASE/api/app/main.py" && \
-        -f "$TARGET_RELEASE/frontend/sea-speed/index.html" && \
-        -f "$TARGET_RELEASE/frontend/sea-speed/objects/index.html" && \
-        -f "$TARGET_RELEASE/frontend/sea-speed/cameras/index.html" && \
-        -f "$TARGET_RELEASE/frontend/sea-speed/road/index.html" && \
-        -f "$TARGET_RELEASE/frontend/root/index.html" ]]; then
+  if release_complete "$TARGET_RELEASE"; then
     log "Release ${COMMIT_SHA} already exists"
     return
   fi
@@ -79,21 +115,37 @@ download_release() {
   archive_sha="$(sha256sum "$archive" | awk '{print $1}')"
   tar -xzf "$archive" -C "$extracted" --strip-components=1
 
-  [[ -f "$extracted/api/app/main.py" ]] || { echo "Release does not contain api/app/main.py" >&2; exit 1; }
-  [[ -f "$extracted/frontend/sea-speed/index.html" ]] || { echo "Release does not contain frontend/sea-speed/index.html" >&2; exit 1; }
-  [[ -f "$extracted/frontend/sea-speed/objects/index.html" ]] || { echo "Release does not contain frontend/sea-speed/objects/index.html" >&2; exit 1; }
-  [[ -f "$extracted/frontend/sea-speed/cameras/index.html" ]] || { echo "Release does not contain frontend/sea-speed/cameras/index.html" >&2; exit 1; }
-  [[ -f "$extracted/frontend/sea-speed/road/index.html" ]] || { echo "Release does not contain frontend/sea-speed/road/index.html" >&2; exit 1; }
-  [[ -f "$extracted/frontend/root/index.html" ]] || { echo "Release does not contain frontend/root/index.html" >&2; exit 1; }
+  for required in \
+    api/app/main.py \
+    frontend/sea-speed/index.html \
+    frontend/sea-speed/objects/index.html \
+    frontend/sea-speed/cameras/index.html \
+    frontend/sea-speed/road/index.html \
+    frontend/root/index.html \
+    deploy/vps/sea-speed-auth-cutover.sh \
+    scripts/operations/nginx_cam1_direct_h264.py \
+    scripts/operations/nginx_sea_speed_auth.py; do
+    [[ -f "$extracted/$required" ]] || { echo "Release does not contain $required" >&2; exit 1; }
+  done
 
   rm -rf "$TARGET_RELEASE"
-  mkdir -p "$TARGET_RELEASE/api/app" "$TARGET_RELEASE/frontend/sea-speed/objects" "$TARGET_RELEASE/frontend/sea-speed/cameras" "$TARGET_RELEASE/frontend/sea-speed/road" "$TARGET_RELEASE/frontend/root"
+  mkdir -p \
+    "$TARGET_RELEASE/api/app" \
+    "$TARGET_RELEASE/frontend/sea-speed/objects" \
+    "$TARGET_RELEASE/frontend/sea-speed/cameras" \
+    "$TARGET_RELEASE/frontend/sea-speed/road" \
+    "$TARGET_RELEASE/frontend/root" \
+    "$TARGET_RELEASE/deploy/vps" \
+    "$TARGET_RELEASE/scripts/operations"
   install -m 0644 "$extracted/api/app/main.py" "$TARGET_RELEASE/api/app/main.py"
   install -m 0644 "$extracted/frontend/sea-speed/index.html" "$TARGET_RELEASE/frontend/sea-speed/index.html"
   install -m 0644 "$extracted/frontend/sea-speed/objects/index.html" "$TARGET_RELEASE/frontend/sea-speed/objects/index.html"
   install -m 0644 "$extracted/frontend/sea-speed/cameras/index.html" "$TARGET_RELEASE/frontend/sea-speed/cameras/index.html"
   install -m 0644 "$extracted/frontend/sea-speed/road/index.html" "$TARGET_RELEASE/frontend/sea-speed/road/index.html"
   install -m 0644 "$extracted/frontend/root/index.html" "$TARGET_RELEASE/frontend/root/index.html"
+  install -m 0755 "$extracted/deploy/vps/sea-speed-auth-cutover.sh" "$TARGET_RELEASE/deploy/vps/sea-speed-auth-cutover.sh"
+  install -m 0644 "$extracted/scripts/operations/nginx_cam1_direct_h264.py" "$TARGET_RELEASE/scripts/operations/nginx_cam1_direct_h264.py"
+  install -m 0644 "$extracted/scripts/operations/nginx_sea_speed_auth.py" "$TARGET_RELEASE/scripts/operations/nginx_sea_speed_auth.py"
   printf '%s\n' "$COMMIT_SHA" > "$TARGET_RELEASE/commit-sha"
   printf '%s\n' "$archive_sha" > "$TARGET_RELEASE/archive-sha256"
 }
@@ -251,10 +303,6 @@ verify_frontends() {
   [[ -s "$FRONTEND_TARGET" ]] || { echo "Operator frontend file is missing or empty: ${FRONTEND_TARGET}" >&2; return 1; }
   [[ -s "$ROOT_FRONTEND_TARGET" ]] || { echo "Root frontend file is missing or empty: ${ROOT_FRONTEND_TARGET}" >&2; return 1; }
 
-  # During the source-deploy step these URLs can still return 200 under the
-  # legacy boundary. After the separately approved Auth v1 nginx cutover they
-  # return an Authentik redirect/deny. Either state is a valid code-deploy
-  # smoke result; security acceptance is performed by sea-speed-auth-cutover.sh.
   verify_public_url "Operator frontend" "$FRONTEND_URL"
   verify_public_url "Public private-health boundary" "$PUBLIC_HEALTH_URL"
   if [[ -f "$OBJECTS_FRONTEND_TARGET" ]]; then
@@ -295,11 +343,55 @@ restart_and_verify() {
   verify_frontends
 }
 
+run_auth_boundary() {
+  AUTH_BOUNDARY_VERIFIED=false
+  if [[ "$AUTH_BOUNDARY_REQUIRED" != "1" ]]; then
+    log "Road private M2M Auth v1 boundary is not required for this invocation"
+    return 0
+  fi
+
+  local cutover="$TARGET_RELEASE/deploy/vps/sea-speed-auth-cutover.sh"
+  local prepare_output activate_output candidate_sha rc
+  [[ -x "$cutover" ]] || { echo "Exact release lacks executable Auth v1 cutover: $cutover" >&2; return 1; }
+
+  log "Preparing exact Road private M2M Auth v1 boundary"
+  set +e
+  prepare_output="$(run_root bash "$cutover" prepare \
+    --authentik-upstream "$AUTHENTIK_UPSTREAM" \
+    --worker-private-listen "$WORKER_PRIVATE_LISTEN" \
+    --worker-private-peer "$WORKER_PRIVATE_PEER" \
+    --require-protected-baseline 2>&1)"
+  rc=$?
+  set -e
+  printf '%s\n' "$prepare_output"
+  [[ "$rc" -eq 0 ]] || return "$rc"
+
+  candidate_sha="$(printf '%s\n' "$prepare_output" | sed -n 's/^CANDIDATE_SHA256=//p' | tail -n1)"
+  [[ "$candidate_sha" =~ ^[0-9a-f]{64}$ ]] || { echo "Auth v1 prepare did not return an exact candidate SHA256" >&2; return 1; }
+
+  log "Activating exact Road private M2M Auth v1 boundary"
+  set +e
+  activate_output="$(run_root bash "$cutover" activate \
+    --authentik-upstream "$AUTHENTIK_UPSTREAM" \
+    --worker-private-listen "$WORKER_PRIVATE_LISTEN" \
+    --worker-private-peer "$WORKER_PRIVATE_PEER" \
+    --expected-sha256 "$candidate_sha" \
+    --require-protected-baseline 2>&1)"
+  rc=$?
+  set -e
+  printf '%s\n' "$activate_output"
+  [[ "$rc" -eq 0 ]] || return "$rc"
+  grep -Fq 'SEA_SPEED_AUTH_CUTOVER=PASS' <<<"$activate_output" || { echo "Auth v1 activation lacks PASS evidence" >&2; return 1; }
+  grep -Fq 'WORKER_PRIVATE_ROAD_API_BASE=' <<<"$activate_output" || { echo "Auth v1 activation lacks Road private API evidence" >&2; return 1; }
+  grep -Fq 'ROLLBACK_CAPABILITY=VERIFIED' <<<"$activate_output" || { echo "Auth v1 activation lacks rollback capability evidence" >&2; return 1; }
+  AUTH_BOUNDARY_VERIFIED=true
+}
+
 write_deployment_manifest() {
-  local active_version="$1" previous_version="$2" state="$3" runtime_verified="$4" attempted_version="${5:-}" artifact_sha=""
+  local active_version="$1" previous_version="$2" state="$3" runtime_verified="$4" attempted_version="${5:-}" auth_status="${6:-skipped}" artifact_sha=""
   if [[ -f "$RELEASES_DIR/$active_version/archive-sha256" ]]; then artifact_sha="$(cat "$RELEASES_DIR/$active_version/archive-sha256")"; fi
 
-  python3 - "$DEPLOYMENT_MANIFEST_FILE" "$active_version" "$previous_version" "$artifact_sha" "$state" "$runtime_verified" "$attempted_version" <<'PY'
+  python3 - "$DEPLOYMENT_MANIFEST_FILE" "$active_version" "$previous_version" "$artifact_sha" "$state" "$runtime_verified" "$attempted_version" "$auth_status" <<'PY'
 import json
 import os
 import sys
@@ -307,7 +399,19 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 path = Path(sys.argv[1])
-active, previous, artifact, state, verified, attempted = sys.argv[2:]
+active, previous, artifact, state, verified, attempted, auth_status = sys.argv[2:]
+checks = [
+    {"name": "source_install", "status": "passed"},
+    {"name": "api_origin_health", "status": "passed"},
+    {"name": "public_private_health_smoke", "status": "passed"},
+    {"name": "operator_frontend_smoke", "status": "passed"},
+    {"name": "objects_frontend_release_state", "status": "passed"},
+    {"name": "cameras_frontend_release_state", "status": "passed"},
+    {"name": "road_frontend_release_state", "status": "passed"},
+    {"name": "root_frontend_smoke", "status": "passed"},
+]
+if auth_status in {"passed", "failed", "skipped"}:
+    checks.append({"name": "auth_v1_road_private_m2m", "status": auth_status})
 payload = {
     "schema": "sea_speed_deployment_manifest_v1",
     "deliveryId": f"vps-{active[:12]}-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}",
@@ -317,16 +421,7 @@ payload = {
     "previousVersion": previous or None,
     "artifactSha256": artifact or None,
     "installedAt": datetime.now(timezone.utc).isoformat(),
-    "checks": [
-        {"name": "source_install", "status": "passed"},
-        {"name": "api_origin_health", "status": "passed"},
-        {"name": "public_private_health_smoke", "status": "passed"},
-        {"name": "operator_frontend_smoke", "status": "passed"},
-        {"name": "objects_frontend_release_state", "status": "passed"},
-        {"name": "cameras_frontend_release_state", "status": "passed"},
-        {"name": "road_frontend_release_state", "status": "passed"},
-        {"name": "root_frontend_smoke", "status": "passed"},
-    ],
+    "checks": checks,
     "rollbackTarget": previous or None,
     "runtimeVerified": verified == "true",
     "state": state,
@@ -356,6 +451,7 @@ prune_releases() {
 
 main() {
   validate_sha
+  validate_auth_boundary_inputs
   validate_runtime_access
   ensure_layout
   download_release
@@ -370,31 +466,36 @@ main() {
   previous="$(cat "$PREVIOUS_FILE" 2>/dev/null || true)"
 
   if [[ "$old_current" == "$COMMIT_SHA" ]]; then
-    log "Commit ${COMMIT_SHA} is already deployed; verifying runtime"
+    log "Commit ${COMMIT_SHA} is already deployed; verifying runtime and protected boundary"
     restart_and_verify
-    write_deployment_manifest "$COMMIT_SHA" "$previous" "runtime_verified" "true"
-    prune_releases
-    return
+    if run_auth_boundary; then
+      write_deployment_manifest "$COMMIT_SHA" "$previous" "runtime_verified" "true" "" "$([[ "$AUTH_BOUNDARY_VERIFIED" == true ]] && echo passed || echo skipped)"
+      prune_releases
+      return
+    fi
+    write_deployment_manifest "$COMMIT_SHA" "$previous" "failed" "false" "$COMMIT_SHA" "failed"
+    echo "Road private M2M Auth v1 boundary verification failed for already-deployed source" >&2
+    exit 1
   fi
 
   log "Deploying ${COMMIT_SHA}; rollback target is ${old_current}"
   install_release "$COMMIT_SHA"
-  if restart_and_verify; then
+  if restart_and_verify && run_auth_boundary; then
     printf '%s\n' "$old_current" > "$PREVIOUS_FILE"
     printf '%s\n' "$COMMIT_SHA" > "$CURRENT_FILE"
-    write_deployment_manifest "$COMMIT_SHA" "$old_current" "runtime_verified" "true"
+    write_deployment_manifest "$COMMIT_SHA" "$old_current" "runtime_verified" "true" "" "$([[ "$AUTH_BOUNDARY_VERIFIED" == true ]] && echo passed || echo skipped)"
     prune_releases
     log "Deployment successful: ${COMMIT_SHA}"
     return
   fi
 
-  log "Deployment failed; rolling back to ${old_current}"
+  log "Deployment or protected boundary verification failed; rolling source files back to ${old_current}"
   install_release "$old_current"
   if ! restart_and_verify; then
     echo "Rollback health verification failed for ${old_current}" >&2
     exit 1
   fi
-  write_deployment_manifest "$old_current" "$COMMIT_SHA" "rolled_back" "true" "$COMMIT_SHA"
+  write_deployment_manifest "$old_current" "$COMMIT_SHA" "rolled_back" "true" "$COMMIT_SHA" "skipped"
   log "Rollback successful: ${old_current}"
   exit 1
 }
