@@ -128,6 +128,6 @@ Significant implementation/control-plane PRs link exactly one active specificati
 
 Deployment/release changes, deployment workflow changes, runtime deployment `REQUIRED`, or `PRODUCTION_LEARNING` require a machine-valid Deployment Transaction Audit covering exactly `ADMISSION`, `PRE-MUTATION`, `MUTATION`, `VERIFICATION`, `STATE-COMMIT`, `HOUSEKEEPING`, `EVIDENCE`, and `ROLLBACK`. Production learning additionally requires completed adjacent-stage review.
 
-Quality verdicts are `PASS`, `CONCERNS`, `FAIL`, and `WAIVED`. `FAIL` blocks PR admission. `WAIVED` requires a complete durable record and never bypasses authorization, exact scope, active runtime derivation, secrets, CI, production authorization, rollback or acceptance.
+Quality verdicts are `PASS`, `CONCERNS`, `FAIL`, and `WAIVED`. `FAIL` blocks PR admission. A waiver is a bounded quality record only; no waiver bypasses any hard gate, including authorization, exact scope, active runtime derivation, secrets, CI, production authorization, rollback or acceptance.
 
 Historical Issues, PRs, accepted decision records and historical Windows evidence are never rewritten to hide the architecture that existed when they were produced.
