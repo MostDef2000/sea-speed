@@ -21,7 +21,6 @@ jobs:
       canonical_issue: ${{ steps.request.outputs.canonical_issue }}
       vps_required: ${{ steps.authorization.outputs.vps_required }}
       ubuntu_worker_required: ${{ steps.authorization.outputs.ubuntu_worker_required }}
-      windows_worker_required: ${{ steps.authorization.outputs.windows_worker_required }}
     steps:
       - name: Check out default branch execution tooling
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -58,11 +57,10 @@ jobs:
         env:
           VPS_REQUIRED: ${{ steps.authorization.outputs.vps_required }}
           UBUNTU_REQUIRED: ${{ steps.authorization.outputs.ubuntu_worker_required }}
-          WINDOWS_REQUIRED: ${{ steps.authorization.outputs.windows_worker_required }}
         run: |
           set -euo pipefail
-          if [[ "$VPS_REQUIRED" != "true" && "$UBUNTU_REQUIRED" != "true" && "$WINDOWS_REQUIRED" != "true" ]]; then
-            echo "No runtime contour is declared REQUIRED by the exact Change Contract" >&2
+          if [[ "$VPS_REQUIRED" != "true" && "$UBUNTU_REQUIRED" != "true" ]]; then
+            echo "No supported runtime contour is declared REQUIRED by the exact Change Contract" >&2
             exit 1
           fi
 
@@ -85,15 +83,3 @@ jobs:
       commit_sha: ${{ needs.request.outputs.commit_sha }}
       canonical_issue: ${{ fromJSON(needs.request.outputs.canonical_issue) }}
     secrets: inherit
-
-  windows-worker-fallback:
-    name: Windows Worker automation capability check
-    needs: request
-    if: ${{ needs.request.outputs.windows_worker_required == 'true' }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Fail closed until Windows execution automation is implemented
-        run: |
-          echo "Windows Worker is REQUIRED but this delivery-automation outcome does not add Windows production execution." >&2
-          echo "Use the repository-declared one-command fallback for that contour; do not infer completion from VPS/Ubuntu success." >&2
-          exit 1
