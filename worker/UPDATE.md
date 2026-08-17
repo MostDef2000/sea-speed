@@ -1,154 +1,40 @@
-# Sea Speed Windows Worker Update
+# Sea Speed Windows local updater — deprecated
 
-## Scope
+## Status
 
-The worker is installed in:
+**NON-PRODUCTION / ARCHIVAL LOCAL TOOLING.** Windows Worker is retired from the active Sea Speed production architecture. The supported analytics runtime is Ubuntu Worker/relay.
+
+The historical scripts in `worker/*.ps1` and `worker/*.cmd` remain in Git so older local installations and audit records are understandable, but they no longer define a production contour, release package, deployment requirement, authorization field or acceptance gate.
+
+## Historical local path
+
+Older installations used:
 
 ```text
 D:\sea-speed
 ```
 
-The updater replaces only these managed files:
+The historical updater preserved local `.env`, `.venv`, output, models and local backups while replacing a bounded managed file set. That behavior is retained only for optional local/historical use.
 
-```text
-hls_motion_yolo_worker_events.py
-README.txt
-start_worker.cmd
-stop_worker.cmd
-restart_worker.cmd
-status_worker.cmd
-run_event_worker_forever.cmd
-update_worker.ps1
-update_worker.cmd
-```
+## Canonical production path
 
-It does not delete, move or overwrite:
+Current production Worker source is delivered only through the Ubuntu Worker/relay contour:
 
-```text
-.env
-.venv\
-output\
-*.pt
-*.bak*
-patch_*.py
-sea-speed-baseline-vps\
-other local notes and files
-```
+- `deploy/worker/ubuntu/deploy-authorized.sh`
+- `deploy/worker/ubuntu/update-exact.sh`
+- `deploy/worker/ubuntu/rollback-exact.sh`
+- `.github/workflows/deploy-ubuntu-worker.yml`
 
-## Release source
+Production Worker deployment requires the canonical exact-SHA authorization/evidence flow described by `contracts/SEA_SPEED_DELIVERY_POLICY.md`.
 
-`update_worker.ps1` resolves the current `main` commit through the GitHub API unless a full commit SHA is supplied. It downloads the exact repository archive for that commit and installs only the managed worker files.
+## No Windows production packaging
 
-GitHub Actions also creates a versioned ZIP artifact for every worker change reaching `main` and for manual workflow runs.
+`.github/workflows/package-worker.yml` is intentionally removed. New exact artifacts and release manifests must not include or create a Windows Worker production package. New Change Contracts do not contain Windows deployment/execution fields.
 
-## First installation
+Historical release/deployment manifests and immutable Issue/PR evidence that mention Windows remain readable audit history and are not rewritten.
 
-Download the updater files into the existing worker directory:
+## Local use warning
 
-```powershell
-Invoke-WebRequest `
-  -Uri "https://raw.githubusercontent.com/MostDef2000/sea-speed/main/worker/update_worker.ps1" `
-  -OutFile "D:\sea-speed\update_worker.ps1"
+Running `update_worker.ps1`, `update_worker.cmd`, BAT/CMD launchers or other retained Windows helpers is outside the supported production lifecycle. Their success does not prove deployment, runtime identity, freshness, rollback readiness or product acceptance.
 
-Invoke-WebRequest `
-  -Uri "https://raw.githubusercontent.com/MostDef2000/sea-speed/main/worker/update_worker.cmd" `
-  -OutFile "D:\sea-speed\update_worker.cmd"
-```
-
-The current laptop folder predates managed releases and may contain local changes. The first update therefore refuses to continue without explicit adoption:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass `
-  -File "D:\sea-speed\update_worker.ps1" `
-  -AllowUnmanagedBaseline
-```
-
-Before using `-AllowUnmanagedBaseline`, review whether the live `hls_motion_yolo_worker_events.py` contains changes that are not yet in GitHub. The updater preserves that file in the rollback directory before replacing it, but GitHub should remain the source of truth for future development.
-
-## Normal update
-
-Double-click:
-
-```text
-D:\sea-speed\update_worker.cmd
-```
-
-or run:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass `
-  -File "D:\sea-speed\update_worker.ps1"
-```
-
-To install one exact commit:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass `
-  -File "D:\sea-speed\update_worker.ps1" `
-  -CommitSha FULL_40_CHARACTER_SHA
-```
-
-## Update sequence
-
-```text
-resolve exact commit
-→ download repository ZIP
-→ validate required managed files
-→ validate worker Python syntax with local .venv
-→ stop worker
-→ replace the single previous rollback snapshot
-→ install managed files
-→ write .sea-speed-worker-version
-→ start worker
-→ verify worker process exists
-```
-
-## Rollback
-
-Only one previous managed worker release is retained:
-
-```text
-D:\sea-speed\.sea-speed-worker-rollback\previous\
-```
-
-If installation or process verification fails, the updater automatically restores those files and starts the previous worker.
-
-The update system does not create repeated full-folder backups. Existing user-created `.bak*` files are left unchanged.
-
-## Files created by the updater
-
-```text
-D:\sea-speed\.sea-speed-worker-version
-D:\sea-speed\.sea-speed-worker-rollback\previous\
-```
-
-## Verification
-
-After an update:
-
-```powershell
-Get-Content "D:\sea-speed\.sea-speed-worker-version"
-Get-CimInstance Win32_Process |
-  Where-Object {
-    $_.CommandLine -like '*D:\sea-speed*' -and
-    ($_.CommandLine -like '*hls_motion_yolo_worker_events.py*' -or
-     $_.CommandLine -like '*run_event_worker_forever.cmd*')
-  } |
-  Select-Object ProcessId, Name, CommandLine
-
-Invoke-RestMethod "https://mostdef.ru/sea-speed/api/cam1/state"
-```
-
-The API state should update and report `worker_online = true` after the worker starts posting state.
-
-## Skip restart
-
-For file installation without restarting the worker:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass `
-  -File "D:\sea-speed\update_worker.ps1" `
-  -SkipRestart
-```
-
-Use this only for diagnostics or a controlled manual restart.
+Generic Python source may remain portable by design. Portability alone does not reactivate Windows as a supported runtime target.

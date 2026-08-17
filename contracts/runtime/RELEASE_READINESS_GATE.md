@@ -1,6 +1,6 @@
 # Sea Speed Release Readiness Gate
 
-Version: 1.9.0
+Version: 1.10.0
 Status: Active
 
 ## Gate
@@ -30,8 +30,6 @@ Release Readiness Gate
 - VPS execution capability: CONNECTOR/ONE_COMMAND_FALLBACK/NOT APPLICABLE
 - Ubuntu worker/relay update required: YES/NO
 - Ubuntu execution capability: CONNECTOR/ONE_COMMAND_FALLBACK/NOT APPLICABLE
-- Windows AI worker update required: YES/NO
-- Windows execution capability: CONNECTOR/ONE_COMMAND_FALLBACK/NOT APPLICABLE
 - Operator actions expected: <non-negative integer>
 - Mixed-contour compatibility declared: YES/NO/NOT APPLICABLE
 - Rollout and rollback order declared: YES/NO/NOT APPLICABLE
@@ -46,139 +44,85 @@ Release Readiness Gate
 
 ## Capability preflight
 
-Before implementation begins, verify the complete approved file set and delivery lifecycle. Do not accept partial delivery as a substitute for a blocked mandatory path.
+The active production runtime contours are **VPS** and **Ubuntu Worker/relay**. New Change Contracts contain only those deployment and execution-capability fields. `MIXED` means both active contours apply.
 
-The exact Change Contract must declare one runtime execution capability per contour. A required contour with `MISSING` or `NOT APPLICABLE` fails admission. A non-required contour must be `NOT APPLICABLE`. `Operator actions expected` must equal the number of required `ONE_COMMAND_FALLBACK` contours.
+A required active contour with `MISSING` or `NOT APPLICABLE` fails admission. A non-required active contour must be `NOT APPLICABLE`. `Operator actions expected` equals the number of required `ONE_COMMAND_FALLBACK` contours.
 
-For VPS, the repository already has Connector-addressable protected execution. For Ubuntu, `.github/workflows/deploy-ubuntu-worker.yml` plus `deploy/worker/ubuntu/deploy-authorized.sh` provide the protected workflow/target transaction. Zero-touch Ubuntu transport is `CONNECTOR` only when a restricted production transport/privilege boundary is independently provisioned and reachable; otherwise the truthful capability is `ONE_COMMAND_FALLBACK`. Do not infer a secret, route, sudo policy or runner from source alone.
+For VPS, repository-owned Connector execution exists. For Ubuntu, `.github/workflows/deploy-ubuntu-worker.yml` plus `deploy/worker/ubuntu/deploy-authorized.sh` provide protected orchestration and target transaction; zero-touch is `CONNECTOR` only when the restricted transport boundary is independently provisioned, otherwise `ONE_COMMAND_FALLBACK`.
 
-If a mandatory runtime contour has neither Connector execution nor one repository-owned exact fallback action, the Orchestrator may return `BLOCKED` before partial delivery only after recording the concrete external capability blocker, evidence, unblock condition and next admissible action.
+Windows Worker is retired. Windows-specific scripts/documentation are deprecated non-production tooling and do not enter this gate. Historical Windows release/deployment manifests remain readable through historical schemas/validators but cannot create a new runtime requirement.
 
 ## Terminal interaction gate
 
-Release readiness is an internal gate and does not create an intermediate operator handoff. The Delivery Orchestrator must continue every deterministic authorized release transition until exactly one terminal interaction state is justified:
+Release readiness is internal and does not create a status handoff. The Delivery Orchestrator returns control only as:
 
-- `DONE`: the approved Outcome has all applicable source, release, deployment, runtime and product evidence satisfied.
-- `BLOCKED`: a concrete external blocker prevents any safe authorized continuation. State the blocker, evidence, unblock condition and next admissible action. A remediable source/test/CI/metadata failure or queued/running workflow is not `BLOCKED`.
-- `HUMAN DECISION REQUIRED`: a genuine operator authorization, protected input, configured environment review, irreversible/high-risk decision, or one-command fallback action is required. State the exact decision/action, bounded alternatives and consequences where relevant, and exact reply/action format.
+- `DONE`: the approved Outcome has all mandatory evidence.
+- `BLOCKED`: a concrete external blocker prevents safe authorized continuation; state the external blocker, evidence, unblock condition and next admissible action. A remediable source/test/CI/metadata defect or queued/running CI is not a blocker.
+- `HUMAN DECISION REQUIRED`: continuation requires a genuine human decision, authorization or protected input, configured environment review, or irreversible/high-risk choice. State the exact decision, bounded options/consequences when relevant and exact reply/action format. Deterministic execution resumes after the decision.
 
-`FAILED` is not a terminal interaction state. A failed internal gate or workflow is remediated automatically when possible; otherwise the actual boundary is classified as `BLOCKED` or `HUMAN DECISION REQUIRED`. `APPROVED FOR RELEASE`, `CHANGES REQUIRED`, and internal workflow statuses are gate verdicts only and never substitute for the three terminal interaction states.
+`FAILED` is an internal event, not a terminal interaction state. Remediate it automatically when possible. “PR created”, “CI is running”, merge readiness and deployment preparation are not terminal while a safe authorized next action exists.
 
 ## Aggregate quality gate
 
-The merge-facing context remains `Quality integration gate / quality-integration`. It succeeds only when all required independent domains succeed. The static/contract domain executes `scripts/ci/validate_sdd.py` for PR events, so a significant PR without valid linked SDD cannot produce aggregate success. The existing docs/spec lightweight exception remains in the validator. A skipped, cancelled or failed dependency is not success.
-
-This workflow is the canonical repository gate; it does not imply that GitHub branch-protection settings are enabled.
+The merge-facing context remains `Quality integration gate / quality-integration`. It succeeds only when all required independent domains succeed. The static/contract domain executes `scripts/ci/validate_sdd.py` for PR events. Workflow presence does not prove branch-protection settings.
 
 ## Delivery quality gate
 
-For a significant PR, `scripts/ci/validate_sdd.py` validates the current linked feature's NFR assessment, risk profile/test design/correct-course sections, acceptance traceability and Definition of Done. Historical feature directories remain repository-valid without retrofit until they become the active linked significant work.
+For significant work, linked SDD includes NFR assessment, risk/test design, correct-course, acceptance traceability and Definition of Done. Full risk profile is derived from security, schema, destructive/data migration, `MIXED` runtime, or another explicit high-risk trigger.
 
-When a significant PR affects deployment/release execution, a deployment workflow, declares a runtime deployment `REQUIRED`, or carries `PRODUCTION_LEARNING`, the same validator also requires the full Deployment Transaction Audit. A production learning must record the root cause and a completed adjacent-stage review before the next production retry is proposed.
-
-`scripts/ci/validate_change_contract.py` derives whether a full risk profile is required from security impact, API/event/state/storage schema impact, destructive/data migration, `MIXED` runtime impact, and an explicit other high-risk trigger. It also enforces runtime execution capability and operator-action budget, rejects quality verdict `FAIL`, and admits `WAIVED` only with a complete durable waiver record.
-
-A quality waiver is never a hard gate bypass. It never bypasses source authorization, exact diff, runtime-contour derivation, protected-boundary reauthorization, secrets checks, aggregate CI, production authorization, release provenance, rollback or runtime acceptance.
+A quality waiver is never a hard gate bypass. No waiver bypasses source authorization, exact diff, active runtime derivation, protected-boundary reauthorization, secret checks, aggregate CI, production authorization, release provenance, rollback or runtime acceptance.
 
 ## Release provenance gate
 
-When runtime delivery applies, new release provenance uses `sea_speed_release_manifest_v2`. Validate canonical Issue, applicable PR, current Outcome Contract hash, Change Contract hash, exact base/source commits, approved changed-file set, actual Git diff, approved-scope hash, deployable artifact inventory, SHA-256/size, component classification, exact-artifact evidence and quality evidence.
+When runtime delivery applies, new release provenance uses `sea_speed_release_manifest_v2`. Validate Issue, PR, Outcome/Change Contract hashes, exact base/source, approved versus actual files, scope hash, artifacts, SHA-256/size and quality/exact-artifact evidence.
 
-Approved scope and actual diff are separate facts and must match at admission. A merge-message PR number is never a canonical Issue fallback. `ready_for_deployment` for a runtime component requires at least one exact artifact. The Ubuntu exact artifact must contain the repository-owned `deploy/worker/ubuntu/deploy-authorized.sh` transaction entrypoint. Persisted v1 release/deployment evidence remains readable for rollback compatibility.
-
-Package creation is not deployment evidence.
+New release creation supports `vps`, `ubuntu-worker`, `mixed`, and `governance`. It must reject `windows-worker`. Persisted historical schemas and validators may continue reading Windows records solely for audit/rollback compatibility.
 
 ## Production authorization and execution-intent gate
 
-Production must not run because of a pull request, push, merge or source Outcome Authorization.
-
-Durable authorization is canonical Issue evidence from a source-controlled authorized actor:
+Production never runs because of PR, push, merge or source authorization. Durable authority is:
 
 ```text
 PRODUCTION APPROVED <exact-sha>
 Authorization-Fingerprint: <current-fingerprint>
 ```
 
-That two-line record is authorize-only. Normal authorize-and-execute adds the exact third line:
+Authorize-and-execute adds:
 
 ```text
 Execution-Intent: EXECUTE
 ```
 
-Before each production execution, verify all of the following before SSH or other runtime mutation:
+Before execution verify exact lowercase SHA, current-main first-parent history, exact successful `push/main` quality, one applicable merged PR/canonical Issue, current fingerprint, explicit execution intent, valid artifacts/release evidence, unchanged active runtime contours/protected boundaries/rollback semantics and known rollback target.
 
-- the input is already a lowercase full 40-character SHA; normalization is not admission;
-- the source SHA is on current `main` **first-parent** history;
-- the exact `quality-integration.yml` workflow has a successful completed run with event `push`, branch `main`, and the same head SHA;
-- the exact source commit resolves to exactly one applicable merged PR and its Change Contract binds the requested canonical Issue;
-- durable `PRODUCTION APPROVED <full-sha>` evidence from an authorized actor carries the current authorization fingerprint;
-- execution intent is explicit either in the exact third Issue line or in an independently protected manual dispatch/fallback action;
-- exact artifacts, release manifest and quality evidence validate;
-- product outcome, runtime contours, protected boundaries, deployment method and rollback semantics still match the approved envelope;
-- the rollback target is known.
+Modern fingerprints contain only VPS/Ubuntu contour fields. Historical immutable PR bodies containing legacy Windows fields keep their historical fingerprint shape when read by `verify_production_authorization.py`.
 
-`.github/workflows/deploy-runtime-request.yml` may trigger only from a newly created exact three-line canonical-Issue record. Its parser validates comment shape/actor/Issue context, then `verify_production_authorization.py --require-execution-intent` independently validates the same durable record and emits the exact required contour set. The router contains no runtime SSH/mutation logic.
-
-GitHub/API errors, missing linkage, ambiguity or stale fingerprints fail closed. The protected `production` environment remains an additional gate, not a replacement for durable authorization.
+`.github/workflows/deploy-runtime-request.yml` routes only VPS and/or Ubuntu and contains no SSH/runtime mutation logic.
 
 ## VPS gate
 
-When VPS deployment is required, `.github/workflows/deploy-vps.yml` remains the single protected implementation and retains `environment: production`. It supports `workflow_call` from the two-intent runtime router and legacy VPS request path, plus `workflow_dispatch` as an emergency/operator fallback.
-
-Legacy `DEPLOY VPS <exact-sha>` remains a compatible execution request after separate durable authorization, but new normal delivery should use the combined production authorization plus `Execution-Intent: EXECUTE` record to avoid a third user decision.
-
-Verify the called workflow ran from the default/main workflow definition, deployment identity matches the exact bound first-parent main commit, health/source identity is correct, applicable frontend/storage checks pass and rollback target remains known.
+When VPS deployment is required, `.github/workflows/deploy-vps.yml` remains the single protected implementation. Verify exact source/quality/authorization/provenance, health/source identity, applicable product/security smokes and rollback target.
 
 ## Ubuntu Worker/relay gate
 
-When Ubuntu Worker/relay update is required, `.github/workflows/deploy-ubuntu-worker.yml` must validate exact main, push/main quality, durable authorization, exact artifacts and release manifest before resolving runtime transport.
+When Ubuntu update is required, `.github/workflows/deploy-ubuntu-worker.yml` validates exact main, quality, authorization, artifacts and release evidence before transport. `deploy/worker/ubuntu/deploy-authorized.sh` owns target mutation, verification, evidence and rollback. If restricted Connector transport is unavailable, one exact server-pull bootstrap may be emitted and the workflow must not claim runtime success before it executes.
 
-The target mutation is owned by `deploy/worker/ubuntu/deploy-authorized.sh`. It must re-stage the exact current-main target, re-verify durable authorization and explicit execution intent, invoke the exact target updater for preparation+activation as one transaction, verify exact worker/runtime/control identities, preserve the desired worker state, write deployment-manifest evidence and restore the previously active exact release if post-activation verification fails.
-
-When restricted Connector transport is not provisioned, the workflow may produce one exact server-pull bootstrap action and must remain non-successful until that action actually executes. Do not split the fallback into preparation, inspection and activation confirmations.
-
-After mutation verify exact source/package/runtime identity, preservation of protected local state, valid deployment evidence, applicable service state, freshness/frame advancement when desired state is running and relay/AI telemetry semantics.
-
-## Windows AI Worker gate
-
-When Windows AI Worker update is required, verify exact package/install identity, preservation of local protected state, valid deployment evidence, restart, matching worker source identity, freshness and applicable telemetry. Until dedicated Connector execution exists, the Change Contract must truthfully declare a repository-owned one-command fallback rather than `MISSING`.
-
-GitHub-hosted CI does not prove physical camera/GPU/runtime behavior.
+Post-mutation evidence includes exact source/runtime identity, protected-local-state preservation, applicable service state and freshness/frame/AI/relay telemetry.
 
 ## Mixed-contour gate
 
-When two or three runtime contours apply, `MIXED` is only the summary classification. The exact VPS, Ubuntu Worker/relay and Windows AI Worker deployment fields must equal the exact derived contour set. Verify declared compatibility and execute the authorized rollout/rollback order. Successful completion of one contour never substitutes for a required contour that remains fallback-pending or failed.
-
-## Media-boundary gate
-
-The active `mvp_v1` and target `edge_v2` storage boundary remain unchanged; activating `edge_v2` remains a separate protected migration.
-
-## Evidence review gate
-
-After runtime verification, return exactly one product verdict: `accepted`, `regressed`, or `insufficient_evidence`. A regression requires a linked Issue and rollback decision unless the exact safe rollback was already included in the active production envelope. This product verdict is evidence input to the terminal interaction contract; it is not itself a terminal interaction state.
-
-## Deployment transaction gate
-
-Before merging deployment-affecting work, inspect the full transaction rather than the latest failure only. The linked plan must cover `ADMISSION`, `PRE-MUTATION`, `MUTATION`, `VERIFICATION`, `STATE-COMMIT`, `HOUSEKEEPING`, `EVIDENCE`, and `ROLLBACK`, including mutation possibility, fatal/best-effort/conditional failure disposition, state after failure, safe retry, rollback and evidence.
-
-Production-equivalent CI should execute the real repository-owned transaction entrypoint against isolated fake external/runtime boundaries when deterministic shell/order/rollback behavior can be modeled. Source-string assertions alone are not sufficient evidence for executable transaction semantics.
-
-After a production failure, do not issue the next retry merely because the final error line was patched. Require a concrete root cause plus adjacent-stage findings and execute deterministic fault-path tests where the repository can model the transaction without touching production. Any newly discovered source defect outside the approved scope returns to normal scope/authorization rather than being hidden in the current remediation.
+When both active contours apply, `MIXED` is only the summary. Exact VPS and Ubuntu fields equal the derived set, compatibility and rollout/rollback order are explicit, and completion of one contour never substitutes for the other.
 
 ## Documentation/control-plane rule
 
-Changes limited to governance, SDD, documentation and delivery/quality tooling require aggregate PR validation and authorized merge only when their derived production impact is CONTROL_PLANE. All three runtime deployment states and production safety envelope must be `NOT REQUIRED`. A path that actually mutates a runtime contour is not converted to control-plane-only by this rule.
+Governance, SDD, documentation and delivery/quality tooling with derived `CONTROL_PLANE` impact require authorized source lifecycle and aggregate PR/post-merge quality only. VPS and Ubuntu deployment states and the production safety envelope are `NOT REQUIRED`. No production authorization is needed.
+
+## Deployment transaction gate
+
+Before merging deployment/release-affecting significant work, the linked plan covers exactly `ADMISSION`, `PRE-MUTATION`, `MUTATION`, `VERIFICATION`, `STATE-COMMIT`, `HOUSEKEEPING`, `EVIDENCE`, and `ROLLBACK`. Each stage states mutation possibility, failure disposition, state after failure, safe retry, rollback and evidence. Production learning additionally records root cause and completed adjacent-stage review.
 
 ## Evidence rule
 
-Green PR is not deployment evidence. Merge is not release. Release is not deployment. Deployment is not acceptance. `DONE` requires evidence for every applicable transition and terminal Issue evidence for the approved Outcome.
+Green PR is not deployment evidence. Merge is not release. Release is not deployment. Deployment is not acceptance. `DONE` requires every applicable transition plus terminal Issue evidence.
 
-## Verdicts
-
-The release gate ends with exactly one internal verdict:
-
-- `APPROVED FOR RELEASE`
-- `CHANGES REQUIRED`
-- `BLOCKED`
-
-These are release-gate verdicts only. The Delivery Orchestrator still returns control only as `DONE`, `BLOCKED`, or `HUMAN DECISION REQUIRED` under the terminal interaction gate above.
+Internal release-gate verdicts may be `APPROVED FOR RELEASE`, `CHANGES REQUIRED`, or `BLOCKED`; they do not replace the terminal interaction states defined above.

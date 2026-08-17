@@ -1,29 +1,21 @@
-Sea Speed worker BAT files
+Sea Speed Windows local tooling — DEPRECATED / NON-PRODUCTION
 
-Copy these files into:
+Windows Worker is no longer a supported Sea Speed production/runtime contour.
+The canonical analytics runtime is Ubuntu Worker/relay under deploy/worker/ubuntu/.
+
+These BAT/CMD files are retained only for historical compatibility and optional local troubleshooting. They are not packaged by canonical CI, are not a release target, do not require production authorization, and do not count as runtime acceptance evidence.
+
+Historical local path:
 D:\sea-speed\
 
-Files:
-1. run_event_worker_forever.cmd
-   Main loop. Starts the Python worker and restarts it if FFmpeg stream ends.
-   Now supports stop_worker.flag.
+Retained local helpers may include:
+- run_event_worker_forever.cmd
+- start_worker.cmd
+- stop_worker.cmd
+- restart_worker.cmd
+- status_worker.cmd
+- update_worker.cmd
 
-2. start_worker.cmd
-   Starts worker in a new window.
+Do not interpret the presence or successful execution of these files as a supported Windows production deployment. Historical Windows Issue/PR/package/process evidence remains audit history only.
 
-3. stop_worker.cmd
-   Stops worker and prevents the loop from restarting it.
-
-4. restart_worker.cmd
-   Stops then starts worker again.
-
-5. status_worker.cmd
-   Shows current worker-related processes.
-
-Recommended usage:
-- Double-click start_worker.cmd to start.
-- Double-click stop_worker.cmd to stop.
-- Double-click restart_worker.cmd to restart.
-- Double-click status_worker.cmd to check status.
-
-If Windows SmartScreen warns about downloaded .cmd files, open each file in Notepad and confirm the content before running.
+For supported production Worker deployment and rollback use repository-owned Ubuntu paths under deploy/worker/ubuntu/ and the canonical delivery policy.

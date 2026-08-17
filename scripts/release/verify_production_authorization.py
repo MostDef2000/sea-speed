@@ -18,6 +18,8 @@ ISSUE_FIELD_RE = re.compile(r"^- Issue:\s*#(\d+)\s*$", re.MULTILINE)
 FIELD_RE = re.compile(r"^- ([A-Za-z][A-Za-z0-9 /_-]*):\s*(.*?)\s*$", re.MULTILINE)
 DECLARED_PATH_RE = re.compile(r"^\s{2}- `([^`]+)`\s*$", re.MULTILINE)
 EXECUTION_INTENT_LINE = "Execution-Intent: EXECUTE"
+LEGACY_WINDOWS_DEPLOYMENT_FIELD = "Windows worker update"
+LEGACY_WINDOWS_EXECUTION_FIELD = "Windows worker execution capability"
 
 
 def github_json(url: str, token: str) -> object:
@@ -57,6 +59,19 @@ def declared_changed_files(pr_body: str) -> list[str]:
     return paths
 
 
+def _runtime_contours_from_fields(fields: dict[str, str]) -> dict[str, str]:
+    contours = {
+        "productionImpact": fields.get("Production impact", ""),
+        "vps": fields.get("VPS deployment", ""),
+        "ubuntuWorkerRelay": fields.get("Ubuntu worker/relay update", ""),
+    }
+    # Historical merged Change Contracts included Windows in the fingerprint payload.
+    # Preserve that exact shape only when reading those immutable historical PR bodies.
+    if LEGACY_WINDOWS_DEPLOYMENT_FIELD in fields:
+        contours["windowsWorker"] = fields.get(LEGACY_WINDOWS_DEPLOYMENT_FIELD, "")
+    return contours
+
+
 def authorization_payload(issue_number: int, pr_number: int, source_commit: str, issue_body: str, pr_body: str) -> dict[str, object]:
     fields = {name: value.strip() for name, value in FIELD_RE.findall(pr_body)}
     payload: dict[str, object] = {
@@ -64,12 +79,7 @@ def authorization_payload(issue_number: int, pr_number: int, source_commit: str,
         "pullRequest": pr_number,
         "sourceCommit": source_commit,
         "outcomeContract": outcome_contract(issue_body),
-        "runtimeContours": {
-            "productionImpact": fields.get("Production impact", ""),
-            "vps": fields.get("VPS deployment", ""),
-            "ubuntuWorkerRelay": fields.get("Ubuntu worker/relay update", ""),
-            "windowsWorker": fields.get("Windows worker update", ""),
-        },
+        "runtimeContours": _runtime_contours_from_fields(fields),
         "securityImpact": fields.get("Security impact", ""),
         "deploymentTarget": fields.get("Production-impact rationale", ""),
         "rollbackTarget": fields.get("Rollback target", ""),
@@ -80,11 +90,7 @@ def authorization_payload(issue_number: int, pr_number: int, source_commit: str,
 
 
 def _authorization_comment_state(body: str, first_line: str, fingerprint_line: str) -> tuple[bool, bool]:
-    """Return (authorized, execute_intent) for one strict authorization comment.
-
-    Historical two-line authorization remains valid. New execution intent is valid only
-    as the exact third line; additional non-empty lines do not create execution intent.
-    """
+    """Return (authorized, execute_intent) for one strict authorization comment."""
     lines = [line.strip() for line in body.strip().splitlines() if line.strip()]
     if len(lines) < 2 or lines[0] != first_line or lines[1] != fingerprint_line:
         return False, False
@@ -158,6 +164,12 @@ def verify(
     fields = {name: value.strip() for name, value in FIELD_RE.findall(pr_body)}
     runtime_contours = payload["runtimeContours"]
     assert isinstance(runtime_contours, dict)
+    execution_capabilities = {
+        "vps": fields.get("VPS execution capability", ""),
+        "ubuntuWorkerRelay": fields.get("Ubuntu worker execution capability", ""),
+    }
+    if LEGACY_WINDOWS_EXECUTION_FIELD in fields:
+        execution_capabilities["windowsWorker"] = fields.get(LEGACY_WINDOWS_EXECUTION_FIELD, "")
     return {
         "schema": "sea_speed_production_authorization_evidence_v1",
         "repository": repository,
@@ -171,11 +183,7 @@ def verify(
         "authorizedBy": matching_actor,
         "executionIntent": "EXECUTE" if execution_intent else "AUTHORIZE_ONLY",
         "runtimeContours": runtime_contours,
-        "executionCapabilities": {
-            "vps": fields.get("VPS execution capability", ""),
-            "ubuntuWorkerRelay": fields.get("Ubuntu worker execution capability", ""),
-            "windowsWorker": fields.get("Windows worker execution capability", ""),
-        },
+        "executionCapabilities": execution_capabilities,
         "operatorActionsExpected": fields.get("Operator actions expected", ""),
     }
 
@@ -223,7 +231,8 @@ def main() -> int:
             handle.write(f"production_impact={contours.get('productionImpact', '')}\n")
             handle.write(f"vps_required={_bool_text(contours.get('vps'))}\n")
             handle.write(f"ubuntu_worker_required={_bool_text(contours.get('ubuntuWorkerRelay'))}\n")
-            handle.write(f"windows_worker_required={_bool_text(contours.get('windowsWorker'))}\n")
+            if "windowsWorker" in contours:
+                handle.write(f"windows_worker_required={_bool_text(contours.get('windowsWorker'))}\n")
     print(
         "Production authorization verified: "
         f"issue=#{evidence['canonicalIssue']} pr=#{evidence['pullRequest']} "

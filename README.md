@@ -4,22 +4,21 @@ Camera-based vehicle/vessel detection and speed-estimation project.
 
 ## Runtime architecture
 
-Current production has three explicit execution contours:
+Current production has exactly two execution contours:
 
 ```text
 Ubuntu Worker/relay
-  -> camera/private relay and Linux worker services when applicable
-
-Windows AI Worker
-  -> Windows-specific AI worker packaging/runtime when applicable
+  -> camera/private relay and Linux analytics worker services
 
 VPS
   -> FastAPI, public nginx/TLS, protected Sea Speed UI/API/media
 ```
 
-Shared `worker/**` source may affect both Worker contours. Runtime applicability is derived from exact paths; `MIXED` never replaces the exact VPS/Ubuntu/Windows declarations.
+Shared executable `worker/**` source is part of the Ubuntu Worker/relay contour unless a more-specific archival rule applies. Changes spanning VPS and Ubuntu may be classified `MIXED`; the exact VPS/Ubuntu declarations remain authoritative.
 
-GitHub `main` is the source of truth. Runtime hosts are not places for manual source edits.
+Windows Worker is retired from production. Existing `worker/*.cmd`, `worker/*.ps1`, `worker/windows/**`, `worker/README.txt`, and `worker/UPDATE.md` are deprecated non-production local/archive tooling only. Historical Windows Issues, PRs and release/deployment evidence remain audit history and are not rewritten.
+
+GitHub `main` is the source of truth. Runtime hosts are not editable source stores.
 
 ## Development control plane
 
@@ -43,7 +42,7 @@ request / Issue recovery
 -> post-merge exact-main verification
 -> separately authorized runtime delivery when applicable
 -> runtime acceptance
--> COMPLETE / BLOCKED / FAILED
+-> DONE / BLOCKED / HUMAN DECISION REQUIRED
 ```
 
 `OUTCOME APPROVED` is the active source-authorization model for new tasks. Historical `COMMIT APPROVED` / `MERGE APPROVED` records remain audit history but are not accepted in new Change Contracts.
@@ -76,15 +75,15 @@ It aggregates independent static/security, reliability, exact-artifact and relea
 
 - `api/**`, `frontend/**`, `deploy/vps/**`: normally VPS.
 - `deploy/worker/ubuntu/**`, `worker/ubuntu_*`: Ubuntu Worker/relay.
-- Windows-specific `worker/*.ps1`, `worker/*.cmd`, `worker/windows/**`: Windows AI Worker.
-- shared `worker/**`: Ubuntu + Windows unless a more-specific rule applies.
-- control-plane/docs/SDD work: no runtime release.
+- shared executable `worker/**`: Ubuntu Worker/relay.
+- Windows-specific `.ps1`/`.cmd`, `worker/windows/**`, and Windows helper documentation: deprecated non-production archival/control-plane tooling.
+- contracts/docs/SDD/control tooling: no runtime release.
 
-Every runtime contour requires a separate production safety envelope. Production is never implied by source authorization, push or merge.
+Every active runtime contour requires a production safety envelope. Production is never implied by source authorization, push or merge.
 
 ## Provenance
 
-New deployable releases use `sea_speed_release_manifest_v2`, binding canonical Issue/merged PR, exact source/base commits, Outcome and Change Contract hashes, approved vs actual files, exact artifacts and quality evidence. Deployment manifests identify the installed contour and rollback target. Persisted v1 evidence remains readable for rollback compatibility.
+New deployable releases use `sea_speed_release_manifest_v2`, binding canonical Issue/merged PR, exact source/base commits, Outcome and Change Contract hashes, approved versus actual files, exact artifacts and quality evidence. New production release creation targets VPS, Ubuntu Worker/relay, or mixed VPS+Ubuntu only. Persisted historical manifests, including Windows records, remain readable for audit/rollback compatibility.
 
 ## Secrets policy
 

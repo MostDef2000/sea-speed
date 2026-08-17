@@ -1,6 +1,6 @@
 # Sea Speed Task Runtime
 
-Version: 1.10.0
+Version: 1.11.0
 Status: Active
 
 ## Active phases
@@ -16,7 +16,7 @@ ACTIONS_COMPLETED
 RUNTIME_ACCEPTANCE
 ```
 
-These are internal lifecycle phases, not permission to return control to the operator. Historical evidence may contain `HANDOFF_VALIDATED`, `CORE_RELEASE_INTEGRATING`, `COMPLETE`, or `FAILED`; new tasks do not emit those as terminal interaction states because Delivery Orchestrator retains one task context instead of handing lifecycle ownership to another orchestrator.
+These are internal lifecycle phases, not permission to return control. Historical evidence may contain older lifecycle names; new tasks retain one Delivery Orchestrator context.
 
 ## Terminal interaction states
 
@@ -28,42 +28,25 @@ BLOCKED
 HUMAN DECISION REQUIRED
 ```
 
-- `DONE`: the approved Outcome is complete and all mandatory source, quality, runtime and acceptance evidence applicable to it is satisfied.
-- `BLOCKED`: continuation is objectively impossible because of a concrete external blocker outside the Orchestrator's currently authorized deterministic control. The terminal response records blocker evidence, the unblock condition and the next admissible action. A remediable source/test/CI/PR-metadata defect is not `BLOCKED`.
-- `HUMAN DECISION REQUIRED`: continuation requires a genuine operator decision, authorization, protected input, configured environment review, or irreversible/high-risk choice. The terminal response records the exact decision, bounded options and consequences when alternatives exist, and the exact reply/authorization form. After the operator decides, execution resumes automatically.
+- `DONE`: the approved Outcome is complete and every mandatory source, quality, runtime and acceptance evidence item applicable to it is satisfied.
+- `BLOCKED`: continuation is objectively impossible because of a concrete external blocker outside authorized deterministic control. The response records blocker evidence, the unblock condition and the next admissible action. A remediable source/test/CI/PR-metadata defect or queued/running CI is not `BLOCKED`.
+- `HUMAN DECISION REQUIRED`: continuation requires a genuine human decision, authorization or protected input, configured environment review, or irreversible/high-risk choice. The response records the exact decision, bounded options/consequences where relevant, and exact reply/action format. After the decision, execution resumes automatically.
 
-`FAILED` is an internal event, not a terminal interaction state. A failure is remediated automatically when possible; otherwise the Orchestrator classifies the situation as `BLOCKED` or `HUMAN DECISION REQUIRED`. A progress update such as PR creation, queued/running CI, merge readiness, deployment preparation or deployment start is never terminal while a safe authorized next action remains.
+`FAILED` is an internal event, not a terminal interaction state. Remediate it automatically where possible; otherwise classify the actual external/human boundary. Progress such as PR created, CI is running, merge ready or deployment prepared is never terminal while a safe authorized next action exists.
 
 ## Phase semantics
 
-- `DISCUSSION`: read-only Task Intake, repository discovery, Task Brief, Outcome Contract preparation and operator-visible Scope presentation. Invalid or misordered source-authorization attempts remain in or return to this state.
-- `READY_FOR_IMPLEMENTATION`: the complete visible Scope block was the last substantive assistant content before the approval request, `OUTCOME APPROVED` arrived in the immediately following user turn, scope is locked, fail-closed source admission is open and capability preflight passed.
+- `DISCUSSION`: read-only discovery, Task Brief, Outcome Contract and visible Scope presentation.
+- `READY_FOR_IMPLEMENTATION`: complete Scope immediately preceded exact `OUTCOME APPROVED`, admission is OPEN and capability preflight passed.
 - `IMPLEMENTING`: bounded source/SDD work and in-scope CI remediation.
-- `SOURCE_INTEGRATED`: exact approved source verified on `main`; not production evidence and not a terminal interaction state when runtime or acceptance remains.
-- `ACTIONS_REQUIRED`: one explicit protected fallback action is genuinely required because a declared contour capability is `ONE_COMMAND_FALLBACK`; when that fallback requires the operator, the return-control state is `HUMAN DECISION REQUIRED`, not a generic progress handoff.
-- `ACTIONS_RUNNING` / `ACTIONS_COMPLETED`: runtime operation phases; not acceptance and not terminal interaction states by themselves.
-- `RUNTIME_ACCEPTANCE`: provenance, health, freshness/telemetry and product evidence are being verified for applicable contours.
+- `SOURCE_INTEGRATED`: exact approved source verified on `main`; not runtime evidence.
+- `ACTIONS_REQUIRED`: one protected fallback action is genuinely required because an active contour capability is `ONE_COMMAND_FALLBACK`.
+- `ACTIONS_RUNNING` / `ACTIONS_COMPLETED`: runtime operation phases, not product acceptance.
+- `RUNTIME_ACCEPTANCE`: provenance, health, freshness/telemetry and product evidence are being verified for applicable active contours.
 
-## Canonical owner
+## Canonical owner and authorization gate
 
-The **Sea Speed Delivery Orchestrator** owns the task state from intake through terminal evidence. Domain/release files are on-demand review lenses; invoking them does not transfer lifecycle ownership.
-
-## Outcome Contract and visible Scope gate
-
-The durable Outcome Contract is:
-
-```text
-Outcome Contract
-- Product outcome:
-- Protected things that must not change:
-- Main constraints:
-- Approved repository scope:
-- Runtime contour:
-- Production involved: YES/NO
-- Acceptance evidence:
-```
-
-Before requesting source authorization, the Orchestrator MUST present this minimum operator-visible block in the conversation:
+The **Sea Speed Delivery Orchestrator** owns task state from intake through terminal Issue evidence. Before source authorization it presents:
 
 ```text
 Scope
@@ -75,9 +58,7 @@ Scope
 - Acceptance evidence:
 ```
 
-`DISCUSSION` cannot transition to source authorization until that visible scope has been shown. The complete Scope block must be the last substantive assistant block before the approval request, and the operator's `OUTCOME APPROVED` must be the immediately following user decision. A standalone request to send `OUTCOME APPROVED`, an approval before scope, an incomplete scope, or reliance on a non-adjacent older Scope block is invalid. The operator is never expected to infer exact paths from internal reasoning.
-
-Source authorization admission is fail closed:
+The Scope must be the last substantive assistant block and `OUTCOME APPROVED` must be the immediately following user decision. Source admission is fail closed:
 
 ```text
 VISIBLE_SCOPE_PRESENTED=YES|NO
@@ -85,11 +66,7 @@ SCOPE_IMMEDIATELY_PRECEDES_APPROVAL=YES|NO
 SOURCE_AUTHORIZATION_ADMISSION=OPEN|BLOCKED
 ```
 
-`SOURCE_AUTHORIZATION_ADMISSION=OPEN` requires both Scope fields to be `YES`, all six fields to match the current Outcome Contract, and the supplied approval to apply to that exact displayed scope. Any missing, ambiguous, stale or misordered evidence resolves to `BLOCKED`. While blocked, branch creation and source/SDD writes are prohibited. Recovery does not reuse the misplaced token: remain/return to `DISCUSSION`, render the complete current Scope again, request approval, and accept only the new immediately-following `OUTCOME APPROVED`.
-
-If a material change later makes the authorization stale, the revised Scope block must be shown under the same adjacency rule before requesting a fresh approval.
-
-New repository work requires a validly admitted `OUTCOME APPROVED` after the visible Implementation Scope Check. Historical legacy approvals remain audit history only.
+Any missing/stale/ambiguous/non-adjacent scope leaves the task in `DISCUSSION` and prohibits branch/source writes until a fresh correct sequence occurs.
 
 ## Required status block
 
@@ -119,10 +96,6 @@ Sea Speed Task Runtime
 - Ubuntu worker/relay installation: NOT REQUIRED/PENDING/INSTALLED/FAILED
 - Ubuntu execution capability: NOT APPLICABLE/CONNECTOR/ONE_COMMAND_FALLBACK/MISSING
 - Ubuntu deployment manifest: NOT REQUIRED/PENDING/VALID/INVALID
-- Windows AI worker package: NOT REQUIRED/PENDING/PACKAGED/FAILED
-- Windows AI worker installation: NOT REQUIRED/PENDING/INSTALLED/FAILED
-- Windows execution capability: NOT APPLICABLE/CONNECTOR/ONE_COMMAND_FALLBACK/MISSING
-- Windows deployment manifest: NOT REQUIRED/PENDING/VALID/INVALID
 - Operator actions expected: 0
 - Runtime telemetry: NOT REQUIRED/PENDING/VALID/INVALID
 - Evidence verdict: NOT REQUIRED/PENDING/accepted/regressed/insufficient_evidence
@@ -130,25 +103,23 @@ Sea Speed Task Runtime
 - Terminal interaction state: PENDING/DONE/BLOCKED/HUMAN DECISION REQUIRED
 ```
 
-The `FAILED` values in component/package/deployment fields above are observations about a sub-operation, not task-terminal states. The Orchestrator must remediate or classify them under the terminal interaction contract instead of returning a bare failure status.
-
-`Scope presented to operator: YES`, `Scope immediately precedes authorization: YES`, and `Source authorization admission: OPEN` are hard prerequisites for `Source authorization: OUTCOME APPROVED` to move new work into `READY_FOR_IMPLEMENTATION`. If any prerequisite is `NO`, `BLOCKED`, unknown or stale, the task remains `DISCUSSION` and repository writes are not permitted.
+`FAILED` values in sub-operation fields are observations and not terminal interaction states.
 
 ## Runtime contour rule
 
-Explicit contours are VPS, Ubuntu Worker/relay, Windows AI Worker. `MIXED` never replaces exact per-contour fields. Every non-empty runtime set requires a production safety envelope; CONTROL_PLANE/NONE require all runtime fields and envelope to be `NOT REQUIRED`.
+The active production contours are **VPS** and **Ubuntu Worker/relay**. `MIXED` means both. Every non-empty active runtime set requires a production safety envelope; CONTROL_PLANE/NONE require both active deployment fields and the envelope to be `NOT REQUIRED`.
 
-For every required contour the Change Contract declares `CONNECTOR` or `ONE_COMMAND_FALLBACK`; `MISSING` blocks source admission for a normal releasable path. Non-applicable contours declare `NOT APPLICABLE`. `Operator actions expected` equals the number of required one-command fallback contours.
+Shared executable `worker/**` maps to Ubuntu Worker/relay unless a more-specific archival rule applies. Windows `.cmd`/`.ps1`/`worker/windows/**` tooling is retired non-production archive/control-plane material. New status blocks, Change Contracts, production fingerprints and execution routing contain no Windows runtime field.
+
+Historical Windows manifests/fingerprints remain readable audit evidence and do not create an active contour.
+
+For every required active contour the Change Contract declares `CONNECTOR` or `ONE_COMMAND_FALLBACK`; `MISSING` blocks normal releasable admission. Non-applicable active contours declare `NOT APPLICABLE`. `Operator actions expected` equals the number of required one-command fallback contours.
 
 ## Continuation rule
 
-After a validly admitted `OUTCOME APPROVED`, continue automatically through deterministic safe repository transitions: implementation, integrity checks, PR, metadata repair, CI, in-scope CI remediation and exact-green-head merge. New source authorization is required only when outcome/scope/protected boundaries materially change. A newly discovered bug inside the approved path set is not a reason to ask for `OUTCOME APPROVED` again.
+After valid `OUTCOME APPROVED`, continue automatically through implementation, integrity checks, PR, metadata repair, CI, in-scope remediation and exact-green-head merge. A material outcome/scope/protected-boundary change requires fresh source authorization; ordinary in-scope defects do not.
 
-The Orchestrator must also continue through deterministic post-merge and runtime transitions that are already authorized. It may not return control merely to report that a stage completed, is queued/running, or failed in a remediable way. Return control only as `DONE`, `BLOCKED`, or `HUMAN DECISION REQUIRED`.
-
-When new source authorization really is required, return to `DISCUSSION`, present the updated visible Scope block as the last substantive assistant block before the approval request, and only then request the fresh approval. The resulting operator interaction is `HUMAN DECISION REQUIRED`; misordered approval leaves admission blocked and does not authorize source writes.
-
-Production remains separate. The normal production decision may combine durable authorization and explicit execution intent in one exact three-line Issue record:
+Production remains separate. The preferred exact runtime decision is:
 
 ```text
 PRODUCTION APPROVED <sha>
@@ -156,53 +127,46 @@ Authorization-Fingerprint: <fingerprint>
 Execution-Intent: EXECUTE
 ```
 
-A two-line approval means `AUTHORIZE_ONLY`. A three-line approval may move directly from release readiness into `ACTIONS_RUNNING` through repository-owned routing; do not insert a second execution-confirmation prompt. When a contour is `ONE_COMMAND_FALLBACK`, expose one largest-safe command/action only after all machine-observable gates have completed and classify that required handoff as `HUMAN DECISION REQUIRED`.
+A two-line approval means AUTHORIZE_ONLY. The runtime router may then execute VPS and/or Ubuntu only. A required `ONE_COMMAND_FALLBACK` exposes one largest-safe action after machine-observable gates.
 
 ## Interaction budget
 
-Normal successful task:
-
 ```text
-visible Scope presentation: mandatory immediately preceding assistant turn, not a separate approval decision
-OUTCOME APPROVED: one user decision in the next user turn
-exact release production authorization + execution intent: one user decision
-manual runtime command: zero target; at most one per required fallback contour
-prepare/activate/verify intermediate confirmations: zero
+visible Scope presentation: mandatory immediately preceding assistant turn
+OUTCOME APPROVED: one user decision
+exact release production authorization + execution intent: one user decision when runtime applies
+manual runtime command: zero target; at most one per required active fallback contour
+intermediate deterministic confirmations: zero
 ```
 
-Additional interaction is reserved for material reauthorization, new exact SHA, protected credential entry, irreversible/high-risk decisions, configured environment reviewers or evidence not safely automatable. Re-rendering Scope after an invalid presentation sequence is a protocol repair, not an additional product decision.
+Additional interaction is reserved for material reauthorization, new exact SHA, protected credential entry, irreversible/high-risk decision, configured environment reviewer or evidence not safely automatable.
 
 ## Integrity / merge rule
 
-After writes validate complete files, syntax/structure, exact diff, scope, branch freshness and secret/runtime-artifact absence. Before merge re-read `main`, verify exact head/scope, successful required checks and zero unresolved review threads, then merge with expected-head protection when supported.
+After writes validate complete files, syntax/structure, exact diff/scope, freshness and secret/runtime-artifact absence. Before merge re-read `main`, verify exact head/scope, successful required checks and zero unresolved review threads, then use expected-head protection when supported.
 
 ## Delivery quality rule
 
-For linked significant work, `IMPLEMENTING` includes keeping NFR assessment, risk/test design, correct-course check, acceptance traceability and Definition of Done aligned with the exact implementation. The Change Contract's `Risk profile` declaration must match the derived high-risk triggers.
+Linked significant work keeps NFR assessment, risk/test design, correct-course check, acceptance traceability and Definition of Done aligned with the implementation. Quality `FAIL` cannot advance. `WAIVED` requires a complete durable record and does not alter hard gates.
 
-A quality verdict of `FAIL` cannot advance to source integration. `WAIVED` requires the complete waiver record defined by the delivery policy and does not alter any hard gate. `CONCERNS` remains visible as delivery evidence and may advance only while mandatory authorization, scope, CI and runtime gates are independently satisfied. Quality `FAIL` is not a terminal interaction state; remediate in scope or classify the actual external/human boundary.
-
-When production learning, an architecture pivot or a material scope change changes the accepted design, execute the correct-course check before continuing. If it changes the Outcome Contract, protected boundary or approved repository scope, return to `DISCUSSION`, show the revised Scope block, and then follow the fail-closed reauthorization boundary. Otherwise continue automatically after in-scope remediation and exact-green-head merge; do not create a synthetic approval checkpoint.
+When production learning, architecture pivot or material scope change changes accepted design, execute the correct-course check. Deployment/release changes use the full eight-stage Deployment Transaction Audit.
 
 ## Evidence hierarchy
 
 ```text
-operator-visible scope presentation
--> scope immediately precedes source approval
+operator-visible scope
 -> source authorization admission OPEN
 -> approved outcome/scope
 -> exact changed files
--> linked SDD quality layer and Change Contract quality verdict
--> PR Validation + aggregate SDD gate
--> exact-green-head merge on main
--> release manifest v2/exact artifacts when applicable
--> durable exact-main production authorization
--> explicit execution intent when runtime mutation is requested
--> deployment manifest for every applicable contour
--> runtime source identity/health
--> freshness/telemetry where applicable
+-> linked SDD and Change Contract
+-> PR Validation + aggregate Quality
+-> exact-green-head merge
+-> release evidence when applicable
+-> exact production authorization when applicable
+-> deployment manifest for each active applicable contour
+-> runtime identity/health/freshness
 -> product evidence verdict
 -> terminal interaction state
 ```
 
-Governance/control-plane-only work may resolve runtime acceptance `NOT REQUIRED` after exact merge and post-merge quality verification, then return `DONE` only when all control-plane acceptance evidence is complete.
+Governance/control-plane-only work resolves release/runtime acceptance as `NOT REQUIRED` after exact merge and post-merge quality, then may return `DONE` with durable Issue evidence.

@@ -35,11 +35,28 @@ class DeliveryContractConvergenceTests(unittest.TestCase):
         self.assertNotIn("LEGACY COMMIT APPROVED", template)
         self.assertIn('SOURCE_AUTHORIZATIONS = {"OUTCOME APPROVED"}', validator)
 
-    def test_active_docs_name_three_runtime_contours(self) -> None:
+    def test_active_docs_name_exactly_two_production_contours(self) -> None:
         for path in ("README.md", "AGENTS.md", "contracts/SEA_SPEED_DELIVERY_POLICY.md"):
             text = self.read(path)
-            for marker in ("VPS", "Ubuntu Worker/relay", "Windows AI Worker"):
-                self.assertIn(marker, text, path)
+            self.assertIn("VPS", text, path)
+            self.assertIn("Ubuntu Worker/relay", text, path)
+            self.assertRegex(text.lower(), r"windows worker.*retired|retired.*windows worker", path)
+        self.assertIn("exactly two", self.read("README.md").lower())
+        self.assertIn("exactly two", self.read("AGENTS.md").lower())
+
+    def test_change_contract_template_has_no_windows_runtime_fields(self) -> None:
+        template = self.read(".github/pull_request_template.md")
+        self.assertNotIn("Windows worker update:", template)
+        self.assertNotIn("Windows worker execution capability:", template)
+        self.assertIn("VPS deployment:", template)
+        self.assertIn("Ubuntu worker/relay update:", template)
+
+    def test_runtime_router_has_no_windows_fallback(self) -> None:
+        workflow = self.read(".github/workflows/deploy-runtime-request.yml")
+        self.assertNotIn("windows_worker_required", workflow)
+        self.assertNotIn("windows-worker-fallback", workflow)
+        self.assertIn("deploy-vps", workflow)
+        self.assertIn("deploy-ubuntu-worker", workflow)
 
     def test_actions_pin_risk_is_closed_but_retained(self) -> None:
         risks = json.loads(self.read("data/quality/accepted-risks-v1.json"))["risks"]
