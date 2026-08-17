@@ -5,8 +5,8 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-ROLLBACK = ROOT / "deploy/worker/ubuntu/rollback-exact.sh"
-UPDATER = ROOT / "deploy/worker/ubuntu/update-exact.sh"
+ROLLBACK = ROOT / "deploy" / "worker" / "ubuntu" / "rollback-exact.sh"
+UPDATER = ROOT / "deploy" / "worker" / "ubuntu" / "update-exact.sh"
 
 
 class UbuntuWorkerRollbackTests(unittest.TestCase):
@@ -28,6 +28,17 @@ class UbuntuWorkerRollbackTests(unittest.TestCase):
             'road_service_name="sea-speed-road-worker.service"', "road-unit-backup", "restore_current_road()",
         ):
             self.assertIn(marker, self.rollback)
+
+    def test_road_desired_state_is_preserved_through_target_activation(self) -> None:
+        for marker in (
+            'road_desired_state_file="$install_root/shared/road-runtime/operator-desired-state"',
+            'road_desired_state="running"', 'ERROR road operator desired state is invalid',
+            'apply_road_desired_state()', 'if [[ "$road_desired_state" == "running" ]]',
+            'systemctl stop "$road_service_name"', 'ROAD_SERVICE_STOPPED', 'ROAD_SERVICE_ACTIVE',
+            'road_desired_state=%s',
+        ):
+            self.assertIn(marker, self.rollback)
+        self.assertIn('apply_road_desired_state || return 1', self.rollback)
 
     def test_legacy_target_removes_modern_optional_services(self) -> None:
         self.assertIn("remove_control_for_legacy_target()", self.rollback)
