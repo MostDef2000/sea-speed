@@ -6,16 +6,16 @@
 
 ## Architecture
 
-1. **Profile normalization boundary.** `worker/analytics_profiles.py` remains the common water/road semantic normalization boundary; worker inference/tracking/speed behavior is unchanged by corrective work.
+1. **Profile normalization boundary.** `worker/analytics_profiles.py` remains the common water/road semantic normalization boundary; detection, tracking, ROI, speed and event-trigger behavior are unchanged by the fifth correction.
 2. **Process isolation.** `sea-speed-worker.service` and `sea-speed-road-worker.service` remain separate Ubuntu processes sharing immutable source/runtime/model storage but not tracker/output/heartbeat state.
 3. **Protected Road binding.** `road1` media remains resolved from the protected preview catalog and Road API endpoints remain derived from the protected Camera 1 private M2M origin.
 4. **Public/private separation.** Public `/sea-speed/**` remains Authentik-protected. The private VPS listener remains exact-peer, exact-path, exact-method and deny-by-default.
-5. **Canonical VPS transaction.** `deploy/vps/deploy.sh` owns exact code rollout, API/frontend health, private-boundary reconciliation, deployment manifest, source rollback and evidence. `sea-speed-auth-cutover.sh` owns protected nginx candidate/rollback semantics.
-6. **Least-privilege VPS bridge.** Root-only nginx reconciliation remains exposed to the non-root deployment account only through `/usr/local/sbin/sea-speed-auth-privileged-helper`; the accepted `e7dd921...` production run proved this boundary and `auth_v1_road_private_m2m=passed`.
-7. **Canonical Ubuntu transaction.** `.github/workflows/deploy-ubuntu-worker.yml` remains transport/admission orchestration only. `deploy/worker/ubuntu/deploy-authorized.sh` owns target-side protected config reconciliation, exact activation, verification, deployment evidence and rollback.
-8. **Protected config checkpoint.** Before updater activation, `deploy-authorized.sh` backs up `worker.env` and optional `road-worker.env`, runs the exact release's `configure-analytics-profiles.py` against the fixed protected preview catalog and accepts only a regular mode-600 resulting Road env.
-9. **Coupled rollback.** If configuration fails, no updater activation is attempted. If updater activation fails, protected config is restored after updater-owned runtime restoration and predeployment Worker/Road service state is re-established. If post-activation verification fails, protected config is restored before source rollback so the restored previous Road service starts with its matching protected config.
-10. **Desired-state preservation.** Main Water Worker operator desired state remains an invariant. A desired-stopped Water Worker is never started merely to reconcile Road; a desired-running Water Worker remains running after successful deployment and is restored on failed transactions.
+5. **Accepted VPS boundary.** The accepted VPS release `e7dd921d569d9b93d9ac1be9113f61a162102b19` already proves the fixed least-privilege helper and `auth_v1_road_private_m2m=passed`; the fifth correction does not redeploy VPS.
+6. **Canonical Ubuntu transaction.** `.github/workflows/deploy-ubuntu-worker.yml` remains admission/transport orchestration and `deploy/worker/ubuntu/deploy-authorized.sh` remains target-side protected-config reconciliation, exact activation, verification, deployment evidence and rollback owner.
+7. **Accepted fourth correction.** PR #203 merged as `116dcf0f5f0d625f2b223a4549525ca7ddaa56d3`; its Ubuntu production transaction reconciled protected Road config before activation, advanced Road frames/state/AI and preserved Water desired-stopped state.
+8. **Runtime source provenance boundary.** Ubuntu systemd already binds `SEA_SPEED_SOURCE_COMMIT=__SOURCE_COMMIT__`. The fifth correction makes `worker/ubuntu_worker_entrypoint.py` the Ubuntu-only adapter that validates this exact lowercase 40-SHA before runtime admission and injects it into state/event metadata before shared POST handling.
+9. **Payload authority.** The systemd/environment source identity is authoritative. Caller metadata is copied and any existing `worker_source_commit` is replaced; protected token/media/config environment values are never copied into metadata.
+10. **Shared-runtime stability.** `worker/hls_motion_yolo_worker_events.py`, API/storage schema, deployment scripts, service templates, VPS/Auth topology and analytics formulas are unchanged by this correction.
 
 ## Decisions
 
@@ -44,10 +44,10 @@
 - Reason: Model binaries remain outside Git/release artifacts.
 - Alternatives rejected: commit/download/fallback model behavior.
 
-### D-006 - Exact-diff runtime applicability
-- Decision: Preserve historical PR #198 mixed applicability; classify every corrective diff independently.
-- Reason: Runtime applicability is an exact changed-path property.
-- Alternatives rejected: rewrite historical evidence or redeploy unused Windows runtime for unrelated corrections.
+### D-006 - Historical contour truth remains immutable
+- Decision: Keep PR #198's historical Windows applicability as audit truth while current corrective work follows the post-#199 two-contour governance.
+- Reason: Governance changes are prospective and must not rewrite historical Change Contracts or production evidence.
+- Alternatives rejected: editing old Issue/PR evidence or reactivating Windows for new work.
 
 ### D-007 - Private Road M2M origin
 - Decision: Road worker endpoints derive only from validated private Camera 1 M2M origin.
@@ -64,121 +64,107 @@
 - Reason: API/frontend source identity alone did not prove nginx boundary activation.
 - Alternatives rejected: optional/manual post-deploy cutover.
 
-### D-010 - Protected-baseline VPS rollback
-- Decision: Candidate Auth mutation is admitted only from an already-protected baseline and restores that captured baseline on failure.
-- Reason: Rollback must not recreate retired/unprotected public behavior.
-- Alternatives rejected: arbitrary historical config restore or no automatic boundary rollback.
+### D-010 - Fixed no-argument root helper
+- Decision: Keep the accepted root-owned no-argument helper rather than root SSH or broad passwordless sudo.
+- Reason: The accepted `e7dd921...` production run proves the least-privilege boundary works.
+- Alternatives rejected: root SSH credential; `NOPASSWD: ALL`; arbitrary shell/interpreter privilege.
 
-### D-011 - Fixed no-argument root helper
-- Decision: Do not give GitHub Actions root SSH or broad NOPASSWD. Install one root-owned helper and root-owned exact bundle; sudoers permits the helper with explicit empty argument list only.
-- Reason: The `f21b31...` production run proved root privilege is required for nginx but broad root execution is unnecessary.
-- Alternatives rejected: root SSH credential; `NOPASSWD: ALL`; passwordless `bash`, `python`, `nginx`, `cp`, `install` or arbitrary systemctl.
+### D-011 - Protected profile reconciliation belongs to deploy-authorized
+- Decision: Keep exact `configure-analytics-profiles.py` reconciliation inside `deploy-authorized.sh` before activation.
+- Reason: Fourth production learning proved the target transaction must own protected configuration and rollback together.
+- Alternatives rejected: separate operator configure command; workflow-side configuration; trusting stale env.
 
-### D-012 - Protected profile reconciliation belongs to deploy-authorized
-- Decision: Call `configure-analytics-profiles.py` from the exact staged target inside `deploy-authorized.sh`, after authorization/main admission and protected-config backup but before `update-exact.sh --activate`.
-- Reason: The workflow fallback is transport only, while the updater deliberately consumes already-prepared protected config. The target transaction is the only layer that owns authorization, protected local state, activation and rollback together.
-- Alternatives rejected: separate operator configure command; workflow-side protected configuration; changing `update-exact.sh`; trusting stale `road-worker.env`.
+### D-012 - Restore config before previous runtime
+- Decision: Keep fourth-correction rollback ordering that restores protected config before restoring/restarting a previous Road runtime.
+- Reason: Previous source must restart against its matching protected configuration.
+- Alternatives rejected: source rollback first or file-only restoration after service restart.
 
-### D-013 - Restore config before restoring previous runtime
-- Decision: After post-activation identity failure, restore protected env files before invoking `rollback-exact.sh`; after updater-owned rollback on activation failure, restore config and then restore the predeployment Worker/Road service state.
-- Reason: A previous Road service restarted before config restoration could otherwise continue with the new/stale env in its process even though files were later restored.
-- Alternatives rejected: file-only rollback without service reload; source rollback first with mismatched config; destructive deletion of all protected config.
+### D-013 - Preserve Water desired state
+- Decision: A desired-stopped Water Worker remains stopped through Road correction rollout and rollback.
+- Reason: Road remediation must not override operator control of the main Water contour.
+- Alternatives rejected: unconditional service start during deployment.
+
+### D-014 - Ubuntu entrypoint owns runtime source provenance
+- Decision: Validate `SEA_SPEED_SOURCE_COMMIT` in the Ubuntu entrypoint, then wrap only shared `post_state` and `post_event` with copied metadata containing the authoritative source SHA.
+- Reason: The source identity is already bound by Ubuntu systemd; the defect is the missing adapter between runtime identity and API metadata. This is the narrowest correction and avoids changing shared worker HTTP behavior or API/schema.
+- Alternatives rejected: changing shared worker source; deriving SHA from Git/runtime filesystem; trusting payload-supplied identity; adding API inference of source identity.
 
 ## Affected contours
 
-- Repository: fourth correction is exactly the separately authorized 5-path Ubuntu transaction remediation on Issue #197.
-- VPS: NOT REQUIRED / NOT APPLICABLE for this exact diff. Accepted `e7dd921d569d9b93d9ac1be9113f61a162102b19` VPS boundary evidence remains prerequisite runtime evidence and is not redeployed.
+- Repository: fifth correction is exactly 5 authorized paths on Issue #197: `worker/ubuntu_worker_entrypoint.py`, new `tests/test_ubuntu_worker_runtime_provenance.py`, and feature 018 spec/plan/tasks.
+- VPS: NOT REQUIRED / NOT APPLICABLE for this exact diff. Accepted `e7dd921d569d9b93d9ac1be9113f61a162102b19` private-M2M boundary remains prerequisite evidence and is not redeployed.
 - Ubuntu Worker/relay: REQUIRED after exact-green merge and fresh exact-SHA production authorization.
-- Ubuntu execution capability: `ONE_COMMAND_FALLBACK`; one server-pull/bootstrap action stages exact main and hands off to corrected `deploy-authorized.sh`.
-- Windows Worker: NOT APPLICABLE; no shared `worker/**` or Windows-specific source changes.
-- Security: protected config contents and topology are unchanged; transaction ordering/rollback are strengthened and no secret value is added to source or evidence.
+- Ubuntu execution capability: `ONE_COMMAND_FALLBACK`; one repository-owned server-pull/bootstrap action stages exact main and hands off to existing `deploy-authorized.sh`.
+- Active runtime topology: VPS + Ubuntu Worker/relay only. Issue #199 retired Windows; no new Change Contract field, release action or acceptance gate exists for Windows.
+- Security/protected inputs: credentials, RTSP source, API token, model, private topology and protected env files are unchanged. Provenance injection reads only the non-secret exact source SHA.
 
 ## Validation
 
-- `tests/test_ubuntu_worker_deploy_authorized.py`: shell syntax; authorization/config/activation/verification/state-commit ordering; explicit protected config backup/restore; configure failure cannot reach updater activation; updater failure restores config and prior service state; post-activation verification restores config before source rollback; Water desired state/prior Road state preservation; secret-free deployment-manifest marker.
-- Existing `tests/test_analytics_profiles.py`: unchanged private M2M URL derivation and protected preview catalog contract for `configure-analytics-profiles.py`.
-- Existing Ubuntu updater/rollback/systemd tests remain regression evidence; fourth correction changes none of those files.
-- Exact source: 5-path compare, PR Validation, aggregate Quality integration, fresh main/head/scope/review gate, expected-head merge and post-merge push/main quality.
-- Runtime after separate production authorization: one Ubuntu fallback -> protected config reconciliation marker -> exact release/runtime/service identity -> Road frame/state progression -> deployment manifest -> VPS-observed `road1` fresh exact source/advancing frame/events/objects/preview -> Water desired-state and public/Auth/Camera1 regressions.
+- `tests/test_ubuntu_worker_runtime_provenance.py`: exact SHA injection into state and event metadata; payload override prevention; missing/uppercase/non-hex/wrong-length fail-closed behavior; original POST boundary is not called on invalid identity; protected token/media/private API values are not copied into metadata; startup validates provenance before `BoundedYoloSupervisor`.
+- Existing `tests/test_ubuntu_worker_ai_supervision.py`: Ubuntu entrypoint syntax, bounded AI supervisor and profile behavior remain present.
+- Existing worker/profile/API/Ubuntu deployment suites remain regression evidence because shared worker, API/schema and deployment source are unchanged.
+- Exact source: compare against authorization base `3544e0a4b6ef4afd4dddf4e0139f8218caeeeffb` must equal 5/5 authorized paths; PR Validation and aggregate Quality integration must succeed on the same exact final head; fresh main/head/scope/review gate and expected-head merge precede post-merge push/main quality.
+- Runtime after separate production authorization: one Ubuntu fallback -> exact deployment manifest/runtime/service identity -> Road frame/state/AI progression -> VPS `road1` state with `worker_source_commit=<new exact SHA>` and advancing frame -> new Road event provenance -> Objects isolation -> clean preview start/HLS/media/stop -> Water desired-state and public Authentik/Camera1 regressions.
 
 ## Risk profile
 
 - Risk profile: REQUIRED
-- RISK-001 | Category: SEC | Probability: 2 | Impact: 5 | Score: 10 | Mitigation: physical camera credentials/model binaries remain outside repository and API/browser | Validation: repository secret/binary checks and existing profile/runtime evidence | Residual risk: LOW | Owner: Delivery Orchestrator | Status: MITIGATED
-- RISK-002 | Category: PERF | Probability: 2 | Impact: 4 | Score: 8 | Mitigation: corrective source changes no inference workload | Validation: final runtime frame/AI progression | Residual risk: MEDIUM until runtime acceptance | Owner: Delivery Orchestrator | Status: OPEN
-- RISK-003 | Category: DATA | Probability: 1 | Impact: 5 | Score: 5 | Mitigation: no API/storage schema or migration change | Validation: exact scope and API regression | Residual risk: LOW | Owner: Delivery Orchestrator | Status: MITIGATED
-- RISK-004 | Category: TECH | Probability: 2 | Impact: 4 | Score: 8 | Mitigation: no worker inference code change | Validation: exact no-`worker/**` diff plus existing worker tests | Residual risk: LOW | Owner: Delivery Orchestrator | Status: MITIGATED
-- RISK-005 | Category: OPS | Probability: 2 | Impact: 5 | Score: 10 | Mitigation: accepted VPS boundary remains fixed prerequisite and is not touched by Ubuntu-only correction | Validation: existing `e7dd921...` runtime evidence | Residual risk: LOW | Owner: Delivery Orchestrator | Status: MITIGATED
-- RISK-006 | Category: BUS | Probability: 2 | Impact: 3 | Score: 6 | Mitigation: water taxonomy/product behavior unchanged | Validation: existing class tests | Residual risk: MEDIUM | Owner: Product owner | Status: ACCEPTED
-- RISK-007 | Category: TECH | Probability: 1 | Impact: 3 | Score: 3 | Mitigation: Windows/VPS source unaffected by fourth correction | Validation: exact changed-file classification | Residual risk: LOW | Owner: Delivery Orchestrator | Status: MITIGATED
-- RISK-008 | Category: SEC | Probability: 2 | Impact: 5 | Score: 10 | Mitigation: exact peer/path/method nginx boundary retained | Validation: accepted VPS boundary evidence and unchanged source | Residual risk: LOW | Owner: Delivery Orchestrator | Status: MITIGATED
-- RISK-009 | Category: OPS | Probability: 3 | Impact: 5 | Score: 15 | Mitigation: final product acceptance requires VPS-observed Road source/frame freshness, not worker-local POST logs | Validation: production runtime acceptance | Residual risk: MEDIUM until runtime evidence | Owner: Delivery Orchestrator | Status: OPEN
-- RISK-010 | Category: SEC | Probability: 1 | Impact: 5 | Score: 5 | Mitigation: accepted fixed VPS helper boundary is unchanged | Validation: no VPS path in fourth diff | Residual risk: LOW | Owner: Delivery Orchestrator | Status: MITIGATED
-- RISK-011 | Category: OPS | Probability: 2 | Impact: 5 | Score: 10 | Mitigation: protected worker/road env are backed up before exact helper reconciliation and restored on every modeled failure path | Validation: focused deploy-authorized rollback tests | Residual risk: MEDIUM until production run | Owner: Delivery Orchestrator | Status: OPEN
-- RISK-012 | Category: SEC | Probability: 2 | Impact: 5 | Score: 10 | Mitigation: reconciliation reuses the existing fail-closed private-origin/credential-free validation and fixed protected preview catalog; logs expose markers only | Validation: analytics profile tests plus secret-negative deploy test | Residual risk: LOW | Owner: Delivery Orchestrator | Status: MITIGATED
-- RISK-013 | Category: OPS | Probability: 3 | Impact: 5 | Score: 15 | Mitigation: configuration reconciliation is ordered before updater activation; configure failure restores files without restarting services | Validation: ordering/failure-path test | Residual risk: MEDIUM until runtime acceptance | Owner: Delivery Orchestrator | Status: OPEN
-- RISK-014 | Category: OPS | Probability: 2 | Impact: 5 | Score: 10 | Mitigation: updater failure path restores protected config and explicitly re-establishes predeployment Water/Road active state after updater-owned rollback | Validation: focused deployment transaction test | Residual risk: MEDIUM until runtime acceptance | Owner: Delivery Orchestrator | Status: OPEN
-- RISK-015 | Category: OPS | Probability: 2 | Impact: 5 | Score: 10 | Mitigation: post-activation verify failure restores config before previous-source rollback so previous Road restarts against matching env | Validation: rollback ordering test and production evidence if exercised | Residual risk: MEDIUM until runtime acceptance | Owner: Delivery Orchestrator | Status: OPEN
+- RISK-001 | Category: SEC | Probability: 1 | Impact: 5 | Score: 5 | Mitigation: provenance wrapper reads only `SEA_SPEED_SOURCE_COMMIT`; protected token/media/config values are not copied or logged | Validation: focused secret-negative test plus repository secret checks | Residual risk: LOW | Owner: Delivery Orchestrator | Status: MITIGATED
+- RISK-002 | Category: TECH | Probability: 2 | Impact: 4 | Score: 8 | Mitigation: shared worker/API/schema remain unchanged; wrapper delegates to captured original POST functions | Validation: focused behavioral test plus existing worker/API suites | Residual risk: LOW | Owner: Delivery Orchestrator | Status: MITIGATED
+- RISK-003 | Category: OPS | Probability: 2 | Impact: 5 | Score: 10 | Mitigation: invalid/missing source identity fails closed before supervisor/main runtime admission and before original POST calls | Validation: invalid-value matrix and startup-order assertion | Residual risk: LOW | Owner: Delivery Orchestrator | Status: MITIGATED
+- RISK-004 | Category: DATA | Probability: 2 | Impact: 4 | Score: 8 | Mitigation: authoritative environment identity overwrites caller metadata so stale/spoofed provenance cannot be persisted | Validation: state/event override tests and final VPS runtime acceptance | Residual risk: MEDIUM until production acceptance | Owner: Delivery Orchestrator | Status: OPEN
+- RISK-005 | Category: PERF | Probability: 1 | Impact: 3 | Score: 3 | Mitigation: one dict copy and one regex-validated cached-environment read per POST do not alter inference/media path | Validation: source inspection and advancing runtime frame/AI evidence | Residual risk: LOW | Owner: Delivery Orchestrator | Status: MITIGATED
+- RISK-006 | Category: OPS | Probability: 3 | Impact: 5 | Score: 15 | Mitigation: final acceptance is VPS-observed and source-bound; worker-local health alone cannot satisfy outcome | Validation: exact state/event source plus frame progression and preview acceptance | Residual risk: MEDIUM until runtime evidence | Owner: Delivery Orchestrator | Status: OPEN
 
 ## Test design
 
-- TEST-001 | Covers: AC-001,AC-002 | Level: unit | Priority: P1 | Evidence: `tests/test_analytics_profiles.py`
-- TEST-002 | Covers: AC-003,AC-004,AC-005 | Level: integration | Priority: P1 | Evidence: unchanged worker/API contract suites
-- TEST-003 | Covers: AC-006,AC-007 | Level: end-to-end | Priority: P2 | Evidence: existing frontend contract plus runtime browser smoke
-- TEST-004 | Covers: AC-008,AC-009 | Level: integration | Priority: P1 | Evidence: existing Ubuntu/model/artifact tests
-- TEST-005 | Covers: AC-014,AC-015 | Level: integration | Priority: P0 | Evidence: private-origin and Auth v1 route matrix tests
-- TEST-006 | Covers: AC-016,RISK-002,RISK-009 | Level: runtime-manual | Priority: P0 | Evidence: final VPS/Ubuntu Road state/source/frame/events/objects/preview acceptance
-- TEST-007 | Covers: AC-017,AC-021 | Level: integration | Priority: P1 | Evidence: accepted exact-artifact/VPS privilege tests
-- TEST-008 | Covers: AC-018,AC-023 | Level: end-to-end | Priority: P1 | Evidence: accepted real VPS deployment transaction tests
-- TEST-009 | Covers: AC-019 | Level: integration | Priority: P1 | Evidence: existing `tests/test_sea_speed_auth_v1.py`
-- TEST-010 | Covers: AC-022,AC-024 | Level: integration | Priority: P1 | Evidence: accepted privilege installer/production evidence
-- TEST-011 | Covers: AC-025,RISK-013 | Level: integration | Priority: P0 | Evidence: `tests/test_ubuntu_worker_deploy_authorized.py` ordering/configure-failure assertions
-- TEST-012 | Covers: AC-026,RISK-011,RISK-014,RISK-015 | Level: integration | Priority: P0 | Evidence: protected-config/update/verify rollback assertions in `tests/test_ubuntu_worker_deploy_authorized.py`
-- TEST-013 | Covers: AC-016,AC-025,AC-026,RISK-009 | Level: runtime-manual | Priority: P0 | Evidence: exact Ubuntu deployment manifest plus VPS-observed final Road freshness/events/objects/preview and Water desired-state evidence
+- TEST-001 | Covers: AC-001,AC-002,AC-003 | Level: unit | Priority: P1 | Evidence: existing profile/worker suites
+- TEST-002 | Covers: AC-004,AC-005,AC-006,AC-007 | Level: integration | Priority: P1 | Evidence: existing API/frontend contract suites
+- TEST-003 | Covers: AC-008,AC-009,AC-025,AC-026 | Level: integration | Priority: P1 | Evidence: existing Ubuntu systemd/model/deploy-authorized tests
+- TEST-004 | Covers: AC-014,AC-015,AC-017,AC-018,AC-019,AC-021,AC-022,AC-023,AC-024 | Level: integration | Priority: P1 | Evidence: accepted private-M2M/VPS privilege/artifact/deploy transaction tests and production evidence
+- TEST-005 | Covers: AC-011,AC-012,AC-020,AC-028 | Level: end-to-end | Priority: P0 | Evidence: exact GitHub diff/Change Contract/PR Validation/Quality/merge/post-merge evidence
+- TEST-006 | Covers: AC-027,RISK-001,RISK-002,RISK-003,RISK-004 | Level: unit | Priority: P0 | Evidence: `tests/test_ubuntu_worker_runtime_provenance.py`
+- TEST-007 | Covers: AC-013,AC-016,AC-029,RISK-006 | Level: runtime-manual | Priority: P0 | Evidence: exact Ubuntu deployment manifest plus VPS-observed source/frame/events/objects/preview and Water/public-auth regression evidence
 
 ## Correct-course check
 
 - Trigger: PRODUCTION_LEARNING
-- Issue impact: Issue #197 remains canonical. After the third correction's exact `e7dd921d569d9b93d9ac1be9113f61a162102b19` VPS boundary was accepted, read-only inspection before Ubuntu execution proved the canonical Ubuntu target transaction would not regenerate protected `road-worker.env`; the pending fallback was therefore stopped before mutation.
-- Specification impact: Adds the requirement that protected profile reconciliation and its rollback are part of the canonical Ubuntu target transaction, not a separate operator/workflow step.
-- Plan impact: Moves config backup/reconciliation before exact updater activation, couples config restoration with runtime rollback and makes Water/Road predeployment state explicit.
-- Tasks impact: Adds the exact 5-path fourth correction, focused rollback/order tests, fresh exact-merge production authorization and one Ubuntu fallback acceptance sequence.
-- Authorization impact: `deploy/worker/ubuntu/deploy-authorized.sh` behavior and its focused test/SDD updates are a new exact 5-path source scope. A complete six-field Scope immediately preceded the operator's `OUTCOME APPROVED` on 2026-08-17. Source authorization does not authorize production.
-- Follow-up: Complete exact 5-path source integration, obtain a fresh production authorization for the new merge SHA, run one repository-owned Ubuntu fallback, and continue automatically through final VPS-observed Road/product acceptance.
+- Issue impact: Issue #197 remains canonical. Final VPS product acceptance after the successful fourth-correction Ubuntu rollout failed at `ERROR=ROAD_STATE_SOURCE_1`; runtime remained healthy, so rollback was not indicated and a source provenance correction is required.
+- Specification impact: Adds FR-034/FR-035 and AC-027..029 requiring authoritative Ubuntu runtime source identity in state/event metadata and exact-source final acceptance under the current two-contour governance.
+- Plan impact: Adds D-014, focused provenance risks/tests, and updates the deployment/evidence audit so exact source identity is verified end-to-end rather than inferred from local release/service state.
+- Tasks impact: Adds fifth-correction implementation, focused tests, exact 5-path source lifecycle, new production authorization and final VPS-side provenance/product acceptance tasks.
+- Authorization impact: A fresh complete six-field exact 5-path Scope based on current main `3544e0a4b6ef4afd4dddf4e0139f8218caeeeffb` immediately preceded `OUTCOME APPROVED`; admission is recorded in Issue #197 comment `5312856773`. Source authorization does not authorize Ubuntu mutation.
+- Follow-up: Complete exact 5-path source integration, obtain a fresh production authorization for the new merged SHA, execute one Ubuntu fallback and continue through final VPS-observed state/event provenance, frame/events/objects/preview and regression acceptance.
 
 ## Deployment transaction audit
 
-- TX-001 | Stage: ADMISSION | Mutation: NO | Failure disposition: FATAL | State after failure: Ubuntu runtime/config/services remain unchanged and accepted VPS boundary remains active | Retry: repair exact-main/quality/release/production-authorization evidence before target transaction | Rollback: NOT REQUIRED | Evidence: exact first-parent main, canonical Issue/PR, push/main quality, exact artifact/release evidence, production authorization verifier
-- TX-002 | Stage: PRE-MUTATION | Mutation: POSSIBLE | Failure disposition: FATAL | State after failure: only root-owned updater staging/config backup files may exist; worker/road protected config and services remain at predeployment state | Retry: correct missing/invalid protected input and rerun the same exact authorized transaction | Rollback: restore config backup if reconciliation started; no source/service rollback before updater activation | Evidence: `PROTECTED_CONFIG_BACKUP=PASS`, helper fail-closed markers, no `DEPLOY_MUTATION` before reconciliation success
-- TX-003 | Stage: MUTATION | Mutation: YES | Failure disposition: FATAL | State after failure: protected config may have been reconciled and exact updater may have partially activated target before its own rollback | Retry: only after protected config plus predeployment service state are restored and exact active marker/runtime truth is known | Rollback: updater restores previous exact units/runtime; deploy-authorized restores protected env and re-establishes predeployment Water/Road state | Evidence: `PROTECTED_CONFIG_RECONCILED=YES`, updater/restore markers, active source marker and systemd identity
-- TX-004 | Stage: VERIFICATION | Mutation: POSSIBLE | Failure disposition: FATAL | State after failure: target is not accepted if worker/control/road exact source/runtime identity, road env mode or desired Water state fails | Retry: only after config restore and previous-source or same-source predeployment service-state restoration | Rollback: restore protected config before `rollback-exact.sh` when target became active; otherwise restore predeployment service state | Evidence: exact `verify_active_target` checks, `DEPLOY_ROLLED_BACK ... config_restored=true` or `PREDEPLOYMENT_SERVICE_STATE_RESTORED=YES`
-- TX-005 | Stage: STATE-COMMIT | Mutation: YES | Failure disposition: FATAL | State after failure: deployment manifest must not claim runtime verification unless protected config reconciliation and exact runtime/service verification passed | Retry: re-read active marker/runtime/services/config and rerun only under current exact authorization | Rollback: previous exact source/config remains rollback target if state commit cannot be trusted | Evidence: deployment manifest check `protected-road-profile-config-reconciled=passed`, exact source/runtime/road active/desired-state checks
-- TX-006 | Stage: HOUSEKEEPING | Mutation: POSSIBLE | Failure disposition: BEST-EFFORT | State after failure: accepted exact runtime/config remains active; temporary stage/backups may remain only if process cleanup itself is interrupted | Retry: independent cleanup after read-only runtime verification | Rollback: NOT REQUIRED solely for temporary-file cleanup | Evidence: EXIT cleanup behavior and updater housekeeping evidence
-- TX-007 | Stage: EVIDENCE | Mutation: NO | Failure disposition: CONDITIONAL | State after failure: runtime may be healthy but final product outcome remains incomplete without deployment manifest and VPS-observed Road evidence | Retry: recollect read-only deployment/runtime/product evidence; do not mutate merely to recreate paperwork | Rollback: decide from runtime truth, not missing evidence alone | Evidence: Ubuntu deployment manifest, heartbeat/state progression, VPS `road1` state/events/objects/preview and public/Auth/Camera1 regression evidence
-- TX-008 | Stage: ROLLBACK | Mutation: YES | Failure disposition: FATAL | State after failure: if protected config restoration, updater/explicit source rollback or predeployment service-state restoration fails, runtime truth is unknown and automatic retry stops | Retry: read-only recovery plus a new protected human/production decision after exact state is established | Rollback: only backed-up protected env, previous exact source/runtime/units and captured predeployment Worker/Road states | Evidence: `PROTECTED_CONFIG_RESTORED=YES`, updater/rollback markers, service active/inactive checks and active source marker
+- TX-001 | Stage: ADMISSION | Mutation: NO | Failure disposition: FATAL | State after failure: current accepted VPS boundary and Ubuntu runtime remain unchanged | Retry: repair exact-main ancestry, push/main quality, merged PR, release evidence or production authorization before target execution | Rollback: NOT REQUIRED | Evidence: exact first-parent main, Issue #197/merged corrective PR, aggregate quality, exact artifact/release evidence and authorization verifier
+- TX-002 | Stage: PRE-MUTATION | Mutation: NO | Failure disposition: FATAL | State after failure: no service/source/config mutation; only temporary bootstrap staging may exist | Retry: correct missing exact source/artifact/authorization/protected prerequisites and rerun the same exact authorized transaction | Rollback: NOT REQUIRED | Evidence: workflow admission plus target `deploy-authorized.sh` authorization/config preflight markers
+- TX-003 | Stage: MUTATION | Mutation: YES | Failure disposition: FATAL | State after failure: exact Ubuntu updater may have attempted source/unit activation while protected config rollback semantics remain owned by accepted fourth-correction transaction | Retry: only after updater/deploy-authorized rollback establishes exact active source/config/service truth | Rollback: previous exact Ubuntu source/runtime/units plus backed-up protected config and captured service state | Evidence: deployment transaction markers, active source marker and systemd identity
+- TX-004 | Stage: VERIFICATION | Mutation: NO | Failure disposition: FATAL | State after failure: target may be active but is not accepted unless exact source/runtime/services and runtime progression pass; provenance-specific VPS evidence is still separate | Retry: source/runtime verification may be recollected read-only; failed runtime identity/health follows existing rollback path | Rollback: existing deploy-authorized/updater rollback for activation/runtime verification failures | Evidence: exact deployment manifest checks, Road service active, frame/state/AI progression, Water desired state
+- TX-005 | Stage: STATE-COMMIT | Mutation: YES | Failure disposition: FATAL | State after failure: deployment manifest must not claim `runtime_verified` unless target transaction checks passed | Retry: re-read active source/runtime/config/services and rerun only under current authorization if state commit is not trustworthy | Rollback: previous exact source/config remains available according to accepted updater transaction | Evidence: `deployment-manifest-ubuntu-worker.json` exact source/runtime/rollback/checks
+- TX-006 | Stage: HOUSEKEEPING | Mutation: POSSIBLE | Failure disposition: BEST-EFFORT | State after failure: accepted runtime remains active; temporary stage/old release cleanup may remain | Retry: independent cleanup after read-only runtime verification | Rollback: NOT REQUIRED solely for housekeeping | Evidence: target cleanup/updater retention markers
+- TX-007 | Stage: EVIDENCE | Mutation: NO | Failure disposition: CONDITIONAL | State after failure: runtime may be healthy but Issue #197 remains incomplete if VPS state/event provenance, advancing frame, objects, preview or regressions are missing | Retry: recollect read-only VPS/Ubuntu evidence; do not mutate merely to recreate evidence | Rollback: decide from runtime truth, not absent evidence alone | Evidence: VPS `road1` state `worker_source_commit=<new SHA>`, source-bound recent events, frame progression, objects, preview media, Water/public Auth checks
+- TX-008 | Stage: ROLLBACK | Mutation: YES | Failure disposition: FATAL | State after failure: if existing protected config/source/service rollback cannot establish exact runtime truth, automatic retry stops | Retry: read-only recovery plus a new protected human/production decision after exact state is established | Rollback: only backed-up protected env, previous exact source/runtime/units and captured predeployment service states | Evidence: deploy-authorized/updater rollback markers, active source marker and service active/inactive checks
 
 - Adjacent-stage review: COMPLETE
-- Production-learning root cause: the first correction fixed `configure-analytics-profiles.py`, but the canonical Ubuntu deployment transaction never invoked that helper. The workflow one-command fallback correctly staged exact source and handed off to `deploy-authorized.sh`; `deploy-authorized.sh` correctly verified production authorization and called the exact updater; however the updater intentionally treats `road-worker.env` as protected predeployment input. That left a gap between configuration semantics and activation semantics, allowing stale public Road API URLs to survive into an otherwise exact deployment.
-- Production-learning adjacent-stage findings: admission/quality/provenance were correct; pre-mutation validated exact source but not freshness of protected Road config; mutation would have restarted Road using the pre-existing env; verification checked exact source/runtime/service identity but not that the env had just been reconciled; state-commit could therefore have reported runtime verification without proving the corrected private M2M config; housekeeping/evidence would not reveal the stale endpoint because secrets/config values are intentionally not printed; rollback restored source/services but had no coupled protected-config rollback. The fourth correction closes all adjacent gaps by moving exact helper reconciliation, explicit backup/restore and a manifest reconciliation marker into `deploy-authorized.sh`.
+- Production-learning root cause: Ubuntu systemd correctly provided the exact release SHA through `SEA_SPEED_SOURCE_COMMIT`, and the fourth-correction deployment correctly activated/progressed the exact Road runtime, but `worker/ubuntu_worker_entrypoint.py` only adapted media and AI behavior. It never adapted shared `post_state`/`post_event`, while the shared worker serialized only metadata supplied by its analytics loop. Consequently the VPS stored fresh Road state without `worker_source_commit`, producing `null` at the final exact-source acceptance gate.
+- Production-learning adjacent-stage findings: ADMISSION and PRE-MUTATION correctly bound the exact source/artifact/authorization; MUTATION and target VERIFICATION correctly proved exact release/service/frame/AI progression but did not prove the source SHA entered application metadata; STATE-COMMIT correctly recorded deployment identity but deployment identity is not API payload provenance; HOUSEKEEPING was unrelated; EVIDENCE was the first stage to compare VPS state provenance and exposed the omission; ROLLBACK was not indicated because runtime health and M2M writes were good and reverting would not create missing provenance. The fifth correction closes the interface gap at the Ubuntu adapter and adds focused fail-closed/source-spoof tests plus mandatory VPS-observed state/event source evidence.
 
 ## Rollout and rollback
 
-- Fourth corrective source rollout: fresh branch from `e7dd921d569d9b93d9ac1be9113f61a162102b19` -> exact 5-path compare -> PR linked #197/spec 018 -> PR Validation + aggregate Quality on one exact head -> fresh main/head/scope/review verification -> expected-head merge -> post-merge push/main quality.
-- Fourth corrective production rollout: after fresh exact-SHA production authorization, one Ubuntu server-pull fallback stages the exact merged SHA and invokes corrected `deploy-authorized.sh`. The target transaction backs up/reconciles protected config, activates/verifies exact source/runtime/services, preserves Water desired state and writes deployment evidence. No separate configure/activate confirmation is allowed.
-- Configure failure rollback: restore protected env backup; services were not restarted, so no service mutation rollback is required.
-- Updater failure rollback: rely on updater-owned runtime restoration, then restore protected env and explicitly re-establish predeployment Water/Road active state so processes reload matching config.
-- Post-activation verification rollback: restore protected env first, then use `rollback-exact.sh` for a different previous source so the previous Road service starts with matching config; for same-source reconciliation failure restore predeployment service state directly.
-- Final product acceptance: VPS accepted boundary remains unchanged; prove exact new Ubuntu source/runtime, advancing Road frame/state and AI, VPS-observed `worker_online=true` with exact source/advancing frame, events/objects, clean preview start/media/stop, public Auth/Camera1 regression and unchanged Water desired state.
+- Fifth corrective source rollout: branch `agent/ubuntu-runtime-source-provenance` from `3544e0a4b6ef4afd4dddf4e0139f8218caeeeffb` -> exact 5-path compare -> PR linked to Issue #197/spec 018 -> PR Validation + aggregate Quality on one exact head -> fresh main/head/scope/review verification -> expected-head merge -> post-merge push/main quality.
+- Fifth corrective production rollout: after a fresh exact-SHA production authorization/fingerprint/execution intent, one Ubuntu server-pull fallback stages the exact merged SHA and invokes the unchanged accepted `deploy-authorized.sh`; VPS is not redeployed.
+- Production rollback: use existing Ubuntu deployment transaction rollback if activation/runtime verification fails. Do not rollback solely because product evidence is temporarily unavailable; first resolve actual runtime state read-only.
+- Final product acceptance: require VPS-observed exact new source in Road state, advancing frame, source-bound Road events, isolated Road objects, clean preview start/HLS/media/stop, unchanged Water desired-stopped state and unchanged public Authentik protection.
 
 ## Runtime feedback
 
-- Original source integration: complete on `39cc330b61dc50aede4b809ee2dfc7a712b698d9`; historical #198 evidence remains immutable.
-- First production learning: Road worker used the wrong public M2M surface and worker-local POST success was misleading.
-- First corrective source: PR #200 merged as `30e77e1f42397fddabc2a36fcfe922416a8efe57`.
-- Second production learning: VPS source deploy did not execute source-managed nginx boundary transaction.
-- Second corrective source: PR #201 merged as `f21b31d38e95179445e68e5543a1c934a744d514`.
-- Third production learning: authorized `f21b31...` Connector deployment reached Auth reconciliation, `sudo` required a password, and source automatically rolled back to `30e77...`.
-- Third corrective source: PR #202 merged as `e7dd921d569d9b93d9ac1be9113f61a162102b19`; root bootstrap and canonical Connector VPS deployment subsequently passed the fixed-helper boundary and `auth_v1_road_private_m2m=passed` acceptance.
-- Fourth production learning: read-only inspection before Ubuntu mutation proved `deploy-authorized.sh` omitted profile reconciliation and would consume stale `road-worker.env`; pending Ubuntu execution was stopped before mutation and Issue #197 records the finding.
-- Fourth corrective source integration: IN PROGRESS on `agent/ubuntu-road-config-transaction` under fresh exact 5-path source authorization.
-- Fourth corrective production acceptance: PENDING new exact merged SHA and fresh production authorization; one Ubuntu fallback remains the only expected operator runtime action.
+- Original PR #198 merged as `39cc330b61dc50aede4b809ee2dfc7a712b698d9`; historical delivery evidence remains immutable.
+- First correction PR #200 merged as `30e77e1f42397fddabc2a36fcfe922416a8efe57` after the public-vs-private Road M2M defect.
+- Second correction PR #201 merged as `f21b31d38e95179445e68e5543a1c934a744d514` after the VPS workflow omitted nginx boundary activation.
+- Third correction PR #202 merged as `e7dd921d569d9b93d9ac1be9113f61a162102b19`; root bootstrap and canonical Connector deployment passed the fixed helper and private-M2M boundary.
+- Fourth correction PR #203 merged as `116dcf0f5f0d625f2b223a4549525ca7ddaa56d3`; the authorized Ubuntu transaction passed protected config reconciliation, exact source/runtime activation, Road frame/state/AI progression and preserved Water desired-stopped state.
+- Fifth production learning: final VPS acceptance of `116dcf...` failed at `ROAD_STATE_SOURCE_1`; source inspection proved the Ubuntu entrypoint omitted systemd-bound source provenance from shared state/event metadata. Runtime rollback was not indicated.
+- Issue #199 / PR #204 retired Windows from active production governance; current main before this correction is `3544e0a4b6ef4afd4dddf4e0139f8218caeeeffb` with exactly VPS + Ubuntu Worker/relay active contours.
+- Fifth corrective source integration: IN PROGRESS on the exact authorized 5-path branch; production remains pending a future merged SHA and fresh authorization.
