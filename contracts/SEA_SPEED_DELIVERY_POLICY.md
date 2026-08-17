@@ -142,7 +142,7 @@ The Delivery Orchestrator may return control only in one terminal interaction st
 
 A linked significant PR is quality-enabled only when its SDD includes current NFR assessment, risk/test design, correct-course check, traceability and Definition of Done, and the Change Contract declares the derived Risk profile plus quality verdict.
 
-Full risk profiling is required for security impact, API/event/state/storage schema impact, destructive/data migration, `MIXED` runtime or another explicit high-risk trigger. `FAIL` blocks. `WAIVED` requires a complete durable waiver and never bypasses hard authorization/scope/CI/production/rollback gates.
+Full risk profiling is required for security impact, API/event/state/storage schema impact, destructive/data migration, `MIXED` runtime or another explicit high-risk trigger. `FAIL` blocks. `WAIVED` requires a complete durable waiver. A waiver never bypasses a hard gate: authorization, exact scope, active runtime derivation, secrets, CI, production authorization, rollback and acceptance remain mandatory.
 
 Production-equivalent deterministic deployment tests should execute the real transaction entrypoint with isolated fake external/runtime boundaries when executable ordering/rollback semantics are in scope.
 
