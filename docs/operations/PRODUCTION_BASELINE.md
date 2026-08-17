@@ -7,7 +7,9 @@ Secrets: prohibited in captured output
 
 ## Purpose
 
-Record exact non-secret source/runtime identity and health for each production contour before/after a protected release. A repository merge does not prove runtime state.
+Record exact non-secret source/runtime identity and health for each active production contour before/after a protected release. A repository merge does not prove runtime state.
+
+Active contours are **VPS** and **Ubuntu Worker/relay**. Windows Worker is retired; historical Windows baseline records remain audit history and are not required for new releases.
 
 ## Repository baseline
 
@@ -49,9 +51,9 @@ Observed at UTC:
 
 Do not print protected worker env, camera URLs/credentials, model contents or private media.
 
-## Windows AI Worker baseline
+## Historical Windows evidence
 
-For Windows-specific tasks record exact installed/package source identity, managed process state, freshness/telemetry and rollback version. Historical paths such as `D:\sea-speed\...` remain task/runtime-specific; do not treat them as the Ubuntu contour.
+Windows Worker is no longer an active runtime contour and has no current baseline gate. Persisted Windows package/process/freshness evidence from historical Issues/releases remains readable audit history only. Do not collect new Windows runtime evidence merely to satisfy governance.
 
 ## Auth v1 accepted boundary
 
