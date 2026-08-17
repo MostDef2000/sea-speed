@@ -7,7 +7,7 @@ Status: Active
 
 Define quality admission, release provenance, runtime applicability, production authorization, operator execution and completion evidence for the two active production contours: **VPS** and **Ubuntu Worker/relay**.
 
-Windows Worker is retired as a production/runtime component. Historical Windows evidence remains readable audit history; deprecated Windows scripts are non-production local/archive tooling.
+Windows Worker is retired as a production/runtime component. Historical documents and tests may use the former name **Windows AI Worker**; that name is retained only for historical compatibility and does not identify an active contour. Historical Windows evidence remains readable audit history; deprecated Windows scripts are non-production local/archive tooling.
 
 ## 2. Applicability
 
