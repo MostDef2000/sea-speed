@@ -66,6 +66,17 @@ def require_regular_secure(path: Path, required_uid: int) -> None:
         raise BoundaryError(f"required file is group/world writable: {path}")
 
 
+def require_request_file(path: Path) -> None:
+    try:
+        metadata = path.lstat()
+    except FileNotFoundError as exc:
+        raise BoundaryError(f"privileged request missing: {path}") from exc
+    if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
+        raise BoundaryError("privileged request must be a regular non-symlink file")
+    if metadata.st_mode & (stat.S_IRWXG | stat.S_IRWXO):
+        raise BoundaryError("privileged request must not be accessible to group/other")
+
+
 def load_json(path: Path) -> dict[str, object]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -95,10 +106,28 @@ def validate_release_path(paths: RuntimePaths, source_sha: str, raw: object) -> 
     return expected
 
 
+def require_release_asset(release: Path, relative: str) -> Path:
+    current = release
+    for part in Path(relative).parts:
+        current = current / part
+        try:
+            metadata = current.lstat()
+        except FileNotFoundError as exc:
+            raise BoundaryError(f"staged exact-release asset is missing: {relative}") from exc
+        if stat.S_ISLNK(metadata.st_mode):
+            raise BoundaryError(f"staged exact-release path contains a symlink: {relative}")
+    if not current.is_file():
+        raise BoundaryError(f"staged exact-release asset is not a regular file: {relative}")
+    return current
+
+
 def validate_request(paths: RuntimePaths) -> tuple[str, str, Path]:
+    require_request_file(paths.request_file)
     request = load_json(paths.request_file)
     if request.get("schema") != "sea_speed_auth_privileged_request_v1":
         raise BoundaryError("unexpected privileged request schema")
+    if set(request) != {"schema", "action", "source_sha", "release_path"}:
+        raise BoundaryError("privileged request contains unexpected fields")
     action = request.get("action")
     if action not in {"status", "reconcile"}:
         raise BoundaryError("unsupported privileged action")
@@ -122,6 +151,8 @@ def validate_bundle(
     manifest = load_json(manifest_path)
     if manifest.get("schema") != "sea_speed_auth_privileged_bundle_v1":
         raise BoundaryError("unexpected privileged bundle schema")
+    if set(manifest) != {"schema", "source_sha", "helper_sha256", "assets"}:
+        raise BoundaryError("privileged bundle manifest contains unexpected fields")
     if manifest.get("source_sha") != source_sha:
         raise BoundaryError("privileged bundle source SHA does not match request")
     helper_sha = manifest.get("helper_sha256")
@@ -139,10 +170,8 @@ def validate_bundle(
         if not isinstance(expected_sha, str) or not SHA256_RE.fullmatch(expected_sha):
             raise BoundaryError(f"invalid bundle digest for {relative}")
         installed = repo_root / relative
-        staged = release / relative
+        staged = require_release_asset(release, relative)
         require_regular_secure(installed, required_uid)
-        if staged.is_symlink() or not staged.is_file():
-            raise BoundaryError(f"staged exact-release asset is missing or unsafe: {relative}")
         installed_sha = sha256_file(installed)
         staged_sha = sha256_file(staged)
         if installed_sha != expected_sha:
