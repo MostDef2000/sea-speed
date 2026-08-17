@@ -8,7 +8,7 @@ ROOT=Path(__file__).resolve().parents[2]
 ALLOWED_TOP_LEVEL={".github",".gitignore",".specify","AGENTS.md","README.md","api","contracts","data","deploy","docs","frontend","schemas","scripts","skills","specs","tests","worker"}
 REQUIRED_FILES={
 "AGENTS.md","README.md","api/app/main.py","frontend/root/index.html","frontend/sea-speed/index.html","frontend/sea-speed/objects/index.html","frontend/sea-speed/cameras/index.html","frontend/sea-speed/road/index.html",
-"worker/analytics_profiles.py","worker/hls_motion_yolo_worker_events.py","worker/hls_motion_yolo_runtime.py","worker/run_worker_once.ps1",
+"worker/analytics_profiles.py","worker/hls_motion_yolo_worker_events.py","worker/hls_motion_yolo_runtime.py",
 "contracts/SEA_SPEED_GOVERNANCE.md","contracts/SEA_SPEED_DELIVERY_POLICY.md","contracts/runtime/SEA_SPEED_TASK_RUNTIME.md","contracts/runtime/RELEASE_READINESS_GATE.md",
 ".specify/memory/constitution.md",".specify/templates/overrides/spec-template.md",".specify/templates/overrides/plan-template.md",".specify/templates/overrides/tasks-template.md","specs/README.md","specs/001-camera-live-pipeline/spec.md","specs/002-sdd-adoption/spec.md","specs/018-water-road-analytics-profiles/spec.md",
 "data/contracts/sea-speed-contracts-v1.schema.json","data/contracts/fixtures-v1.json","data/contracts/contract-policy-v1.json","data/contracts/change-control-policy-v1.json","data/quality/quality-gates-v1.json","data/quality/reliability-budget-v1.json","data/quality/accepted-risks-v1.json",
