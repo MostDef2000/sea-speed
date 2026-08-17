@@ -111,9 +111,12 @@ class AnalyticsProfilesTests(unittest.TestCase):
         ]
         for path in paths:
             text = path.read_text(encoding="utf-8")
-            self.assertIn('/sea-speed/road/', text, path)
             self.assertNotRegex(text, r'rtsp://[^\s"\']+:[^\s"\']+@')
+        for path in paths[:-1]:
+            self.assertIn('/sea-speed/road/', path.read_text(encoding="utf-8"), path)
         road = paths[-1].read_text(encoding="utf-8")
+        self.assertIn('class="objects-link road-link active" href="/sea-speed/">Вода</a>', road)
+        self.assertNotIn('class="objects-link road-link active" href="/sea-speed/road/">Дорога</a>', road)
         self.assertIn('CAMERA_ID="road1"', road)
         self.assertIn('/sea-speed/api/analytics/road1', road)
         self.assertIn('/sea-speed/api/cameras/road1/preview/start', road)
