@@ -174,12 +174,17 @@ def main() -> int:
             "Execution-Intent: EXECUTE", "github.event.issue.pull_request == null",
             "parse_runtime_execution_request.py", "verify_production_authorization.py",
             "--require-execution-intent", "uses: ./.github/workflows/deploy-vps.yml",
-            "uses: ./.github/workflows/deploy-ubuntu-worker.yml", "windows-worker-fallback:", "secrets: inherit",
+            "uses: ./.github/workflows/deploy-ubuntu-worker.yml", "secrets: inherit",
         ),
     )
+    for retired in ("windows_worker_required", "windows-worker-fallback", "Windows Worker automation capability check"):
+        if retired in runtime_request:
+            fail(f"runtime request must not route retired Windows Worker contour: {retired}")
     for forbidden in ("environment: production", "Configure SSH", "SSH_PRIVATE_KEY", "ssh -i"):
         if forbidden in runtime_request:
             fail(f"runtime request workflow must only parse/verify/route; forbidden marker: {forbidden}")
+    if (workflows / "package-worker.yml").exists():
+        fail("retired Windows Worker packaging workflow must not exist")
 
     ubuntu_on = deploy_ubuntu.split("permissions:", 1)[0]
     for marker in ("workflow_dispatch:", "workflow_call:"):
@@ -211,7 +216,7 @@ def main() -> int:
             fail(str(exc))
     print(
         "Workflow policy valid: immutable actions, aggregate SDD gate, exact VPS Auth v1 boundary transaction, "
-        "two-intent Connector request routing, durable authorization and bounded fallback"
+        "two-contour Connector request routing, durable authorization and bounded Ubuntu fallback"
     )
     return 0
 
