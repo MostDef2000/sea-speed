@@ -1,12 +1,11 @@
 {
   "schema": "sea-speed-change-control-policy/v1",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "impact_classes": [
     "NONE",
     "CONTROL_PLANE",
     "VPS",
     "UBUNTU_WORKER",
-    "WINDOWS_WORKER",
     "MIXED"
   ],
   "rules": [
@@ -26,15 +25,17 @@
       ]
     },
     {
-      "impact": "WINDOWS_WORKER",
+      "impact": "CONTROL_PLANE",
       "patterns": [
         "worker/*.ps1",
         "worker/*.cmd",
-        "worker/windows/**"
+        "worker/windows/**",
+        "worker/README.txt",
+        "worker/UPDATE.md"
       ]
     },
     {
-      "impact": "MIXED",
+      "impact": "UBUNTU_WORKER",
       "patterns": [
         "worker/**"
       ]
