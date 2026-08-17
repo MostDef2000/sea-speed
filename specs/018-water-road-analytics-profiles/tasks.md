@@ -81,9 +81,7 @@
 - [ ] Required tests and evidence complete: helper/installer contract, real VPS pre-mutation privilege fault path, exact-artifact inventory and existing Auth/product regressions pass.
 - [ ] Required CI green: third corrective PR Validation and aggregate Quality integration succeed on the same exact final head; Ubuntu and Windows are not applicable to this VPS-only source diff.
 - [ ] Exact-green-head merge complete: fresh main/head/scope/review gate, expected-head merge and post-merge push/main quality.
-- [ ] Production authorization current: new exact merged SHA has current production fingerprint and `Execution-Intent: EXECUTE` before any third-correction production mutation.
-- [ ] Privilege bootstrap accepted: one root/operator action installs exact helper/bundle/sudoers and proves `SUDO_COMMAND_SCOPE=FIXED_HELPER_NO_ARGS`, `ROOT_SHELL_GRANTED=NO`, exact SHA and non-root deployment user.
-- [ ] VPS deployment accepted: Connector helper status exact SHA passes before live mutation and deployment manifest ends `runtime_verified` with `auth_v1_road_private_m2m=passed`.
+- [ ] Deployment state resolved: after separate exact-SHA production authorization, the one root privilege bootstrap and canonical VPS Connector deployment must both complete with exact identity and `auth_v1_road_private_m2m=passed`; until then production remains unresolved and Ubuntu stays paused.
 - [ ] Runtime acceptance resolved: pending Ubuntu correction resumes only after VPS boundary acceptance; `road1` state is fresh on VPS with exact source and advancing frame, Road events/objects/preview and public Auth/Camera1 regressions are accepted; main Water Worker desired-stopped state is preserved unless separately changed.
 - [x] Deferred work recorded: broader maritime training/taxonomy and Issue #199 Windows-contour retirement remain separate.
 - [ ] Risks resolved or explicitly accepted: privilege/bootstrap/deployment and final runtime risks remain open until first accepted production run; product-owner RISK-006 remains accepted.
