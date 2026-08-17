@@ -480,13 +480,15 @@ main() {
 
   log "Deploying ${COMMIT_SHA}; rollback target is ${old_current}"
   install_release "$COMMIT_SHA"
-  if restart_and_verify && run_auth_boundary; then
-    printf '%s\n' "$old_current" > "$PREVIOUS_FILE"
-    printf '%s\n' "$COMMIT_SHA" > "$CURRENT_FILE"
-    write_deployment_manifest "$COMMIT_SHA" "$old_current" "runtime_verified" "true" "" "$([[ "$AUTH_BOUNDARY_VERIFIED" == true ]] && echo passed || echo skipped)"
-    prune_releases
-    log "Deployment successful: ${COMMIT_SHA}"
-    return
+  if restart_and_verify; then
+    if run_auth_boundary; then
+      printf '%s\n' "$old_current" > "$PREVIOUS_FILE"
+      printf '%s\n' "$COMMIT_SHA" > "$CURRENT_FILE"
+      write_deployment_manifest "$COMMIT_SHA" "$old_current" "runtime_verified" "true" "" "$([[ "$AUTH_BOUNDARY_VERIFIED" == true ]] && echo passed || echo skipped)"
+      prune_releases
+      log "Deployment successful: ${COMMIT_SHA}"
+      return
+    fi
   fi
 
   log "Deployment or protected boundary verification failed; rolling source files back to ${old_current}"
