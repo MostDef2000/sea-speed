@@ -34,6 +34,15 @@ class QualityArchitectureTests(unittest.TestCase):
         ):
             self.assertIn(marker, deploy)
 
+    def test_vps_deploy_uses_restricted_privilege_boundary_before_live_mutation(self) -> None:
+        source = (ROOT / "deploy/vps/deploy.sh").read_text(encoding="utf-8")
+        self.assertIn("check_auth_privilege_boundary", source)
+        self.assertIn("PRIVILEGE_BOUNDARY_BOOTSTRAP_REQUIRED=YES", source)
+        self.assertIn("SEA_SPEED_AUTH_PRIVILEGE_BOUNDARY=PASS", source)
+        self.assertIn("SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS", source)
+        self.assertNotIn('run_root bash "$cutover"', source)
+        self.assertLess(source.index("check_auth_privilege_boundary"), source.index("bootstrap_current_release"))
+
     def test_windows_package_remains_pre_release_only(self) -> None:
         package = (ROOT / ".github/workflows/package-worker.yml").read_text(encoding="utf-8")
         self.assertIn('- "worker/**"', package)
@@ -60,6 +69,8 @@ class QualityArchitectureTests(unittest.TestCase):
             self.assertIn("frontend/sea-speed/road/index.html", vps_paths)
             for marker in (
                 "deploy/vps/sea-speed-auth-cutover.sh",
+                "deploy/vps/install-auth-privilege-boundary.sh",
+                "deploy/vps/sea-speed-auth-privileged-helper.py",
                 "scripts/operations/nginx_cam1_direct_h264.py",
                 "scripts/operations/nginx_sea_speed_auth.py",
             ):
