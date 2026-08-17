@@ -19,6 +19,8 @@ The Ubuntu control agent remains one independent hardened root service but accep
 
 Mixed production rollout is ordered Ubuntu first, VPS second. Ubuntu introduces compatible Road control and desired-state semantics before VPS exposes the Road browser controls. Source integration itself performs no production mutation.
 
+For exact runtime release `fd449af7bdbd4036517f321b96de31fe206f623b`, the VPS least-privilege Auth boundary is source-bound. PR #207 changed `scripts/operations/nginx_sea_speed_auth.py`, which is an asset in the root-owned privileged bundle. Therefore the VPS contour requires one root-owned exact-source bootstrap before the canonical Connector VPS deployment can pass its pre-mutation privilege admission.
+
 ## Decisions
 
 - D-001: Reproduce canonical Operator structure/styles in the Road document instead of changing the Water Operator reference.
@@ -28,19 +30,23 @@ Mixed production rollout is ordered Ubuntu first, VPS second. Ubuntu introduces 
 - D-005: Preserve exact commit/runtime identity checks when Road is stopped; skip only frame/state progression because intentional stop makes progression impossible.
 - D-006: Keep private Worker-to-VPS telemetry/config ingress unchanged and explicitly enumerate browser-control routes that must never enter it.
 - D-007: Runtime deployment is MIXED and must be Ubuntu-first/VPS-second under a fresh exact-main production envelope.
+- D-008: Treat any source change to the root-owned Auth privileged bundle as requiring `ONE_COMMAND_FALLBACK` for the VPS contour. The bootstrap installs only the exact repository-owned helper/bundle/minimal sudoers boundary; Connector deployment remains the only post-bootstrap VPS release transaction.
 
 ## Affected contours
 
-- VPS: REQUIRED. Road frontend, FastAPI Road worker-control routes and nginx security regression are included in the exact VPS release.
-- Ubuntu Worker/relay: REQUIRED. Fixed Road control paths, independent desired state and exact update/rollback/deployment semantics change.
+- VPS: REQUIRED. Road frontend, FastAPI Road worker-control routes and nginx security regression are included in exact runtime release `fd449af7bdbd4036517f321b96de31fe206f623b`. Execution capability is `ONE_COMMAND_FALLBACK` because the exact root-owned Auth privilege bundle must be bootstrapped before Connector retry.
+- Ubuntu Worker/relay: REQUIRED. Fixed Road control paths, independent desired state and exact update/rollback/deployment semantics change. Execution capability is `ONE_COMMAND_FALLBACK`.
 - Windows: retired and not an active production contour.
-- Operator actions expected: 1 because Ubuntu restricted zero-touch transport is not provisioned and the repository-owned `ONE_COMMAND_FALLBACK` remains the accepted capability.
+- Operator actions expected: `2`. Ubuntu action `1/2` is already accepted for exact runtime release `fd449af7bdbd4036517f321b96de31fe206f623b`; VPS root privilege-bundle bootstrap is action `2/2` and remains pending.
+- The current three-path production-learning correction is CONTROL_PLANE/SDD only and creates no new runtime release identity.
 
 ## Validation
 
-Source validation covers Python syntax/import contracts, shell syntax, frontend static contract, fixed control allowlists, independent desired-state behavior, nginx private-ingress exclusion, synchronized analytics-profile Road control/private-source regression, exact updater/rollback/deploy transaction semantics, SDD validation, exact-artifact validation, exact approved 21-path scope, PR Validation and aggregate Quality integration.
+Source validation for the original product release covers Python syntax/import contracts, shell syntax, frontend static contract, fixed control allowlists, independent desired-state behavior, nginx private-ingress exclusion, synchronized analytics-profile Road control/private-source regression, exact updater/rollback/deploy transaction semantics, SDD validation, exact-artifact validation, exact approved 21-path scope, PR Validation and aggregate Quality integration.
 
-Runtime validation after separate authorization covers Ubuntu exact deployment and manifest, then VPS exact deployment. Authenticated browser acceptance verifies layout parity, Road preview auto-connect, Stream Stop/Play, Road Worker Stop while preview stays available and Water stays unchanged, Road Worker Start with advancing exact-source Road state, calibration/diagnostics/events, and protected public Authentik boundary.
+Production-learning correction validation is exact and bounded to `spec.md`, `plan.md` and `tasks.md`; it must pass PR Validation and aggregate Quality on the same corrective head, expected-head merge, and post-merge Quality. It must not alter runtime-installed source, the Outcome Contract, protected topology, production authorization fingerprint fields or the already authorized exact runtime target.
+
+Runtime validation after correction resumes from existing evidence: Ubuntu exact deployment is already accepted. Next, execute one repository-owned root VPS privilege-bundle bootstrap for exact `fd449af7bdbd4036517f321b96de31fe206f623b`, then retry the canonical Connector VPS deployment. Authenticated browser acceptance verifies layout parity, Road preview auto-connect, Stream Stop/Play, Road Worker Stop while preview stays available and Water stays unchanged, Road Worker Start with advancing exact-source Road state, calibration/diagnostics/events, and protected public Authentik boundary.
 
 ## Risk profile
 
@@ -50,6 +56,7 @@ Runtime validation after separate authorization covers Ubuntu exact deployment a
 - RISK-003 | Category: TECH | Probability: 3 | Impact: 3 | Score: 9 | Mitigation: mirror canonical Operator layout markers and reuse existing Road analytics/preview endpoints | Validation: frontend contract and browser smoke | Residual risk: visual browser differences require final manual acceptance | Owner: Delivery Orchestrator | Status: MITIGATED
 - RISK-004 | Category: OPS | Probability: 2 | Impact: 5 | Score: 10 | Mitigation: deploy Ubuntu before VPS and retain automatic rollback on exact Ubuntu activation failure | Validation: deployment transaction evidence | Residual risk: mixed rollout may temporarily leave old VPS UI against new backward-compatible Ubuntu control, which is safe | Owner: Delivery Orchestrator | Status: MITIGATED
 - RISK-005 | Category: SEC | Probability: 2 | Impact: 4 | Score: 8 | Mitigation: retain exact private M2M endpoint list and explicitly forbid all browser-control paths | Validation: nginx renderer plus analytics-profile regression | Residual risk: future endpoint additions require the same fail-closed regression | Owner: Delivery Orchestrator | Status: MITIGATED
+- RISK-006 | Category: OPS | Probability: 2 | Impact: 5 | Score: 10 | Mitigation: classify source-bound VPS privileged-bundle changes as `ONE_COMMAND_FALLBACK`, count the root bootstrap in the operator action budget, and fail closed before source activation when bundle identity mismatches | Validation: production-learning evidence from run `32022719065`, exact SDD correction CI and subsequent exact bootstrap/Connector retry | Residual risk: a future bundle-affecting change could again be misclassified unless capability derivation stays synchronized with the privilege-boundary contract | Owner: Delivery Orchestrator | Status: MITIGATED
 
 ## Test design
 
@@ -61,21 +68,29 @@ Runtime validation after separate authorization covers Ubuntu exact deployment a
 - TEST-006 | Covers: AC-009,AC-010 | Level: integration | Priority: P0 | Evidence: tests/test_sea_speed_auth_v1.py and tests/test_analytics_profiles.py
 - TEST-007 | Covers: AC-010 | Level: end-to-end | Priority: P0 | Evidence: exact-head PR Validation and aggregate Quality integration plus post-merge main Quality
 - TEST-008 | Covers: AC-011 | Level: runtime-manual | Priority: P0 | Evidence: Issue #206 Ubuntu/VPS deployment manifests and authenticated Road browser smoke
+- TEST-009 | Covers: AC-012 | Level: control-plane | Priority: P0 | Evidence: exact three-path corrective PR diff, PR Validation, aggregate Quality, post-merge Quality, production-learning Issue evidence, exact root bootstrap output and Connector VPS retry
 
 ## Correct-course check
 
-- Trigger: MATERIAL_SCOPE_CHANGE
-- Issue impact: Product outcome unchanged; source scope expanded by exactly one regression-test path, from 20 to 21 paths.
-- Specification impact: AC-010 and runtime feedback now record the authorized 21-path scope and synchronized Road control regression.
-- Plan impact: Validation and TEST-006 now include the analytics-profile fixed-control/private-source regression.
-- Tasks impact: T-009/T-010 record the synchronized regression and exact 21-path scope.
-- Authorization impact: RESOLVED. A fresh six-field 21-path Scope was presented immediately before the operator replied exactly `OUTCOME APPROVED`; durable admission evidence is recorded on Issue #206 comment `5314884903`.
-- Follow-up: Remediate only the stale assertion, keep protected/private-source and M2M boundaries fail-closed, then continue exact-head CI, freshness checks, expected-head merge and post-merge quality.
+- Trigger: PRODUCTION_LEARNING
+- Issue impact: Product outcome and protected runtime semantics are unchanged. Production evidence corrected the delivery capability/action budget for the already authorized exact runtime release.
+- Specification impact: FR-015 and AC-012 record the exact-source VPS privilege-bundle bootstrap requirement and combined two-action budget; runtime feedback records the accepted Ubuntu action and fail-closed VPS attempt.
+- Plan impact: VPS execution capability is corrected to `ONE_COMMAND_FALLBACK`; operator actions expected are corrected to `2`; production-learning validation, RISK-006, TEST-009 and adjacent-stage review are added.
+- Tasks impact: source/merge steps for PR #207 are marked complete, Ubuntu runtime action is marked complete, and VPS-second is corrected to require root bootstrap before Connector retry.
+- Authorization impact: RESOLVED. A fresh complete six-field three-path Scope was presented immediately before the operator replied `OUTCOME APPROVED`; durable admission evidence is Issue #206 comment `5315197764`.
+- Follow-up: Merge only the exact green three-path correction. Then execute only the remaining VPS root bootstrap for exact runtime release `fd449af7bdbd4036517f321b96de31fe206f623b`, retry the canonical Connector VPS deployment, and continue runtime/browser acceptance.
+
+## Production-learning adjacent-stage review
+
+- Previous stage review: Ubuntu-first mutation and verification completed successfully for exact `fd449af7bdbd4036517f321b96de31fe206f623b`; protected configuration reconciled; Water desired state remained `stopped`; Road desired state remained `running`; Road runtime progression passed.
+- Failing stage review: VPS pre-mutation privilege admission in runtime orchestrator #115 / `32022719065` verified source, Quality, authorization, release provenance and SSH, then failed closed with `ERROR privileged bundle source SHA does not match request` and `PRIVILEGE_BOUNDARY_BOOTSTRAP_REQUIRED=YES` before completed candidate activation.
+- Next stage review: deployment manifest collection/upload was skipped because VPS mutation did not complete; no VPS release is accepted from the failed attempt. The admissible next mutation is the repository-owned exact root privilege-bundle bootstrap, followed by Connector retry for the same authorized runtime SHA.
+- Rollback review: no new VPS candidate was accepted, so the prior accepted VPS runtime remains the effective rollback/live baseline. Ubuntu rollback remains the previously captured exact source/protected-state transaction if later runtime acceptance fails.
 
 ## Deployment transaction audit
 
-- TX-001 | Stage: ADMISSION | Mutation: NO | Failure disposition: FATAL | State after failure: production remains unchanged and execution is rejected | Retry: only after exact-main quality, release provenance and durable production authorization are valid | Rollback: not applicable because no mutation occurred | Evidence: runtime router authorization and exact-main checks
-- TX-002 | Stage: PRE-MUTATION | Mutation: NO | Failure disposition: FATAL | State after failure: existing Ubuntu and VPS releases remain active | Retry: after capability, protected-config, desired-state and rollback-target preflight passes | Rollback: not applicable because no runtime mutation occurred | Evidence: Ubuntu protected backup/preflight and VPS protected-baseline evidence
+- TX-001 | Stage: ADMISSION | Mutation: NO | Failure disposition: FATAL | State after failure: production remains unchanged and execution is rejected | Retry: only after exact target quality, release provenance and durable production authorization are valid | Rollback: not applicable because no mutation occurred | Evidence: runtime router authorization and exact-target first-parent checks
+- TX-002 | Stage: PRE-MUTATION | Mutation: POSSIBLE | Failure disposition: FATAL | State after failure: existing accepted runtime remains authoritative; source-bound VPS privileged bundle mismatch blocks candidate activation | Retry: Ubuntu requires protected-config/desired-state/rollback preflight; VPS additionally requires exact-source root privilege-bundle bootstrap before Connector deployment when bundle assets changed | Rollback: privilege installer transaction restores previous helper/bundle/sudoers state on bootstrap failure; otherwise no release rollback is needed before candidate activation | Evidence: Ubuntu protected backup/preflight, VPS privilege status output and root bootstrap output
 - TX-003 | Stage: MUTATION | Mutation: YES | Failure disposition: FATAL | State after failure: Ubuntu updater restores previous exact service topology on activation failure; VPS deploy owns its existing candidate rollback transaction | Retry: only after actual state is re-resolved and failure audit is complete | Rollback: Ubuntu automatic exact rollback plus protected-config restore; VPS existing automatic release/auth-boundary rollback | Evidence: updater/deploy logs and rollback markers
 - TX-004 | Stage: VERIFICATION | Mutation: POSSIBLE | Failure disposition: FATAL | State after failure: any unverified candidate is rolled back or execution fails closed with actual state recorded | Retry: only after verification failure root cause and adjacent stages are reviewed | Rollback: exact prior Ubuntu release and prior VPS release/boundary | Evidence: exact source/runtime identity, desired-state checks, health, Road freshness and public auth smoke
 - TX-005 | Stage: STATE-COMMIT | Mutation: YES | Failure disposition: FATAL | State after failure: active release markers/manifests are not accepted unless verification passed | Retry: after exact runtime identity is restored or revalidated | Rollback: restore prior active source marker/release if commit cannot be completed safely | Evidence: active-source marker, VPS current-release marker and deployment manifests
@@ -85,8 +100,10 @@ Runtime validation after separate authorization covers Ubuntu exact deployment a
 
 ## Runtime feedback
 
-- Current source base at admission: `f80204de6a86147fdafc70cec1cc1463ad66ddaa`.
-- Source authorization now covers exactly the approved 21 repository paths after the bounded analytics-profile regression expansion; production scope is unchanged.
-- Ubuntu execution capability: `ONE_COMMAND_FALLBACK`; VPS execution capability: `CONNECTOR`.
-- Runtime deployment is not authorized by source approval. A fresh production fingerprint bound to the exact merged main SHA is required.
+- Original product source merge/main: `fd449af7bdbd4036517f321b96de31fe206f623b`; this remains the authorized runtime release target.
+- Current production-learning correction base: `fd449af7bdbd4036517f321b96de31fe206f623b`; correction repository scope is exactly three SDD paths and creates no new runtime-installed source.
+- Ubuntu execution capability: `ONE_COMMAND_FALLBACK`; action `1/2` completed and runtime acceptance for the Ubuntu deployment transaction passed.
+- VPS execution capability: corrected from `CONNECTOR` to `ONE_COMMAND_FALLBACK`; action `2/2` is the exact root privilege-bundle bootstrap. Connector remains the post-bootstrap VPS deployment transport.
+- Runtime orchestrator #115 / `32022719065` failed only because the exact-source root bundle was not bootstrapped; the workflow's source/Quality/authorization/provenance/SSH admission gates passed and candidate deployment evidence was not accepted.
+- Existing production authorization fingerprint remains bound to the unchanged Outcome Contract, runtime contour fields, security impact, production-impact rationale and rollback target for exact runtime release `fd449af7bdbd4036517f321b96de31fe206f623b`; this correction does not change those fingerprint inputs.
 - Final browser parity remains runtime-manual evidence because static tests can prove structure/contracts but not protected visual usability and live media behavior.
