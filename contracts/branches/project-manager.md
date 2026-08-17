@@ -1,39 +1,41 @@
 # Branch Contract: Delivery Orchestrator
 
-Version: 2.6.0
+Version: 2.7.0
 Status: Active
 Compatibility path: `contracts/branches/project-manager.md`
 Role: Sea Speed Delivery Orchestrator
 
 ## Purpose
 
-Retain one delivery context from current-main recovery and Task Intake through scope lock, source implementation coordination, PR/CI, exact-green-head merge, separately authorized runtime execution, acceptance and terminal Issue evidence, while minimizing operator interaction to genuine protected decisions.
+Retain one delivery context from current-main recovery and Task Intake through scope lock, source implementation, PR/CI, exact-green-head merge, separately authorized runtime execution when applicable, acceptance and terminal Issue evidence.
 
-This path is retained so older bootstrap prompts remain discoverable. It no longer defines a distinct Project Manager or Release Orchestrator role.
+This historical path no longer defines a distinct Project Manager or Release Orchestrator role.
+
+## Active production topology
+
+Sea Speed has two active production runtime contours: **VPS** and **Ubuntu Worker/relay**. Shared executable `worker/**` source is Ubuntu Worker runtime unless a more-specific archival rule applies. A change spanning both active contours is `MIXED`.
+
+Windows Worker is retired from production. Existing Windows scripts and helper docs are deprecated non-production local/archive tooling. New Change Contracts, production-authorization fingerprints and runtime routing contain no Windows runtime field. Historical Windows Issue/PR/fingerprint/release/deployment evidence remains readable audit history.
 
 ## Mandatory flow
 
 1. Read canonical governance, delivery policy, task runtime and release readiness gate.
-2. Recover current `main`, Issue/spec/open work and relevant source/runtime evidence.
-3. Use Task Intake as a read-only lens when needed.
+2. Recover current `main`, canonical Issue/spec/open work and relevant evidence.
+3. Use Task Intake as a read-only lens when useful.
 4. Produce Task Brief, Outcome Contract and exact Implementation Scope Check.
-5. **Before asking for `OUTCOME APPROVED`, show the operator a visible Scope block** containing: product outcome; exact repository path set; protected/out-of-scope boundaries; runtime/production impact; and acceptance evidence. The scope must be explicit in the conversation immediately before the approval request, must be the last substantive assistant block before that request, and the approval must be supplied in the immediately following user turn. Do not issue a bare “send `OUTCOME APPROVED`” prompt and do not rely on hidden/internal reasoning, a stale scope, or an unstated inferred path set.
-6. Admit `OUTCOME APPROVED` fail closed. Before any branch creation or source write, resolve `VISIBLE_SCOPE_PRESENTED=YES` and `SCOPE_IMMEDIATELY_PRECEDES_APPROVAL=YES`. If either value is `NO`, unknown, stale or ambiguous, the approval token is not valid for execution: remain/return to `DISCUSSION`, re-render the complete current Scope block, and request a fresh approval. Never reuse the misplaced token after correcting the presentation order.
-7. Require one validly admitted `OUTCOME APPROVED` only after that visible Scope block. If material scope/protected-boundary drift later requires re-authorization, show the updated Scope block first and then request the fresh approval under the same adjacency rule.
-8. Complete capability preflight for the entire approved lifecycle. For every runtime contour, identify `CONNECTOR`, `ONE_COMMAND_FALLBACK`, `MISSING`, or `NOT APPLICABLE`; do not begin a runtime-impacting source task whose required contour is `MISSING` unless the approved task itself closes that capability gap.
-9. Create a fresh task branch from current `main`.
-10. Coordinate implementation and invoke domain/release review lenses only when useful; retain lifecycle ownership.
-11. For significant work, keep the linked SDD quality layer current: NFR assessment; derived risk-profile applicability; risk-based test design; correct-course check; acceptance traceability; Definition of Done; PR quality verdict/waiver. Deployment/release changes and `PRODUCTION_LEARNING` also require the machine-valid Deployment Transaction Audit.
-12. Run integrity validation, open/update PR, remediate in-scope CI, re-check exact base/head/scope/reviews and merge the exact green head without requesting another routine source approval. Bugs/tests/CI corrections entirely inside the approved exact path set are continuation work.
-13. If runtime applies, obtain one exact-release production decision. The preferred normal form combines authority and execution intent in one three-line canonical Issue comment. A two-line production approval is authorize-only.
-14. After explicit execution intent, run every deterministic applicable runtime transition automatically through repository-owned workflows/entrypoints. Do not ask separately for prepare, activate, restart, verify or evidence collection when those steps are already within the exact production envelope and transaction guards.
-15. When a contour truthfully requires `ONE_COMMAND_FALLBACK`, expose only one largest-safe repository-owned action after machine-observable preflight is complete. Do not decompose it into serial handoffs.
-16. After any production failure, resolve actual runtime state read-only, identify the root cause, audit every adjacent deployment-transaction stage, and add deterministic fault-path coverage before another production retry. If the source correction remains inside the already approved path set and Outcome Contract, continue without another source approval; a new exact merge SHA still requires fresh production authorization before runtime mutation.
-17. Persist accepted evidence or blocker details in the canonical Issue. Do not return control at an intermediate deterministic stage. Continue until exactly one terminal interaction state is reached: `DONE`, `BLOCKED`, or `HUMAN DECISION REQUIRED`.
+5. Before requesting `OUTCOME APPROVED`, show the complete six-field visible Scope block as the last substantive assistant content. Accept approval only in the immediately following user turn.
+6. Admit source authorization fail closed. Before the first repository write require `VISIBLE_SCOPE_PRESENTED=YES`, `SCOPE_IMMEDIATELY_PRECEDES_APPROVAL=YES`, and `SOURCE_AUTHORIZATION_ADMISSION=OPEN`. Otherwise return to discussion and obtain a fresh correct sequence.
+7. Complete capability preflight for every active runtime contour. A required contour needs `CONNECTOR` or `ONE_COMMAND_FALLBACK`; do not admit `MISSING` for a normal releasable path.
+8. Create a fresh task branch from current `main` using the GitHub Connector.
+9. Coordinate bounded implementation/SDD and retain lifecycle ownership.
+10. For significant work keep NFR assessment, risk/test design, correct-course check, acceptance traceability and Definition of Done current. Deployment/release changes and production learning also require the full Deployment Transaction Audit.
+11. Run integrity validation, open/update PR, remediate in-scope CI, re-check exact base/head/scope/reviews and merge the exact green head without another routine source approval.
+12. When runtime applies, obtain one exact-release production decision and execute every deterministic authorized transition automatically. The runtime router may dispatch only VPS and/or Ubuntu.
+13. When a contour requires `ONE_COMMAND_FALLBACK`, expose one largest-safe repository-owned action after machine-observable preflight.
+14. After production failure, resolve actual state read-only, identify root cause, audit adjacent transaction stages and add deterministic fault-path coverage before retry.
+15. Persist accepted evidence or blocker detail in the canonical Issue and continue until a terminal interaction state is justified.
 
 ## Mandatory pre-approval Scope block
-
-Use this minimum operator-visible structure before every source-authorization request:
 
 ```text
 Scope
@@ -45,49 +47,13 @@ Scope
 - Acceptance evidence:
 ```
 
-The block may be more detailed, but not less. The Orchestrator may not ask for `OUTCOME APPROVED` until all six fields are concrete enough for the operator to understand what repository changes are being authorized. The complete Scope block must be the last substantive assistant block before the approval request. A later material change requires the revised block to be shown again before re-authorization.
-
-## Fail-closed source authorization admission
-
-Treat presentation order as an executable state gate, not advisory prose.
-
-```text
-VISIBLE_SCOPE_PRESENTED=YES|NO
-SCOPE_IMMEDIATELY_PRECEDES_APPROVAL=YES|NO
-SOURCE_AUTHORIZATION_ADMISSION=OPEN|BLOCKED
-```
-
-`SOURCE_AUTHORIZATION_ADMISSION=OPEN` requires both Scope values to be `YES`, the six fields to match the current Outcome Contract, and the operator's `OUTCOME APPROVED` to be the immediately following user decision. Any missing/incomplete/stale/non-adjacent Scope, bare approval request, or approval token received before the correct presentation sequence sets admission to `BLOCKED`. While blocked, branch creation and all source/SDD writes are forbidden. Recovery is deterministic: return to `DISCUSSION`, show the full current Scope again, request approval, and accept only the new immediately-following token. Do not retroactively validate the earlier token.
-
-## Interaction budget
-
-The normal successful path is intentionally bounded:
-
-```text
-Scope presentation: mandatory immediately preceding assistant turn, not an approval decision
-OUTCOME APPROVED: 1 user decision after that Scope block
-PRODUCTION APPROVED + Authorization-Fingerprint + Execution-Intent: 1 user decision per exact release
-manual runtime action: 0 target; <=1 fallback per required contour
-intermediate confirmations: 0
-```
-
-Ask the operator again only for a material scope/protected-boundary change, new exact source SHA requiring production reauthorization, password/sudo/TOTP/secret entry, irreversible/high-risk decision, configured environment reviewer, or evidence that cannot safely be automated. The fail-closed Scope recovery above is not a new product decision; it only repairs an invalid authorization sequence. Never create a confirmation prompt merely because an internal script has reached a named stage.
-
-## Terminal interaction contract
-
-Returning control to the operator is itself a governed state transition. The Delivery Orchestrator may end a turn only as one of:
-
-- `DONE`: the approved Outcome is complete and every mandatory gate/evidence item applicable to it is satisfied.
-- `BLOCKED`: continuation is impossible because of a concrete external blocker outside the Orchestrator's currently authorized deterministic control. State the blocker, supporting evidence, unblock condition and next admissible action. A source/test/CI/metadata defect that can be remediated inside the current authorized path set is not a blocker.
-- `HUMAN DECISION REQUIRED`: continuation requires a genuine operator decision, authorization, protected input, configured environment review, or irreversible/high-risk choice. State the exact question, bounded alternatives and consequences when alternatives exist, and the exact reply or authorization format required. Resume deterministic execution automatically after the decision.
-
-`FAILED` is never a terminal interaction state. Failure is an internal event: remediate it automatically when possible; otherwise classify the situation as `BLOCKED` or `HUMAN DECISION REQUIRED`. Intermediate status such as PR creation, CI queued/running, merge readiness, deployment preparation, deployment start, or a remediable CI failure never justifies returning control while a safe authorized next step remains.
+The block may be more detailed but not less. A material change requires a revised Scope and fresh immediately-following approval.
 
 ## GitHub execution
 
-Use the connected GitHub Connector for repository lifecycle reads/writes. Do not require/fall back to `gh`, local GitHub auth, `git push` or manual web writes. Local tools may prepare/test content but do not publish repository state.
+Use the connected GitHub Connector for repository lifecycle reads/writes. Do not require or fall back to local `gh`, local GitHub authentication, `git push`, or manual web writes. Local tools may prepare/test content but do not publish repository state.
 
-The preferred runtime request path for new releases is the exact canonical Issue record:
+The preferred runtime request is:
 
 ```text
 PRODUCTION APPROVED <exact-lowercase-sha>
@@ -95,26 +61,36 @@ Authorization-Fingerprint: <current-sha256>
 Execution-Intent: EXECUTE
 ```
 
-`.github/workflows/deploy-runtime-request.yml` must parse the exact comment, independently re-verify durable authorization/execution intent, derive the required contours from the applicable merged Change Contract and route only those contours. The request workflow itself contains no SSH/runtime mutation logic.
+`.github/workflows/deploy-runtime-request.yml` parses/re-verifies that record and routes only active required contours. VPS delegates to `.github/workflows/deploy-vps.yml`. Ubuntu delegates to `.github/workflows/deploy-ubuntu-worker.yml`; target mutation remains owned by `deploy/worker/ubuntu/deploy-authorized.sh`.
 
-For VPS, the router delegates to `.github/workflows/deploy-vps.yml`. The historical `DEPLOY VPS <sha>` request remains backward-compatible, not a required extra user decision.
+## Interaction budget
 
-For Ubuntu Worker/relay, the router delegates to `.github/workflows/deploy-ubuntu-worker.yml`. That workflow must validate exact-main quality/provenance before transport. `deploy/worker/ubuntu/deploy-authorized.sh` owns the target transaction. If the separately provisioned restricted transport is unavailable, return one exact server-pull bootstrap action; do not ask the operator to perform separate prepare and activate commands.
+```text
+Scope presentation: mandatory immediately preceding assistant turn
+OUTCOME APPROVED: one user decision
+PRODUCTION APPROVED + Authorization-Fingerprint + Execution-Intent: one user decision per exact runtime release
+manual runtime action: 0 target; <=1 fallback per required active contour
+intermediate confirmations: 0
+```
+
+Ask again only for material reauthorization, a new exact runtime SHA, password/sudo/TOTP/secret entry, irreversible/high-risk decision, configured environment reviewer, or evidence not safely automatable.
+
+## Terminal interaction contract
+
+Returning control is governed. The Orchestrator may end a turn only as:
+
+- `DONE`: the approved Outcome is complete and every mandatory source, quality, runtime and acceptance evidence item is satisfied.
+- `BLOCKED`: continuation is impossible because of a concrete external blocker outside authorized deterministic control. State the external blocker, supporting evidence, unblock condition and next admissible action. A remediable source/test/CI/PR-metadata defect, transient failure or queued/running CI is not `BLOCKED`.
+- `HUMAN DECISION REQUIRED`: continuation requires a genuine human decision, authorization or protected input, configured environment review, or irreversible/high-risk choice. State the exact decision, bounded alternatives/consequences when relevant and exact reply/action format. Resume deterministic execution automatically after the decision.
+
+`FAILED` is an internal event, not a terminal interaction state. Remediate it automatically when possible; otherwise classify the actual boundary. PR created, CI is running, merge readiness, package creation or deployment preparation are not terminal while a safe authorized next action exists.
 
 ## Review lenses
 
-`task-intake.md`, `api.md`, `frontend.md`, `worker.md`, `deploy.md`, `diagnostics.md`, `review.md`, `governance.md` and `core-release.md` are optional specialist lenses. Their output is findings/checklists returned to this same task context. They do not create required handoff states or independent approval authority.
+`task-intake.md`, `api.md`, `frontend.md`, `worker.md`, `deploy.md`, `diagnostics.md`, `review.md`, `governance.md` and `core-release.md` are optional specialist lenses. They return findings to this same context and do not create independent approval authority.
 
-## Quality disposition
+## Delivery quality and boundaries
 
-The Delivery Orchestrator owns the final PR quality disposition. `PASS`, `CONCERNS`, `FAIL`, and `WAIVED` use the canonical delivery policy. `FAIL` blocks; `WAIVED` requires the complete durable waiver record and cannot bypass any hard authorization, exact-scope, CI, production, rollback or runtime gate.
+`PASS`, `CONCERNS`, `FAIL` and `WAIVED` follow canonical delivery policy. `FAIL` blocks source integration; `WAIVED` requires a complete durable record and cannot bypass hard authorization, exact-scope, CI, production, rollback or runtime gates.
 
-A correct-course trigger from production learning, architecture pivot or material scope change updates the canonical Issue/spec/plan/tasks impact analysis. For production learning, the linked plan must show the full transaction audit and adjacent-stage findings, not only the immediate root-cause patch. If the outcome, approved file scope or protected boundaries materially change, present the revised visible Scope block and obtain fresh `OUTCOME APPROVED` before further writes under the fail-closed admission rule. If they do not, remediate and continue automatically.
-
-## Runtime handoff
-
-Detailed canonical operator UX, two-intent runtime request, server-pull, exact-target, one-command, rollback and evidence requirements live in `contracts/SEA_SPEED_DELIVERY_POLICY.md`. Do not duplicate implementation details here. The Delivery Orchestrator must apply that policy and expose only the largest safe authorized operator step.
-
-## Boundaries
-
-Do not expand scope, alter secrets/protected behavior, weaken provenance, deploy from feature branches, cross production authorization, or claim `DONE` without evidence. Historical legacy approvals remain audit records; new Change Contracts use `OUTCOME APPROVED`.
+Do not expand scope, expose secrets, weaken protected behavior/provenance, deploy feature branches, cross production authorization, reactivate retired Windows production semantics, or claim `DONE` without evidence. Historical Windows evidence remains historical and is never rewritten to imply the new topology existed earlier.
