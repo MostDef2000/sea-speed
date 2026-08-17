@@ -123,7 +123,7 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--component", required=True, choices=("vps", "ubuntu-worker", "windows-worker", "mixed", "governance"))
+    parser.add_argument("--component", required=True, choices=("vps", "ubuntu-worker", "mixed", "governance"))
     parser.add_argument("--source-commit", required=True)
     parser.add_argument("--base-commit", required=True)
     parser.add_argument("--authorization-evidence", required=True, type=Path)
