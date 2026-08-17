@@ -124,6 +124,14 @@ def main() -> int:
             "refs/heads/main", "--first-parent", "verify_quality_status.py", "--workflow-file quality-integration.yml",
             "verify_production_authorization.py", "production-authorization.json", "Build exact deployment artifacts",
             "Build and validate quality evidence", "Build release provenance v2",
+            "SEA_SPEED_REQUIRE_AUTH_BOUNDARY: \"1\"",
+            "SEA_SPEED_AUTHENTIK_UPSTREAM: \"http://10.123.239.102:19000\"",
+            "SEA_SPEED_WORKER_PRIVATE_LISTEN: \"10.123.239.101:18080\"",
+            "SEA_SPEED_WORKER_PRIVATE_PEER: \"10.123.239.102\"",
+            "bash -n deploy/vps/sea-speed-auth-cutover.sh",
+            "Deploy exact commit and reconcile Road private M2M boundary",
+            "auth_v1_road_private_m2m",
+            "VPS Road private M2M deployment evidence valid",
         ),
     )
     if "${INPUT_COMMIT,,}" in deploy_vps:
@@ -132,6 +140,10 @@ def main() -> int:
         fail("production authorization must be verified before VPS SSH configuration")
     if deploy_vps.index("verify_quality_status.py") > deploy_vps.index("Configure SSH"):
         fail("quality evidence must be verified before VPS SSH configuration")
+    if deploy_vps.index("Build exact deployment artifacts") > deploy_vps.index("Configure SSH"):
+        fail("exact VPS artifact must be validated before runtime SSH")
+    if deploy_vps.index("Deploy exact commit and reconcile Road private M2M boundary") < deploy_vps.index("Configure SSH"):
+        fail("VPS boundary reconcile must execute only after protected SSH setup")
 
     legacy_request_on = vps_request.split("permissions:", 1)[0]
     if "issue_comment:" not in legacy_request_on or "types: [created]" not in legacy_request_on:
@@ -198,7 +210,7 @@ def main() -> int:
         except ValueError as exc:
             fail(str(exc))
     print(
-        "Workflow policy valid: immutable actions, aggregate SDD gate, reusable exact-main deployments, "
+        "Workflow policy valid: immutable actions, aggregate SDD gate, exact VPS Auth v1 boundary transaction, "
         "two-intent Connector request routing, durable authorization and bounded fallback"
     )
     return 0

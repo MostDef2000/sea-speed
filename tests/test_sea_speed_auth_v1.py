@@ -415,6 +415,8 @@ class SeaSpeedAuthV1Tests(unittest.TestCase):
             "proxy_set_header Host \\$host;", "proxy_set_header X-Forwarded-Proto \\$scheme;",
             "proxy_set_header X-Forwarded-For \\$proxy_add_x_forwarded_for;", "proxy_set_header Upgrade \\$http_upgrade;",
             "AUTHENTIK_PUBLIC_BOOTSTRAP=PASS", "SEA_SPEED_MAIN_BOUNDARY_CHANGED=NO", "AUTOMATIC_ROLLBACK=NO",
+            "--require-protected-baseline", "verify_protected_baseline", "restore_protected_backup",
+            "ROLLBACK_CAPABILITY=VERIFIED", "AUTOMATIC_ROLLBACK=PASS", "AUTOMATIC_ROLLBACK=AVAILABLE",
             "WORKER_RUNTIME_RECONFIGURATION_REQUIRED=YES", "WORKER_PRIVATE_ROAD_API_BASE=http://%s/api/analytics/road1",
             "/sea-speed/media/cam1/index.m3u8", "https://auth.mostdef.ru",
         ):
@@ -442,6 +444,11 @@ class SeaSpeedAuthV1Tests(unittest.TestCase):
         self.assertIn("200|301|302|307|308|401|403", source)
         self.assertIn('"api_origin_health"', source)
         self.assertIn('"public_private_health_smoke"', source)
+        self.assertIn('AUTH_BOUNDARY_REQUIRED="${SEA_SPEED_REQUIRE_AUTH_BOUNDARY:-0}"', source)
+        self.assertIn('run_auth_boundary()', source)
+        self.assertIn('deploy/vps/sea-speed-auth-cutover.sh', source)
+        self.assertIn('--require-protected-baseline', source)
+        self.assertIn('"auth_v1_road_private_m2m"', source)
         self.assertNotIn('curl --fail --silent --show-error --max-time 10 "$PUBLIC_HEALTH_URL"', source)
 
     def test_sdd_and_runtime_docs_record_issue_122_and_keep_production_separate(self) -> None:

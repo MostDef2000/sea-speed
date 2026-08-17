@@ -24,6 +24,15 @@ class QualityArchitectureTests(unittest.TestCase):
             self.assertIn("verify_production_authorization.py", source)
             self.assertIn("--first-parent", source)
         self.assertIn("deploy/worker/ubuntu/deploy-authorized.sh", ubuntu)
+        for marker in (
+            'SEA_SPEED_REQUIRE_AUTH_BOUNDARY: "1"',
+            'SEA_SPEED_AUTHENTIK_UPSTREAM: "http://10.123.239.102:19000"',
+            'SEA_SPEED_WORKER_PRIVATE_LISTEN: "10.123.239.101:18080"',
+            'SEA_SPEED_WORKER_PRIVATE_PEER: "10.123.239.102"',
+            "Deploy exact commit and reconcile Road private M2M boundary",
+            "auth_v1_road_private_m2m",
+        ):
+            self.assertIn(marker, deploy)
 
     def test_windows_package_remains_pre_release_only(self) -> None:
         package = (ROOT / ".github/workflows/package-worker.yml").read_text(encoding="utf-8")
@@ -49,6 +58,12 @@ class QualityArchitectureTests(unittest.TestCase):
             edge_paths = {x["path"] for x in edge["files"]}
             ubuntu_paths = {x["path"] for x in ubuntu["files"]}
             self.assertIn("frontend/sea-speed/road/index.html", vps_paths)
+            for marker in (
+                "deploy/vps/sea-speed-auth-cutover.sh",
+                "scripts/operations/nginx_cam1_direct_h264.py",
+                "scripts/operations/nginx_sea_speed_auth.py",
+            ):
+                self.assertIn(marker, vps_paths)
             self.assertIn("worker/analytics_profiles.py", edge_paths)
             for marker in (
                 "worker/analytics_profiles.py", "deploy/worker/ubuntu/road-worker.env.example",
