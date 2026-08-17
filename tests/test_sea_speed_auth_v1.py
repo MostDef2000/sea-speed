@@ -192,12 +192,20 @@ class SeaSpeedAuthV1Tests(unittest.TestCase):
             self.assertIn(f"location = {path} {{", rendered)
             self.assertIn(f"limit_except {method} {{ deny all; }}", rendered)
             self.assertIn(f"proxy_pass http://127.0.0.1:8000{path};", rendered)
+        browser_control = (
+            "/api/worker/control",
+            "/api/worker/control/start",
+            "/api/worker/control/stop",
+            "/api/worker/control/road1",
+            "/api/worker/control/road1/start",
+            "/api/worker/control/road1/stop",
+        )
+        self.assertEqual(nginxauth.WORKER_BROWSER_CONTROL_PATHS, browser_control)
+        for path in browser_control:
+            self.assertNotIn(f"location = {path} {{", rendered)
         self.assertNotIn("location /api/ {", rendered)
         self.assertNotIn("location /api/analytics/", rendered)
         self.assertNotIn("/api/analytics/road1/objects", rendered)
-        self.assertNotIn("location = /api/worker/control", rendered)
-        self.assertNotIn("/api/worker/control/start", rendered)
-        self.assertNotIn("/api/worker/control/stop", rendered)
         self.assertEqual(nginxauth.WORKER_BROWSER_CONTROL_PREFIX, "/api/worker/control")
 
     def test_private_worker_verifier_rejects_method_or_path_drift(self) -> None:
