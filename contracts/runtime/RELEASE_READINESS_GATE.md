@@ -70,7 +70,7 @@ The merge-facing context remains `Quality integration gate / quality-integration
 
 For significant work, linked SDD includes NFR assessment, risk/test design, correct-course, acceptance traceability and Definition of Done. Full risk profile is derived from security, schema, destructive/data migration, `MIXED` runtime, or another explicit high-risk trigger.
 
-A quality waiver is never a hard-gate bypass. No waiver bypasses source authorization, exact diff, active runtime derivation, protected-boundary reauthorization, secret checks, aggregate CI, production authorization, release provenance, rollback or runtime acceptance.
+A quality waiver is never a hard gate bypass. No waiver bypasses source authorization, exact diff, active runtime derivation, protected-boundary reauthorization, secret checks, aggregate CI, production authorization, release provenance, rollback or runtime acceptance.
 
 ## Release provenance gate
 
