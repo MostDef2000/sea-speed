@@ -6,9 +6,9 @@
 
 ## Delivery tasks
 
-- TASK-001: Preserve the historical PR #198 exact 42-path source record and all accepted water/road profile, API, frontend, model and runtime isolation behavior; never rewrite history to hide later production-learning defects.
+- TASK-001: Preserve historical PR #198 exact 42-path source record and accepted water/road profile behavior; do not rewrite history to hide production-learning defects.
 - TASK-002: Keep `worker/analytics_profiles.py` water-v1/road-v1 defaults and deterministic class normalization unchanged by corrective diffs.
-- TASK-003: Keep in-process and supervised Ubuntu YOLO profile semantics, tracking/speed/event ordering and shared worker source unchanged by corrective diffs.
+- TASK-003: Keep worker/AI tracking/speed/event semantics unchanged by corrective diffs.
 - TASK-004: Preserve protected road media/model configuration and isolated `sea-speed-road-worker.service` behavior.
 - TASK-005: Preserve exact Ubuntu installation/update/rollback/deployment identity and protected `road-worker.env` handling without extending browser worker control.
 - TASK-006: Preserve additive generic API state/events/ROI/speed/objects and legacy Camera 1 compatibility; perform no corrective API/storage schema change.
@@ -16,63 +16,77 @@
 - TASK-008: Preserve Road frontend exact VPS deployment behavior and model-binary exclusion from artifacts.
 - TASK-009: Preserve telemetry semantics and no-secret/no-model repository boundaries.
 - TASK-010: Retain existing unit/integration/frontend/deployment regression coverage for the original product behavior.
-- TASK-011: Keep historical PR #198 exact 42/42 changed-file and green-CI evidence auditable; each production-learning correction has its own exact authorization/diff evidence.
-- TASK-012: Merge every corrective PR only after fresh main/head/scope/review verification with expected-head protection and verify post-merge push/main quality.
+- TASK-011: Keep historical PR #198 exact 42/42, PR #200 exact 10/10 and PR #201 exact 12/12 evidence auditable; every production-learning correction has its own authorization/diff evidence.
+- TASK-012: Merge every corrective PR only after fresh main/head/scope/review verification with expected-head protection and post-merge push/main quality.
 - TASK-013: Do not mutate corrected production until a fresh exact merged-SHA production envelope with current fingerprint and execution intent is authorized.
-- TASK-014: Treat Windows as NOT APPLICABLE to corrective diffs that contain no shared `worker/**`; preserve historical #198 Windows evidence and leave contour retirement to Issue #199.
-- TASK-015: First correction: extend `scripts/operations/nginx_sea_speed_auth.py` with only exact Road worker M2M paths/methods on the existing private exact-peer listener, retaining deny-all catch-all, bearer forwarding and browser-control exclusion.
-- TASK-016: First correction: update `deploy/worker/ubuntu/configure-analytics-profiles.py` so Road state/events URLs are derived only from the validated protected Camera 1 private M2M endpoint and fail closed for public/credential/non-private/loopback/missing-port/query/wrong-path origins; keep `road-worker.env.example` free of public API defaults.
-- TASK-017: First correction: update focused Auth v1, analytics profile and Ubuntu deployment contract tests for exact private route/method matrices, tamper rejection, private-origin derivation, mode-0600 protected config and absence of public Road worker API defaults.
-- TASK-018: Keep feature SDD current as `PRODUCTION_LEARNING`, including concrete root causes, complete adjacent-stage reviews, risk/test design, full eight-stage Deployment Transaction Audit and exact per-correction applicability.
-- TASK-019: First correction: merge PR #200 only with the exact authorized 10 paths, VPS `CONNECTOR`, Ubuntu `ONE_COMMAND_FALLBACK`, Windows `NOT APPLICABLE`, and exact-head green PR Validation/Quality. Preserve `30e77e1f42397fddabc2a36fcfe922416a8efe57` as the first corrective source checkpoint.
-- TASK-020: First correction runtime: after valid authorization, activate the corrected VPS private ingress first, then deploy/regenerate Ubuntu Road protected config and verify Road service without starting the main Water Worker unless its operator-desired state separately requires it.
-- TASK-021: Final product acceptance: prove from the VPS side that `road1` is online, exact source is bound, frame number advances, events/objects are observable, clean preview start/media/stop is green, and public Authentik/Camera1 regressions remain green; worker-local POST logs are insufficient evidence.
-- TASK-022: Second correction: include `sea-speed-auth-cutover.sh`, `nginx_cam1_direct_h264.py` and `nginx_sea_speed_auth.py` in the deterministic VPS exact artifact and validate their shell/Python syntax and source inventory before SSH.
-- TASK-023: Second correction: make `.github/workflows/deploy-vps.yml` require the approved non-secret private topology, invoke one exact target deployment transaction, and reject deployment evidence unless `auth_v1_road_private_m2m=passed` with `runtime_verified` state.
-- TASK-024: Second correction: extend `deploy/vps/deploy.sh` so exact source release staging includes Auth cutover/renderers; canonical invocation performs boundary `prepare -> expected SHA activate -> evidence`; already-current source fails closed when boundary acceptance fails; a new candidate source rolls back when boundary reconciliation rejects it.
-- TASK-025: Second correction: extend `sea-speed-auth-cutover.sh` with `--require-protected-baseline`. Prove the current live boundary is already Authentik-protected with exact private listen/peer and Camera 1 machine routes before mutation; on post-mutation failure restore the captured root-only nginx backup, reload and re-verify the protected baseline; preserve legacy/manual non-automatic rollback semantics without the flag.
-- TASK-026: Second correction: execute production-equivalent fault-path coverage through the real `deploy/vps/deploy.sh` with isolated fake runtime boundaries for successful boundary evidence, API candidate failure, Auth candidate failure after boundary self-rollback, and already-current-source boundary failure.
-- TASK-027: Second correction: strengthen Auth v1 and quality architecture tests to require protected-baseline/rollback contract markers, canonical deploy integration, exact VPS Auth artifact contents and workflow policy binding.
-- TASK-028: Second correction: maintain exactly the separately authorized 12 changed paths, open one PR linked to Issue #197/spec 018, declare VPS `CONNECTOR`, Ubuntu/Windows `NOT APPLICABLE`, operator actions expected 0 for this exact diff, and remediate only in-scope CI findings until exact-head PR Validation and aggregate Quality are green.
-- TASK-029: Second correction: after exact-green merge and post-merge quality, compute a new production authorization fingerprint and obtain one fresh exact-SHA VPS `PRODUCTION APPROVED` + `Execution-Intent: EXECUTE` before any second-correction runtime mutation.
-- TASK-030: Second correction runtime: run the protected VPS Connector transaction and require exact source, validated exact artifact, protected-baseline/candidate/rollback capability evidence and `auth_v1_road_private_m2m=passed`. Do not resume the pending Ubuntu first-correction runtime action until this VPS evidence is green.
+- TASK-014: Treat Windows as NOT APPLICABLE to corrective diffs without shared `worker/**`; Issue #199 separately owns contour retirement.
+- TASK-015: First correction preserved exact Road worker M2M paths/methods on the existing private exact-peer listener.
+- TASK-016: First correction preserved private Road state/events URL derivation from protected Camera 1 M2M origin.
+- TASK-017: First correction preserved focused Auth/profile/Ubuntu contract tests.
+- TASK-018: Keep feature SDD current as `PRODUCTION_LEARNING`, including concrete root causes, complete adjacent-stage reviews, risk/test design and full eight-stage Deployment Transaction Audit.
+- TASK-019: First correction PR #200 remains the exact 10-path checkpoint `30e77e1f42397fddabc2a36fcfe922416a8efe57`.
+- TASK-020: First correction Ubuntu runtime remains pending until the VPS boundary is accepted.
+- TASK-021: Final product acceptance requires VPS-observed `road1` online state, exact source, advancing frame, events/objects, clean preview and public Auth/Camera1 regression evidence.
+- TASK-022: Second correction packaged the Auth cutover and nginx renderers in the deterministic VPS exact artifact.
+- TASK-023: Second correction made canonical VPS deployment require `auth_v1_road_private_m2m=passed` before workflow success.
+- TASK-024: Second correction made `deploy/vps/deploy.sh` own source plus Auth-boundary reconciliation and source rollback.
+- TASK-025: Second correction retained protected-baseline nginx rollback in `sea-speed-auth-cutover.sh`.
+- TASK-026: Second correction retained production-equivalent deployment fault-path coverage.
+- TASK-027: Second correction retained Auth v1 and quality architecture binding.
+- TASK-028: Second correction PR #201 remains the exact 12-path VPS-only checkpoint `f21b31d38e95179445e68e5543a1c934a744d514`.
+- TASK-029: Record that the authorized `f21b31...` VPS production run failed at root privilege admission (`sudo` password required) after candidate source activation and safely rolled source back to `30e77...`; Ubuntu remained paused.
+- TASK-030: Reject root SSH and broad `NOPASSWD` as the remediation; use least-privilege option A.
+- TASK-031: Add `deploy/vps/sea-speed-auth-privileged-helper.py` as one fixed no-argument root helper. It accepts only fixed request schema/actions, exact canonical release path, exact source SHA, root-owned bundle/digests and fixed approved topology; it executes only the root-owned installed Auth cutover/renderers.
+- TASK-032: Add `deploy/vps/install-auth-privilege-boundary.sh` to verify exact checkout/repository identity, non-root deployment user, stage helper/bundle, validate a one-command no-argument sudoers rule with `visudo`, install root-owned files atomically and restore prior helper/bundle/sudoers on injected post-install failure.
+- TASK-033: Update `deploy/vps/deploy.sh` so exact privilege assets are staged with the release, helper `status` is required before bootstrap/current-release capture or live source mutation, and reconcile uses only the fixed installed helper. Missing/mismatched helper emits `PRIVILEGE_BOUNDARY_BOOTSTRAP_REQUIRED=YES` and leaves live source/state unchanged.
+- TASK-034: Extend deterministic VPS exact artifact build/validation to require installer/helper/cutover/renderers and validate shell/Python syntax and exact source inventory.
+- TASK-035: Add `tests/test_vps_auth_privilege_boundary.py` for request/action/path/digest/symlink/fixed-topology/root-owned-execution behavior and least-privilege installer/sudoers contract.
+- TASK-036: Extend `tests/test_vps_deploy_transaction.py` to execute the real deployment entrypoint and prove missing/mismatched privilege state fails before live mutation while accepted privilege state retains success/API rollback/Auth rollback/already-current/housekeeping behavior.
+- TASK-037: Extend `tests/quality/test_quality_architecture.py` so exact artifacts and deployment architecture require the least-privilege assets and pre-mutation status gate.
+- TASK-038: Third correction source lifecycle: maintain exactly the authorized 11 changed paths, one PR linked to Issue #197/spec 018, VPS REQUIRED with `ONE_COMMAND_FALLBACK`, Ubuntu/Windows NOT APPLICABLE, operator actions expected 1, Risk profile REQUIRED, Quality verdict PASS/CONCERNS but not FAIL; remediate only in-scope findings until exact-head PR Validation and aggregate Quality are green.
+- TASK-039: Third correction production lifecycle: after exact-green merge/post-merge quality, compute a new production fingerprint and obtain fresh exact-SHA `PRODUCTION APPROVED` + `Execution-Intent: EXECUTE`; expose one root VPS server-pull/bootstrap command for the exact installer, then continue Connector VPS deployment without another routine confirmation.
+- TASK-040: Third correction runtime acceptance: root bootstrap must prove exact SHA, non-root deploy user, fixed-helper/no-args sudo scope and no root shell grant; Connector must then prove helper status exact SHA, API/public health, Auth/private Road matrix and deployment manifest `auth_v1_road_private_m2m=passed` before pending Ubuntu correction resumes.
 
 ## Requirements traceability
 
 - AC-001 | Task: TASK-002,TASK-010 | Evidence: `tests/test_analytics_profiles.py` | Coverage: COVERED
-- AC-002 | Task: TASK-002,TASK-010 | Evidence: water/road class normalization matrix in `tests/test_analytics_profiles.py` | Coverage: COVERED
-- AC-003 | Task: TASK-003,TASK-010 | Evidence: unchanged worker source plus existing worker/AI supervision contract tests | Coverage: COVERED
-- AC-004 | Task: TASK-006,TASK-010 | Evidence: existing generic analytics and legacy Camera 1 API contract tests | Coverage: COVERED
-- AC-005 | Task: TASK-006,TASK-010 | Evidence: existing additive SQLite/global Objects API tests | Coverage: COVERED
-- AC-006 | Task: TASK-007,TASK-010 | Evidence: existing frontend navigation/Road identity tests | Coverage: COVERED
-- AC-007 | Task: TASK-007,TASK-010 | Evidence: existing Road frontend source tests plus later browser smoke | Coverage: COVERED
-- AC-008 | Task: TASK-004,TASK-005,TASK-010 | Evidence: existing Ubuntu systemd/update/rollback/deployment tests | Coverage: COVERED
-- AC-009 | Task: TASK-004,TASK-008,TASK-009,TASK-010 | Evidence: existing model preparation and exact-artifact rejection evidence | Coverage: COVERED
-- AC-010 | Task: TASK-008,TASK-010 | Evidence: existing VPS deploy transaction tests | Coverage: COVERED
-- AC-011 | Task: TASK-001,TASK-011,TASK-019,TASK-028 | Evidence: historical PR #198 exact 42/42, PR #200 exact 10/10, second correction exact 12/12 compare | Coverage: COVERED
-- AC-012 | Task: TASK-012,TASK-019,TASK-028 | Evidence: corrective exact-head PR Validation/Quality, fresh merge gate and post-merge push/main quality | Coverage: COVERED
-- AC-013 | Task: TASK-013,TASK-020,TASK-021,TASK-030 | Evidence: retained exact model/CUDA/protected road source plus corrected VPS/Ubuntu runtime identity | Coverage: RUNTIME-MANUAL | Reason: Hosted CI cannot prove production private-network ingress, protected Road config, physical relay/model continuity or actual VPS state freshness.
-- AC-014 | Task: TASK-016,TASK-017 | Evidence: `tests/test_analytics_profiles.py` exact private-origin derivation and invalid-origin matrix | Coverage: COVERED
-- AC-015 | Task: TASK-015,TASK-017,TASK-027 | Evidence: `tests/test_sea_speed_auth_v1.py` exact Road path/method/peer matrix, generic-route absence, tamper rejection and protected rollback contract | Coverage: COVERED
-- AC-016 | Task: TASK-013,TASK-020,TASK-021,TASK-030 | Evidence: exact authorized VPS/Ubuntu deployment evidence, `road1` source/frame freshness, events/objects/preview and public Auth/Camera1 regression | Coverage: RUNTIME-MANUAL | Reason: Acceptance depends on protected production ZeroTier/nginx/service state and the physical Road media path.
-- AC-017 | Task: TASK-022,TASK-027 | Evidence: deterministic VPS artifact inventory/syntax in `tests/quality/test_quality_architecture.py` and exact-artifact validator | Coverage: COVERED
-- AC-018 | Task: TASK-024,TASK-026 | Evidence: `tests/test_vps_deploy_transaction.py` executes real `deploy/vps/deploy.sh` across success and failure paths | Coverage: COVERED
-- AC-019 | Task: TASK-025,TASK-027 | Evidence: `tests/test_sea_speed_auth_v1.py` protected-baseline/rollback and exact security-boundary assertions | Coverage: COVERED
-- AC-020 | Task: TASK-011,TASK-012,TASK-018,TASK-028,TASK-029,TASK-030 | Evidence: exact 12-path compare, exact-head CI/merge/post-merge quality, fresh exact-SHA VPS production authorization and deployment evidence | Coverage: RUNTIME-MANUAL | Reason: Final AC-020 includes protected production authorization and VPS execution evidence that hosted source CI cannot produce.
+- AC-002 | Task: TASK-002,TASK-010 | Evidence: water/road class normalization matrix | Coverage: COVERED
+- AC-003 | Task: TASK-003,TASK-010 | Evidence: unchanged worker contract tests | Coverage: COVERED
+- AC-004 | Task: TASK-006,TASK-010 | Evidence: existing generic analytics/legacy Camera 1 API contract | Coverage: COVERED
+- AC-005 | Task: TASK-006,TASK-010 | Evidence: existing additive SQLite/global Objects tests | Coverage: COVERED
+- AC-006 | Task: TASK-007,TASK-010 | Evidence: frontend navigation/Road identity tests | Coverage: COVERED
+- AC-007 | Task: TASK-007,TASK-010 | Evidence: Road frontend tests plus runtime browser smoke | Coverage: COVERED
+- AC-008 | Task: TASK-004,TASK-005,TASK-010 | Evidence: Ubuntu systemd/update/rollback/deployment tests | Coverage: COVERED
+- AC-009 | Task: TASK-004,TASK-008,TASK-009 | Evidence: model prep and exact-artifact exclusion | Coverage: COVERED
+- AC-010 | Task: TASK-008,TASK-036 | Evidence: VPS deploy transaction tests | Coverage: COVERED
+- AC-011 | Task: TASK-001,TASK-011,TASK-019,TASK-028,TASK-038 | Evidence: historical exact compares and third exact 11-path compare | Coverage: COVERED
+- AC-012 | Task: TASK-012,TASK-038 | Evidence: exact-head PR Validation/Quality, fresh merge gate, post-merge quality | Coverage: COVERED
+- AC-013 | Task: TASK-013,TASK-020,TASK-021,TASK-040 | Evidence: retained model/CUDA/protected road source plus corrected runtime identity | Coverage: RUNTIME-MANUAL | Reason: Hosted CI cannot prove protected production network/GPU/media state.
+- AC-014 | Task: TASK-016,TASK-010 | Evidence: private-origin derivation tests | Coverage: COVERED
+- AC-015 | Task: TASK-015,TASK-010 | Evidence: exact private route/method/peer Auth tests | Coverage: COVERED
+- AC-016 | Task: TASK-013,TASK-021,TASK-040 | Evidence: exact VPS/Ubuntu runtime state/source/frame/events/objects/preview/public regression | Coverage: RUNTIME-MANUAL | Reason: Acceptance depends on protected production state.
+- AC-017 | Task: TASK-022,TASK-034,TASK-037 | Evidence: deterministic VPS artifact inventory/syntax | Coverage: COVERED
+- AC-018 | Task: TASK-024,TASK-026,TASK-036 | Evidence: real `deploy/vps/deploy.sh` fault-path tests | Coverage: COVERED
+- AC-019 | Task: TASK-025,TASK-010 | Evidence: protected-baseline/rollback Auth tests | Coverage: COVERED
+- AC-020 | Task: TASK-028,TASK-029 | Evidence: PR #201 exact source and production failure evidence | Coverage: COVERED
+- AC-021 | Task: TASK-031,TASK-035 | Evidence: `tests/test_vps_auth_privilege_boundary.py` | Coverage: COVERED
+- AC-022 | Task: TASK-032,TASK-035 | Evidence: installer/sudoers contract and rollback markers | Coverage: COVERED
+- AC-023 | Task: TASK-033,TASK-036 | Evidence: real deploy missing/mismatch pre-live-mutation tests | Coverage: COVERED
+- AC-024 | Task: TASK-038,TASK-039,TASK-040 | Evidence: exact 11-path CI/merge plus root bootstrap and Connector deployment | Coverage: RUNTIME-MANUAL | Reason: Root bootstrap and protected VPS Connector execution are production-only evidence.
 
 ## Definition of Done
 
-- [x] Issue/spec/plan/tasks current: Issue #197 records the second corrective source admission; feature 018 records both production-learning root causes, second exact 12-path VPS-only scope, updated risk/test design and full transaction audit.
-- [ ] Exact changed-file scope verified: second corrective branch compare equals the separately authorized 12 paths exactly; historical PR #198 42/42 and PR #200 10/10 evidence remains unchanged.
-- [ ] Required tests and evidence complete: VPS real-entrypoint transaction faults, Auth v1 protected-baseline/rollback contract, exact-artifact inventory, workflow policy and existing security/product regression suites pass.
-- [ ] Required CI green: second corrective PR Validation and aggregate Quality integration succeed on the same exact final head; Ubuntu and Windows packaging/runtime are not applicable to this exact VPS-only source diff.
-- [ ] Exact-green-head merge complete: fresh main/head/scope/review gate plus expected-head merge and post-merge push/main quality.
-- [ ] Deployment state resolved: second corrective merge remains production-pending until a fresh exact-SHA VPS production authorization; then protected VPS workflow yields a validated deployment manifest with `auth_v1_road_private_m2m=passed`, and pending Ubuntu execution remains gated on that evidence.
-- [ ] Runtime acceptance resolved: pending first-correction Ubuntu deployment resumes only after VPS boundary acceptance, then corrected `road1` state is fresh on VPS with exact source and advancing frame number; Road events/objects/preview and public Auth/Camera1 regression are accepted while main Water Worker desired-stopped state remains preserved unless separately changed.
-- [x] Deferred work recorded: custom maritime model training/broader vessel taxonomy remain outside this Outcome; Issue #199 separately owns Windows-contour governance retirement; no frontend/API schema, worker inference or topology redesign is part of the second remediation.
-- [ ] Risks resolved or explicitly accepted: performance/product runtime risks remain open until final Road freshness evidence; second-correction deployment/rollback risks require first production execution evidence; RISK-006 remains explicitly accepted.
-- [x] Waivers resolved or current: no source-quality waiver is requested for corrective work.
+- [x] Issue/spec/plan/tasks current: feature 018 records three production-learning root causes, third exact 11-path least-privilege scope, updated risk/test design and full eight-stage transaction audit.
+- [ ] Exact changed-file scope verified: third corrective branch compare equals the authorized 11 paths exactly; historical 42/42, 10/10 and 12/12 evidence remains unchanged.
+- [ ] Required tests and evidence complete: helper/installer contract, real VPS pre-mutation privilege fault path, exact-artifact inventory and existing Auth/product regressions pass.
+- [ ] Required CI green: third corrective PR Validation and aggregate Quality integration succeed on the same exact final head; Ubuntu and Windows are not applicable to this VPS-only source diff.
+- [ ] Exact-green-head merge complete: fresh main/head/scope/review gate, expected-head merge and post-merge push/main quality.
+- [ ] Deployment state resolved: after separate exact-SHA production authorization, the one root privilege bootstrap and canonical VPS Connector deployment must both complete with exact identity and `auth_v1_road_private_m2m=passed`; until then production remains unresolved and Ubuntu stays paused.
+- [ ] Runtime acceptance resolved: pending Ubuntu correction resumes only after VPS boundary acceptance; `road1` state is fresh on VPS with exact source and advancing frame, Road events/objects/preview and public Auth/Camera1 regressions are accepted; main Water Worker desired-stopped state is preserved unless separately changed.
+- [x] Deferred work recorded: broader maritime training/taxonomy and Issue #199 Windows-contour retirement remain separate.
+- [ ] Risks resolved or explicitly accepted: privilege/bootstrap/deployment and final runtime risks remain open until first accepted production run; product-owner RISK-006 remains accepted.
+- [x] Waivers resolved or current: no source-quality waiver is requested.
 
 ## Completion gate
 
-The second corrective source integration may advance only when the exact 12-path PR is green and merged with post-merge quality evidence. Source merge does not authorize runtime mutation. The next human checkpoint after source integration is one fresh exact-release VPS `PRODUCTION APPROVED` record with the current authorization fingerprint and `Execution-Intent: EXECUTE`. After that decision, the protected VPS Connector must produce exact `auth_v1_road_private_m2m=passed` evidence before the previously pending Ubuntu first-correction action may resume. Final `DONE` still requires VPS-observed Road freshness plus product/browser evidence. Windows is not an applicable corrective contour; historical evidence and Issue #199 remain distinct audit/governance concerns.
+The third corrective source integration advances only when the exact 11-path PR is green and merged with post-merge quality. Source merge does not authorize runtime mutation. The next human checkpoint is one fresh exact-release production authorization/execution intent. Because this exact diff truthfully has VPS `ONE_COMMAND_FALLBACK`, the Orchestrator may then expose one repository-owned root bootstrap on the VPS; after it succeeds, deterministic Connector deployment continues without another routine confirmation. Ubuntu remains paused until VPS `auth_v1_road_private_m2m=passed` evidence is green. Final `DONE` still requires VPS-observed Road freshness and product/browser evidence.

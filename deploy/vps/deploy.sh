@@ -28,11 +28,16 @@ AUTH_BOUNDARY_REQUIRED="${SEA_SPEED_REQUIRE_AUTH_BOUNDARY:-0}"
 AUTHENTIK_UPSTREAM="${SEA_SPEED_AUTHENTIK_UPSTREAM:-}"
 WORKER_PRIVATE_LISTEN="${SEA_SPEED_WORKER_PRIVATE_LISTEN:-}"
 WORKER_PRIVATE_PEER="${SEA_SPEED_WORKER_PRIVATE_PEER:-}"
+EXPECTED_AUTHENTIK_UPSTREAM="http://10.123.239.102:19000"
+EXPECTED_WORKER_PRIVATE_LISTEN="10.123.239.101:18080"
+EXPECTED_WORKER_PRIVATE_PEER="10.123.239.102"
+PRIVILEGED_HELPER="${SEA_SPEED_AUTH_PRIVILEGED_HELPER:-/usr/local/sbin/sea-speed-auth-privileged-helper}"
 RELEASES_DIR="${DEPLOY_ROOT}/releases"
 STATE_DIR="${DEPLOY_ROOT}/state"
 CURRENT_FILE="${STATE_DIR}/current-release"
 PREVIOUS_FILE="${STATE_DIR}/previous-release"
 DEPLOYMENT_MANIFEST_FILE="${STATE_DIR}/deployment-manifest.json"
+PRIVILEGED_REQUEST_FILE="${STATE_DIR}/auth-privileged-request.json"
 TARGET_RELEASE="${RELEASES_DIR}/${COMMIT_SHA}"
 TEMP_DIR="$(mktemp -d)"
 AUTH_BOUNDARY_VERIFIED=false
@@ -43,8 +48,8 @@ trap cleanup EXIT
 log() { printf '[sea-speed-deploy] %s\n' "$*"; }
 
 validate_sha() {
-  [[ "$COMMIT_SHA" =~ ^[0-9a-fA-F]{40}$ ]] || {
-    echo "Commit SHA must contain exactly 40 hexadecimal characters" >&2
+  [[ "$COMMIT_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+    echo "Commit SHA must already be a lowercase 40-character SHA" >&2
     exit 2
   }
 }
@@ -55,20 +60,24 @@ validate_auth_boundary_inputs() {
     exit 2
   }
   if [[ "$AUTH_BOUNDARY_REQUIRED" == "1" ]]; then
-    [[ -n "$AUTHENTIK_UPSTREAM" ]] || { echo "SEA_SPEED_AUTHENTIK_UPSTREAM is required" >&2; exit 2; }
-    [[ -n "$WORKER_PRIVATE_LISTEN" ]] || { echo "SEA_SPEED_WORKER_PRIVATE_LISTEN is required" >&2; exit 2; }
-    [[ -n "$WORKER_PRIVATE_PEER" ]] || { echo "SEA_SPEED_WORKER_PRIVATE_PEER is required" >&2; exit 2; }
+    [[ "$AUTHENTIK_UPSTREAM" == "$EXPECTED_AUTHENTIK_UPSTREAM" ]] || {
+      echo "SEA_SPEED_AUTHENTIK_UPSTREAM must equal the approved fixed topology" >&2
+      exit 2
+    }
+    [[ "$WORKER_PRIVATE_LISTEN" == "$EXPECTED_WORKER_PRIVATE_LISTEN" ]] || {
+      echo "SEA_SPEED_WORKER_PRIVATE_LISTEN must equal the approved fixed topology" >&2
+      exit 2
+    }
+    [[ "$WORKER_PRIVATE_PEER" == "$EXPECTED_WORKER_PRIVATE_PEER" ]] || {
+      echo "SEA_SPEED_WORKER_PRIVATE_PEER must equal the approved fixed topology" >&2
+      exit 2
+    }
     if [[ "$EUID" -ne 0 ]]; then
-      command -v sudo >/dev/null 2>&1 || { echo "sudo is required for protected VPS boundary activation" >&2; exit 4; }
+      command -v sudo >/dev/null 2>&1 || {
+        echo "sudo is required for the restricted privileged helper" >&2
+        exit 4
+      }
     fi
-  fi
-}
-
-run_root() {
-  if [[ "$EUID" -eq 0 ]]; then
-    "$@"
-  else
-    sudo -n "$@"
   fi
 }
 
@@ -81,7 +90,12 @@ validate_runtime_access() {
 }
 
 ensure_layout() {
-  mkdir -p "$RELEASES_DIR" "$STATE_DIR" "$(dirname "$OBJECTS_FRONTEND_TARGET")" "$(dirname "$CAMERAS_FRONTEND_TARGET")" "$(dirname "$ROAD_FRONTEND_TARGET")"
+  mkdir -p \
+    "$RELEASES_DIR" \
+    "$STATE_DIR" \
+    "$(dirname "$OBJECTS_FRONTEND_TARGET")" \
+    "$(dirname "$CAMERAS_FRONTEND_TARGET")" \
+    "$(dirname "$ROAD_FRONTEND_TARGET")"
 }
 
 release_complete() {
@@ -93,6 +107,8 @@ release_complete() {
      -f "$root/frontend/sea-speed/road/index.html" && \
      -f "$root/frontend/root/index.html" && \
      -f "$root/deploy/vps/sea-speed-auth-cutover.sh" && \
+     -f "$root/deploy/vps/install-auth-privilege-boundary.sh" && \
+     -f "$root/deploy/vps/sea-speed-auth-privileged-helper.py" && \
      -f "$root/scripts/operations/nginx_cam1_direct_h264.py" && \
      -f "$root/scripts/operations/nginx_sea_speed_auth.py" ]]
 }
@@ -106,6 +122,7 @@ download_release() {
   local archive="$TEMP_DIR/release.tar.gz"
   local extracted="$TEMP_DIR/extracted"
   local archive_sha
+  local required
   mkdir -p "$extracted"
 
   log "Downloading exact commit ${COMMIT_SHA}"
@@ -123,6 +140,8 @@ download_release() {
     frontend/sea-speed/road/index.html \
     frontend/root/index.html \
     deploy/vps/sea-speed-auth-cutover.sh \
+    deploy/vps/install-auth-privilege-boundary.sh \
+    deploy/vps/sea-speed-auth-privileged-helper.py \
     scripts/operations/nginx_cam1_direct_h264.py \
     scripts/operations/nginx_sea_speed_auth.py; do
     [[ -f "$extracted/$required" ]] || { echo "Release does not contain $required" >&2; exit 1; }
@@ -144,10 +163,68 @@ download_release() {
   install -m 0644 "$extracted/frontend/sea-speed/road/index.html" "$TARGET_RELEASE/frontend/sea-speed/road/index.html"
   install -m 0644 "$extracted/frontend/root/index.html" "$TARGET_RELEASE/frontend/root/index.html"
   install -m 0755 "$extracted/deploy/vps/sea-speed-auth-cutover.sh" "$TARGET_RELEASE/deploy/vps/sea-speed-auth-cutover.sh"
+  install -m 0755 "$extracted/deploy/vps/install-auth-privilege-boundary.sh" "$TARGET_RELEASE/deploy/vps/install-auth-privilege-boundary.sh"
+  install -m 0644 "$extracted/deploy/vps/sea-speed-auth-privileged-helper.py" "$TARGET_RELEASE/deploy/vps/sea-speed-auth-privileged-helper.py"
   install -m 0644 "$extracted/scripts/operations/nginx_cam1_direct_h264.py" "$TARGET_RELEASE/scripts/operations/nginx_cam1_direct_h264.py"
   install -m 0644 "$extracted/scripts/operations/nginx_sea_speed_auth.py" "$TARGET_RELEASE/scripts/operations/nginx_sea_speed_auth.py"
   printf '%s\n' "$COMMIT_SHA" > "$TARGET_RELEASE/commit-sha"
   printf '%s\n' "$archive_sha" > "$TARGET_RELEASE/archive-sha256"
+}
+
+write_privileged_request() {
+  local action="$1"
+  local temp="${PRIVILEGED_REQUEST_FILE}.tmp"
+  python3 - "$temp" "$action" "$COMMIT_SHA" "$TARGET_RELEASE" <<'PY'
+import json
+import os
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+payload = {
+    "schema": "sea_speed_auth_privileged_request_v1",
+    "action": sys.argv[2],
+    "source_sha": sys.argv[3],
+    "release_path": sys.argv[4],
+}
+path.write_text(json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8")
+os.chmod(path, 0o600)
+PY
+  mv -f "$temp" "$PRIVILEGED_REQUEST_FILE"
+}
+
+invoke_privileged_helper() {
+  if [[ "$EUID" -eq 0 ]]; then
+    "$PRIVILEGED_HELPER"
+  else
+    sudo -n "$PRIVILEGED_HELPER"
+  fi
+}
+
+check_auth_privilege_boundary() {
+  [[ "$AUTH_BOUNDARY_REQUIRED" == "1" ]] || return 0
+  [[ -x "$PRIVILEGED_HELPER" ]] || {
+    echo "ERROR restricted Auth privilege helper is not installed: $PRIVILEGED_HELPER" >&2
+    echo "PRIVILEGE_BOUNDARY_BOOTSTRAP_REQUIRED=YES" >&2
+    return 41
+  }
+
+  write_privileged_request status
+  local output rc
+  set +e
+  output="$(invoke_privileged_helper 2>&1)"
+  rc=$?
+  set -e
+  printf '%s\n' "$output"
+  [[ "$rc" -eq 0 ]] || {
+    echo "PRIVILEGE_BOUNDARY_BOOTSTRAP_REQUIRED=YES" >&2
+    return "$rc"
+  }
+  grep -Fq 'SEA_SPEED_AUTH_PRIVILEGE_BOUNDARY=PASS' <<<"$output" || return 42
+  grep -Fq "SOURCE_SHA=${COMMIT_SHA}" <<<"$output" || return 42
+  grep -Fq 'ACTION=status' <<<"$output" || return 42
+  grep -Fq 'ARBITRARY_ROOT_EXECUTION=NO' <<<"$output" || return 42
+  log "Restricted Auth privilege boundary preflight passed before live source mutation"
 }
 
 bootstrap_current_release() {
@@ -188,7 +265,10 @@ ensure_current_release_has_root_frontend() {
   current_name="$(cat "$CURRENT_FILE")"
   current_release="$RELEASES_DIR/$current_name"
   if [[ -f "$current_release/frontend/root/index.html" ]]; then return; fi
-  [[ -f "$ROOT_FRONTEND_TARGET" ]] || { echo "Cannot preserve current root frontend for rollback: ${ROOT_FRONTEND_TARGET} is missing" >&2; exit 1; }
+  [[ -f "$ROOT_FRONTEND_TARGET" ]] || {
+    echo "Cannot preserve current root frontend for rollback: ${ROOT_FRONTEND_TARGET} is missing" >&2
+    exit 1
+  }
   log "Adding the existing live root frontend to current rollback release ${current_name}"
   mkdir -p "$current_release/frontend/root"
   install -m 0644 "$ROOT_FRONTEND_TARGET" "$current_release/frontend/root/index.html"
@@ -350,40 +430,23 @@ run_auth_boundary() {
     return 0
   fi
 
-  local cutover="$TARGET_RELEASE/deploy/vps/sea-speed-auth-cutover.sh"
-  local prepare_output activate_output candidate_sha rc
-  [[ -x "$cutover" ]] || { echo "Exact release lacks executable Auth v1 cutover: $cutover" >&2; return 1; }
-
-  log "Preparing exact Road private M2M Auth v1 boundary"
+  # The root-owned helper enforces the Auth cutover's --require-protected-baseline
+  # mode and fixed private topology; deploy.sh never runs writable release code as root.
+  write_privileged_request reconcile
+  log "Reconciling exact Road private M2M Auth v1 boundary through restricted root helper"
+  local output rc
   set +e
-  prepare_output="$(run_root bash "$cutover" prepare \
-    --authentik-upstream "$AUTHENTIK_UPSTREAM" \
-    --worker-private-listen "$WORKER_PRIVATE_LISTEN" \
-    --worker-private-peer "$WORKER_PRIVATE_PEER" \
-    --require-protected-baseline 2>&1)"
+  output="$(invoke_privileged_helper 2>&1)"
   rc=$?
   set -e
-  printf '%s\n' "$prepare_output"
+  printf '%s\n' "$output"
   [[ "$rc" -eq 0 ]] || return "$rc"
-
-  candidate_sha="$(printf '%s\n' "$prepare_output" | sed -n 's/^CANDIDATE_SHA256=//p' | tail -n1)"
-  [[ "$candidate_sha" =~ ^[0-9a-f]{64}$ ]] || { echo "Auth v1 prepare did not return an exact candidate SHA256" >&2; return 1; }
-
-  log "Activating exact Road private M2M Auth v1 boundary"
-  set +e
-  activate_output="$(run_root bash "$cutover" activate \
-    --authentik-upstream "$AUTHENTIK_UPSTREAM" \
-    --worker-private-listen "$WORKER_PRIVATE_LISTEN" \
-    --worker-private-peer "$WORKER_PRIVATE_PEER" \
-    --expected-sha256 "$candidate_sha" \
-    --require-protected-baseline 2>&1)"
-  rc=$?
-  set -e
-  printf '%s\n' "$activate_output"
-  [[ "$rc" -eq 0 ]] || return "$rc"
-  grep -Fq 'SEA_SPEED_AUTH_CUTOVER=PASS' <<<"$activate_output" || { echo "Auth v1 activation lacks PASS evidence" >&2; return 1; }
-  grep -Fq 'WORKER_PRIVATE_ROAD_API_BASE=' <<<"$activate_output" || { echo "Auth v1 activation lacks Road private API evidence" >&2; return 1; }
-  grep -Fq 'ROLLBACK_CAPABILITY=VERIFIED' <<<"$activate_output" || { echo "Auth v1 activation lacks rollback capability evidence" >&2; return 1; }
+  grep -Fq 'SEA_SPEED_AUTH_PRIVILEGE_BOUNDARY=PASS' <<<"$output" || return 1
+  grep -Fq 'ACTION=reconcile' <<<"$output" || return 1
+  grep -Fq 'SEA_SPEED_AUTH_CUTOVER=PASS' <<<"$output" || return 1
+  grep -Fq 'WORKER_PRIVATE_ROAD_API_BASE=' <<<"$output" || return 1
+  grep -Fq 'ROLLBACK_CAPABILITY=VERIFIED' <<<"$output" || return 1
+  grep -Fq 'SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS' <<<"$output" || return 1
   AUTH_BOUNDARY_VERIFIED=true
 }
 
@@ -455,6 +518,11 @@ main() {
   validate_runtime_access
   ensure_layout
   download_release
+
+  # This admission occurs after exact release staging but before any live source,
+  # service, current-release, deployment-manifest, or nginx mutation.
+  check_auth_privilege_boundary
+
   bootstrap_current_release
   ensure_current_release_has_root_frontend
   ensure_current_release_has_objects_frontend

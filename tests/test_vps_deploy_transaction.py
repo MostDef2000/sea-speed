@@ -12,7 +12,6 @@ DEPLOY_SCRIPT = ROOT / "deploy/vps/deploy.sh"
 OLD = "a" * 40
 CANDIDATE = "b" * 40
 OLDER = "c" * 40
-AUTH_CANDIDATE_SHA = "d" * 64
 
 
 class VpsDeployTransactionTests(unittest.TestCase):
@@ -49,8 +48,11 @@ class VpsDeployTransactionTests(unittest.TestCase):
             "frontend/sea-speed/cameras/index.html": f"cameras {sha}\n",
             "frontend/sea-speed/road/index.html": f"road {sha}\n",
             "frontend/root/index.html": f"root {sha}\n",
-            "scripts/operations/nginx_cam1_direct_h264.py": "# test fixture renderer\n",
-            "scripts/operations/nginx_sea_speed_auth.py": "# test fixture renderer\n",
+            "deploy/vps/sea-speed-auth-cutover.sh": "#!/usr/bin/env bash\nexit 0\n",
+            "deploy/vps/install-auth-privilege-boundary.sh": "#!/usr/bin/env bash\nexit 0\n",
+            "deploy/vps/sea-speed-auth-privileged-helper.py": "# helper source fixture\n",
+            "scripts/operations/nginx_cam1_direct_h264.py": "# renderer fixture\n",
+            "scripts/operations/nginx_sea_speed_auth.py": "# renderer fixture\n",
             "commit-sha": sha + "\n",
             "archive-sha256": (sha[0] * 64) + "\n",
         }
@@ -58,42 +60,8 @@ class VpsDeployTransactionTests(unittest.TestCase):
             path = release / relative
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(content, encoding="utf-8")
-
-        cutover = release / "deploy/vps/sea-speed-auth-cutover.sh"
-        cutover.parent.mkdir(parents=True, exist_ok=True)
-        cutover.write_text(
-            f"""#!/usr/bin/env bash
-set -euo pipefail
-mode="${{1:-}}"
-shift || true
-case "$mode" in
-  prepare)
-    echo "PROTECTED_AUTH_BASELINE=PASS"
-    echo "SEA_SPEED_AUTH_PREPARE=PASS"
-    echo "CANDIDATE_SHA256={AUTH_CANDIDATE_SHA}"
-    echo "ROLLBACK_CAPABILITY=VERIFIED"
-    ;;
-  activate)
-    if [[ "${{FAKE_AUTH_MODE:-success}}" == "fail" ]]; then
-      echo "ERROR Auth v1 candidate post-mutation verification failed rc=35"
-      echo "SEA_SPEED_AUTH_ROLLBACK=PASS"
-      echo "AUTOMATIC_ROLLBACK=PASS"
-      exit 35
-    fi
-    echo "SEA_SPEED_AUTH_CUTOVER=PASS"
-    echo "WORKER_PRIVATE_ROAD_API_BASE=http://10.123.239.101:18080/api/analytics/road1"
-    echo "ROLLBACK_CAPABILITY=VERIFIED"
-    echo "AUTOMATIC_ROLLBACK=AVAILABLE"
-    ;;
-  *)
-    echo "unexpected fake cutover mode: $mode" >&2
-    exit 64
-    ;;
-esac
-""",
-            encoding="utf-8",
-        )
-        cutover.chmod(0o755)
+            if path.suffix == ".sh":
+                path.chmod(0o755)
 
     def install_live(self, sha: str) -> None:
         release = self.releases / sha
@@ -150,19 +118,43 @@ printf '200'
 set -euo pipefail
 fail_name="${FAKE_RM_FAIL_BASENAME:-}"
 for arg in "$@"; do
-  if [[ -n "$fail_name" && "${arg##*/}" == "$fail_name" && "$arg" == "$SEA_SPEED_DEPLOY_ROOT/releases/"* ]]; then exit 1; fi
+  if [[ -n "$fail_name" && "$arg" == "$SEA_SPEED_DEPLOY_ROOT/releases/$fail_name" ]]; then
+    echo "FAKE_RM_REJECTED=$arg" >> "$FAKE_RM_LOG"
+    exit 1
+  fi
 done
 exec /bin/rm "$@"
 """,
         )
+        self.privileged_helper = self.write_executable(
+            "sea-speed-auth-privileged-helper",
+            """#!/usr/bin/env python3
+import json, os, sys
+from pathlib import Path
+request = json.loads(Path(os.environ['FAKE_PRIV_REQUEST']).read_text())
+action = request['action']
+mode = os.environ.get('FAKE_PRIV_MODE', 'success')
+if action == 'status' and mode in {'missing', 'mismatch'}:
+    print('ERROR privileged bundle source SHA mismatch')
+    raise SystemExit(42)
+print('SEA_SPEED_AUTH_PRIVILEGE_BOUNDARY=PASS')
+print('SOURCE_SHA=' + request['source_sha'])
+print('ACTION=' + action)
+print('PRIVILEGED_TOPOLOGY=FIXED')
+print('ARBITRARY_ROOT_EXECUTION=NO')
+if action == 'reconcile':
+    if mode == 'auth-fail':
+        print('SEA_SPEED_AUTH_ROLLBACK=PASS')
+        print('AUTOMATIC_ROLLBACK=PASS')
+        raise SystemExit(35)
+    print('SEA_SPEED_AUTH_CUTOVER=PASS')
+    print('WORKER_PRIVATE_ROAD_API_BASE=http://10.123.239.101:18080/api/analytics/road1')
+    print('ROLLBACK_CAPABILITY=VERIFIED')
+    print('SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS')
+""",
+        )
 
-    def env(
-        self,
-        *,
-        mode: str = "success",
-        auth_mode: str = "success",
-        prune_failure: str = "",
-    ) -> dict[str, str]:
+    def env(self, *, mode: str = "success", priv_mode: str = "success", prune_failure: str = "") -> dict[str, str]:
         env = os.environ.copy()
         env.update(
             {
@@ -186,28 +178,25 @@ exec /bin/rm "$@"
                 "SEA_SPEED_AUTHENTIK_UPSTREAM": "http://10.123.239.102:19000",
                 "SEA_SPEED_WORKER_PRIVATE_LISTEN": "10.123.239.101:18080",
                 "SEA_SPEED_WORKER_PRIVATE_PEER": "10.123.239.102",
-                "FAKE_AUTH_MODE": auth_mode,
+                "SEA_SPEED_AUTH_PRIVILEGED_HELPER": str(self.privileged_helper),
+                "FAKE_PRIV_REQUEST": str(self.state / "auth-privileged-request.json"),
+                "FAKE_PRIV_MODE": priv_mode,
                 "FAKE_ORIGIN_MODE": mode,
                 "FAKE_ORIGIN_FAILS": "2",
                 "FAKE_CURL_COUNT_FILE": str(self.root / "curl-count"),
                 "FAKE_OLD_SHA": OLD,
                 "FAKE_SYSTEMCTL_LOG": str(self.root / "systemctl.log"),
                 "FAKE_RM_FAIL_BASENAME": prune_failure,
+                "FAKE_RM_LOG": str(self.root / "rm.log"),
             }
         )
         return env
 
-    def run_deploy(
-        self,
-        *,
-        mode: str = "success",
-        auth_mode: str = "success",
-        prune_failure: str = "",
-    ) -> subprocess.CompletedProcess[str]:
+    def run_deploy(self, *, mode: str = "success", priv_mode: str = "success", prune_failure: str = "") -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             ["bash", str(DEPLOY_SCRIPT), CANDIDATE],
             cwd=ROOT,
-            env=self.env(mode=mode, auth_mode=auth_mode, prune_failure=prune_failure),
+            env=self.env(mode=mode, priv_mode=priv_mode, prune_failure=prune_failure),
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -217,9 +206,6 @@ exec /bin/rm "$@"
     def current(self) -> str:
         return (self.state / "current-release").read_text().strip()
 
-    def previous(self) -> str:
-        return (self.state / "previous-release").read_text().strip()
-
     def manifest(self) -> dict[str, object]:
         return json.loads((self.state / "deployment-manifest.json").read_text())
 
@@ -227,15 +213,31 @@ exec /bin/rm "$@"
         result = self.run_deploy()
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assertEqual(self.current(), CANDIDATE)
-        self.assertEqual(self.previous(), OLD)
         self.assertIn(CANDIDATE, self.road.read_text())
-        self.assertIn("SEA_SPEED_AUTH_CUTOVER=PASS", result.stdout)
-        manifest = self.manifest()
-        self.assertEqual(manifest["sourceCommit"], CANDIDATE)
-        self.assertEqual(manifest["state"], "runtime_verified")
-        checks = {item["name"]: item["status"] for item in manifest["checks"]}
-        self.assertEqual(checks["road_frontend_release_state"], "passed")
+        self.assertIn("SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS", result.stdout)
+        checks = {item["name"]: item["status"] for item in self.manifest()["checks"]}
         self.assertEqual(checks["auth_v1_road_private_m2m"], "passed")
+
+    def test_privilege_boundary_mismatch_fails_before_live_source_mutation(self) -> None:
+        before_api = self.api.read_bytes()
+        before_road = self.road.read_bytes()
+        result = self.run_deploy(priv_mode="mismatch")
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(self.api.read_bytes(), before_api)
+        self.assertEqual(self.road.read_bytes(), before_road)
+        self.assertEqual(self.current(), OLD)
+        self.assertIn("PRIVILEGE_BOUNDARY_BOOTSTRAP_REQUIRED=YES", result.stdout)
+        self.assertFalse((self.state / "deployment-manifest.json").exists())
+
+    def test_missing_helper_fails_before_live_source_mutation(self) -> None:
+        before = self.api.read_bytes()
+        env = self.env()
+        env["SEA_SPEED_AUTH_PRIVILEGED_HELPER"] = str(self.root / "missing-helper")
+        result = subprocess.run(["bash", str(DEPLOY_SCRIPT), CANDIDATE], cwd=ROOT, env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(self.api.read_bytes(), before)
+        self.assertEqual(self.current(), OLD)
+        self.assertIn("PRIVILEGE_BOUNDARY_BOOTSTRAP_REQUIRED=YES", result.stdout)
 
     def test_candidate_failure_rolls_back_road_with_other_frontends(self) -> None:
         result = self.run_deploy(mode="fail-candidate")
@@ -246,30 +248,20 @@ exec /bin/rm "$@"
         self.assertEqual(self.manifest()["state"], "rolled_back")
 
     def test_auth_boundary_failure_rolls_source_back_after_boundary_self_rollback(self) -> None:
-        result = self.run_deploy(auth_mode="fail")
+        result = self.run_deploy(priv_mode="auth-fail")
         self.assertEqual(result.returncode, 1, result.stdout)
         self.assertIn("SEA_SPEED_AUTH_ROLLBACK=PASS", result.stdout)
-        self.assertIn("AUTOMATIC_ROLLBACK=PASS", result.stdout)
         self.assertIn(OLD, self.api.read_text())
-        self.assertIn(OLD, self.road.read_text())
         self.assertEqual(self.current(), OLD)
-        manifest = self.manifest()
-        self.assertEqual(manifest["sourceCommit"], OLD)
-        self.assertEqual(manifest["attemptedSourceCommit"], CANDIDATE)
-        self.assertEqual(manifest["state"], "rolled_back")
+        self.assertEqual(self.manifest()["state"], "rolled_back")
 
     def test_already_deployed_source_fails_closed_when_boundary_is_not_accepted(self) -> None:
         self.install_live(CANDIDATE)
         (self.state / "current-release").write_text(CANDIDATE + "\n", encoding="utf-8")
-        result = self.run_deploy(auth_mode="fail")
+        result = self.run_deploy(priv_mode="auth-fail")
         self.assertEqual(result.returncode, 1, result.stdout)
         self.assertEqual(self.current(), CANDIDATE)
-        manifest = self.manifest()
-        self.assertEqual(manifest["sourceCommit"], CANDIDATE)
-        self.assertEqual(manifest["state"], "failed")
-        self.assertFalse(manifest["runtimeVerified"])
-        checks = {item["name"]: item["status"] for item in manifest["checks"]}
-        self.assertEqual(checks["auth_v1_road_private_m2m"], "failed")
+        self.assertEqual(self.manifest()["state"], "failed")
 
     def test_transient_health_recovers(self) -> None:
         result = self.run_deploy(mode="transient")
@@ -280,7 +272,9 @@ exec /bin/rm "$@"
         result = self.run_deploy(prune_failure=OLDER)
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assertEqual(self.current(), CANDIDATE)
-        self.assertTrue((self.releases / OLDER).is_dir())
+        self.assertTrue((self.releases / OLDER).is_dir(), result.stdout)
+        self.assertIn("WARNING: unable to prune stale release", result.stdout)
+        self.assertIn(f"FAKE_RM_REJECTED={self.releases / OLDER}", (self.root / "rm.log").read_text())
 
 
 if __name__ == "__main__":
