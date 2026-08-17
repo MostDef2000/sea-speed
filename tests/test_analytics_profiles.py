@@ -102,7 +102,7 @@ class AnalyticsProfilesTests(unittest.TestCase):
         for field in ("analytics_profile", "domain", "object_type", "model_class"):
             self.assertIn(field, source)
 
-    def test_frontends_have_synchronized_road_navigation_and_no_private_source(self) -> None:
+    def test_frontends_have_synchronized_road_navigation_and_bounded_road_control(self) -> None:
         paths = [
             ROOT / "frontend/sea-speed/index.html",
             ROOT / "frontend/sea-speed/objects/index.html",
@@ -117,7 +117,11 @@ class AnalyticsProfilesTests(unittest.TestCase):
         self.assertIn('CAMERA_ID="road1"', road)
         self.assertIn('/sea-speed/api/analytics/road1', road)
         self.assertIn('/sea-speed/api/cameras/road1/preview/start', road)
-        self.assertNotIn('/api/worker/control', road)
+        self.assertIn('const WORKER_CONTROL_URL="/sea-speed/api/worker/control/road1"', road)
+        self.assertEqual(road.count('/sea-speed/api/worker/control/road1'), 1)
+        self.assertNotIn('/v1/road1/', road)
+        self.assertNotIn('10.123.239.101', road)
+        self.assertNotIn('SEA_SPEED_API_TOKEN', road)
         objects = paths[1].read_text(encoding="utf-8")
         self.assertIn('const OBJECTS_URL="/sea-speed/api/objects"', objects)
         self.assertIn('name="camera_id"', objects)
