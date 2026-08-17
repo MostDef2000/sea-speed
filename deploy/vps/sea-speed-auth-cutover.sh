@@ -27,7 +27,8 @@ Purpose:
   - Authentik Forward Auth -> every existing /sea-speed/** nginx location
   - Authentik/outpost upstream -> exact private Ubuntu-worker origin over ZeroTier
   - /cams and /cams/** -> 404
-  - exact private ZeroTier worker M2M endpoints -> existing loopback FastAPI upstream
+  - exact private ZeroTier Worker M2M endpoints for Camera 1 and logical road1
+    analytics -> existing loopback FastAPI upstream
 
 Production authorization:
   This script does not grant production permission. bootstrap-public,
@@ -577,6 +578,7 @@ printf 'CAM1_ANONYMOUS_HTTP=%s\n' "$cam_status"
 printf 'OUTPOST_HTTP=%s\n' "$outpost_status"
 printf 'CAM1_BROWSER_PATH=/sea-speed/media/cam1/index.m3u8\n'
 printf 'WORKER_PRIVATE_API_BASE=http://%s/api/cam1\n' "$worker_private_listen"
+printf 'WORKER_PRIVATE_ROAD_API_BASE=http://%s/api/analytics/road1\n' "$worker_private_listen"
 printf 'WORKER_PRIVATE_PEER=%s\n' "$worker_private_peer"
 printf 'WORKER_RUNTIME_RECONFIGURATION_REQUIRED=YES\n'
 printf 'NGINX_BACKUP=%s\n' "$backup"

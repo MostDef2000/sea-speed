@@ -17,6 +17,12 @@ if str(WORKER) not in sys.path:
 
 import analytics_profiles as profiles
 
+CONFIGURE = ROOT / "deploy/worker/ubuntu/configure-analytics-profiles.py"
+configure_spec = importlib.util.spec_from_file_location("configure_analytics_profiles", CONFIGURE)
+assert configure_spec and configure_spec.loader
+configure = importlib.util.module_from_spec(configure_spec)
+configure_spec.loader.exec_module(configure)
+
 
 class AnalyticsProfilesTests(unittest.TestCase):
     def test_profile_defaults_are_exact(self) -> None:
@@ -126,10 +132,84 @@ class AnalyticsProfilesTests(unittest.TestCase):
         for path in files:
             text = path.read_text(encoding="utf-8")
             self.assertNotRegex(text, r"rtsp://[^\s\"']+:[^\s\"']+@")
-        configure = files[1].read_text(encoding="utf-8")
-        self.assertIn('camera_id") == "road1"', configure)
-        self.assertIn('"/preview_road1"', configure)
-        self.assertIn('worker.env must be mode 600', configure)
+        configure_source = files[1].read_text(encoding="utf-8")
+        road_example = files[0].read_text(encoding="utf-8")
+        self.assertIn('camera_id") == "road1"', configure_source)
+        self.assertIn('"/preview_road1"', configure_source)
+        self.assertIn('worker.env must be mode 600', configure_source)
+        self.assertNotIn("https://mostdef.ru/sea-speed/api/analytics/road1", road_example)
+        self.assertIn("private Worker->VPS M2M endpoint", road_example)
+
+    def test_road_worker_api_urls_derive_only_from_exact_private_cam1_m2m_endpoint(self) -> None:
+        state_url, event_url = configure.road_worker_api_urls(
+            {"SEA_SPEED_API_URL": "http://10.123.239.101:18080/api/cam1/state"}
+        )
+        self.assertEqual(state_url, "http://10.123.239.101:18080/api/analytics/road1/state")
+        self.assertEqual(event_url, "http://10.123.239.101:18080/api/analytics/road1/events")
+        for invalid in (
+            "https://mostdef.ru/sea-speed/api/cam1/state",
+            "http://user:pass@10.123.239.101:18080/api/cam1/state",
+            "http://203.0.113.10:18080/api/cam1/state",
+            "http://127.0.0.1:18080/api/cam1/state",
+            "http://10.123.239.101/api/cam1/state",
+            "http://10.123.239.101:18080/api/cam1/events",
+            "http://10.123.239.101:18080/api/cam1/state?redirect=1",
+        ):
+            with self.subTest(invalid=invalid):
+                with self.assertRaises(SystemExit):
+                    configure.road_worker_api_urls({"SEA_SPEED_API_URL": invalid})
+
+    def test_configure_profiles_writes_private_road_m2m_urls_and_mode_600(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            install_root = root / "install"
+            config_root = install_root / "shared/config"
+            config_root.mkdir(parents=True)
+            worker_env = config_root / "worker.env"
+            worker_env.write_text(
+                "SEA_SPEED_API_URL=http://10.123.239.101:18080/api/cam1/state\n"
+                "SEA_SPEED_API_TOKEN=test-token\n"
+                "FRAME_WIDTH=704\n"
+                "FRAME_HEIGHT=576\n",
+                encoding="utf-8",
+            )
+            os.chmod(worker_env, 0o600)
+            catalog = root / "camera-preview-catalog.json"
+            catalog.write_text(
+                json.dumps(
+                    {
+                        "schema": "sea_speed_camera_preview_catalog_v1",
+                        "cameras": [
+                            {
+                                "camera_id": "road1",
+                                "source": "rtsp://10.123.239.102:8555/preview_road1",
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(CONFIGURE),
+                    "--install-root",
+                    str(install_root),
+                    "--preview-catalog",
+                    str(catalog),
+                ],
+                check=True,
+                text=True,
+                capture_output=True,
+            )
+            self.assertIn("ROAD_API=protected_private_worker_ingress", result.stdout)
+            road_env = config_root / "road-worker.env"
+            values = configure.read_env(road_env)
+            self.assertEqual(values["SEA_SPEED_API_URL"], "http://10.123.239.101:18080/api/analytics/road1/state")
+            self.assertEqual(values["SEA_SPEED_EVENT_API_URL"], "http://10.123.239.101:18080/api/analytics/road1/events")
+            self.assertEqual(values["HLS_URL"], "rtsp://10.123.239.102:8555/preview_road1")
+            self.assertEqual(stat.S_IMODE(road_env.stat().st_mode), 0o600)
+            self.assertNotIn("mostdef.ru", road_env.read_text(encoding="utf-8"))
 
     def test_model_preparation_is_digest_bound_cuda_fail_closed(self) -> None:
         source = (ROOT / "deploy/worker/ubuntu/prepare-yolo-model.py").read_text(encoding="utf-8")

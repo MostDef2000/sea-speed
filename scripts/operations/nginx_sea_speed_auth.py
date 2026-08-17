@@ -24,6 +24,18 @@ MATERIALIZED_INCLUDE_END = "# SEA-SPEED-INCLUDE-MATERIALIZED-END"
 WORKER_BEGIN = "# SEA-SPEED-WORKER-PRIVATE-V1-BEGIN"
 WORKER_END = "# SEA-SPEED-WORKER-PRIVATE-V1-END"
 WORKER_BROWSER_CONTROL_PREFIX = "/api/worker/control"
+WORKER_PRIVATE_ENDPOINTS = (
+    ("/api/cam1/state", "POST"),
+    ("/api/cam1/events", "POST"),
+    ("/api/cam1/roi", "GET"),
+    ("/api/cam1/speed-config", "GET"),
+    ("/api/cam1/speed-lines", "GET"),
+    ("/api/analytics/road1/state", "POST"),
+    ("/api/analytics/road1/events", "POST"),
+    ("/api/analytics/road1/roi", "GET"),
+    ("/api/analytics/road1/speed-config", "GET"),
+    ("/api/analytics/road1/speed-lines", "GET"),
+)
 RFC1918_NETWORKS = tuple(
     ipaddress.ip_network(value)
     for value in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
@@ -286,7 +298,7 @@ def _api_origin(server_text: str) -> str:
 def _worker_private_block(listen: str, peer: str, api_origin: str) -> str:
     listen_ip, listen_port = _private_ipv4(listen, with_port=True)
     peer_ip, _ = _private_ipv4(peer)
-    endpoints = [("/api/cam1/state", "POST"), ("/api/cam1/events", "POST"), ("/api/cam1/roi", "GET"), ("/api/cam1/speed-config", "GET"), ("/api/cam1/speed-lines", "GET")]
+    endpoints = WORKER_PRIVATE_ENDPOINTS
     if any(path.startswith(WORKER_BROWSER_CONTROL_PREFIX) for path, _method in endpoints):
         raise ConfigError("browser worker-control endpoints must never be exposed on private worker ingress")
     lines = [WORKER_BEGIN, "server {", f"    listen {listen_ip}:{listen_port};", "    server_name sea-speed-worker-private;", f"    allow {peer_ip};", "    deny all;", "    client_max_body_size 25m;"]
