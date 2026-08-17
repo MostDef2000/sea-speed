@@ -92,7 +92,7 @@ class WorkerContractTests(unittest.TestCase):
         self.assertEqual(event["model_class"], "boat")
         self.assertEqual(event["model_name"], "yolo11s.pt")
 
-    def test_no_profile_environment_keeps_legacy_windows_defaults(self) -> None:
+    def test_no_profile_environment_keeps_portable_legacy_defaults(self) -> None:
         source = SOURCE.read_text(encoding="utf-8-sig")
         self.assertIn('profile_name = env_str("ANALYTICS_PROFILE", "").strip()', source)
         self.assertIn('profile = get_profile(profile_name) if profile_name else None', source)
