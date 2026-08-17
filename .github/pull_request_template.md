@@ -25,7 +25,7 @@
 
 ## Impact
 
-- Production impact: NONE / CONTROL_PLANE / VPS / UBUNTU_WORKER / WINDOWS_WORKER / MIXED
+- Production impact: NONE / CONTROL_PLANE / VPS / UBUNTU_WORKER / MIXED
 - Production-impact rationale:
 - Security impact: NONE / [impact]
 - API/event/state/storage schema impact: NONE / [impact]
@@ -38,11 +38,9 @@
 
 - VPS deployment: REQUIRED / NOT REQUIRED
 - Ubuntu worker/relay update: REQUIRED / NOT REQUIRED
-- Windows worker update: REQUIRED / NOT REQUIRED
 - Production safety envelope: REQUIRED / NOT REQUIRED
 - VPS execution capability: CONNECTOR / ONE_COMMAND_FALLBACK / MISSING / NOT APPLICABLE
 - Ubuntu worker execution capability: CONNECTOR / ONE_COMMAND_FALLBACK / MISSING / NOT APPLICABLE
-- Windows worker execution capability: CONNECTOR / ONE_COMMAND_FALLBACK / MISSING / NOT APPLICABLE
 - Operator actions expected: 0
 - Rollout order:
 - Release manifest:
