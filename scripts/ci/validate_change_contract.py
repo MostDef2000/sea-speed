@@ -18,9 +18,9 @@ POLICY_PATH = ROOT / "data/contracts/change-control-policy-v1.json"
 FIELD_PATTERN = re.compile(r"^- ([A-Za-z][A-Za-z0-9 /_-]*):\s*(.*?)\s*$", re.MULTILINE)
 HEADING_PATTERN = re.compile(r"^##\s+(.+?)\s*$", re.MULTILINE)
 DECLARED_PATH_PATTERN = re.compile(r"^\s{2}- `([^`]+)`\s*$", re.MULTILINE)
-PLACEHOLDERS = {"", "TBD", "TODO", "TBC", "YES/NO", "NO/YES", "REQUIRED / NOT REQUIRED", "NONE / CONTROL_PLANE / VPS / UBUNTU_WORKER / WINDOWS_WORKER / MIXED", "PASS / CONCERNS / FAIL / WAIVED", "CONNECTOR / ONE_COMMAND_FALLBACK / MISSING / NOT APPLICABLE"}
+PLACEHOLDERS = {"", "TBD", "TODO", "TBC", "YES/NO", "NO/YES", "REQUIRED / NOT REQUIRED", "NONE / CONTROL_PLANE / VPS / UBUNTU_WORKER / MIXED", "PASS / CONCERNS / FAIL / WAIVED", "CONNECTOR / ONE_COMMAND_FALLBACK / MISSING / NOT APPLICABLE"}
 SOURCE_AUTHORIZATIONS = {"OUTCOME APPROVED"}
-RUNTIME_IMPACTS = {"VPS", "UBUNTU_WORKER", "WINDOWS_WORKER"}
+RUNTIME_IMPACTS = {"VPS", "UBUNTU_WORKER"}
 RISK_PROFILE_VALUES = {"REQUIRED", "NOT REQUIRED"}
 QUALITY_VERDICTS = {"PASS", "CONCERNS", "FAIL", "WAIVED"}
 NONE_LIKE = {"NONE", "NO", "N/A", "NOT APPLICABLE", "NOT REQUIRED"}
@@ -28,7 +28,6 @@ EXECUTION_CAPABILITIES = {"CONNECTOR", "ONE_COMMAND_FALLBACK", "MISSING", "NOT A
 EXECUTION_FIELDS = {
     "VPS": "VPS execution capability",
     "UBUNTU_WORKER": "Ubuntu worker execution capability",
-    "WINDOWS_WORKER": "Windows worker execution capability",
 }
 
 
@@ -80,9 +79,7 @@ def derive_runtime_contours(changed_files: Iterable[str], policy: dict) -> set[s
     contours: set[str] = set()
     for path in changed_files:
         impact = classify_file(path, policy)
-        if impact == "MIXED":
-            contours.update({"UBUNTU_WORKER", "WINDOWS_WORKER"})
-        elif impact in RUNTIME_IMPACTS:
+        if impact in RUNTIME_IMPACTS:
             contours.add(impact)
     return contours
 
@@ -134,9 +131,14 @@ def validate_authorization(fields: dict[str, str]) -> str:
 
 def validate_deployment_fields(expected_contours: set[str], fields: dict[str, str]) -> None:
     allowed = {"REQUIRED", "NOT REQUIRED"}
-    values = {"VPS": fields.get("VPS deployment", ""), "UBUNTU_WORKER": fields.get("Ubuntu worker/relay update", ""), "WINDOWS_WORKER": fields.get("Windows worker update", "")}
+    values = {
+        "VPS": fields.get("VPS deployment", ""),
+        "UBUNTU_WORKER": fields.get("Ubuntu worker/relay update", ""),
+    }
     if any(value not in allowed for value in values.values()):
         raise ContractError("all deployment contour fields must be REQUIRED or NOT REQUIRED")
+    if "Windows worker update" in fields:
+        raise ContractError("Windows worker update is retired and must not appear in new Change Contracts")
     declared = {name for name, value in values.items() if value == "REQUIRED"}
     if declared != expected_contours:
         raise ContractError(f"deployment contour declaration {sorted(declared)} does not match exact derived contours {sorted(expected_contours)}")
@@ -150,6 +152,8 @@ def validate_deployment_fields(expected_contours: set[str], fields: dict[str, st
 
 
 def validate_execution_capabilities(expected_contours: set[str], fields: dict[str, str]) -> None:
+    if "Windows worker execution capability" in fields:
+        raise ContractError("Windows worker execution capability is retired and must not appear in new Change Contracts")
     fallback_count = 0
     for contour, field_name in EXECUTION_FIELDS.items():
         capability = require_value(fields, field_name).upper()
