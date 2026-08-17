@@ -118,7 +118,10 @@ printf '200'
 set -euo pipefail
 fail_name="${FAKE_RM_FAIL_BASENAME:-}"
 for arg in "$@"; do
-  if [[ -n "$fail_name" && "${arg##*/}" == "$fail_name" && "$arg" == "$SEA_SPEED_DEPLOY_ROOT/releases/"* ]]; then exit 1; fi
+  if [[ -n "$fail_name" && "$arg" == "$SEA_SPEED_DEPLOY_ROOT/releases/$fail_name" ]]; then
+    echo "FAKE_RM_REJECTED=$arg" >> "$FAKE_RM_LOG"
+    exit 1
+  fi
 done
 exec /bin/rm "$@"
 """,
@@ -184,6 +187,7 @@ if action == 'reconcile':
                 "FAKE_OLD_SHA": OLD,
                 "FAKE_SYSTEMCTL_LOG": str(self.root / "systemctl.log"),
                 "FAKE_RM_FAIL_BASENAME": prune_failure,
+                "FAKE_RM_LOG": str(self.root / "rm.log"),
             }
         )
         return env
@@ -268,7 +272,9 @@ if action == 'reconcile':
         result = self.run_deploy(prune_failure=OLDER)
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assertEqual(self.current(), CANDIDATE)
-        self.assertTrue((self.releases / OLDER).is_dir())
+        self.assertTrue((self.releases / OLDER).is_dir(), result.stdout)
+        self.assertIn("WARNING: unable to prune stale release", result.stdout)
+        self.assertIn(f"FAKE_RM_REJECTED={self.releases / OLDER}", (self.root / "rm.log").read_text())
 
 
 if __name__ == "__main__":
