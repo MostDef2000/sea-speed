@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / "api/app/main.py"
+SOURCE = ROOT / "api" / "app" / "main.py"
 
 
 class HTTPExceptionStub(Exception):
@@ -157,6 +157,20 @@ class ApiContractTests(unittest.TestCase):
         block = source[start:end]
         for marker in ("camera_id", "domain", "analytics_profile", "object_type"):
             self.assertIn(marker, block)
+
+    def test_browser_worker_control_is_fixed_to_water_and_road1(self) -> None:
+        source = SOURCE.read_text(encoding="utf-8")
+        for marker in (
+            '("GET", "/v1/status")', '("POST", "/v1/start")', '("POST", "/v1/stop")',
+            '("GET", "/v1/road1/status")', '("POST", "/v1/road1/start")', '("POST", "/v1/road1/stop")',
+            '@app.get("/api/worker/control/road1")',
+            '@app.post("/api/worker/control/road1/start")',
+            '@app.post("/api/worker/control/road1/stop")',
+            'require_operator_identity', 'payload["requested_by"] = username',
+        ):
+            self.assertIn(marker, source)
+        self.assertNotIn('/api/worker/control/{', source)
+        self.assertNotIn('/v1/{', source)
 
 
 if __name__ == "__main__":
