@@ -58,7 +58,7 @@ Given the Worker-to-VPS private ingress is rendered, Road browser-control routes
 - AC-007: Authorized Ubuntu deployment verification and manifest accept either Road desired running or stopped while preserving exact source/runtime identity.
 - AC-008: Systemd tests prove the control agent can write only `shared/runtime` and `shared/road-runtime`, without writable protected config/models/output paths.
 - AC-009: Auth regression proves all six browser worker-control routes are excluded from private Worker M2M ingress while the existing exact telemetry/config allowlist is unchanged.
-- AC-010: PR Validation and aggregate Quality integration succeed on the same exact final head; exact approved 20-path scope is verified, then expected-head merge and post-merge exact-main Quality succeed.
+- AC-010: PR Validation and aggregate Quality integration succeed on the same exact final head; exact approved 21-path scope is verified, including the synchronized analytics-profile Road control regression, then expected-head merge and post-merge exact-main Quality succeed.
 - AC-011: After separate exact-SHA production authorization, Ubuntu-first/VPS-second runtime acceptance proves Road preview is adjacent and auto-available, Road Worker Stop leaves preview and Water unchanged, Road Start resumes advancing exact-source `road1` state, and public Authentik remains protected.
 
 ## NFR assessment
@@ -68,11 +68,12 @@ Given the Worker-to-VPS private ingress is rendered, Road browser-control routes
 - NFR-003 | Area: RELIABILITY | Target: independent Water/Road desired states survive exact update/rollback | Validation: updater/rollback/deploy tests | Evidence: Ubuntu transaction tests | Status: PASS
 - NFR-004 | Area: AVAILABILITY | Target: Road clean preview remains independent of AI Worker start/stop | Validation: frontend lifecycle contract and runtime smoke | Evidence: frontend tests plus Issue #206 runtime evidence | Status: CONCERNS
 - NFR-005 | Area: RELEASE_PROVENANCE | Target: mixed release remains exact-main, quality-gated, rollback-capable and separately production-authorized | Validation: PR/post-merge quality and deployment manifests | Evidence: GitHub Actions plus runtime manifests | Status: CONCERNS
-- NFR-006 | Area: SECURITY | Target: private Worker M2M remains exact telemetry/config allowlist and excludes browser control | Validation: nginx renderer regression | Evidence: tests/test_sea_speed_auth_v1.py | Status: PASS
+- NFR-006 | Area: SECURITY | Target: private Worker M2M remains exact telemetry/config allowlist and excludes browser control | Validation: nginx renderer and analytics-profile regressions | Evidence: tests/test_sea_speed_auth_v1.py and tests/test_analytics_profiles.py | Status: PASS
 
 ## Runtime feedback
 
 - The canonical Water Operator already provides the target visual hierarchy and contextual Stream/Worker interaction.
 - The pre-change Road page used a separate simplified layout, hid clean preview until manual start, and did not expose Road Worker control.
 - Existing Road analytics and protected preview paths are retained; this feature changes presentation and bounded operator control rather than AI semantics.
+- Exact-head CI exposed a stale blanket Road `/api/worker/control` prohibition in `tests/test_analytics_profiles.py`; the approved source scope was expanded from 20 to 21 paths solely to synchronize that historical regression with the already approved fixed `road1` browser-control surface while retaining private/protected-source checks.
 - Production evidence is pending. Source authorization `OUTCOME APPROVED` does not authorize runtime mutation.
