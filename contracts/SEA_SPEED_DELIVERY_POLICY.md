@@ -118,7 +118,7 @@ Ubuntu completion requires exact source/runtime identity, protected-local-state 
 
 ## 13. Retired Windows tooling and historical evidence
 
-Windows Worker has no active runtime completion gate. `.github/workflows/package-worker.yml` must not exist. Exact edge artifacts must not contain `.cmd`, `.ps1` or `worker/windows/**` content. New release tooling must reject `windows-worker` as a new component.
+Windows Worker has no active runtime completion gate. The legacy Windows packaging workflow named `package-worker` is removed and must remain absent. Exact edge artifacts must not contain `.cmd`, `.ps1` or `worker/windows/**` content. New release tooling must reject `windows-worker` as a new component.
 
 Persisted Windows release/deployment manifests and immutable historical Issue/PR/fingerprint evidence remain readable and are not rewritten. Deprecated Windows scripts may stay in the repository as non-production local/archive tooling so generic cross-platform Python compatibility is not conflated with a supported Windows deployment target.
 
