@@ -64,7 +64,7 @@ Runtime validation after separate authorization covers Ubuntu exact deployment a
 
 ## Correct-course check
 
-- Trigger: PR #207 exact-head CI exposed a stale blanket `/api/worker/control` prohibition in `tests/test_analytics_profiles.py`, outside the original 20-path authorization.
+- Trigger: MATERIAL_SCOPE_CHANGE
 - Issue impact: Product outcome unchanged; source scope expanded by exactly one regression-test path, from 20 to 21 paths.
 - Specification impact: AC-010 and runtime feedback now record the authorized 21-path scope and synchronized Road control regression.
 - Plan impact: Validation and TEST-006 now include the analytics-profile fixed-control/private-source regression.
