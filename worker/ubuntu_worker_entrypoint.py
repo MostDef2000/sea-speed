@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import select
 import struct
 import subprocess
@@ -23,7 +24,41 @@ import hls_motion_yolo_worker_events as worker
 
 
 _ORIGINAL_START_MEDIA_READER = worker.start_media_reader
+_ORIGINAL_POST_STATE = worker.post_state
+_ORIGINAL_POST_EVENT = worker.post_event
+_SOURCE_COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 _LENGTH = struct.Struct("!I")
+
+
+def runtime_source_commit() -> str:
+    value = os.environ.get("SEA_SPEED_SOURCE_COMMIT", "")
+    if not _SOURCE_COMMIT_RE.fullmatch(value):
+        raise RuntimeError(
+            "SEA_SPEED_SOURCE_COMMIT must be an exact lowercase 40-character Git SHA"
+        )
+    return value
+
+
+def _metadata_with_runtime_source_commit(metadata: dict[str, object]) -> dict[str, object]:
+    if not isinstance(metadata, dict):
+        raise RuntimeError("worker metadata must be a mapping")
+    enriched = dict(metadata)
+    enriched["worker_source_commit"] = runtime_source_commit()
+    return enriched
+
+
+def post_state(metadata, overlay_path):
+    return _ORIGINAL_POST_STATE(
+        _metadata_with_runtime_source_commit(metadata),
+        overlay_path,
+    )
+
+
+def post_event(metadata, snapshot_path):
+    return _ORIGINAL_POST_EVENT(
+        _metadata_with_runtime_source_commit(metadata),
+        snapshot_path,
+    )
 
 
 def _media_scheme(input_url: str) -> str:
@@ -403,12 +438,15 @@ def supervised_detect_vehicles(_model, frame):
 
 
 worker.start_media_reader = start_media_reader
+worker.post_state = post_state
+worker.post_event = post_event
 worker.YOLO = _ModelSentinel
 worker.detect_vehicles = supervised_detect_vehicles
 
 
 if __name__ == "__main__":
     try:
+        runtime_source_commit()
         _supervisor = BoundedYoloSupervisor()
         _supervisor.startup_self_test()
         worker.main()
