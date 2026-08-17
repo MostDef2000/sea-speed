@@ -38,7 +38,7 @@ Mixed production rollout is ordered Ubuntu first, VPS second. Ubuntu introduces 
 
 ## Validation
 
-Source validation covers Python syntax/import contracts, shell syntax, frontend static contract, fixed control allowlists, independent desired-state behavior, nginx private-ingress exclusion, exact updater/rollback/deploy transaction semantics, SDD validation, exact-artifact validation, PR Validation and aggregate Quality integration.
+Source validation covers Python syntax/import contracts, shell syntax, frontend static contract, fixed control allowlists, independent desired-state behavior, nginx private-ingress exclusion, synchronized analytics-profile Road control/private-source regression, exact updater/rollback/deploy transaction semantics, SDD validation, exact-artifact validation, exact approved 21-path scope, PR Validation and aggregate Quality integration.
 
 Runtime validation after separate authorization covers Ubuntu exact deployment and manifest, then VPS exact deployment. Authenticated browser acceptance verifies layout parity, Road preview auto-connect, Stream Stop/Play, Road Worker Stop while preview stays available and Water stays unchanged, Road Worker Start with advancing exact-source Road state, calibration/diagnostics/events, and protected public Authentik boundary.
 
@@ -49,7 +49,7 @@ Runtime validation after separate authorization covers Ubuntu exact deployment a
 - RISK-002 | Category: OPS | Probability: 3 | Impact: 4 | Score: 12 | Mitigation: persist independent Road desired state and preserve it through update/rollback/deploy verification | Validation: exact updater/rollback/deploy tests | Residual risk: runtime service state can still be unhealthy for environmental reasons and must fail closed | Owner: Delivery Orchestrator | Status: MITIGATED
 - RISK-003 | Category: TECH | Probability: 3 | Impact: 3 | Score: 9 | Mitigation: mirror canonical Operator layout markers and reuse existing Road analytics/preview endpoints | Validation: frontend contract and browser smoke | Residual risk: visual browser differences require final manual acceptance | Owner: Delivery Orchestrator | Status: MITIGATED
 - RISK-004 | Category: OPS | Probability: 2 | Impact: 5 | Score: 10 | Mitigation: deploy Ubuntu before VPS and retain automatic rollback on exact Ubuntu activation failure | Validation: deployment transaction evidence | Residual risk: mixed rollout may temporarily leave old VPS UI against new backward-compatible Ubuntu control, which is safe | Owner: Delivery Orchestrator | Status: MITIGATED
-- RISK-005 | Category: SEC | Probability: 2 | Impact: 4 | Score: 8 | Mitigation: retain exact private M2M endpoint list and explicitly forbid all browser-control paths | Validation: nginx renderer regression | Residual risk: future endpoint additions require the same fail-closed regression | Owner: Delivery Orchestrator | Status: MITIGATED
+- RISK-005 | Category: SEC | Probability: 2 | Impact: 4 | Score: 8 | Mitigation: retain exact private M2M endpoint list and explicitly forbid all browser-control paths | Validation: nginx renderer plus analytics-profile regression | Residual risk: future endpoint additions require the same fail-closed regression | Owner: Delivery Orchestrator | Status: MITIGATED
 
 ## Test design
 
@@ -58,19 +58,19 @@ Runtime validation after separate authorization covers Ubuntu exact deployment a
 - TEST-003 | Covers: AC-006 | Level: integration | Priority: P0 | Evidence: tests/test_ubuntu_worker_exact_updater.py and tests/test_ubuntu_worker_rollback.py
 - TEST-004 | Covers: AC-007 | Level: integration | Priority: P0 | Evidence: tests/test_ubuntu_worker_deploy_authorized.py
 - TEST-005 | Covers: AC-008 | Level: unit | Priority: P0 | Evidence: tests/test_ubuntu_worker_systemd.py
-- TEST-006 | Covers: AC-009 | Level: integration | Priority: P0 | Evidence: tests/test_sea_speed_auth_v1.py
+- TEST-006 | Covers: AC-009,AC-010 | Level: integration | Priority: P0 | Evidence: tests/test_sea_speed_auth_v1.py and tests/test_analytics_profiles.py
 - TEST-007 | Covers: AC-010 | Level: end-to-end | Priority: P0 | Evidence: exact-head PR Validation and aggregate Quality integration plus post-merge main Quality
 - TEST-008 | Covers: AC-011 | Level: runtime-manual | Priority: P0 | Evidence: Issue #206 Ubuntu/VPS deployment manifests and authenticated Road browser smoke
 
 ## Correct-course check
 
-- Trigger: NONE
-- Issue impact: NONE
-- Specification impact: NONE
-- Plan impact: NONE
-- Tasks impact: NONE
-- Authorization impact: NONE
-- Follow-up: Continue the approved implementation and normal exact-green delivery lifecycle.
+- Trigger: PR #207 exact-head CI exposed a stale blanket `/api/worker/control` prohibition in `tests/test_analytics_profiles.py`, outside the original 20-path authorization.
+- Issue impact: Product outcome unchanged; source scope expanded by exactly one regression-test path, from 20 to 21 paths.
+- Specification impact: AC-010 and runtime feedback now record the authorized 21-path scope and synchronized Road control regression.
+- Plan impact: Validation and TEST-006 now include the analytics-profile fixed-control/private-source regression.
+- Tasks impact: T-009/T-010 record the synchronized regression and exact 21-path scope.
+- Authorization impact: RESOLVED. A fresh six-field 21-path Scope was presented immediately before the operator replied exactly `OUTCOME APPROVED`; durable admission evidence is recorded on Issue #206 comment `5314884903`.
+- Follow-up: Remediate only the stale assertion, keep protected/private-source and M2M boundaries fail-closed, then continue exact-head CI, freshness checks, expected-head merge and post-merge quality.
 
 ## Deployment transaction audit
 
@@ -86,6 +86,7 @@ Runtime validation after separate authorization covers Ubuntu exact deployment a
 ## Runtime feedback
 
 - Current source base at admission: `f80204de6a86147fdafc70cec1cc1463ad66ddaa`.
+- Source authorization now covers exactly the approved 21 repository paths after the bounded analytics-profile regression expansion; production scope is unchanged.
 - Ubuntu execution capability: `ONE_COMMAND_FALLBACK`; VPS execution capability: `CONNECTOR`.
 - Runtime deployment is not authorized by source approval. A fresh production fingerprint bound to the exact merged main SHA is required.
 - Final browser parity remains runtime-manual evidence because static tests can prove structure/contracts but not protected visual usability and live media behavior.
