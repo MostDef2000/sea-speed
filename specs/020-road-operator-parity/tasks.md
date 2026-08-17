@@ -15,8 +15,8 @@
 - T-006 [P0] Preserve independent Water/Road desired states through exact update, rollback and authorized deployment verification. COMPLETE in source branch.
 - T-007 [P0] Keep the hardened control systemd unit write-bounded to Water/Road runtime desired-state roots. COMPLETE in source branch.
 - T-008 [P0] Keep private Worker-to-VPS ingress exact and explicitly exclude all Water/Road browser-control routes. COMPLETE in source branch.
-- T-009 [P0] Add focused frontend/API/control/systemd/update/rollback/deploy/auth regression coverage. COMPLETE in source branch.
-- T-010 [P0] Validate exact 20-path scope, syntax/SDD/secret absence, and open the canonical PR linked to Issue #206. PENDING.
+- T-009 [P0] Add focused frontend/API/control/systemd/update/rollback/deploy/auth regression coverage and synchronize the historical analytics-profile Road test with the fixed `road1` browser-control contract while retaining private-source/M2M safety assertions. COMPLETE in source branch.
+- T-010 [P0] Validate exact 21-path scope, syntax/SDD/secret absence, and maintain the canonical PR linked to Issue #206. COMPLETE for current source head; final freshness must be rechecked before merge.
 - T-011 [P0] Reach exact-head PR Validation and aggregate Quality integration green, remediate only inside approved scope, and merge only the exact green head. PENDING.
 - T-012 [P0] Verify post-merge exact-main Quality and compute a fresh production fingerprint for the mixed release. PENDING.
 - T-013 [P0] After separate exact-SHA production authorization, deploy Ubuntu first through the accepted capability and verify exact source, independent desired states and Road control. PENDING PRODUCTION AUTHORIZATION.
@@ -34,15 +34,15 @@
 - AC-006 | Task: T-006,T-009 | Evidence: tests/test_ubuntu_worker_exact_updater.py and tests/test_ubuntu_worker_rollback.py | Coverage: COVERED
 - AC-007 | Task: T-006,T-009 | Evidence: tests/test_ubuntu_worker_deploy_authorized.py | Coverage: COVERED
 - AC-008 | Task: T-007,T-009 | Evidence: tests/test_ubuntu_worker_systemd.py | Coverage: COVERED
-- AC-009 | Task: T-008,T-009 | Evidence: tests/test_sea_speed_auth_v1.py | Coverage: COVERED
-- AC-010 | Task: T-010,T-011,T-012 | Evidence: exact-head PR Validation, aggregate Quality integration and post-merge main Quality | Coverage: COVERED
+- AC-009 | Task: T-008,T-009 | Evidence: tests/test_sea_speed_auth_v1.py and tests/test_analytics_profiles.py | Coverage: COVERED
+- AC-010 | Task: T-009,T-010,T-011,T-012 | Evidence: synchronized analytics-profile regression, exact 21-path compare, exact-head PR Validation, aggregate Quality integration and post-merge main Quality | Coverage: COVERED
 - AC-011 | Task: T-013,T-014,T-015,T-016 | Evidence: exact Ubuntu/VPS deployment manifests plus authenticated Road browser smoke | Coverage: RUNTIME-MANUAL | Reason: protected live-media behavior, cross-service runtime independence and final visual usability require production runtime/browser evidence after separate exact-SHA authorization
 
 ## Definition of Done
 
-- Issue/spec/plan/tasks current: YES — Issue #206 and SDD 020 define the approved outcome, exact scope and runtime plan.
-- Exact changed-file scope verified: NO — final branch compare must prove exactly the approved 20 paths before merge.
-- Required tests and evidence complete: NO — source tests/CI and production browser evidence remain pending.
+- Issue/spec/plan/tasks current: YES — Issue #206 and SDD 020 define the approved outcome, exact 21-path scope and runtime plan.
+- Exact changed-file scope verified: YES for current source head — Connector compare shows exactly the authorized 21 paths; final freshness must be rechecked immediately before merge.
+- Required tests and evidence complete: NO — exact-head source CI and production browser evidence remain pending.
 - Required CI green: NO — exact final head must pass PR Validation and aggregate Quality integration.
 - Exact-green-head merge complete: NO — merge is pending exact-head gates and freshness checks.
 - Deployment state resolved: NO — MIXED runtime deployment requires fresh exact-main production authorization and Ubuntu-first/VPS-second execution.
@@ -53,4 +53,4 @@
 
 ## Completion gate
 
-`COMPLETE` is forbidden until the exact approved 20-path source is merged from an exact-green head, post-merge exact-main Quality is successful, a fresh mixed production envelope is authorized, Ubuntu-first and VPS-second deployments are runtime-verified, authenticated Road browser acceptance passes, and Issue #206 contains terminal evidence.
+`COMPLETE` is forbidden until the exact approved 21-path source is merged from an exact-green head, post-merge exact-main Quality is successful, a fresh mixed production envelope is authorized, Ubuntu-first and VPS-second deployments are runtime-verified, authenticated Road browser acceptance passes, and Issue #206 contains terminal evidence.
