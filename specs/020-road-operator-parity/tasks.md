@@ -16,7 +16,7 @@
 - T-007 [P0] Keep the hardened control systemd unit write-bounded to Water/Road runtime desired-state roots. COMPLETE in source branch.
 - T-008 [P0] Keep private Worker-to-VPS ingress exact and explicitly exclude all Water/Road browser-control routes. COMPLETE in source branch.
 - T-009 [P0] Add focused frontend/API/control/systemd/update/rollback/deploy/auth regression coverage and synchronize the historical analytics-profile Road test with the fixed `road1` browser-control contract while retaining private-source/M2M safety assertions. COMPLETE in source branch.
-- T-010 [P0] Validate exact 21-path scope, syntax/SDD/secret absence, and maintain the canonical PR linked to Issue #206. COMPLETE for current source head; final freshness must be rechecked before merge.
+- T-010 [P0] Validate exact 21-path scope, syntax/SDD/secret absence, maintain the canonical PR linked to Issue #206, and keep its Change Contract normalized to the current canonical `- Field: value` parser contract. COMPLETE for current source head; final freshness must be rechecked before merge.
 - T-011 [P0] Reach exact-head PR Validation and aggregate Quality integration green, remediate only inside approved scope, and merge only the exact green head. PENDING.
 - T-012 [P0] Verify post-merge exact-main Quality and compute a fresh production fingerprint for the mixed release. PENDING.
 - T-013 [P0] After separate exact-SHA production authorization, deploy Ubuntu first through the accepted capability and verify exact source, independent desired states and Road control. PENDING PRODUCTION AUTHORIZATION.
