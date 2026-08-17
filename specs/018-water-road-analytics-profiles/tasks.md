@@ -58,18 +58,17 @@
 - AC-017 | Task: TASK-022,TASK-027 | Evidence: deterministic VPS artifact inventory/syntax in `tests/quality/test_quality_architecture.py` and exact-artifact validator | Coverage: COVERED
 - AC-018 | Task: TASK-024,TASK-026 | Evidence: `tests/test_vps_deploy_transaction.py` executes real `deploy/vps/deploy.sh` across success and failure paths | Coverage: COVERED
 - AC-019 | Task: TASK-025,TASK-027 | Evidence: `tests/test_sea_speed_auth_v1.py` protected-baseline/rollback and exact security-boundary assertions | Coverage: COVERED
-- AC-020 | Task: TASK-011,TASK-012,TASK-018,TASK-028,TASK-029,TASK-030 | Evidence: exact 12-path compare, exact-head CI/merge/post-merge quality, fresh exact-SHA VPS production authorization and deployment evidence | Coverage: COVERED + RUNTIME-MANUAL
+- AC-020 | Task: TASK-011,TASK-012,TASK-018,TASK-028,TASK-029,TASK-030 | Evidence: exact 12-path compare, exact-head CI/merge/post-merge quality, fresh exact-SHA VPS production authorization and deployment evidence | Coverage: RUNTIME-MANUAL | Reason: Final AC-020 includes protected production authorization and VPS execution evidence that hosted source CI cannot produce.
 
 ## Definition of Done
 
-- [x] Issue/spec/plan/tasks current for source authorization: Issue #197 records the second corrective source admission; feature 018 records both production-learning root causes, second exact 12-path VPS-only scope, updated risk/test design and full transaction audit.
+- [x] Issue/spec/plan/tasks current: Issue #197 records the second corrective source admission; feature 018 records both production-learning root causes, second exact 12-path VPS-only scope, updated risk/test design and full transaction audit.
 - [ ] Exact changed-file scope verified: second corrective branch compare equals the separately authorized 12 paths exactly; historical PR #198 42/42 and PR #200 10/10 evidence remains unchanged.
 - [ ] Required tests and evidence complete: VPS real-entrypoint transaction faults, Auth v1 protected-baseline/rollback contract, exact-artifact inventory, workflow policy and existing security/product regression suites pass.
 - [ ] Required CI green: second corrective PR Validation and aggregate Quality integration succeed on the same exact final head; Ubuntu and Windows packaging/runtime are not applicable to this exact VPS-only source diff.
 - [ ] Exact-green-head merge complete: fresh main/head/scope/review gate plus expected-head merge and post-merge push/main quality.
-- [ ] Second corrective deployment state resolved: new merge remains production-pending until a fresh exact-SHA VPS production authorization; then protected VPS workflow yields a validated deployment manifest with `auth_v1_road_private_m2m=passed`.
-- [ ] Pending first-correction Ubuntu deployment resumed only after VPS boundary acceptance; corrected Road protected config and service are resolved with exact deployment evidence while main Water Worker desired-stopped state remains preserved unless separately changed.
-- [ ] Runtime/product acceptance resolved: corrected `road1` state is fresh on VPS with exact source and advancing frame number; Road events/objects/preview and public Auth/Camera1 regression are accepted.
+- [ ] Deployment state resolved: second corrective merge remains production-pending until a fresh exact-SHA VPS production authorization; then protected VPS workflow yields a validated deployment manifest with `auth_v1_road_private_m2m=passed`, and pending Ubuntu execution remains gated on that evidence.
+- [ ] Runtime acceptance resolved: pending first-correction Ubuntu deployment resumes only after VPS boundary acceptance, then corrected `road1` state is fresh on VPS with exact source and advancing frame number; Road events/objects/preview and public Auth/Camera1 regression are accepted while main Water Worker desired-stopped state remains preserved unless separately changed.
 - [x] Deferred work recorded: custom maritime model training/broader vessel taxonomy remain outside this Outcome; Issue #199 separately owns Windows-contour governance retirement; no frontend/API schema, worker inference or topology redesign is part of the second remediation.
 - [ ] Risks resolved or explicitly accepted: performance/product runtime risks remain open until final Road freshness evidence; second-correction deployment/rollback risks require first production execution evidence; RISK-006 remains explicitly accepted.
 - [x] Waivers resolved or current: no source-quality waiver is requested for corrective work.
