@@ -19,12 +19,12 @@ def load_module():
 
 def body(
     files: list[str], *, impact="CONTROL_PLANE", vps="NOT REQUIRED", ubuntu="NOT REQUIRED",
-    worker="NOT REQUIRED", authorization="OUTCOME APPROVED", approval="YES", boundary_change="NO",
+    authorization="OUTCOME APPROVED", approval="YES", boundary_change="NO",
     production_envelope="NOT REQUIRED", security="NONE", schema="NONE", destructive="NO",
     other_high_risk="NO", risk_profile=None, quality_verdict="PASS", quality_finding="NONE",
     waiver_reason="NOT REQUIRED", waiver_approved_by="NOT REQUIRED", waiver_date="NOT REQUIRED",
     waiver_controls="NOT REQUIRED", waiver_followup="NOT REQUIRED", vps_cap=None, ubuntu_cap=None,
-    windows_cap=None, operator_actions=None,
+    operator_actions=None,
 ) -> str:
     listed = "\n".join(f"  - `{path}`" for path in files)
     if risk_profile is None:
@@ -33,10 +33,8 @@ def body(
         vps_cap = "CONNECTOR" if vps == "REQUIRED" else "NOT APPLICABLE"
     if ubuntu_cap is None:
         ubuntu_cap = "ONE_COMMAND_FALLBACK" if ubuntu == "REQUIRED" else "NOT APPLICABLE"
-    if windows_cap is None:
-        windows_cap = "ONE_COMMAND_FALLBACK" if worker == "REQUIRED" else "NOT APPLICABLE"
     if operator_actions is None:
-        operator_actions = sum(cap == "ONE_COMMAND_FALLBACK" for cap in (vps_cap, ubuntu_cap, windows_cap))
+        operator_actions = sum(cap == "ONE_COMMAND_FALLBACK" for cap in (vps_cap, ubuntu_cap))
     return f"""## Canonical task
 
 - Issue: #176
@@ -77,11 +75,9 @@ def body(
 
 - VPS deployment: {vps}
 - Ubuntu worker/relay update: {ubuntu}
-- Windows worker update: {worker}
 - Production safety envelope: {production_envelope}
 - VPS execution capability: {vps_cap}
 - Ubuntu worker execution capability: {ubuntu_cap}
-- Windows worker execution capability: {windows_cap}
 - Operator actions expected: {operator_actions}
 - Rollout order: Merge after required CI.
 - Release manifest: Not required for control-plane work.
@@ -134,6 +130,32 @@ class ChangeContractTests(unittest.TestCase):
             "UBUNTU_WORKER",
         )
 
+    def test_shared_worker_python_is_ubuntu_only(self):
+        files = ["worker/hls_motion_yolo_worker_events.py"]
+        self.assertEqual(self.validator.derive_impact(files, self.policy), "UBUNTU_WORKER")
+        self.assertEqual(
+            self.validator.validate_contract(body(files, impact="UBUNTU_WORKER", ubuntu="REQUIRED", production_envelope="REQUIRED"), files, self.policy),
+            "UBUNTU_WORKER",
+        )
+
+    def test_windows_specific_scripts_are_non_runtime_archival_control_plane(self):
+        for path in ("worker/update_worker.ps1", "worker/restart_worker.cmd", "worker/windows/legacy.ps1", "worker/UPDATE.md"):
+            with self.subTest(path=path):
+                self.assertEqual(self.validator.derive_impact([path], self.policy), "CONTROL_PLANE")
+                self.assertEqual(self.validator.derive_runtime_contours([path], self.policy), set())
+
+    def test_vps_plus_shared_worker_is_mixed_vps_and_ubuntu_only(self):
+        files = ["api/app/main.py", "worker/hls_motion_yolo_worker_events.py"]
+        self.assertEqual(self.validator.derive_runtime_contours(files, self.policy), {"VPS", "UBUNTU_WORKER"})
+        self.assertEqual(
+            self.validator.validate_contract(
+                body(files, impact="MIXED", vps="REQUIRED", ubuntu="REQUIRED", production_envelope="REQUIRED", risk_profile="REQUIRED", operator_actions=1),
+                files,
+                self.policy,
+            ),
+            "MIXED",
+        )
+
     def test_required_contour_cannot_have_missing_execution_capability(self):
         files = ["deploy/worker/ubuntu/update-exact.sh"]
         with self.assertRaisesRegex(self.validator.ContractError, "cannot declare execution capability MISSING"):
@@ -161,21 +183,14 @@ class ChangeContractTests(unittest.TestCase):
                 self.policy,
             )
 
-    def test_windows_specific_script_is_windows_only(self):
-        files = ["worker/update_worker.ps1"]
-        self.assertEqual(
-            self.validator.validate_contract(body(files, impact="WINDOWS_WORKER", worker="REQUIRED", production_envelope="REQUIRED"), files, self.policy),
-            "WINDOWS_WORKER",
+    def test_legacy_windows_fields_fail_new_contract(self):
+        files = ["scripts/ci/validate_change_contract.py"]
+        legacy = body(files).replace(
+            "- Production safety envelope: NOT REQUIRED",
+            "- Windows worker update: NOT REQUIRED\n- Production safety envelope: NOT REQUIRED",
         )
-
-    def test_shared_worker_python_is_mixed_and_requires_risk_profile(self):
-        files = ["worker/camera_worker.py"]
-        self.assertEqual(
-            self.validator.validate_contract(body(files, impact="MIXED", ubuntu="REQUIRED", worker="REQUIRED", production_envelope="REQUIRED"), files, self.policy),
-            "MIXED",
-        )
-        with self.assertRaisesRegex(self.validator.ContractError, "Risk profile must be REQUIRED"):
-            self.validator.validate_contract(body(files, impact="MIXED", ubuntu="REQUIRED", worker="REQUIRED", production_envelope="REQUIRED", risk_profile="NOT REQUIRED"), files, self.policy)
+        with self.assertRaisesRegex(self.validator.ContractError, "Windows worker update is retired"):
+            self.validator.validate_contract(legacy, files, self.policy)
 
     def test_security_schema_destructive_and_other_triggers_require_risk(self):
         files = ["scripts/ci/validate_change_contract.py"]
