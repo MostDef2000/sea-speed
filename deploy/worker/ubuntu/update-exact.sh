@@ -13,11 +13,11 @@ Options:
   --activate            Install and activate the exact release
 
 Without --activate, the updater verifies and prepares the exact source release
-and its immutable shared runtime. With --activate, desired state `running`
-requires exact-SHA frame/state progression. Desired state `stopped` installs the
-exact worker/control units while keeping the AI worker intentionally inactive.
-Any activation failure restores the previous exact units and desired service
-state, including the absence of a legacy control unit, before returning.
+and its immutable shared runtime. With --activate, the independent Water and
+Road operator desired states (`running|stopped`) are preserved. A running
+worker requires exact-SHA frame/state progression; a stopped worker is kept
+intentionally inactive. Any activation failure restores the previous exact
+units and service states before returning.
 USAGE
 }
 
@@ -229,6 +229,7 @@ heartbeat="$install_root/shared/runtime/worker-heartbeat.json"
 road_heartbeat="$install_root/shared/road-runtime/road-worker-heartbeat.json"
 road_env_file="$install_root/shared/config/road-worker.env"
 desired_state_file="$install_root/shared/runtime/operator-desired-state"
+road_desired_state_file="$install_root/shared/road-runtime/operator-desired-state"
 target_control_template="$release_root/source/deploy/worker/ubuntu/sea-speed-worker-control.service.template"
 target_control_agent="$release_root/source/deploy/worker/ubuntu/worker-control-agent.py"
 if [[ ! -f "$target_control_template" || ! -f "$target_control_agent" ]]; then
@@ -239,11 +240,20 @@ fi
 desired_state="running"
 if [[ -f "$desired_state_file" ]]; then
   desired_state="$(cat "$desired_state_file")"
-  if [[ "$desired_state" != "running" && "$desired_state" != "stopped" ]]; then
-    echo "ERROR operator desired state is invalid" >&2
-    exit 20
-  fi
 fi
+if [[ "$desired_state" != "running" && "$desired_state" != "stopped" ]]; then
+  echo "ERROR operator desired state is invalid" >&2
+  exit 20
+fi
+road_desired_state="running"
+if [[ -f "$road_desired_state_file" ]]; then
+  road_desired_state="$(cat "$road_desired_state_file")"
+fi
+if [[ "$road_desired_state" != "running" && "$road_desired_state" != "stopped" ]]; then
+  echo "ERROR road operator desired state is invalid" >&2
+  exit 20
+fi
+
 previous_commit=""
 previous_runtime_id=""
 previous_runtime_ready=false
@@ -297,6 +307,16 @@ if [[ -f "$active_marker" ]]; then
       previous_road_active=true
       previous_road_exec="$(systemctl show -p ExecStart --value "$road_service_name")"
       [[ "$previous_road_exec" == *"$previous_commit"* ]] || { echo "ERROR running road worker and active source marker disagree" >&2; exit 20; }
+    fi
+    if [[ -f "$road_env_file" ]]; then
+      if [[ "$road_desired_state" == "running" && "$previous_road_active" != true ]]; then
+        echo "ERROR desired running road worker is not active before activation" >&2
+        exit 20
+      fi
+      if [[ "$road_desired_state" == "stopped" && "$previous_road_active" == true ]]; then
+        echo "ERROR desired stopped road worker is unexpectedly active before activation" >&2
+        exit 20
+      fi
     fi
     road_unit_backup="$(mktemp "$updater_root/road-unit-backup.XXXXXX")"
     install -o root -g root -m 0600 "$road_unit_target" "$road_unit_backup"
@@ -396,7 +416,7 @@ restore_previous() {
     return 1
   fi
 
-  echo "RESTORE previous_source_commit=$previous_commit desired_state=$desired_state" >&2
+  echo "RESTORE previous_source_commit=$previous_commit desired_state=$desired_state road_desired_state=$road_desired_state" >&2
   install -o root -g root -m 0644 "$unit_backup" "$unit_target" || return 1
   restore_previous_road || return 1
   restore_previous_control || return 1
@@ -416,8 +436,8 @@ restore_previous() {
   fi
   [[ "$(cat "$active_marker")" == "$previous_commit" ]] || return 1
 
-  printf 'RESTORED previous_source_commit=%s runtime_id=%s desired_state=%s control_present=%s road_present=%s\n' \
-    "$previous_commit" "${previous_runtime_id:-legacy-per-release}" "$desired_state" "$previous_control_present" "$previous_road_present"
+  printf 'RESTORED previous_source_commit=%s runtime_id=%s desired_state=%s road_desired_state=%s control_present=%s road_present=%s\n' \
+    "$previous_commit" "${previous_runtime_id:-legacy-per-release}" "$desired_state" "$road_desired_state" "$previous_control_present" "$previous_road_present"
   return 0
 }
 
@@ -453,8 +473,15 @@ if [[ -f "$road_env_file" ]]; then
   road_configured=true
   rm -f "$road_heartbeat"
   systemctl reset-failed "$road_service_name" || abort_activation "failed to clear road worker start limit"
-  systemctl restart "$road_service_name" || abort_activation "road worker restart failed"
-  systemctl is-active --quiet "$road_service_name" || abort_activation "road worker is not active"
+  if [[ "$road_desired_state" == "stopped" ]]; then
+    systemctl stop "$road_service_name" || abort_activation "failed to preserve desired stopped road state"
+    if systemctl is-active --quiet "$road_service_name"; then
+      abort_activation "road worker remained active despite desired stopped state"
+    fi
+  else
+    systemctl restart "$road_service_name" || abort_activation "road worker restart failed"
+    systemctl is-active --quiet "$road_service_name" || abort_activation "road worker is not active"
+  fi
   road_exec="$(systemctl show -p ExecStart --value "$road_service_name")"
   [[ "$road_exec" == *"$source_commit"* ]] || abort_activation "road worker unit does not reference requested commit"
   [[ "$road_exec" == *"/runtimes/$runtime_id/venv/bin/python"* ]] || abort_activation "road worker unit does not reference requested runtime ID"
@@ -504,7 +531,7 @@ if [[ "$desired_state" == "running" ]]; then
     abort_activation "frame/state progression gate failed"
   fi
 fi
-if [[ "$road_configured" == true ]]; then
+if [[ "$road_configured" == true && "$road_desired_state" == "running" ]]; then
   if ! python3 "$runtime_gate" \
     --heartbeat "$road_heartbeat" \
     --expected-commit "$source_commit" \
@@ -521,11 +548,14 @@ chmod 0644 "$marker_tmp"
 mv -f "$marker_tmp" "$active_marker"
 marker_tmp=""
 
-printf 'ACTIVATED source_commit=%s runtime_id=%s desired_state=%s\n' "$source_commit" "$runtime_id" "$desired_state"
+printf 'ACTIVATED source_commit=%s runtime_id=%s desired_state=%s road_desired_state=%s\n' "$source_commit" "$runtime_id" "$desired_state" "$road_desired_state"
 printf 'CONTROL_SERVICE_ACTIVE %s\n' "$control_service_name"
-if [[ "$road_configured" == true ]]; then
+if [[ "$road_configured" == true && "$road_desired_state" == "running" ]]; then
   printf 'ROAD_SERVICE_ACTIVE %s profile=road-v1 camera_id=road1\n' "$road_service_name"
   printf 'ROAD_RUNTIME_GATE frame_and_state_progression=PASS\n'
+elif [[ "$road_configured" == true ]]; then
+  printf 'ROAD_SERVICE_STOPPED %s profile=road-v1 camera_id=road1\n' "$road_service_name"
+  printf 'ROAD_RUNTIME_GATE skipped_reason=operator_desired_stopped\n'
 else
   printf 'ROAD_SERVICE_PENDING protected_config=%s\n' "$road_env_file"
 fi

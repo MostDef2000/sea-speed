@@ -9,6 +9,7 @@ FRONTENDS = (
     ROOT / "frontend/sea-speed/index.html",
     ROOT / "frontend/sea-speed/cameras/index.html",
     ROOT / "frontend/sea-speed/objects/index.html",
+    ROOT / "frontend/sea-speed/road/index.html",
 )
 
 
@@ -36,6 +37,13 @@ class AuthSessionFrontendContractTests(unittest.TestCase):
         text = (ROOT / "frontend/sea-speed/index.html").read_text(encoding="utf-8-sig")
         self.assertIn('/sea-speed/media/cam1/index.m3u8', text)
         self.assertNotIn('/cams/hls/cam1/index.m3u8', text)
+
+    def test_road_session_watchdog_matches_protected_operator_semantics(self) -> None:
+        text = (ROOT / "frontend/sea-speed/road/index.html").read_text(encoding="utf-8-sig")
+        self.assertIn('const SESSION_WATCHDOG_MS=15000', text)
+        self.assertIn('function redirectForReauthentication()', text)
+        self.assertIn('setInterval(loadSessionIdentity,SESSION_WATCHDOG_MS)', text)
+        self.assertIn('credentials:"same-origin"', text)
 
 
 if __name__ == "__main__":

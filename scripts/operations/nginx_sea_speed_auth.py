@@ -24,6 +24,14 @@ MATERIALIZED_INCLUDE_END = "# SEA-SPEED-INCLUDE-MATERIALIZED-END"
 WORKER_BEGIN = "# SEA-SPEED-WORKER-PRIVATE-V1-BEGIN"
 WORKER_END = "# SEA-SPEED-WORKER-PRIVATE-V1-END"
 WORKER_BROWSER_CONTROL_PREFIX = "/api/worker/control"
+WORKER_BROWSER_CONTROL_PATHS = (
+    "/api/worker/control",
+    "/api/worker/control/start",
+    "/api/worker/control/stop",
+    "/api/worker/control/road1",
+    "/api/worker/control/road1/start",
+    "/api/worker/control/road1/stop",
+)
 WORKER_PRIVATE_ENDPOINTS = (
     ("/api/cam1/state", "POST"),
     ("/api/cam1/events", "POST"),
@@ -299,7 +307,7 @@ def _worker_private_block(listen: str, peer: str, api_origin: str) -> str:
     listen_ip, listen_port = _private_ipv4(listen, with_port=True)
     peer_ip, _ = _private_ipv4(peer)
     endpoints = WORKER_PRIVATE_ENDPOINTS
-    if any(path.startswith(WORKER_BROWSER_CONTROL_PREFIX) for path, _method in endpoints):
+    if any(path in WORKER_BROWSER_CONTROL_PATHS or path.startswith(WORKER_BROWSER_CONTROL_PREFIX + "/") for path, _method in endpoints):
         raise ConfigError("browser worker-control endpoints must never be exposed on private worker ingress")
     lines = [WORKER_BEGIN, "server {", f"    listen {listen_ip}:{listen_port};", "    server_name sea-speed-worker-private;", f"    allow {peer_ip};", "    deny all;", "    client_max_body_size 25m;"]
     for path, method in endpoints:

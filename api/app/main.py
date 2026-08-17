@@ -150,7 +150,14 @@ def worker_control_origin() -> tuple[str, int]:
 
 
 def call_worker_control(method: str, path: str) -> Dict[str, Any]:
-    allowed = {("GET", "/v1/status"), ("POST", "/v1/start"), ("POST", "/v1/stop")}
+    allowed = {
+        ("GET", "/v1/status"),
+        ("POST", "/v1/start"),
+        ("POST", "/v1/stop"),
+        ("GET", "/v1/road1/status"),
+        ("POST", "/v1/road1/start"),
+        ("POST", "/v1/road1/stop"),
+    }
     if (method, path) not in allowed:
         raise HTTPException(status_code=500, detail="Unsupported worker control operation")
     if not API_TOKEN:
@@ -1287,6 +1294,30 @@ def start_worker_control(x_authentik_username: Optional[str] = Header(None)) -> 
 def stop_worker_control(x_authentik_username: Optional[str] = Header(None)) -> Dict[str, Any]:
     username = require_operator_identity(x_authentik_username)
     payload = call_worker_control("POST", "/v1/stop")
+    payload["requested_by"] = username
+    return payload
+
+
+@app.get("/api/worker/control/road1")
+def get_road_worker_control(x_authentik_username: Optional[str] = Header(None)) -> Dict[str, Any]:
+    username = require_operator_identity(x_authentik_username)
+    payload = call_worker_control("GET", "/v1/road1/status")
+    payload["requested_by"] = username
+    return payload
+
+
+@app.post("/api/worker/control/road1/start")
+def start_road_worker_control(x_authentik_username: Optional[str] = Header(None)) -> Dict[str, Any]:
+    username = require_operator_identity(x_authentik_username)
+    payload = call_worker_control("POST", "/v1/road1/start")
+    payload["requested_by"] = username
+    return payload
+
+
+@app.post("/api/worker/control/road1/stop")
+def stop_road_worker_control(x_authentik_username: Optional[str] = Header(None)) -> Dict[str, Any]:
+    username = require_operator_identity(x_authentik_username)
+    payload = call_worker_control("POST", "/v1/road1/stop")
     payload["requested_by"] = username
     return payload
 

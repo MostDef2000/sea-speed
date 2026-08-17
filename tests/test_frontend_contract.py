@@ -47,25 +47,52 @@ class FrontendContractTests(unittest.TestCase):
 
     def test_road_page_uses_logical_road1_and_generic_analytics_api(self) -> None:
         for marker in (
-            'const CAMERA_ID="road1"', 'BASE="/sea-speed/api/analytics/road1"',
-            "BASE+'/state'", "BASE+'/events?limit=8'", "BASE+'/roi'",
-            "BASE+'/speed-config'", "BASE+'/speed-lines'",
-            '/sea-speed/api/cameras/road1/preview/start', '/sea-speed/api/cameras/preview/stop',
+            'const CAMERA_ID="road1"', 'const BASE="/sea-speed/api/analytics/road1"',
+            'const STATE_URL=BASE+"/state"', 'const EVENTS_URL=BASE+"/events?limit=3"',
+            'const ROI_URL=BASE+"/roi"', 'const SPEED_CONFIG_URL=BASE+"/speed-config"',
+            'const SPEED_LINES_URL=BASE+"/speed-lines"',
+            'const PREVIEW_START_URL="/sea-speed/api/cameras/road1/preview/start"',
+            'const PREVIEW_STOP_URL="/sea-speed/api/cameras/preview/stop"',
+            'const WORKER_CONTROL_URL="/sea-speed/api/worker/control/road1"',
         ):
             self.assertIn(marker, self.road)
-        self.assertNotIn('/sea-speed/api/worker/control', self.road)
         self.assertNotRegex(self.road, r'rtsp://[^\s"\']+:[^\s"\']+@')
 
-    def test_road_page_has_independent_status_overlay_calibration_and_events(self) -> None:
+    def test_road_page_matches_operator_layout_and_controls(self) -> None:
         for marker in (
-            'id="workerStatus"', 'id="aiStatus"', 'id="detections"', 'id="tracks"',
-            'id="overlay"', 'id="roiCanvas"', 'id="lineCanvas"', 'id="events"',
-            'id="roiSave"', 'id="factorSave"', 'id="linesSave"',
-            'async function startPreview()', 'function stopMedia()',
+            'data-layout="compact-status"', 'data-layout="three-column-workspace"',
+            'data-layout="primary-camera"', 'data-layout="clean-live"',
+            'Overlay controls', 'Speed calibration', 'State JSON', 'Operator log',
+            'DETECTION HISTORY', 'id="overlayImg"', 'id="roiCanvas"', 'id="speedLinesCanvas"',
+            'id="stateJson"', 'id="debugLog"', 'id="eventsList"',
         ):
             self.assertIn(marker, self.road)
+        self.assertEqual(self.road.count('id="streamControlBtn"'), 1)
+        self.assertEqual(self.road.count('id="workerControlBtn"'), 1)
+        self.assertEqual(self.road.count('id="video"'), 1)
+        self.assertNotIn('id="previewStart"', self.road)
+        self.assertNotIn('id="previewStop"', self.road)
         ids = re.findall(r'\bid="([^"]+)"', self.road)
         self.assertEqual(len(ids), len(set(ids)))
+
+    def test_road_stream_is_auto_connected_contextual_and_resilient(self) -> None:
+        for marker in (
+            'const STREAM_RETRY_DELAYS_MS=[1000,2000,4000,8000]',
+            'Hls.ErrorTypes.MEDIA_ERROR', 'function schedulePlaybackWatchdog',
+            'function disconnectStream(', 'setTimeout(()=>connectStream(false),0)',
+            'streamControlBtn.onclick=()=>streamDesired?disconnectStream(true):connectStream(true)',
+            'livePreviewFrame.classList.remove("has-video")',
+        ):
+            self.assertIn(marker, self.road)
+        self.assertIn('Road AI worker stopped; live preview unchanged', self.road)
+
+    def test_road_worker_control_is_road_scoped_and_contextual(self) -> None:
+        self.assertIn('WORKER_START_URL=WORKER_CONTROL_URL+"/start"', self.road)
+        self.assertIn('WORKER_STOP_URL=WORKER_CONTROL_URL+"/stop"', self.road)
+        self.assertIn('d.target!=="road1"', self.road)
+        self.assertIn('Остановить только Road AI worker; live preview продолжит работать', self.road)
+        self.assertNotIn('/sea-speed/api/worker/control/start"', self.road)
+        self.assertNotIn('/sea-speed/api/worker/control/stop"', self.road)
 
     def test_objects_registry_is_cross_camera_and_filterable(self) -> None:
         self.assertIn('const OBJECTS_URL="/sea-speed/api/objects"', self.objects)

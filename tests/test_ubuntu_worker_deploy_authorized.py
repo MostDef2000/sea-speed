@@ -5,9 +5,9 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "deploy/worker/ubuntu/deploy-authorized.sh"
-CONFIGURE = ROOT / "deploy/worker/ubuntu/configure-analytics-profiles.py"
-ROAD_ENV_EXAMPLE = ROOT / "deploy/worker/ubuntu/road-worker.env.example"
+SCRIPT = ROOT / "deploy" / "worker" / "ubuntu" / "deploy-authorized.sh"
+CONFIGURE = ROOT / "deploy" / "worker" / "ubuntu" / "configure-analytics-profiles.py"
+ROAD_ENV_EXAMPLE = ROOT / "deploy" / "worker" / "ubuntu" / "road-worker.env.example"
 
 
 class UbuntuAuthorizedDeploymentTests(unittest.TestCase):
@@ -84,31 +84,35 @@ class UbuntuAuthorizedDeploymentTests(unittest.TestCase):
         self.assertIn("config_restored=true", failure_block)
         self.assertIn("restore_predeployment_service_state", failure_block)
 
-    def test_water_desired_state_and_prior_road_state_are_preserved(self) -> None:
+    def test_water_and_road_desired_states_are_independently_preserved(self) -> None:
         for marker in (
             'desired="$(cat "$desired_file" 2>/dev/null || echo running)"',
-            'worker_was_active=false',
-            'road_was_active=false',
-            'if [[ "$desired" == "stopped" && "$worker_was_active" == true ]]',
-            'if [[ "$road_was_active" == true ]]',
-            'if [[ "$worker_was_active" == true ]]',
+            'road_desired_file="$install_root/shared/road-runtime/operator-desired-state"',
+            'road_desired="$(cat "$road_desired_file" 2>/dev/null || echo running)"',
+            'ERROR road operator desired state is invalid',
+            'worker_was_active=false', 'road_was_active=false',
+            'desired running road worker is not active before protected configuration reconciliation',
+            'desired stopped road worker is active before protected configuration reconciliation',
         ):
             self.assertIn(marker, self.source)
 
-    def test_exact_post_activation_identity_requires_reconciled_road_worker(self) -> None:
+    def test_exact_post_activation_identity_accepts_running_or_stopped_road(self) -> None:
         for marker in (
             'road_service="sea-speed-road-worker.service"',
             'road_env="$install_root/shared/config/road-worker.env"',
             'road_exec',
+            'if [[ "$road_desired" == "running" ]]',
             'systemctl is-active --quiet "$road_service"',
+            '! systemctl is-active --quiet "$road_service"',
             '[[ -f "$road_env" && "$(stat -c \'%a\' "$road_env")" == "600" ]]',
         ):
             self.assertIn(marker, self.source)
 
-    def test_manifest_records_protected_config_reconciliation_without_secret_values(self) -> None:
+    def test_manifest_records_road_desired_state_without_secret_values(self) -> None:
         self.assertIn('"protected-road-profile-config-reconciled"', self.source)
-        self.assertIn("protected_config_reconciled", self.source)
-        self.assertIn('"road-worker-active"', self.source)
+        self.assertIn('"road-worker-desired-state-" + os.environ["ROAD_DESIRED"]', self.source)
+        self.assertIn('ROAD_DESIRED="$road_desired"', self.source)
+        self.assertNotIn('"road-worker-active"', self.source)
         self.assertNotIn("HLS_URL=", self.source)
         self.assertNotIn("SEA_SPEED_API_TOKEN=", self.source)
 

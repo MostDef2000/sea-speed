@@ -52,11 +52,20 @@ class UbuntuWorkerSystemdTests(unittest.TestCase):
         self.assertIn('road_env_file="$install_root/shared/config/road-worker.env"', source)
         self.assertIn("road-worker.env must be mode 600", source)
 
-    def test_control_service_remains_independent(self) -> None:
+    def test_control_service_remains_independent_and_write_bounded(self) -> None:
         control = CONTROL_UNIT.read_text(encoding="utf-8")
         self.assertIn("User=root", control)
         self.assertNotIn("PartOf=sea-speed-worker.service", control)
         self.assertNotIn("Requires=sea-speed-worker.service", control)
+        self.assertIn(
+            "ReadWritePaths=__INSTALL_ROOT__/shared/runtime __INSTALL_ROOT__/shared/road-runtime",
+            control,
+        )
+        self.assertNotIn("ReadWritePaths=__INSTALL_ROOT__/shared/config", control)
+        self.assertNotIn("ReadWritePaths=__INSTALL_ROOT__/shared/models", control)
+        self.assertNotIn("ReadWritePaths=__INSTALL_ROOT__/shared/output", control)
+        self.assertIn("ProtectSystem=strict", control)
+        self.assertIn("NoNewPrivileges=true", control)
 
 
 if __name__ == "__main__":
