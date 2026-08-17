@@ -39,6 +39,11 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     timeout-minutes: 20
+    env:
+      SEA_SPEED_REQUIRE_AUTH_BOUNDARY: "1"
+      SEA_SPEED_AUTHENTIK_UPSTREAM: "http://10.123.239.102:19000"
+      SEA_SPEED_WORKER_PRIVATE_LISTEN: "10.123.239.101:18080"
+      SEA_SPEED_WORKER_PRIVATE_PEER: "10.123.239.102"
 
     steps:
       - name: Require execution from main workflow definition
@@ -114,7 +119,12 @@ jobs:
         run: |
           set -euo pipefail
           bash -n deploy/vps/deploy.sh
-          python -m py_compile scripts/release/*.py scripts/quality/*.py
+          bash -n deploy/vps/sea-speed-auth-cutover.sh
+          python -m py_compile \
+            scripts/release/*.py \
+            scripts/quality/*.py \
+            scripts/operations/nginx_cam1_direct_h264.py \
+            scripts/operations/nginx_sea_speed_auth.py
           python scripts/quality/validate_quality_contracts.py
           python scripts/quality/validate_workflow_policy.py
 
@@ -171,7 +181,7 @@ jobs:
           printf '%s\n' "$VPS_SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
           chmod 0600 "$HOME/.ssh/sea-speed-deploy" "$HOME/.ssh/known_hosts"
 
-      - name: Deploy exact commit
+      - name: Deploy exact commit and reconcile Road private M2M boundary
         env:
           DEPLOY_SHA: ${{ steps.release.outputs.sha }}
           VPS_HOST: ${{ secrets.VPS_HOST }}
@@ -182,7 +192,9 @@ jobs:
           [[ -n "$VPS_HOST" ]] || { echo "Missing VPS_HOST" >&2; exit 1; }
           [[ -n "$VPS_USER" ]] || { echo "Missing VPS_USER" >&2; exit 1; }
           ssh -i "$HOME/.ssh/sea-speed-deploy" -p "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes \
-            "$VPS_USER@$VPS_HOST" "bash -s -- '$DEPLOY_SHA'" < deploy/vps/deploy.sh
+            "$VPS_USER@$VPS_HOST" \
+            "SEA_SPEED_REQUIRE_AUTH_BOUNDARY='$SEA_SPEED_REQUIRE_AUTH_BOUNDARY' SEA_SPEED_AUTHENTIK_UPSTREAM='$SEA_SPEED_AUTHENTIK_UPSTREAM' SEA_SPEED_WORKER_PRIVATE_LISTEN='$SEA_SPEED_WORKER_PRIVATE_LISTEN' SEA_SPEED_WORKER_PRIVATE_PEER='$SEA_SPEED_WORKER_PRIVATE_PEER' bash -s -- '$DEPLOY_SHA'" \
+            < deploy/vps/deploy.sh
 
       - name: Collect and validate deployment evidence
         env:
@@ -195,6 +207,17 @@ jobs:
             "$VPS_USER@$VPS_HOST" "cat /opt/sea-speed-deploy/state/deployment-manifest.json" \
             > dist/deployment-manifest-vps.json
           python scripts/release/validate_deployment_manifest.py dist/deployment-manifest-vps.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path("dist/deployment-manifest-vps.json").read_text(encoding="utf-8"))
+          checks = {item.get("name"): item.get("status") for item in data.get("checks", [])}
+          if checks.get("auth_v1_road_private_m2m") != "passed":
+              raise SystemExit("VPS deployment manifest lacks passed Road private M2M Auth v1 evidence")
+          if data.get("runtimeVerified") is not True or data.get("state") != "runtime_verified":
+              raise SystemExit("VPS deployment manifest is not runtime_verified")
+          print("VPS Road private M2M deployment evidence valid")
+          PY
 
       - name: Upload release and deployment evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -222,4 +245,5 @@ jobs:
           echo "- Aggregate quality gate: exact main push run verified" >> "$GITHUB_STEP_SUMMARY"
           echo "- Durable production authorization: verified" >> "$GITHUB_STEP_SUMMARY"
           echo "- Deployment approval: production environment" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Road private M2M Auth v1 boundary: verified" >> "$GITHUB_STEP_SUMMARY"
           echo "- Runtime state: verified by deployment manifest" >> "$GITHUB_STEP_SUMMARY"
