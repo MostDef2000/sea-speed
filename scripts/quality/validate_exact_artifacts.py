@@ -10,6 +10,7 @@ REQUIRED_BY_COMPONENT={
 "ubuntu-worker":{"scripts/worker/check_ubuntu_compatibility.py","worker/analytics_profiles.py","worker/hls_motion_yolo_worker_events.py","worker/hls_motion_yolo_runtime.py","worker/ubuntu_worker_entrypoint.py","worker/ubuntu_ai_inference_worker.py","deploy/worker/ubuntu/install-manual.sh","deploy/worker/ubuntu/install-systemd.sh","deploy/worker/ubuntu/update-exact.sh","deploy/worker/ubuntu/rollback-exact.sh","deploy/worker/ubuntu/deploy-authorized.sh","deploy/worker/ubuntu/preflight.sh","deploy/worker/ubuntu/prepare-runtime.sh","deploy/worker/ubuntu/requirements-runtime.txt","deploy/worker/ubuntu/runtime-lock.json","deploy/worker/ubuntu/worker.env.example","deploy/worker/ubuntu/road-worker.env.example","deploy/worker/ubuntu/sea-speed-worker.service.template","deploy/worker/ubuntu/sea-speed-road-worker.service.template","deploy/worker/ubuntu/sea-speed-worker-control.service.template","deploy/worker/ubuntu/worker-control-agent.py","deploy/worker/ubuntu/observed-worker-runner.py","deploy/worker/ubuntu/verify-runtime-progression.py","deploy/worker/ubuntu/check-worker-health.py","deploy/worker/ubuntu/configure-analytics-profiles.py","deploy/worker/ubuntu/prepare-yolo-model.py"},
 "edge":{"worker/analytics_profiles.py","worker/hls_motion_yolo_worker_events.py","worker/hls_motion_yolo_runtime.py"}}
 QUALITY_EVIDENCE_COMPONENTS={"vps","edge"}; RELEASE_ONLY_COMPONENTS={"ubuntu-worker"}
+WINDOWS_ARCHIVAL_SUFFIXES={".cmd",".ps1"}
 def safe_members(archive):
     members=archive.getmembers()
     for m in members:
@@ -25,6 +26,8 @@ def validate_artifact(root,manifest_path,artifact,seen):
     expected={e["path"] for e in artifact["files"]}
     if not REQUIRED_BY_COMPONENT[component].issubset(expected): raise SystemExit(f"required inventory missing from {component}")
     if any(Path(n).suffix.lower() in {".pt",".onnx",".engine"} for n in expected): raise SystemExit("model binaries must not enter exact artifacts")
+    if component=="edge" and any(Path(n).suffix.lower() in WINDOWS_ARCHIVAL_SUFFIXES or n.startswith("worker/windows/") for n in expected):
+        raise SystemExit("deprecated Windows tooling must not enter exact edge artifacts")
     for e in artifact["files"]:
         source=root/e["path"]
         if sha256_file(source)!=e["sha256"] or source.stat().st_size!=e["size"]: raise SystemExit(f"source inventory mismatch: {e['path']}")
