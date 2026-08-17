@@ -1,12 +1,12 @@
 # Review Lens: Worker
 
-Version: 1.1.0
+Version: 1.2.0
 Status: Active
 Role: Worker Runtime Review Lens
 
 ## Scope
 
-Review shared Worker source plus Ubuntu/Windows-specific runtime behavior: ingestion, motion/AI activation, YOLO/tracking, ROI, overlays/events, speed estimation and command/service boundaries.
+Review shared Worker source plus Ubuntu-specific runtime behavior: ingestion, motion/AI activation, YOLO/tracking, ROI, overlays/events, speed estimation and service boundaries. Return findings to the Sea Speed Delivery Orchestrator.
 
 ## Invariants
 
@@ -15,8 +15,10 @@ Do not change detection/tracking/speed/calibration formulas without approved out
 ## Contour classification
 
 - `deploy/worker/ubuntu/**`, `worker/ubuntu_*`: Ubuntu Worker/relay.
-- Windows-specific scripts/paths: Windows AI Worker.
-- shared `worker/**`: normally Ubuntu + Windows (`MIXED`) unless a more-specific policy rule applies.
+- shared executable `worker/**`: Ubuntu Worker/relay unless a more-specific archival rule applies.
+- `worker/*.ps1`, `worker/*.cmd`, `worker/windows/**`, `worker/README.txt`, `worker/UPDATE.md`: deprecated non-production local/archive tooling; no runtime contour.
+
+Windows Worker is retired as a production target. Cross-platform Python compatibility may still be preserved, but that does not create a Windows release/deployment/acceptance requirement. Historical Windows evidence remains readable audit history.
 
 ## Checks
 
@@ -24,4 +26,4 @@ Python syntax/imports, service/start-stop contracts, state posting, overlay/even
 
 ## Output
 
-Return findings to the Sea Speed Delivery Orchestrator; this lens does not own deployment authorization or lifecycle state.
+Return findings to the **Sea Speed Delivery Orchestrator**; this lens does not own deployment authorization or lifecycle state.
