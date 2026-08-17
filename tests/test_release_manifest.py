@@ -3,6 +3,8 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import subprocess
+import sys
 import unittest
 from pathlib import Path
 
@@ -77,7 +79,7 @@ class ReleaseManifestTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             RELEASE_VALIDATOR.validate(payload)
 
-    def test_legacy_v1_release_manifest_remains_readable(self) -> None:
+    def test_legacy_v1_windows_release_manifest_remains_readable(self) -> None:
         approved = ["worker/a.py"]
         payload = {
             "schema": "sea_speed_release_manifest_v1",
@@ -94,7 +96,7 @@ class ReleaseManifestTests(unittest.TestCase):
         }
         RELEASE_VALIDATOR.validate(payload)
 
-    def test_deployment_manifest_accepts_all_three_targets(self) -> None:
+    def test_historical_deployment_manifest_windows_target_remains_readable(self) -> None:
         for target in ("vps", "ubuntu-worker", "windows-worker"):
             payload = {
                 "schema": "sea_speed_deployment_manifest_v1",
@@ -110,6 +112,17 @@ class ReleaseManifestTests(unittest.TestCase):
                 "state": "runtime_verified",
             }
             DEPLOY_VALIDATOR.validate(payload)
+
+    def test_new_release_builder_rejects_windows_worker_component(self) -> None:
+        result = subprocess.run(
+            [sys.executable, "scripts/release/build_release_manifest.py", "--component", "windows-worker"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("invalid choice", result.stdout)
 
 
 if __name__ == "__main__":
