@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-UPDATER = ROOT / "deploy/worker/ubuntu/update-exact.sh"
+UPDATER = ROOT / "deploy" / "worker" / "ubuntu" / "update-exact.sh"
 
 
 class UbuntuWorkerExactUpdaterTests(unittest.TestCase):
@@ -24,21 +24,41 @@ class UbuntuWorkerExactUpdaterTests(unittest.TestCase):
         self.assertNotIn("-m pip install", self.source)
         self.assertNotIn("download.pytorch.org", self.source)
 
-    def test_main_desired_state_stays_main_worker_specific(self) -> None:
-        self.assertIn('desired_state_file="$install_root/shared/runtime/operator-desired-state"', self.source)
-        self.assertIn('if [[ "$desired_state" == "stopped" ]]', self.source)
+    def test_water_and_road_desired_states_are_independent(self) -> None:
+        for marker in (
+            'desired_state_file="$install_root/shared/runtime/operator-desired-state"',
+            'road_desired_state_file="$install_root/shared/road-runtime/operator-desired-state"',
+            'desired_state="running"', 'road_desired_state="running"',
+            'ERROR operator desired state is invalid', 'ERROR road operator desired state is invalid',
+            'if [[ "$desired_state" == "stopped" ]]',
+            'if [[ "$road_desired_state" == "stopped" ]]',
+        ):
+            self.assertIn(marker, self.source)
         self.assertIn('systemctl stop "$service_name"', self.source)
-        self.assertIn("RUNTIME_GATE skipped_reason=operator_desired_stopped", self.source)
-        road_block = self.source[self.source.index('if [[ -f "$road_env_file" ]]'):]
-        self.assertNotIn('desired_state == "stopped"', road_block)
+        self.assertIn('systemctl stop "$road_service_name"', self.source)
+        self.assertIn('systemctl restart "$service_name"', self.source)
+        self.assertIn('systemctl restart "$road_service_name"', self.source)
+
+    def test_road_desired_state_controls_runtime_gate(self) -> None:
+        self.assertIn('if [[ "$road_configured" == true && "$road_desired_state" == "running" ]]', self.source)
+        self.assertIn("ROAD_RUNTIME_GATE frame_and_state_progression=PASS", self.source)
+        self.assertIn("ROAD_RUNTIME_GATE skipped_reason=operator_desired_stopped", self.source)
+        self.assertIn("ROAD_SERVICE_STOPPED", self.source)
+        self.assertIn("ROAD_SERVICE_ACTIVE", self.source)
 
     def test_road_topology_is_backup_bound_and_runtime_gated(self) -> None:
         for marker in (
             'road_service_name="sea-speed-road-worker.service"', "road-unit-backup.XXXXXX",
             "restore_previous_road()", "road-worker-heartbeat.json", "ROAD_RUNTIME_GATE frame_and_state_progression=PASS",
-            'systemctl restart "$road_service_name"', "road worker unit does not reference requested runtime ID",
+            "road worker unit does not reference requested runtime ID",
         ):
             self.assertIn(marker, self.source)
+
+    def test_pre_activation_state_validation_is_independent(self) -> None:
+        self.assertIn("desired running worker is not active before activation", self.source)
+        self.assertIn("desired stopped worker is unexpectedly active before activation", self.source)
+        self.assertIn("desired running road worker is not active before activation", self.source)
+        self.assertIn("desired stopped road worker is unexpectedly active before activation", self.source)
 
     def test_cleanup_covers_main_road_control_and_marker(self) -> None:
         cleanup = self.source[self.source.index("cleanup() {"):self.source.index("trap cleanup EXIT")]
