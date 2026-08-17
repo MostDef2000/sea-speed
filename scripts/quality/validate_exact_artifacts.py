@@ -6,7 +6,7 @@ from pathlib import Path,PurePosixPath
 if __package__ in (None,""): sys.path.insert(0,str(Path(__file__).resolve().parents[2]))
 from scripts.quality.common import load_json,repository_root,sha256_file
 REQUIRED_BY_COMPONENT={
-"vps":{"api/app/main.py","frontend/sea-speed/index.html","frontend/sea-speed/objects/index.html","frontend/sea-speed/cameras/index.html","frontend/sea-speed/road/index.html","frontend/root/index.html","deploy/vps/deploy.sh","deploy/vps/sea-speed-auth-cutover.sh","scripts/operations/nginx_cam1_direct_h264.py","scripts/operations/nginx_sea_speed_auth.py"},
+"vps":{"api/app/main.py","frontend/sea-speed/index.html","frontend/sea-speed/objects/index.html","frontend/sea-speed/cameras/index.html","frontend/sea-speed/road/index.html","frontend/root/index.html","deploy/vps/deploy.sh","deploy/vps/sea-speed-auth-cutover.sh","deploy/vps/install-auth-privilege-boundary.sh","deploy/vps/sea-speed-auth-privileged-helper.py","scripts/operations/nginx_cam1_direct_h264.py","scripts/operations/nginx_sea_speed_auth.py"},
 "ubuntu-worker":{"scripts/worker/check_ubuntu_compatibility.py","worker/analytics_profiles.py","worker/hls_motion_yolo_worker_events.py","worker/hls_motion_yolo_runtime.py","worker/ubuntu_worker_entrypoint.py","worker/ubuntu_ai_inference_worker.py","deploy/worker/ubuntu/install-manual.sh","deploy/worker/ubuntu/install-systemd.sh","deploy/worker/ubuntu/update-exact.sh","deploy/worker/ubuntu/rollback-exact.sh","deploy/worker/ubuntu/deploy-authorized.sh","deploy/worker/ubuntu/preflight.sh","deploy/worker/ubuntu/prepare-runtime.sh","deploy/worker/ubuntu/requirements-runtime.txt","deploy/worker/ubuntu/runtime-lock.json","deploy/worker/ubuntu/worker.env.example","deploy/worker/ubuntu/road-worker.env.example","deploy/worker/ubuntu/sea-speed-worker.service.template","deploy/worker/ubuntu/sea-speed-road-worker.service.template","deploy/worker/ubuntu/sea-speed-worker-control.service.template","deploy/worker/ubuntu/worker-control-agent.py","deploy/worker/ubuntu/observed-worker-runner.py","deploy/worker/ubuntu/verify-runtime-progression.py","deploy/worker/ubuntu/check-worker-health.py","deploy/worker/ubuntu/configure-analytics-profiles.py","deploy/worker/ubuntu/prepare-yolo-model.py"},
 "edge":{"worker/analytics_profiles.py","worker/hls_motion_yolo_worker_events.py","worker/hls_motion_yolo_runtime.py"}}
 QUALITY_EVIDENCE_COMPONENTS={"vps","edge"}; RELEASE_ONLY_COMPONENTS={"ubuntu-worker"}
@@ -36,7 +36,7 @@ def validate_artifact(root,manifest_path,artifact,seen):
             a.extractall(target,members=members)
         for py in target.rglob("*.py"): py_compile.compile(str(py),doraise=True)
         if component=="vps":
-            for script in (target/"deploy/vps/deploy.sh",target/"deploy/vps/sea-speed-auth-cutover.sh"):
+            for script in (target/"deploy/vps/deploy.sh",target/"deploy/vps/sea-speed-auth-cutover.sh",target/"deploy/vps/install-auth-privilege-boundary.sh"):
                 subprocess.run(["bash","-n",str(script)],check=True)
             for html in [target/"frontend/sea-speed/index.html",target/"frontend/sea-speed/objects/index.html",target/"frontend/sea-speed/cameras/index.html",target/"frontend/sea-speed/road/index.html",target/"frontend/root/index.html"]:
                 text=html.read_text(encoding="utf-8-sig").lower()
