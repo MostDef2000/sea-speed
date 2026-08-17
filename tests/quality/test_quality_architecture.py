@@ -43,14 +43,13 @@ class QualityArchitectureTests(unittest.TestCase):
         self.assertNotIn('run_root bash "$cutover"', source)
         self.assertLess(source.index("check_auth_privilege_boundary"), source.index("bootstrap_current_release"))
 
-    def test_windows_package_remains_pre_release_only(self) -> None:
-        package = (ROOT / ".github/workflows/package-worker.yml").read_text(encoding="utf-8")
-        self.assertIn('- "worker/**"', package)
-        self.assertIn("commit-sha.txt", package)
-        self.assertIn("sea-speed-worker.zip.sha256", package)
-        self.assertNotIn("release-manifest-windows-worker.json", package)
+    def test_windows_package_workflow_is_retired(self) -> None:
+        self.assertFalse((ROOT / ".github/workflows/package-worker.yml").exists())
+        runtime = (ROOT / ".github/workflows/deploy-runtime-request.yml").read_text(encoding="utf-8")
+        self.assertNotIn("windows_worker_required", runtime)
+        self.assertNotIn("windows-worker-fallback", runtime)
 
-    def test_exact_artifacts_are_deterministic_and_bind_new_profiles(self) -> None:
+    def test_exact_artifacts_are_deterministic_and_bind_active_profiles(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             first = Path(temp_dir) / "first"
             second = Path(temp_dir) / "second"
@@ -76,6 +75,8 @@ class QualityArchitectureTests(unittest.TestCase):
             ):
                 self.assertIn(marker, vps_paths)
             self.assertIn("worker/analytics_profiles.py", edge_paths)
+            self.assertFalse(any(Path(path).suffix.lower() in {".cmd", ".ps1"} for path in edge_paths))
+            self.assertFalse(any(path.startswith("worker/windows/") for path in edge_paths))
             for marker in (
                 "worker/analytics_profiles.py", "deploy/worker/ubuntu/road-worker.env.example",
                 "deploy/worker/ubuntu/sea-speed-road-worker.service.template",
