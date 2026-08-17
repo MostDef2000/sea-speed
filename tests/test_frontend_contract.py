@@ -38,12 +38,23 @@ class FrontendContractTests(unittest.TestCase):
         for page in (self.source, self.objects, self.cameras, self.road):
             self.assertIn('/sea-speed/objects/', page)
             self.assertIn('/sea-speed/cameras/', page)
-            self.assertIn('/sea-speed/road/', page)
             self.assertEqual(page.count('id="sessionUser"'), 1)
             self.assertIn('href="/outpost.goauthentik.io/sign_out">Выйти</a>', page)
             self.assertRegex(page, r'SESSION_URL\s*=\s*["\']/sea-speed/api/session["\']')
             self.assertNotIn("localStorage", page)
             self.assertNotIn("sessionStorage", page)
+        for page in (self.source, self.objects, self.cameras):
+            self.assertIn('/sea-speed/road/', page)
+
+    def test_water_and_road_navigation_toggle_is_reciprocal_and_highlighted(self) -> None:
+        water_to_road = '<a class="objects-link road-link active" href="/sea-speed/road/">Дорога</a>'
+        road_to_water = '<a class="objects-link road-link active" href="/sea-speed/">Вода</a>'
+        self.assertIn(water_to_road, self.source)
+        self.assertIn(road_to_water, self.road)
+        self.assertEqual(self.source.count(water_to_road), 1)
+        self.assertEqual(self.road.count(road_to_water), 1)
+        self.assertIn('.objects-link.active{', self.source)
+        self.assertIn('.objects-link.active{', self.road)
 
     def test_road_page_uses_logical_road1_and_generic_analytics_api(self) -> None:
         for marker in (
