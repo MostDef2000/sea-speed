@@ -16,6 +16,9 @@ Options:
   --worker-private-peer IP
   --expected-sha256 SHA256
   --authentik-public-url URL  default: https://auth.mostdef.ru
+  --require-protected-baseline
+                              require the already-protected Auth v1 boundary before
+                              prepare/activate and enable bounded automatic rollback
 
 Purpose:
   bootstrap-public creates only the dedicated auth.mostdef.ru TLS reverse proxy
@@ -38,9 +41,11 @@ Production authorization:
 Rollback:
   The isolated auth.mostdef.ru vhost is source-managed by bootstrap-public and
   never changes the active mostdef.ru site. A root-only mostdef.ru nginx backup
-  is written before activate. Automatic rollback of the main boundary is
-  deliberately disabled; restoring the retired public /cams/** contour requires
-  an explicit production rollback decision.
+  is written before activate. When --require-protected-baseline is supplied,
+  activation first proves the rollback target is already Auth v1 protected and
+  automatically restores and re-verifies that exact backup on any post-mutation
+  validation/reload/health failure. Without that flag, legacy/manual cutover
+  rollback semantics remain explicit and automatic rollback is disabled.
 USAGE
 }
 
@@ -57,6 +62,7 @@ worker_private_listen=""
 worker_private_peer=""
 expected_sha256=""
 authentik_public_url="https://auth.mostdef.ru"
+require_protected_baseline=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --nginx-site)
@@ -77,6 +83,8 @@ while [[ $# -gt 0 ]]; do
     --authentik-public-url)
       [[ $# -ge 2 ]] || { echo "ERROR --authentik-public-url requires URL" >&2; exit 2; }
       authentik_public_url="${2%/}"; shift 2 ;;
+    --require-protected-baseline)
+      require_protected_baseline=true; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "ERROR unknown option: $1" >&2; exit 2 ;;
   esac
@@ -86,10 +94,10 @@ script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 repo_root="$(CDPATH= cd -- "$script_dir/../.." && pwd)"
 cam_renderer="$repo_root/scripts/operations/nginx_cam1_direct_h264.py"
 auth_renderer="$repo_root/scripts/operations/nginx_sea_speed_auth.py"
-state_root="/var/lib/sea-speed-auth-v1"
+state_root="${SEA_SPEED_AUTH_STATE_ROOT:-/var/lib/sea-speed-auth-v1}"
 backup_root="$state_root/backups"
 candidate_path="$state_root/candidate.nginx.conf"
-local_h264="http://127.0.0.1:18889/cam1/index.m3u8"
+local_h264="${SEA_SPEED_AUTH_LOCAL_H264:-http://127.0.0.1:18889/cam1/index.m3u8}"
 private_authentik_health=""
 auth_public_host="auth.mostdef.ru"
 auth_site_available="/etc/nginx/sites-available/auth.mostdef.ru"
@@ -97,6 +105,11 @@ auth_site_enabled="/etc/nginx/sites-enabled/auth.mostdef.ru"
 auth_acme_webroot="/var/www/sea-speed-auth-acme"
 auth_cert_dir="/etc/letsencrypt/live/auth.mostdef.ru"
 auth_managed_marker="# SEA-SPEED-AUTH-PUBLIC-V1"
+root_status=""
+cams_status=""
+sea_status=""
+cam_status=""
+outpost_status=""
 
 require_commands() {
   local name
@@ -446,6 +459,71 @@ http_status() {
   curl --silent --show-error --output /dev/null --write-out '%{http_code}' --max-time 15 "$1" || true
 }
 
+read_public_boundary_statuses() {
+  root_status="$(http_status https://mostdef.ru/)"
+  cams_status="$(http_status https://mostdef.ru/cams/)"
+  sea_status="$(http_status https://mostdef.ru/sea-speed/)"
+  cam_status="$(http_status https://mostdef.ru/sea-speed/media/cam1/index.m3u8)"
+  outpost_status="$(http_status https://mostdef.ru/outpost.goauthentik.io/ping)"
+}
+
+verify_public_boundary() {
+  read_public_boundary_statuses
+  [[ "$root_status" == "200" ]] || { echo "ERROR public root expected 200, got $root_status" >&2; return 36; }
+  [[ "$cams_status" == "404" || "$cams_status" == "410" ]] || { echo "ERROR /cams/ expected 404/410, got $cams_status" >&2; return 37; }
+  case "$sea_status" in 302|401|403) ;; *) echo "ERROR /sea-speed/ is not auth-gated: HTTP $sea_status" >&2; return 38 ;; esac
+  case "$cam_status" in 302|401|403) ;; *) echo "ERROR protected Camera 1 is not auth-gated: HTTP $cam_status" >&2; return 39 ;; esac
+  [[ "$outpost_status" == "204" ]] || { echo "ERROR Authentik outpost ping expected 204, got $outpost_status" >&2; return 40; }
+}
+
+verify_protected_baseline() {
+  python3 "$cam_renderer" verify --config "$nginx_site" >/dev/null || return 41
+  grep -Fq "auth_request /outpost.goauthentik.io/auth/nginx;" "$nginx_site" || return 41
+  grep -Fq "proxy_pass ${authentik_upstream}/outpost.goauthentik.io;" "$nginx_site" || return 41
+  grep -Fq "listen ${worker_private_listen};" "$nginx_site" || return 41
+  grep -Fq "allow ${worker_private_peer};" "$nginx_site" || return 41
+  grep -Fq "deny all;" "$nginx_site" || return 41
+  local path
+  for path in /api/cam1/state /api/cam1/events /api/cam1/roi /api/cam1/speed-config /api/cam1/speed-lines; do
+    grep -Fq "location = ${path} {" "$nginx_site" || return 41
+  done
+  if grep -Fq "location /api/ {" "$nginx_site" || grep -Fq "location /api/analytics/ {" "$nginx_site" || grep -Fq "location = /api/worker/control" "$nginx_site"; then
+    return 41
+  fi
+  check_authentik || return 42
+  check_h264 || return 43
+  verify_public_boundary || return $?
+  printf 'PROTECTED_AUTH_BASELINE=PASS\n'
+  printf 'ROLLBACK_CAPABILITY=VERIFIED\n'
+}
+
+verify_active_candidate() {
+  nginx -t || return 31
+  systemctl reload nginx.service || return 32
+  systemctl is-active --quiet nginx.service || return 33
+  python3 "$cam_renderer" verify --config "$nginx_site" >/dev/null || return 34
+  python3 "$auth_renderer" verify \
+    --config "$nginx_site" \
+    --authentik-upstream "$authentik_upstream" \
+    --worker-private-listen "$worker_private_listen" \
+    --worker-private-peer "$worker_private_peer" >/dev/null || return 34
+  check_authentik || return 35
+  check_h264 || return 35
+  verify_public_boundary || return $?
+}
+
+restore_protected_backup() {
+  local backup="$1" uid="$2" gid="$3" mode_bits="$4"
+  install -o "$uid" -g "$gid" -m "$mode_bits" "$backup" "${nginx_site}.rollback"
+  mv -f "${nginx_site}.rollback" "$nginx_site"
+  nginx -t || return 51
+  systemctl reload nginx.service || return 52
+  systemctl is-active --quiet nginx.service || return 53
+  verify_protected_baseline || return 54
+  printf 'SEA_SPEED_AUTH_ROLLBACK=PASS\n'
+  printf 'RESTORED_NGINX_BACKUP=%s\n' "$backup"
+}
+
 require_commands
 require_authentik_upstream
 
@@ -495,8 +573,15 @@ require_root
 require_private_args
 install -d -o root -g root -m 0700 "$state_root" "$backup_root"
 
+if [[ "$require_protected_baseline" == true ]]; then
+  verify_protected_baseline || {
+    echo "ERROR existing protected Auth v1 rollback baseline is not valid" >&2
+    exit 22
+  }
+fi
+
 candidate_tmp="$(mktemp)"
-trap 'rm -f "$candidate_tmp" "${nginx_site}.next"' EXIT
+trap 'rm -f "$candidate_tmp" "${nginx_site}.next" "${nginx_site}.rollback"' EXIT
 render_candidate "$candidate_tmp"
 candidate_sha="$(sha256sum "$candidate_tmp" | awk '{print $1}')"
 
@@ -507,6 +592,11 @@ if [[ "$mode" == "prepare" ]]; then
   printf 'CANDIDATE_SHA256=%s\n' "$candidate_sha"
   printf 'NGINX_RELOADED=NO\n'
   printf 'PRODUCTION_MUTATION=NO_ACTIVE_CONFIG_CHANGE\n'
+  if [[ "$require_protected_baseline" == true ]]; then
+    printf 'ROLLBACK_CAPABILITY=VERIFIED\n'
+  else
+    printf 'ROLLBACK_CAPABILITY=MANUAL\n'
+  fi
   exit 0
 fi
 
@@ -531,43 +621,29 @@ mode_bits="$(stat -c '%a' "$nginx_site")"
 install -o "$uid" -g "$gid" -m "$mode_bits" "$candidate_tmp" "${nginx_site}.next"
 mv -f "${nginx_site}.next" "$nginx_site"
 
-if ! nginx -t; then
-  echo "ERROR nginx validation failed after candidate install; automatic rollback is disabled" >&2
+set +e
+verify_active_candidate
+activation_rc=$?
+set -e
+if [[ "$activation_rc" -ne 0 ]]; then
+  echo "ERROR Auth v1 candidate post-mutation verification failed rc=$activation_rc" >&2
   printf 'NGINX_BACKUP=%s\n' "$backup" >&2
+  if [[ "$require_protected_baseline" == true ]]; then
+    set +e
+    restore_protected_backup "$backup" "$uid" "$gid" "$mode_bits"
+    rollback_rc=$?
+    set -e
+    if [[ "$rollback_rc" -eq 0 ]]; then
+      printf 'AUTOMATIC_ROLLBACK=PASS\n' >&2
+      exit "$activation_rc"
+    fi
+    printf 'AUTOMATIC_ROLLBACK=FAILED rc=%s\n' "$rollback_rc" >&2
+    echo "CRITICAL Auth v1 candidate failed and protected rollback verification failed" >&2
+    exit 90
+  fi
   printf 'AUTOMATIC_ROLLBACK=NO\n' >&2
-  exit 31
+  exit "$activation_rc"
 fi
-if ! systemctl reload nginx.service; then
-  echo "ERROR nginx reload failed; automatic rollback is disabled" >&2
-  printf 'NGINX_BACKUP=%s\n' "$backup" >&2
-  printf 'AUTOMATIC_ROLLBACK=NO\n' >&2
-  exit 32
-fi
-systemctl is-active --quiet nginx.service || {
-  echo "ERROR nginx is not active after reload" >&2
-  printf 'NGINX_BACKUP=%s\n' "$backup" >&2
-  exit 33
-}
-
-python3 "$cam_renderer" verify --config "$nginx_site" >/dev/null
-python3 "$auth_renderer" verify \
-  --config "$nginx_site" \
-  --authentik-upstream "$authentik_upstream" \
-  --worker-private-listen "$worker_private_listen" \
-  --worker-private-peer "$worker_private_peer" >/dev/null
-check_authentik || { echo "ERROR remote Authentik unhealthy after nginx reload" >&2; exit 34; }
-check_h264 || { echo "ERROR local H264 fallback unhealthy after nginx reload" >&2; exit 35; }
-
-root_status="$(http_status https://mostdef.ru/)"
-cams_status="$(http_status https://mostdef.ru/cams/)"
-sea_status="$(http_status https://mostdef.ru/sea-speed/)"
-cam_status="$(http_status https://mostdef.ru/sea-speed/media/cam1/index.m3u8)"
-outpost_status="$(http_status https://mostdef.ru/outpost.goauthentik.io/ping)"
-[[ "$root_status" == "200" ]] || { echo "ERROR public root expected 200, got $root_status" >&2; exit 36; }
-[[ "$cams_status" == "404" || "$cams_status" == "410" ]] || { echo "ERROR /cams/ expected 404/410, got $cams_status" >&2; exit 37; }
-case "$sea_status" in 302|401|403) ;; *) echo "ERROR /sea-speed/ is not auth-gated: HTTP $sea_status" >&2; exit 38 ;; esac
-case "$cam_status" in 302|401|403) ;; *) echo "ERROR protected Camera 1 is not auth-gated: HTTP $cam_status" >&2; exit 39 ;; esac
-[[ "$outpost_status" == "204" ]] || { echo "ERROR Authentik outpost ping expected 204, got $outpost_status" >&2; exit 40; }
 
 printf 'SEA_SPEED_AUTH_CUTOVER=PASS\n'
 printf 'AUTHENTIK_PRIVATE_UPSTREAM=%s\n' "$authentik_upstream"
@@ -582,5 +658,11 @@ printf 'WORKER_PRIVATE_ROAD_API_BASE=http://%s/api/analytics/road1\n' "$worker_p
 printf 'WORKER_PRIVATE_PEER=%s\n' "$worker_private_peer"
 printf 'WORKER_RUNTIME_RECONFIGURATION_REQUIRED=YES\n'
 printf 'NGINX_BACKUP=%s\n' "$backup"
-printf 'AUTOMATIC_ROLLBACK=NO\n'
+if [[ "$require_protected_baseline" == true ]]; then
+  printf 'ROLLBACK_CAPABILITY=VERIFIED\n'
+  printf 'AUTOMATIC_ROLLBACK=AVAILABLE\n'
+else
+  printf 'ROLLBACK_CAPABILITY=MANUAL\n'
+  printf 'AUTOMATIC_ROLLBACK=NO\n'
+fi
 printf 'AUTHENTICATED_BROWSER_ACCEPTANCE_REQUIRED=YES\n'
