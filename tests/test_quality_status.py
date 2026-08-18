@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import re
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -57,7 +58,7 @@ class MainQualityStatusPublisherTests(unittest.TestCase):
         for forbidden in ("contents: write", "issues: write", "pull-requests: write", "actions: write", "deployments: write", "id-token: write"):
             self.assertNotIn(forbidden, permissions)
         self.assertNotIn("actions/checkout", self.source)
-        self.assertNotIn("uses:", self.source)
+        self.assertIsNone(re.search(r"(?m)^\s*-?\s*uses:\s*", self.source))
 
     def test_fixed_context_and_run_identity_are_published(self) -> None:
         self.assertIn('"context": "sea-speed/quality-push-main"', self.source)
