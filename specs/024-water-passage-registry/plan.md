@@ -93,6 +93,8 @@ Production is separate. After the remediation merges, the previous production fi
 ## Deployment transaction audit
 
 - Adjacent-stage review: COMPLETE
+- Production-learning root cause: Public frontend verification rejected the observed protected `/sea-speed/` HTTP 500 before the deploy transaction could invoke Auth reconciliation, while the reconciliation implementation required an already healthy protected baseline; the two gates formed a circular recovery dependency.
+- Production-learning adjacent-stage findings: Release staging/helper admission are safe before live source mutation; the restricted helper can reuse the exact fixed-topology source-managed cutover for the 500-only fallback; failed fallback must restore exact nginx bytes and verify nginx syntax/service state; normal Water source mutation and Ubuntu rollout must remain downstream of restored auth-gated public status.
 - Root cause / architecture finding: the source architecture from #219 is valid, but existing production ingress is currently blocked by an Auth v1 HTTP 500 and the old transaction ordering could not self-repair that fail-closed state.
 
 - TX-001 | Stage: ADMISSION | Mutation: NO | Failure disposition: FATAL | State after failure: current accepted VPS/Worker remain unchanged | Retry: only after exact merged SHA has successful exact-main Quality, matching fresh production authorization and exact privileged bundle admission | Rollback: not applicable | Evidence: Issue #218, merged PR, exact SHA, Quality, authorization fingerprint
