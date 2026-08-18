@@ -1079,14 +1079,17 @@ def main():
             processing_frame, roi_points = prepare_roi_processing_frame(frame, motion_detector)
             motion_now, motion_area, motion_boxes = motion_detector.process(processing_frame)
             motion_ai_active = motion_detector.is_ai_active()
-            ai_active, detections = select_profile_detections(
-                profile,
-                model,
-                processing_frame,
-                motion_ai_active,
-                motion_boxes,
-                roi_points,
-            )
+            detections = []
+            if profile is not None and profile.domain == "water":
+                ai_active = True
+                detections = detect_vehicles(model, processing_frame)
+            elif motion_ai_active:
+                ai_active = True
+                raw_detections = detect_vehicles(model, processing_frame)
+                detections = filter_detections_by_motion(raw_detections, motion_boxes)
+            else:
+                ai_active = False
+            detections = filter_detections_by_roi(detections)
             active_track_ids = set()
             for det in detections:
                 track_id = det.get("track_id")
