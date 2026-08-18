@@ -1,6 +1,6 @@
 # Sea Speed Release Readiness Gate
 
-Version: 1.10.0
+Version: 1.11.0
 Status: Active
 
 ## Gate
@@ -23,6 +23,8 @@ Release Readiness Gate
 - Risk profile applicability correct: YES/NO/NOT APPLICABLE
 - Quality verdict: PASS/CONCERNS/WAIVED/NOT APPLICABLE
 - Secrets/runtime artifacts absent: YES/NO
+- Tool routing allowlist respected: YES/NO
+- Any fallback used is explicitly allowed for this task class: YES/NO/NOT APPLICABLE
 - Exact artifact inventory and SHA-256 valid: YES/NO/NOT APPLICABLE
 - Quality evidence valid: YES/NO/NOT APPLICABLE
 - Release manifest v2 valid: YES/NO/NOT APPLICABLE
@@ -51,6 +53,26 @@ A required active contour with `MISSING` or `NOT APPLICABLE` fails admission. A 
 For VPS, repository-owned Connector execution exists. For Ubuntu, `.github/workflows/deploy-ubuntu-worker.yml` plus `deploy/worker/ubuntu/deploy-authorized.sh` provide protected orchestration and target transaction; zero-touch is `CONNECTOR` only when the restricted transport boundary is independently provisioned, otherwise `ONE_COMMAND_FALLBACK`.
 
 Windows Worker is retired. Windows-specific scripts/documentation are deprecated non-production tooling and do not enter this gate. Historical Windows release/deployment manifests remain readable through historical schemas/validators but cannot create a new runtime requirement.
+
+## Tool routing admission gate
+
+Tool capability is not self-authorizing. Sea Speed tool routing is `DENY BY DEFAULT`: an unlisted tool, connector, service, CLI, side-channel, publication path or runtime mutation path is forbidden even when technically available.
+
+Before release/deployment/acceptance work, classify the action against the canonical Tool Routing Allowlist in `AGENTS.md`, `contracts/SEA_SPEED_GOVERNANCE.md`, `contracts/SEA_SPEED_DELIVERY_POLICY.md`, and `contracts/branches/project-manager.md`.
+
+Fallbacks are row-specific. If a primary route is unavailable, only the fallback explicitly listed for that same task class may be used. If no fallback exists, or the declared fallback cannot complete safely, release execution stops at `HUMAN DECISION REQUIRED`; the Orchestrator does not search for another connector, plugin, service, shell or notification channel.
+
+Release-relevant route constraints include:
+
+- GitHub repository lifecycle: GitHub Connector only; no fallback.
+- CI status/jobs/logs/artifacts: GitHub Connector; only one bounded read-only GitHub API/PowerShell operator command when the exact Connector endpoint is unavailable.
+- Production authorization: exact three-line canonical Issue record through GitHub Connector only.
+- VPS deployment: `.github/workflows/deploy-vps.yml`; only a repository-owned fallback explicitly exposed by the canonical deployment path.
+- Ubuntu deployment: `.github/workflows/deploy-ubuntu-worker.yml` -> `deploy/worker/ubuntu/deploy-authorized.sh`; only the repository-owned sudo/root bootstrap explicitly emitted by that path.
+- VPS/Ubuntu runtime diagnostics: repository-owned diagnostic/deployment tooling; only one bounded read-only operator command on the corresponding host.
+- Protected password/sudo/TOTP/SSH trust/credentials/tokens: operator-local intended prompt/secret store only; values never enter chat or Git.
+
+Gmail, Calendar, Drive, Notion, `gh`, local GitHub authentication, assistant-side `git push`, manual GitHub web publication, ad-hoc SSH/shell exploration, direct database mutation, cloud-console mutation and every other unlisted connector/plugin/service are forbidden implicit fallbacks.
 
 ## Terminal interaction gate
 
