@@ -13,6 +13,20 @@ The shared SQLite Objects Registry retains at most the newest 100 rows across Wa
 
 Source integration does not start or stop production services. Water runtime activation occurs only after a separate exact-SHA production authorization.
 
+## User scenarios
+
+### Scenario 1 - Water detector resolves to the intended profile
+Given the shared Water worker starts without an explicit analytics profile override, it resolves to `water-v1`, loads the existing YOLO26x configuration, accepts `boat` detections and publishes them as `vessel` without adopting Road classes.
+
+### Scenario 2 - registry stays bounded during testing
+Given Water and Road events continue arriving, the persistent SQLite registry keeps only the newest 100 rows across both cameras, using deterministic detected-time/object-id ordering.
+
+### Scenario 3 - oversized existing registry is normalized on startup
+Given the VPS already contains more than 100 registry rows when the new API release starts, initialization removes rows outside the newest 100 before normal API operation continues.
+
+### Scenario 4 - production remains separately controlled
+Given source changes are merged, neither VPS storage mutation nor Ubuntu Water service activation occurs until a separate exact-SHA production authorization is recorded and admitted.
+
 ## Requirements
 
 - FR-001: `DEFAULT_PROFILE` MUST be `water-v1`.
