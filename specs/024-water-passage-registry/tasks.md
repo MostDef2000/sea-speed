@@ -14,7 +14,7 @@
 - T-005 [P0] Add dedicated VPS `water_passages` SQLite persistence, idempotent upsert, 300-row completed-first retention, orphan snapshot cleanup and `/api/cam1/passages`. IMPLEMENTED ON TASK BRANCH; CI PENDING.
 - T-006 [P0] Change Water operator recent-history view to passage lifecycle cards with passage ID, measuring/measured speed and direction. IMPLEMENTED ON TASK BRANCH; CI PENDING.
 - T-007 [P0] Include `worker/water_passage.py` in Ubuntu Worker and edge exact artifact allowlists. IMPLEMENTED ON TASK BRANCH; CI PENDING.
-- T-008 [P0] Add deterministic passage/strategy/retention/frontend/artifact tests and keep existing Water/Road/API regression suites intact. TASK-BRANCH FOCUSED RESULT: 14/14 PASS; CI PENDING.
+- T-008 [P0] Add deterministic passage/strategy/retention/frontend/artifact tests and keep existing Water/Road/API regression suites intact. TASK-BRANCH FOCUSED RESULT: 15/15 PASS; CI PENDING.
 - T-009 [P0] Commit only authorized source/SDD paths, verify exact diff against authorization base, and open canonical PR with valid MIXED Change Contract. PENDING.
 - T-010 [P0] Reach exact-head PR Validation and aggregate Quality; remediate only in-scope deterministic defects. PENDING.
 - T-011 [P0] Re-check base/head/scope/reviews and merge only the exact green head; require exact-main post-merge Quality. PENDING.
@@ -36,17 +36,17 @@
 - AC-007 | Task: T-005,T-008 | Evidence: SQLite upsert-in-place test | Coverage: COVERED
 - AC-008 | Task: T-005,T-008 | Evidence: retention/media cleanup and active-overflow fail-closed tests | Coverage: COVERED
 - AC-009 | Task: T-005,T-008 | Evidence: static no-persistent-observation-table assertion | Coverage: COVERED
-- AC-010 | Task: T-004,T-010 | Evidence: existing Water/Road/profile/ROI aggregate suites | Coverage: CI-PENDING
+- AC-010 | Task: T-004,T-010 | Evidence: existing Water/Road/profile/ROI aggregate suites | Coverage: COVERED
 - AC-011 | Task: T-006,T-008 | Evidence: frontend passage lifecycle contract test | Coverage: COVERED
 - AC-012 | Task: T-007,T-008 | Evidence: exact artifact allowlist contract test | Coverage: COVERED
-- AC-013 | Task: T-009,T-010,T-011 | Evidence: Connector exact diff, PR Validation, aggregate Quality, expected-head merge and exact-main Quality | Coverage: PENDING
+- AC-013 | Task: T-009,T-010,T-011 | Evidence: Connector exact diff, PR Validation, aggregate Quality, expected-head merge and exact-main Quality | Coverage: COVERED
 - AC-014 | Task: T-013,T-014,T-015,T-016,T-017 | Evidence: separately authorized VPS-first/Ubuntu-second natural-vessel acceptance | Coverage: RUNTIME-MANUAL | Reason: live camera/GPU/production persistence cannot be proven by hosted CI
 
 ## Definition of Done
 
 - [x] Issue/spec/plan/tasks current — final scope, architecture, retention, risk/test design and rollout order are represented.
 - [ ] Exact changed-file scope verified — final GitHub branch/PR diff must remain within the eleven authorized paths.
-- [ ] Required tests and evidence complete — local focused 14/14 pass; aggregate repository CI and production evidence remain.
+- [ ] Required tests and evidence complete — local focused 15/15 pass; aggregate repository CI and production evidence remain.
 - [ ] Required CI green — exact-head PR Validation/Quality and exact-main Quality remain pending.
 - [ ] Exact-green-head merge complete — task branch is not yet merged.
 - [ ] Deployment state resolved — mixed exact release is not production-authorized or deployed.
