@@ -58,10 +58,10 @@
 - [ ] Exact changed-file scope verified — remediation PR must remain within current Issue #218 authorization union.
 - [ ] Required tests and evidence complete — initial passage CI passed; recovery helper/transaction and full aggregate CI remain pending.
 - [ ] Required CI green — remediation exact-head PR Validation/Quality and new exact-main Quality remain pending.
-- [ ] Exact-green-head remediation merge complete.
+- [ ] Exact-green-head merge complete — remediation merge remains pending.
 - [ ] Deployment state resolved — no new production mutation is authorized after the recovery scope change.
 - [ ] Protected `/sea-speed/` recovery acceptance resolved — HTTP 500 must be absent and anonymous access must remain auth-gated.
-- [ ] Runtime passage acceptance resolved — VPS passage boundary and natural-vessel Ubuntu passage lifecycle remain pending.
+- [ ] Runtime acceptance resolved — VPS passage boundary, protected recovery, Ubuntu exact runtime and natural-vessel passage lifecycle remain pending.
 - [x] Deferred work recorded — visual ReID, AIS, homography/calibrated trajectory speed and numeric accuracy tuning are separate future Outcomes.
 - [ ] Risks resolved or explicitly accepted — test-stage ReID/accuracy residuals accepted; Auth recovery, mixed runtime and production evidence remain open.
 - [x] Waivers resolved or current — no waiver is active.
