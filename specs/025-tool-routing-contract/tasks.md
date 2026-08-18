@@ -8,12 +8,12 @@
 ## Delivery tasks
 
 - T-001 [P0] Record canonical Issue #221, exact intake main and the immediately preceding eight-path `OUTCOME APPROVED` source authorization. COMPLETE.
-- T-002 [P0] Add feature 025 SDD with deny-by-default semantics, closed route matrix, NFR assessment, test design, correct-course check, traceability and Definition of Done. IN PROGRESS.
-- T-003 [P0] Update `AGENTS.md` with the concise normative tool-routing admission rule and full approved route matrix. PENDING.
-- T-004 [P0] Update `contracts/SEA_SPEED_GOVERNANCE.md` so unlisted tools/services are forbidden and availability never grants permission. PENDING.
-- T-005 [P0] Update `contracts/SEA_SPEED_DELIVERY_POLICY.md` with lifecycle-specific primary/fallback routes and explicit forbidden implicit fallbacks. PENDING.
-- T-006 [P0] Update `contracts/branches/project-manager.md` so the Delivery Orchestrator never discovers alternate services after an allowlist gap and escalates only through the declared fallback or `HUMAN DECISION REQUIRED`. PENDING.
-- T-007 [P0] Update `contracts/runtime/RELEASE_READINESS_GATE.md` with tool-routing admission checks while preserving CONTROL_PLANE/no-production semantics for this Outcome. PENDING.
+- T-002 [P0] Add feature 025 SDD with deny-by-default semantics, closed route matrix, NFR assessment, test design, correct-course check, traceability and Definition of Done. COMPLETE ON TASK BRANCH.
+- T-003 [P0] Update `AGENTS.md` with the concise normative tool-routing admission rule and full approved route matrix. COMPLETE ON TASK BRANCH.
+- T-004 [P0] Update `contracts/SEA_SPEED_GOVERNANCE.md` so unlisted tools/services are forbidden and availability never grants permission. COMPLETE ON TASK BRANCH.
+- T-005 [P0] Update `contracts/SEA_SPEED_DELIVERY_POLICY.md` with lifecycle-specific primary/fallback routes and explicit forbidden implicit fallbacks. COMPLETE ON TASK BRANCH.
+- T-006 [P0] Update `contracts/branches/project-manager.md` so the Delivery Orchestrator never discovers alternate services after an allowlist gap and escalates only through the declared fallback or `HUMAN DECISION REQUIRED`. COMPLETE ON TASK BRANCH.
+- T-007 [P0] Update `contracts/runtime/RELEASE_READINESS_GATE.md` with tool-routing admission checks while preserving CONTROL_PLANE/no-production semantics for this Outcome. COMPLETE ON TASK BRANCH.
 - T-008 [P0] Open a draft PR with exact eight-file Change Contract, `CONTROL_PLANE`, VPS/Ubuntu deployment `NOT REQUIRED`, execution capabilities `NOT APPLICABLE`, and zero operator runtime actions. PENDING.
 - T-009 [P0] Reach exact-head PR Validation and aggregate Quality; remediate only deterministic defects inside the approved eight paths. PENDING.
 - T-010 [P0] Re-check main/head/scope/reviews and merge only the exact green head with expected-head protection, then require exact-main Quality. PENDING.
@@ -37,7 +37,7 @@
 ## Definition of Done
 
 - [x] Issue/spec/plan/tasks current — Issue #221 and feature 025 represent the approved deny-by-default routing Outcome.
-- [ ] Exact changed-file scope verified — final PR must contain only the eight authorized paths.
+- [x] Exact changed-file scope verified — Connector compare shows exactly the eight authorized paths.
 - [ ] Required tests and evidence complete — cross-contract route consistency and existing repository validation must pass.
 - [ ] Required CI green — exact-head PR Validation and aggregate Quality plus exact-main Quality are required.
 - [ ] Exact-green-head merge complete — merge remains pending.
