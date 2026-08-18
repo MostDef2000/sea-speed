@@ -76,7 +76,7 @@ Production is separate. After the remediation merges, the previous production fi
 - TEST-009 | Covers: AC-013 | Level: integration | Priority: P0 | Evidence: Connector exact diff, PR Validation, aggregate Quality, expected-head merge, exact-main Quality
 - TEST-010 | Covers: AC-014 | Level: runtime-manual | Priority: P0 | Evidence: separately authorized VPS-first/Ubuntu-second natural-vessel acceptance in Issue #218
 - TEST-011 | Covers: AC-015 | Level: integration | Priority: P0 | Evidence: `tests/test_vps_deploy_transaction.py` HTTP 500 recovery-before-source test
-- TEST-012 | Covers: AC-016 | Level: unit/integration | Priority: P0 | Evidence: helper fallback tests for exact 500 vs non-500 and failed activation restorer plus runtime authenticated/anonymous HTTP evidence
+- TEST-012 | Covers: AC-016 | Level: integration | Priority: P0 | Evidence: helper fallback tests for exact 500 vs non-500 and failed activation restorer plus runtime authenticated/anonymous HTTP evidence
 
 ## Correct-course check
 
