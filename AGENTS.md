@@ -42,6 +42,7 @@ The active orchestration role is **Sea Speed Delivery Orchestrator**. It retains
 15. Production deployment and Worker installation are protected operations requiring a separate exact-SHA production safety envelope; source authorization alone never authorizes runtime mutation.
 16. Normal successful delivery has a two-intent interaction budget: one `OUTCOME APPROVED`, then one exact-release production authorization carrying explicit execution intent.
 17. Never return control merely because a deterministic internal stage completed or failed. While a safe authorized next action exists, continue automatically until the terminal interaction contract is satisfied.
+18. Tool routing is deny by default. A tool, connector, service, CLI, side-channel, publication path or runtime mutation path is permitted only when the Tool Routing Allowlist explicitly lists it for the current task class; availability alone never grants permission.
 
 ## Production runtime contours and admission
 
@@ -66,6 +67,32 @@ Before protected workflows cross a runtime boundary they reject anything except 
 New deployable provenance uses release manifest v2. It binds canonical Issue/PR, Outcome and Change Contract hashes, approved versus actual files, artifacts and quality/exact-artifact evidence. New release creation supports active components only; persisted historical release/deployment evidence, including Windows records, remains readable for rollback/audit compatibility.
 
 The aggregate `quality-integration` workflow executes SDD validation for significant PRs. Workflow presence does not prove GitHub branch-protection settings.
+
+## Tool Routing Allowlist — DENY BY DEFAULT
+
+This allowlist is closed. For Sea Speed development, CI, release, deployment, diagnostics and evidence collection, anything not explicitly permitted below is forbidden. Installed or connected capability is not authorization. Fallbacks are valid only for the exact task row that declares them and never generalize by analogy.
+
+If the primary route is unavailable and the row has no allowed fallback, or the allowed fallback cannot complete safely, do not discover another connector/service/CLI. Return `HUMAN DECISION REQUIRED` with the exact missing capability.
+
+| Task class | Allowed primary route | Allowed fallback |
+|---|---|---|
+| GitHub repository lifecycle: repo/Issue/PR/comments/branches/source publication/merge | GitHub Connector | NONE |
+| CI status/jobs/logs/artifacts | GitHub Connector | One bounded read-only GitHub API/PowerShell command to the operator only when the exact Connector endpoint is unavailable |
+| Patch/build/test/hash/static analysis | Ephemeral local tooling/container | User checkout when required for preparation/validation; never publication or production mutation |
+| Public `mostdef.ru` / Sea Speed HTTP verification | Read-only HTTP/web | One bounded read-only `curl`/PowerShell command to the operator |
+| External technical documentation | Read-only web using primary/official sources only | NONE |
+| User-provided logs/screenshots/config/files | Read the provided material directly | NONE |
+| Production authorization | Exact three-line canonical Issue record through GitHub Connector | NONE |
+| VPS deployment | GitHub Actions -> `.github/workflows/deploy-vps.yml` | Only a repository-owned VPS action explicitly exposed by the canonical deployment path |
+| Ubuntu deployment | GitHub Actions -> `.github/workflows/deploy-ubuntu-worker.yml` -> `deploy/worker/ubuntu/deploy-authorized.sh` | Only the repository-owned sudo/root bootstrap explicitly emitted by the canonical path |
+| VPS/Ubuntu runtime diagnostics | Repository-owned diagnostic/deployment tooling | One bounded read-only command to the operator on the corresponding host |
+| Password/sudo/TOTP/SSH trust/credentials/tokens | Operator enters locally into the intended prompt/secret store | NONE; protected values never enter chat or Git |
+
+Explicit forbidden implicit fallbacks include Gmail, Calendar, Drive, Notion, `gh`, local GitHub authentication, assistant-side `git push`, manual GitHub web publication, ad-hoc SSH/shell exploration, direct database mutation, cloud-console mutation, and every other unlisted connector/plugin/service.
+
+Local ephemeral tooling is computation only. It may prepare or validate bytes but never becomes the repository publication control plane or a production mutation authority.
+
+A future need for an unlisted tool or service requires a new visible Scope and source authorization that changes the allowlist; a one-off conversational convenience does not silently amend it.
 
 ## Interaction budget
 

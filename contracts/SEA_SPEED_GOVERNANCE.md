@@ -1,6 +1,6 @@
 # Sea Speed Governance
 
-Version: 1.14.0
+Version: 1.15.0
 Status: Active
 Source of truth: GitHub `main`
 
@@ -20,6 +20,7 @@ Source of truth: GitHub `main`
 - Material scope expansion, destructive action, security-boundary/secret handling redesign, protected behavior change, incompatible schema change, data migration or behavior redesign requires fresh authorization.
 - Secrets, credentials, runtime logs, snapshots, overlays, media, model binaries, `.env` and virtual environments must never be committed.
 - While a safe authorized next action exists, the Orchestrator continues automatically rather than returning an intermediate status.
+- Tool selection is fail closed: a tool, connector, service, CLI, side-channel, publication path or runtime mutation path is forbidden unless the Tool Routing Allowlist explicitly permits it for the current task class.
 
 ## 2. Delivery Orchestrator ownership
 
@@ -131,3 +132,29 @@ Deployment/release changes, deployment workflow changes, runtime deployment `REQ
 Quality verdicts are `PASS`, `CONCERNS`, `FAIL`, and `WAIVED`. `FAIL` blocks PR admission. A waiver is a bounded quality record only; no waiver bypasses any hard gate, including authorization, exact scope, active runtime derivation, secrets, CI, production authorization, rollback or acceptance.
 
 Historical Issues, PRs, accepted decision records and historical Windows evidence are never rewritten to hide the architecture that existed when they were produced.
+
+## 11. Tool Routing Allowlist — closed admission
+
+Sea Speed uses `DENY BY DEFAULT` tool routing. Anything not explicitly listed here for the current task class is forbidden, including read-only side channels. Installed or connected capability is not authorization. The Delivery Orchestrator must not search for, install, probe, or opportunistically use another connector/plugin/service when an approved route is missing.
+
+Fallbacks are exact and row-local. If the primary route is unavailable and the row has no declared fallback, or the declared fallback cannot safely complete, the next admissible state is `HUMAN DECISION REQUIRED` with the exact missing capability. A fallback named for one row never grants permission in another row.
+
+| Task class | Primary route | Allowed fallback |
+|---|---|---|
+| GitHub repository lifecycle | GitHub Connector | NONE |
+| CI status/jobs/logs/artifacts | GitHub Connector | One bounded read-only GitHub API/PowerShell command to the operator only when the exact Connector endpoint is unavailable |
+| Patch/build/test/hash/static analysis | Ephemeral local tooling/container | User checkout for preparation/validation only; never publication or production mutation |
+| Public Sea Speed HTTP verification | Read-only HTTP/web | One bounded read-only `curl`/PowerShell command to the operator |
+| External technical documentation | Read-only web against primary/official sources | NONE |
+| User-provided logs/screenshots/config/files | Directly read the provided material | NONE |
+| Production authorization | Exact three-line canonical Issue record through GitHub Connector | NONE |
+| VPS deployment | GitHub Actions -> `.github/workflows/deploy-vps.yml` | Only a repository-owned VPS action explicitly exposed by the canonical deployment path |
+| Ubuntu deployment | GitHub Actions -> `.github/workflows/deploy-ubuntu-worker.yml` -> `deploy/worker/ubuntu/deploy-authorized.sh` | Only the repository-owned sudo/root bootstrap explicitly emitted by the canonical path |
+| VPS/Ubuntu runtime diagnostics | Repository-owned diagnostic/deployment tooling | One bounded read-only command to the operator on the corresponding host |
+| Password/sudo/TOTP/SSH trust/credentials/tokens | Operator-local intended prompt/secret store | NONE; protected values never enter chat or Git |
+
+Explicit forbidden implicit fallbacks include Gmail, Calendar, Drive, Notion, `gh`, local GitHub authentication, assistant-side `git push`, manual GitHub web publication, ad-hoc SSH/shell exploration, direct database mutation, cloud-console mutation, and every other unlisted connector/plugin/service.
+
+Local ephemeral tooling is never authoritative state. It may prepare/test bytes but cannot publish repository state, create production evidence by itself, or mutate a runtime host.
+
+A future requirement for an unlisted tool/service is a governance change: render a new visible Scope, obtain source authorization, and update this allowlist before use. A one-off conversational preference does not silently extend the allowlist.
