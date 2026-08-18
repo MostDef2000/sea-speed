@@ -83,6 +83,15 @@ class AnalyticsProfilesTests(unittest.TestCase):
         self.assertIn('profile = get_profile', entry)
         self.assertNotIn('MODEL_NAME", "yolo11s.pt"', entry)
 
+    def test_worker_separates_water_continuous_detection_from_road_motion_policy(self) -> None:
+        worker = (ROOT / "worker/hls_motion_yolo_worker_events.py").read_text(encoding="utf-8")
+        self.assertIn("def select_profile_detections(", worker)
+        self.assertIn('profile.domain == "water"', worker)
+        self.assertIn("filter_detections_by_motion(raw_detections, motion_boxes)", worker)
+        self.assertIn("def water_event_candidates(", worker)
+        self.assertIn('det.get("class_name") != "vessel"', worker)
+        self.assertIn('profile.domain == "water":\n                for vessel in water_event_candidates', worker)
+
     def test_api_is_additive_and_camera_isolated(self) -> None:
         source = (ROOT / "api/app/main.py").read_text(encoding="utf-8")
         for route in (
