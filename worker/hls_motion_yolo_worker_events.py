@@ -13,6 +13,7 @@ import requests
 from ultralytics import YOLO
 
 from analytics_profiles import get_profile, normalize_model_class
+from water_passage import WaterPassageEngine, build_two_gate_estimator
 
 
 VEHICLE_CLASSES = {"car", "truck", "bus", "motorcycle", "bicycle"}
@@ -20,9 +21,11 @@ VEHICLE_CLASSES = {"car", "truck", "bus", "motorcycle", "bicycle"}
 OUTPUT_DIR = Path("output")
 LATEST_DIR = OUTPUT_DIR / "latest"
 EVENTS_DIR = OUTPUT_DIR / "events"
+PASSAGES_DIR = OUTPUT_DIR / "passages"
 
 LATEST_DIR.mkdir(parents=True, exist_ok=True)
 EVENTS_DIR.mkdir(parents=True, exist_ok=True)
+PASSAGES_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def env_str(name, default=""):
@@ -503,7 +506,11 @@ def draw_roi_polygon(frame):
 
 def format_detection_label(det):
     track_id = det.get("track_id")
-    id_text = f"ID {int(track_id)}" if track_id is not None else "ID --"
+    passage_id = det.get("passage_id")
+    if passage_id:
+        id_text = str(passage_id)
+    else:
+        id_text = f"ID {int(track_id)}" if track_id is not None else "ID --"
     class_name = str(det.get("class_name", "object"))
     confidence = float(det.get("confidence") or 0.0)
     speed_kmh = det.get("speed_kmh")
@@ -597,6 +604,61 @@ def post_event(event, snapshot_path):
     except Exception as e:
         print(f"POST event error: {e}")
         return False
+
+
+def post_passage(passage, snapshot_path=None):
+    state_url = env_str("SEA_SPEED_API_URL")
+    passage_url = env_str("SEA_SPEED_PASSAGE_API_URL", "").strip()
+    if not passage_url and state_url:
+        passage_url = state_url.rsplit("/", 1)[0] + "/passages"
+    token = env_str("SEA_SPEED_API_TOKEN")
+    if not passage_url or not token:
+        print("POST passage skipped: passage URL or token is not set")
+        return False
+    payload = dict(passage)
+    payload.setdefault("camera_id", env_str("CAMERA_ID", "cam1"))
+    payload.setdefault("analytics_profile", env_str("ANALYTICS_PROFILE", "water-v1"))
+    payload.setdefault("domain", "water")
+    payload.setdefault("worker_source_commit", env_str("SEA_SPEED_SOURCE_COMMIT", "").strip() or None)
+    headers = {"Authorization": f"Bearer {token}"}
+    data = {"metadata": json.dumps(payload, ensure_ascii=False)}
+    try:
+        if snapshot_path is not None and Path(snapshot_path).is_file():
+            with open(snapshot_path, "rb") as snapshot_file:
+                files = {"snapshot": ("passage.jpg", snapshot_file, "image/jpeg")}
+                response = requests.post(passage_url, headers=headers, data=data, files=files, timeout=10)
+        else:
+            response = requests.post(passage_url, headers=headers, data=data, timeout=10)
+        if response.status_code >= 300:
+            print(f"POST passage failed: HTTP {response.status_code} {response.text[:300]}")
+            return False
+        speed = payload.get("speed_kmh")
+        speed_text = "-" if speed is None else f"{float(speed):.3f}"
+        print(
+            f'POST passage ok id={payload["passage_id"]} status={payload.get("status")} '
+            f'speed_status={payload.get("speed_status")} speed_kmh={speed_text}'
+        )
+        return True
+    except Exception as exc:
+        print(f"POST passage error: {exc}")
+        return False
+
+
+def write_passage_snapshot(frame, det, path):
+    x1, y1, x2, y2 = [int(value) for value in det["bbox_xyxy"]]
+    height, width = frame.shape[:2]
+    box_w = max(1, x2 - x1)
+    box_h = max(1, y2 - y1)
+    pad_x = max(4, int(round(box_w * 0.12)))
+    pad_y = max(4, int(round(box_h * 0.12)))
+    left = max(0, x1 - pad_x)
+    top = max(0, y1 - pad_y)
+    right = min(width, x2 + pad_x)
+    bottom = min(height, y2 + pad_y)
+    if right <= left or bottom <= top:
+        return False
+    crop = frame[top:bottom, left:right]
+    return bool(cv2.imwrite(str(path), crop, [cv2.IMWRITE_JPEG_QUALITY, 90]))
 
 
 _speed_track = {"center": None, "ts": None, "class_name": None}
@@ -1066,6 +1128,26 @@ def main():
     last_event_post = 0.0
     frame_no = 0
     latest_overlay_path = LATEST_DIR / "latest_overlay.jpg"
+    is_water = profile is not None and profile.domain == "water"
+    passage_engine = None
+    passage_last_post = {}
+    passage_snapshot_paths = {}
+    passage_pending_snapshot = set()
+    passage_post_interval = max(0.2, env_float("PASSAGE_POST_INTERVAL_SEC", 1.0))
+    if is_water:
+        passage_engine = WaterPassageEngine(
+            lambda: build_two_gate_estimator(fetch_speed_lines_config()),
+            max_observations=env_int("WATER_PASSAGE_MAX_OBSERVATIONS", 256),
+            max_active_passages=env_int("WATER_PASSAGE_MAX_ACTIVE", 32),
+            stitch_window_sec=env_float("WATER_PASSAGE_STITCH_GAP_SEC", 2.5),
+            passage_end_gap_sec=env_float("WATER_PASSAGE_TIMEOUT_SEC", 5.0),
+            stitch_distance_px=env_float("WATER_PASSAGE_STITCH_MAX_DISTANCE_PX", 120.0),
+        )
+        print(
+            "Water passage engine: strategy=two_gate "
+            f"max_observations={passage_engine.max_observations} "
+            f"max_active={passage_engine.max_active_passages}"
+        )
     print("Worker started")
     print(f"State interval: {state_interval}s")
     print(f"Event cooldown: {event_cooldown}s")
@@ -1079,54 +1161,97 @@ def main():
             processing_frame, roi_points = prepare_roi_processing_frame(frame, motion_detector)
             motion_now, motion_area, motion_boxes = motion_detector.process(processing_frame)
             motion_ai_active = motion_detector.is_ai_active()
-            detections = []
-            if profile is not None and profile.domain == "water":
+            if is_water:
                 ai_active = True
                 detections = detect_vehicles(model, processing_frame)
             elif motion_ai_active:
                 ai_active = True
-                raw_detections = detect_vehicles(model, processing_frame)
-                detections = filter_detections_by_motion(raw_detections, motion_boxes)
+                detections = detect_vehicles(model, processing_frame)
+                detections = filter_detections_by_motion(detections, motion_boxes)
             else:
                 ai_active = False
+                detections = []
             detections = filter_detections_by_roi(detections)
-            active_track_ids = set()
-            for det in detections:
-                track_id = det.get("track_id")
-                if track_id is not None:
-                    active_track_ids.add(int(track_id))
-                speed_info = update_speed_estimate(det)
-                line_speed_info = update_speed_lines_estimate(det)
-                speed_px_s = speed_info.get("speed_px_s")
-                speed_kmh = line_speed_info.get("speed_kmh")
-                speed_source = line_speed_info.get("speed_source")
-                speed_lines_enabled = bool(line_speed_info.get("speed_lines_enabled"))
-                if speed_kmh is None and not speed_lines_enabled:
-                    try:
-                        speed_kmh = convert_px_s_to_kmh(speed_px_s)
-                        if speed_kmh is not None:
-                            speed_source = "px_factor"
-                    except Exception:
-                        speed_kmh = None
-                det["speed_px_s"] = speed_px_s
-                det["speed_kmh"] = speed_kmh
-                det["speed_source"] = speed_source
-                det["speed_ready"] = bool(line_speed_info.get("speed_ready")) or (not speed_lines_enabled and speed_kmh is not None)
-                det["_speed_info"] = speed_info
-                det["_line_speed_info"] = line_speed_info
             now = time.time()
-            prune_track_states(now)
+            active_track_ids = {int(det["track_id"]) for det in detections if det.get("track_id") is not None}
+
+            passage_updates = []
+            if is_water and passage_engine is not None:
+                passage_updates = passage_engine.update(detections, now)
+                passage_by_track = {}
+                for update in passage_updates:
+                    passage = update.get("passage") or {}
+                    for track_id in update.get("observed_track_ids") or []:
+                        passage_by_track[int(track_id)] = passage
+                for det in detections:
+                    track_id = det.get("track_id")
+                    passage = passage_by_track.get(int(track_id)) if track_id is not None else None
+                    if passage is None:
+                        det["speed_kmh"] = None
+                        det["speed_source"] = "two_gate"
+                        det["speed_ready"] = False
+                        continue
+                    det["passage_id"] = passage["passage_id"]
+                    det["speed_kmh"] = passage.get("speed_kmh")
+                    det["speed_source"] = passage.get("speed_method")
+                    det["speed_ready"] = passage.get("speed_status") == "measured"
+            else:
+                for det in detections:
+                    speed_info = update_speed_estimate(det)
+                    line_speed_info = update_speed_lines_estimate(det)
+                    speed_px_s = speed_info.get("speed_px_s")
+                    speed_kmh = line_speed_info.get("speed_kmh")
+                    speed_source = line_speed_info.get("speed_source")
+                    speed_lines_enabled = bool(line_speed_info.get("speed_lines_enabled"))
+                    if speed_kmh is None and not speed_lines_enabled:
+                        try:
+                            speed_kmh = convert_px_s_to_kmh(speed_px_s)
+                            if speed_kmh is not None:
+                                speed_source = "px_factor"
+                        except Exception:
+                            speed_kmh = None
+                    det["speed_px_s"] = speed_px_s
+                    det["speed_kmh"] = speed_kmh
+                    det["speed_source"] = speed_source
+                    det["speed_ready"] = bool(line_speed_info.get("speed_ready")) or (not speed_lines_enabled and speed_kmh is not None)
+                    det["_speed_info"] = speed_info
+                    det["_line_speed_info"] = line_speed_info
+                prune_track_states(now)
+
             overlay = draw_overlay(frame=frame, motion_now=motion_now, motion_area=motion_area, ai_active=ai_active, detections=detections, motion_boxes=motion_boxes)
             cv2.imwrite(str(latest_overlay_path), overlay, [cv2.IMWRITE_JPEG_QUALITY, 85])
+
             if profile is not None and profile.domain == "water":
                 for vessel in water_event_candidates(profile, detections):
-                    speed_info = vessel.get("_speed_info") or {}
-                    line_speed_info = vessel.get("_line_speed_info") or {}
-                    event = build_event(vessel, motion_area, speed_info, line_speed_info)
-                    event_snapshot_path = EVENTS_DIR / f'{event["event_id"]}.jpg'
-                    cv2.imwrite(str(event_snapshot_path), overlay, [cv2.IMWRITE_JPEG_QUALITY, 90])
-                    if post_event(event, event_snapshot_path):
-                        mark_track_event_posted(vessel.get("track_id"))
+                    if vessel.get("passage_id") is None:
+                        print(f'Water passage mapping missing track={vessel.get("track_id")}')
+                for update in passage_updates:
+                    passage = update.get("passage") or {}
+                    passage_id = str(passage.get("passage_id") or "")
+                    if not passage_id:
+                        continue
+                    snapshot_path = passage_snapshot_paths.get(passage_id)
+                    if snapshot_path is None:
+                        snapshot_path = PASSAGES_DIR / f"{passage_id}.jpg"
+                        passage_snapshot_paths[passage_id] = snapshot_path
+                    if update.get("snapshot_candidate"):
+                        snapshot_detection = update.get("snapshot_detection")
+                        if snapshot_detection is not None and write_passage_snapshot(frame, snapshot_detection, snapshot_path):
+                            passage_pending_snapshot.add(passage_id)
+                    upload_snapshot = snapshot_path if passage_id in passage_pending_snapshot and snapshot_path.is_file() else None
+                    completed = passage.get("status") == "completed"
+                    due = now - float(passage_last_post.get(passage_id, 0.0)) >= passage_post_interval
+                    should_post = bool(update.get("snapshot_candidate") or completed or due)
+                    if should_post and post_passage(passage, upload_snapshot):
+                        passage_last_post[passage_id] = now
+                        passage_pending_snapshot.discard(passage_id)
+                        if completed:
+                            passage_last_post.pop(passage_id, None)
+                            passage_snapshot_paths.pop(passage_id, None)
+                            try:
+                                snapshot_path.unlink(missing_ok=True)
+                            except OSError:
+                                pass
             elif detections:
                 best = max(detections, key=lambda d: d["confidence"])
                 speed_info = best.get("_speed_info") or {}
@@ -1163,6 +1288,7 @@ def main():
                     "ai_active": bool(ai_active),
                     "detections": len(detections),
                     "tracks": track_count,
+                    "active_passages": passage_engine.active_count if passage_engine is not None else None,
                     "frame_no": frame_no,
                     "model_name": model_name,
                     "message": "event-worker running with persistent tracking",
