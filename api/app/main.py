@@ -67,6 +67,7 @@ VEHICLE_EVENT_SCHEMA = "sea_speed_vehicle_event_v1"
 TELEMETRY_SCHEMA = "sea_speed_telemetry_v1"
 CAMERA_PREVIEW_CATALOG_SCHEMA = "sea_speed_camera_preview_catalog_v1"
 OBJECT_STATUSES = {"new", "reviewed", "ignored"}
+OBJECTS_RETENTION_LIMIT = 100
 SHA_RE = re.compile(r"^[0-9a-fA-F]{40}$")
 CAMERA_PREVIEW_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 CAMERA_PREVIEW_SESSION_RE = re.compile(r"^[0-9a-f]{12}$")
@@ -216,6 +217,22 @@ def open_objects_db():
         connection.close()
 
 
+def prune_objects_registry(connection: sqlite3.Connection) -> int:
+    cursor = connection.execute(
+        """
+        DELETE FROM objects
+        WHERE object_id NOT IN (
+            SELECT object_id
+            FROM objects
+            ORDER BY detected_at DESC, object_id DESC
+            LIMIT ?
+        )
+        """,
+        (OBJECTS_RETENTION_LIMIT,),
+    )
+    return cursor.rowcount
+
+
 def initialize_objects_db() -> None:
     with open_objects_db() as connection:
         connection.execute("PRAGMA journal_mode=WAL")
@@ -256,6 +273,7 @@ def initialize_objects_db() -> None:
         connection.execute("CREATE INDEX IF NOT EXISTS idx_objects_deleted_at ON objects(deleted_at)")
         connection.execute("CREATE INDEX IF NOT EXISTS idx_objects_camera_id ON objects(camera_id)")
         connection.execute("CREATE INDEX IF NOT EXISTS idx_objects_domain ON objects(domain)")
+        prune_objects_registry(connection)
 
 
 def optional_float(value: Any) -> Optional[float]:
@@ -329,7 +347,10 @@ def persist_object_event(event: Dict[str, Any]) -> bool:
                 now_iso(),
             ),
         )
-        return cursor.rowcount > 0
+        inserted = cursor.rowcount > 0
+        if inserted:
+            prune_objects_registry(connection)
+        return inserted
 
 
 def import_existing_events() -> int:
