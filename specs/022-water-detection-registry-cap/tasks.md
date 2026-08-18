@@ -7,45 +7,54 @@
 
 ## Delivery tasks
 
-- T-001 [P0] Change shared analytics default from `road-v1` to `water-v1` without altering either profile's model/tracker/threshold/class-map values. COMPLETE in original source integration.
-- T-002 [P0] Add deterministic combined SQLite Objects Registry retention helper with limit 100 and newest ordering `detected_at DESC, object_id DESC`. COMPLETE in original source integration.
-- T-003 [P0] Enforce retention after database initialization and after every successful new object insertion. COMPLETE in original source integration.
-- T-004 [P0] Add analytics-profile regression proving no-argument resolution selects Water and Road remains explicit/exact. COMPLETE in original source integration.
-- T-005 [P0] Add API persistence regressions for oversized initialization and successful-insert pruning while preserving existing API behavior. COMPLETE in original source integration.
-- T-006 [P0] Validate exact seven-path original scope, syntax/SDD/secret absence and canonical PR linkage. COMPLETE: PR #213 remained exactly seven approved paths.
-- T-007 [P0] Reach exact-head PR Validation + aggregate Quality, refresh base/head/scope/reviews, and merge only the exact green head. COMPLETE: final head `1a619bc50ed5e6f8316bf13aa95f68a7c2e39a5e`, PR Validation #449 / `32094366745`, Quality #399 / `32094366780`, expected-head merge `9e0cd96aa2f790f1ba806299c3dd4019e5572899`.
-- T-008 [P0] Resolve exact runtime release admission and production authority. IN PROGRESS: runtime target is exact `9e0cd96aa2f790f1ba806299c3dd4019e5572899`; production authorization fingerprint `3805756adc94a9419fdc4416aa61b01f4d6515c71cab5db4b4e757b41c2a4523` was granted with execution intent; durable Issue comment `5323137259` records the authority lines. Protected deployment code must independently verify successful exact `push/main` Quality before any runtime mutation.
-- T-009 [P0] Record production learning from VPS privilege-boundary preflight. COMPLETE: current `deploy/vps/deploy.sh`, `install-auth-privilege-boundary.sh`, and `sea-speed-auth-privileged-helper.py` prove the root-owned Auth bundle is exact-source-bound and checked before accepted live application mutation; VPS truthful capability for `9e0cd96...` is `ONE_COMMAND_FALLBACK`.
-- T-010 [P0] Integrate exactly the three authorized production-learning SDD paths under Issue #212 comment `5323340646`; require machine-valid `PRODUCTION_LEARNING` adjacent-stage audit, exact 3/3 diff, PR Validation + aggregate Quality on one exact head, fresh merge gate, expected-head merge and post-merge Quality. The corrective merge is source/control-plane evidence only and MUST NOT replace runtime target `9e0cd96...`. IN PROGRESS.
-- T-011 [P0] Execute the single repository-owned VPS root privilege-boundary bootstrap on the canonical VPS from an exact `9e0cd96aa2f790f1ba806299c3dd4019e5572899` checkout for deployment user `sea-speed-deploy`; require exact-source/repository admission, `SEA_SPEED_AUTH_PRIVILEGE_INSTALL=PASS`, exact `SOURCE_SHA`, fixed helper/no-args scope, no root shell, fixed topology and transactional rollback evidence. PENDING RUNTIME.
-- T-012 [P0] After T-011 PASS, run canonical Connector VPS deployment for exact runtime target `9e0cd96...`; require protected workflow exact-main Quality/authorization admission, exact release/deployment evidence with `runtimeVerified=true`, preserved Auth/private-M2M boundary and SQLite Objects Registry count <=100 after initialization and subsequent ingestion. PENDING RUNTIME.
-- T-013 [P0] Only after T-012 acceptance, deploy/activate Ubuntu Water on exact runtime release and prove source/profile/model/service/frame/state/AI progression plus `vessel` detections entering registry; if restricted zero-touch transport is unavailable, use exactly one repository-owned Ubuntu fallback action. PENDING RUNTIME.
-- T-014 [P0] Persist final corrective-source/bootstrap/VPS/registry/Ubuntu/Water evidence to Issue #212 and close only after every applicable source/runtime acceptance gate passes. PENDING.
+- T-001 [P0] Original `water-v1` default/profile activation source integration. COMPLETE through PR #213.
+- T-002 [P0] Original newest-100 combined SQLite Objects Registry retention behavior and tests. COMPLETE through PR #213 and accepted VPS evidence.
+- T-003 [P0] Original exact runtime `9e0cd96aa2f790f1ba806299c3dd4019e5572899` infrastructure/provenance rollout. COMPLETE as infrastructure evidence; later functional Water acceptance was invalidated by production regression.
+- T-004 [P0] Production-learning SDD correction through PR #214. COMPLETE; current source/control-plane main at fresh authorization is `f3febcd6d9ae6a57e052f6b4a50bf3ec9f75fdf1`.
+- T-005 [P0] Reopen Issue #212 and record real-vessel regression: moving in-ROI target with `MOTION idle`, `AI idle`, `DETECTIONS 0`, `TRACKS 0`. COMPLETE.
+- T-006 [P0] Obtain fresh six-path source authorization for Water continuous detection remediation. COMPLETE: Issue #212 comment `5323802105` records exact scope and `OUTCOME APPROVED`.
+- T-007 [P0] Add profile-aware detection admission: Water runs YOLO on every sampled ROI-bounded frame and bypasses motion-box filtering; Road preserves motion gate/filter. IMPLEMENTED ON TASK BRANCH; CI PENDING.
+- T-008 [P0] Change Water event admission to one successful event per tracked `vessel` without speed readiness, while preserving Road speed/event readiness logic. IMPLEMENTED ON TASK BRANCH; CI PENDING.
+- T-009 [P0] Add deterministic focused Water/Road regression tests and analytics-profile protection assertions. IMPLEMENTED ON TASK BRANCH; CI PENDING.
+- T-010 [P0] Reconcile spec/plan/tasks to production regression, source authorization, Ubuntu-only runtime contour, risk/test design and transaction audit. IN PROGRESS.
+- T-011 [P0] Verify exact six-path diff against authorization base; ensure no protected model/ROI/API/deploy/frontend path changed. PENDING.
+- T-012 [P0] Open canonical PR with valid Change Contract declaring `Production impact: UBUNTU_WORKER`, Ubuntu deployment REQUIRED, VPS NOT REQUIRED, Risk profile REQUIRED and source authorization `OUTCOME APPROVED`. PENDING.
+- T-013 [P0] Reach exact-head PR Validation and aggregate Quality; automatically remediate any in-scope deterministic defect without widening scope. PENDING.
+- T-014 [P0] Re-check current main, exact head, six-path scope and review state; merge only the exact green head; require exact-main post-merge Quality. PENDING.
+- T-015 [P0] Persist source integration evidence and compute the new exact merged executable release. PENDING.
+- T-016 [P0] Obtain a fresh exact-SHA production safety envelope before any Ubuntu mutation. PENDING HUMAN DECISION AFTER SOURCE MERGE.
+- T-017 [P0] After production authorization, deploy the exact Ubuntu release while preserving Road desired state and prove exact model/profile/source/runtime identity plus sustained Water 5-FPS inference health. PENDING RUNTIME.
+- T-018 [P0] Require a naturally occurring moving vessel inside Water ROI to produce non-zero `DETECTIONS`/`TRACKS` and one new `vessel` event without synthetic production evidence. PENDING RUNTIME.
+- T-019 [P0] Persist final sanitized source/runtime/functional acceptance evidence to Issue #212 and close only when all mandatory gates pass. PENDING.
 
 ## Requirements traceability
 
-- AC-001 | Task: T-001,T-004 | Evidence: `tests/test_analytics_profiles.py` and original exact-head Quality | Coverage: COVERED
-- AC-002 | Task: T-002,T-003,T-005 | Evidence: `tests/test_api_contract.py` initialization retention test | Coverage: COVERED
-- AC-003 | Task: T-002,T-003,T-005 | Evidence: `tests/test_api_contract.py` insert retention test | Coverage: COVERED
-- AC-004 | Task: T-005,T-007 | Evidence: existing API contract suite and original exact-head Quality #399 | Coverage: COVERED
-- AC-005 | Task: T-006,T-009,T-010 | Evidence: original exact seven-path PR #213 plus exact three-path production-learning compare/CI; no executable path is authorized in the correction | Coverage: COVERED
-- AC-006 | Task: T-007,T-008,T-010 | Evidence: original exact-head PR Validation #449, Quality #399, merge `9e0cd96...`, protected exact-main Quality admission before deployment, and corrective exact-head/merge/post-merge Quality | Coverage: COVERED
-- AC-007 | Task: T-008,T-009,T-010,T-011,T-012,T-014 | Evidence: exact production authority, production-learning capability correction, exact-source VPS privilege-bootstrap PASS, exact VPS deployment manifest and registry-count runtime evidence | Coverage: RUNTIME-MANUAL | Reason: root-owned privilege state and production SQLite state require live VPS evidence
-- AC-008 | Task: T-012,T-013,T-014 | Evidence: accepted VPS-first gate followed by Ubuntu deployment manifest or exact fallback evidence, Water exact source/model/profile/service/telemetry and resulting object record | Coverage: RUNTIME-MANUAL | Reason: physical camera/GPU/service runtime is outside hosted CI
+- AC-001 | Task: T-007,T-009 | Evidence: `tests/test_water_detection_pipeline.py` Water no-motion inference regression | Coverage: COVERED
+- AC-002 | Task: T-007,T-009 | Evidence: `tests/test_water_detection_pipeline.py` verifies no Water motion-filter call and retained ROI filter | Coverage: COVERED
+- AC-003 | Task: T-007,T-013 | Evidence: existing `tests/test_worker_roi_pipeline.py` plus exact-head CI | Coverage: COVERED
+- AC-004 | Task: T-007,T-009 | Evidence: focused Road motion inactive/active policy regression | Coverage: COVERED
+- AC-005 | Task: T-008,T-009 | Evidence: tracked Water vessel event-candidate regression without speed readiness | Coverage: COVERED
+- AC-006 | Task: T-008,T-009 | Evidence: posted-track dedupe and non-null track-ID regressions | Coverage: COVERED
+- AC-007 | Task: T-009,T-013 | Evidence: `tests/test_analytics_profiles.py` plus exact-head CI | Coverage: COVERED
+- AC-008 | Task: T-002,T-013 | Evidence: unchanged existing `tests/test_api_contract.py` registry/API contract suite | Coverage: COVERED
+- AC-009 | Task: T-011,T-012,T-013 | Evidence: Connector exact compare, PR Validation and aggregate Quality | Coverage: COVERED
+- AC-010 | Task: T-014,T-015 | Evidence: expected-head merge and exact-main post-merge Quality | Coverage: COVERED
+- AC-011 | Task: T-016,T-017 | Evidence: exact-SHA Ubuntu deployment, model/profile/service/frame/AI/GPU and Road-state evidence | Coverage: RUNTIME-MANUAL | Reason: production GPU/service/runtime state requires separately authorized live Ubuntu evidence
+- AC-012 | Task: T-018,T-019 | Evidence: real naturally occurring vessel detection/track/event evidence recorded in Issue #212 | Coverage: RUNTIME-MANUAL | Reason: physical scene occurrence and production event transport cannot be proven by hosted CI
 
 ## Definition of Done
 
-- [ ] Issue/spec/plan/tasks current — production-learning correction is authored but must merge and receive post-merge Quality before main is current.
-- [ ] Exact changed-file scope verified — original seven-path source is accepted; corrective branch must remain exactly the authorized three SDD paths through merge.
-- [ ] Required tests and evidence complete — original source CI is complete; corrective CI, VPS bootstrap/deployment/registry evidence and Ubuntu Water acceptance remain.
-- [ ] Required CI green — original exact-head CI is green; corrective exact-head and post-merge Quality remain, while runtime workflow must independently verify exact `push/main` Quality for `9e0cd96...` before mutation.
-- [ ] Exact-green-head merge complete — original PR #213 is complete; corrective three-path PR remains.
-- [ ] Deployment state resolved — exact runtime `9e0cd96...` still requires VPS root bootstrap, VPS Connector deployment/registry acceptance, then Ubuntu delivery.
-- [ ] Runtime acceptance resolved — Water service/telemetry/object evidence remains.
-- [x] Deferred work recorded — snapshot/media cleanup, JSON event retention and any retention-value redesign remain explicitly out of scope.
-- [x] Risks resolved or explicitly accepted — irreversible loss of rows beyond newest 100 is accepted for the test phase; the observed root privilege-boundary constraint is addressed fail-closed by exact-source transactional bootstrap and the production-learning transaction audit.
+- [x] Issue/spec/plan/tasks current — regression, authorization and source design are reconciled on the task branch; final CI/merge/runtime evidence remains pending.
+- [ ] Exact changed-file scope verified — must confirm exactly six authorized paths on final PR head.
+- [ ] Required tests and evidence complete — source regressions are authored; CI and production natural-vessel evidence remain.
+- [ ] Required CI green — exact-head PR Validation/Quality and exact-main post-merge Quality remain.
+- [ ] Exact-green-head merge complete — task branch is not yet merged.
+- [ ] Deployment state resolved — future exact merged Ubuntu release is not production-authorized or deployed.
+- [ ] Runtime acceptance resolved — sustained continuous inference and real-vessel event acceptance remain.
+- [x] Deferred work recorded — protected model parameters, ROI editor, camera/media topology, API/schema and retention redesign are explicitly out of scope.
+- [ ] Risks resolved or explicitly accepted — source mitigations are defined; GPU duty-cycle risk remains open until runtime acceptance.
 - [x] Waivers resolved or current — no waiver is active.
 
 ## Completion gate
 
-`COMPLETE` is forbidden until original runtime target `9e0cd96aa2f790f1ba806299c3dd4019e5572899` remains accepted as the seven-path executable release, the exact three-path production-learning SDD correction is merged from an exact-green head with post-merge Quality, the protected runtime gate verifies successful exact `push/main` Quality and current production authorization, the single VPS root privilege-boundary bootstrap passes, canonical VPS deployment is `runtime_verified` with registry <=100, Ubuntu exact release/Water activation is accepted with advancing telemetry and `vessel` object evidence, and Issue #212 contains terminal sanitized evidence.
+`COMPLETE` is forbidden until the exact six-path source diff passes PR Validation and aggregate Quality on one exact head, merges with expected-head protection, receives exact-main post-merge Quality, a fresh production safety envelope authorizes that exact executable SHA, Ubuntu deployment/verification preserves Road desired state and sustained Water inference health, and a real naturally occurring vessel inside ROI produces non-zero detections/tracks plus one persisted `vessel` event without synthetic production evidence. Issue #212 must contain the final sanitized evidence before closure.

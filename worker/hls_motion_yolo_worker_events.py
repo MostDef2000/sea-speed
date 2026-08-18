@@ -357,6 +357,17 @@ def filter_detections_by_motion(detections, motion_boxes):
     return [det for det in detections if bbox_intersects_motion(det, motion_boxes)]
 
 
+def select_profile_detections(profile, model, processing_frame, motion_ai_active, motion_boxes, roi_points):
+    if profile is not None and profile.domain == "water":
+        raw_detections = detect_vehicles(model, processing_frame)
+        return True, filter_detections_by_roi(raw_detections, roi_points)
+    if not motion_ai_active:
+        return False, []
+    raw_detections = detect_vehicles(model, processing_frame)
+    detections = filter_detections_by_motion(raw_detections, motion_boxes)
+    return True, filter_detections_by_roi(detections, roi_points)
+
+
 _roi_cache = {"ts": 0.0, "enabled": False, "points": [], "signature": ""}
 _roi_processing_points = None
 
@@ -947,6 +958,19 @@ def mark_track_event_posted(track_id):
     state["event_posted"] = True
 
 
+def water_event_candidates(profile, detections):
+    if profile is None or profile.domain != "water":
+        return []
+    candidates = []
+    for det in detections:
+        track_id = det.get("track_id")
+        if track_id is None or det.get("class_name") != "vessel":
+            continue
+        if not track_event_posted(track_id):
+            candidates.append(det)
+    return candidates
+
+
 def prune_track_states(now=None):
     if now is None:
         now = time.time()
@@ -993,6 +1017,7 @@ def build_event(best_det, motion_area, speed_info=None, line_speed_info=None):
                 speed_source = "px_factor"
         except Exception:
             speed_kmh = None
+    is_water = best_det.get("domain") == "water" or best_det.get("analytics_profile") == "water-v1"
     return {
         "event_id": event_id,
         "created_at": now_iso(),
@@ -1019,7 +1044,7 @@ def build_event(best_det, motion_area, speed_info=None, line_speed_info=None):
         "speed_end_line": line_speed_info.get("speed_end_line"),
         "motion_area": int(motion_area),
         "model_name": env_str("MODEL_NAME", "yolo11s.pt"),
-        "message": "motion-filtered tracked object detection with speed lines",
+        "message": "tracked Water vessel detection" if is_water else "motion-filtered tracked object detection with speed lines",
     }
 
 
@@ -1053,12 +1078,18 @@ def main():
             frame_no += 1
             processing_frame, roi_points = prepare_roi_processing_frame(frame, motion_detector)
             motion_now, motion_area, motion_boxes = motion_detector.process(processing_frame)
-            ai_active = motion_detector.is_ai_active()
+            motion_ai_active = motion_detector.is_ai_active()
             detections = []
-            if ai_active:
+            if profile is not None and profile.domain == "water":
+                ai_active = True
+                detections = detect_vehicles(model, processing_frame)
+            elif motion_ai_active:
+                ai_active = True
                 raw_detections = detect_vehicles(model, processing_frame)
                 detections = filter_detections_by_motion(raw_detections, motion_boxes)
-                detections = filter_detections_by_roi(detections)
+            else:
+                ai_active = False
+            detections = filter_detections_by_roi(detections)
             active_track_ids = set()
             for det in detections:
                 track_id = det.get("track_id")
@@ -1087,7 +1118,16 @@ def main():
             prune_track_states(now)
             overlay = draw_overlay(frame=frame, motion_now=motion_now, motion_area=motion_area, ai_active=ai_active, detections=detections, motion_boxes=motion_boxes)
             cv2.imwrite(str(latest_overlay_path), overlay, [cv2.IMWRITE_JPEG_QUALITY, 85])
-            if detections:
+            if profile is not None and profile.domain == "water":
+                for vessel in water_event_candidates(profile, detections):
+                    speed_info = vessel.get("_speed_info") or {}
+                    line_speed_info = vessel.get("_line_speed_info") or {}
+                    event = build_event(vessel, motion_area, speed_info, line_speed_info)
+                    event_snapshot_path = EVENTS_DIR / f'{event["event_id"]}.jpg'
+                    cv2.imwrite(str(event_snapshot_path), overlay, [cv2.IMWRITE_JPEG_QUALITY, 90])
+                    if post_event(event, event_snapshot_path):
+                        mark_track_event_posted(vessel.get("track_id"))
+            elif detections:
                 best = max(detections, key=lambda d: d["confidence"])
                 speed_info = best.get("_speed_info") or {}
                 line_speed_info = best.get("_line_speed_info") or {}
