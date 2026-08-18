@@ -13,7 +13,7 @@ import requests
 from ultralytics import YOLO
 
 from analytics_profiles import get_profile, normalize_model_class
-from water_passage import TwoGateSpeedEstimator, WaterPassageEngine
+from water_passage import WaterPassageEngine, build_two_gate_estimator
 
 
 VEHICLE_CLASSES = {"car", "truck", "bus", "motorcycle", "bicycle"}
@@ -1136,12 +1136,12 @@ def main():
     passage_post_interval = max(0.2, env_float("PASSAGE_POST_INTERVAL_SEC", 1.0))
     if is_water:
         passage_engine = WaterPassageEngine(
-            speed_estimator=TwoGateSpeedEstimator(),
+            lambda: build_two_gate_estimator(fetch_speed_lines_config()),
             max_observations=env_int("WATER_PASSAGE_MAX_OBSERVATIONS", 256),
             max_active_passages=env_int("WATER_PASSAGE_MAX_ACTIVE", 32),
-            stitch_gap_sec=env_float("WATER_PASSAGE_STITCH_GAP_SEC", 2.5),
-            passage_timeout_sec=env_float("WATER_PASSAGE_TIMEOUT_SEC", 5.0),
-            stitch_max_distance_px=env_float("WATER_PASSAGE_STITCH_MAX_DISTANCE_PX", 120.0),
+            stitch_window_sec=env_float("WATER_PASSAGE_STITCH_GAP_SEC", 2.5),
+            passage_end_gap_sec=env_float("WATER_PASSAGE_TIMEOUT_SEC", 5.0),
+            stitch_distance_px=env_float("WATER_PASSAGE_STITCH_MAX_DISTANCE_PX", 120.0),
         )
         print(
             "Water passage engine: strategy=two_gate "
@@ -1161,27 +1161,35 @@ def main():
             processing_frame, roi_points = prepare_roi_processing_frame(frame, motion_detector)
             motion_now, motion_area, motion_boxes = motion_detector.process(processing_frame)
             motion_ai_active = motion_detector.is_ai_active()
-            ai_active, detections = select_profile_detections(
-                profile, model, processing_frame, motion_ai_active, motion_boxes, roi_points
-            )
+            if is_water:
+                ai_active = True
+                detections = detect_vehicles(model, processing_frame)
+            elif motion_ai_active:
+                ai_active = True
+                detections = detect_vehicles(model, processing_frame)
+                detections = filter_detections_by_motion(detections, motion_boxes)
+            else:
+                ai_active = False
+                detections = []
+            detections = filter_detections_by_roi(detections)
             now = time.time()
             active_track_ids = {int(det["track_id"]) for det in detections if det.get("track_id") is not None}
 
             passage_updates = []
             if is_water and passage_engine is not None:
-                speed_config = fetch_speed_lines_config()
-                passage_updates = passage_engine.observe_frame(detections, now, speed_config)
-                passage_by_track = {
-                    int(update["passage"]["current_track_id"]): update["passage"]
-                    for update in passage_updates
-                    if not update.get("completed") and update["passage"].get("current_track_id") is not None
-                }
+                passage_updates = passage_engine.update(detections, now)
+                passage_by_track = {}
+                for update in passage_updates:
+                    passage = update.get("passage") or {}
+                    for track_id in update.get("observed_track_ids") or []:
+                        passage_by_track[int(track_id)] = passage
                 for det in detections:
                     track_id = det.get("track_id")
                     passage = passage_by_track.get(int(track_id)) if track_id is not None else None
                     if passage is None:
                         det["speed_kmh"] = None
                         det["speed_source"] = "two_gate"
+                        det["speed_ready"] = False
                         continue
                     det["passage_id"] = passage["passage_id"]
                     det["speed_kmh"] = passage.get("speed_kmh")
@@ -1214,34 +1222,30 @@ def main():
             cv2.imwrite(str(latest_overlay_path), overlay, [cv2.IMWRITE_JPEG_QUALITY, 85])
 
             if profile is not None and profile.domain == "water":
-                for vessel in water_event_candidates(profile, []):
-                    pass
-                # Water persistence is passage-owned; the empty compatibility loop above
-                # preserves the previous static Water/Road contract without posting events.
-                det_by_track = {
-                    int(det["track_id"]): det for det in detections if det.get("track_id") is not None
-                }
+                for vessel in water_event_candidates(profile, detections):
+                    if vessel.get("passage_id") is None:
+                        print(f'Water passage mapping missing track={vessel.get("track_id")}')
                 for update in passage_updates:
-                    passage = update["passage"]
-                    passage_id = str(passage["passage_id"])
+                    passage = update.get("passage") or {}
+                    passage_id = str(passage.get("passage_id") or "")
+                    if not passage_id:
+                        continue
                     snapshot_path = passage_snapshot_paths.get(passage_id)
                     if snapshot_path is None:
                         snapshot_path = PASSAGES_DIR / f"{passage_id}.jpg"
                         passage_snapshot_paths[passage_id] = snapshot_path
-                    upload_snapshot = None
-                    current_track_id = passage.get("current_track_id")
-                    current_det = det_by_track.get(int(current_track_id)) if current_track_id is not None else None
-                    if update.get("snapshot_improved") and current_det is not None:
-                        if write_passage_snapshot(frame, current_det, snapshot_path):
+                    if update.get("snapshot_candidate"):
+                        snapshot_detection = update.get("snapshot_detection")
+                        if snapshot_detection is not None and write_passage_snapshot(frame, snapshot_detection, snapshot_path):
                             passage_pending_snapshot.add(passage_id)
-                    if passage_id in passage_pending_snapshot and snapshot_path.is_file():
-                        upload_snapshot = snapshot_path
+                    upload_snapshot = snapshot_path if passage_id in passage_pending_snapshot and snapshot_path.is_file() else None
+                    completed = passage.get("status") == "completed"
                     due = now - float(passage_last_post.get(passage_id, 0.0)) >= passage_post_interval
-                    should_post = bool(update.get("significant") or update.get("completed") or due)
+                    should_post = bool(update.get("snapshot_candidate") or completed or due)
                     if should_post and post_passage(passage, upload_snapshot):
                         passage_last_post[passage_id] = now
                         passage_pending_snapshot.discard(passage_id)
-                        if update.get("completed"):
+                        if completed:
                             passage_last_post.pop(passage_id, None)
                             passage_snapshot_paths.pop(passage_id, None)
                             try:

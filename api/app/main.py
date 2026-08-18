@@ -26,6 +26,8 @@ DATA_DIR = BASE_DIR / "data"
 MEDIA_DIR = BASE_DIR / "media"
 OVERLAY_DIR = MEDIA_DIR / "overlays"
 EVENTS_MEDIA_DIR = MEDIA_DIR / "events"
+PASSAGES_MEDIA_DIR = MEDIA_DIR / "passages"
+PASSAGE_MEDIA_DIR = PASSAGES_MEDIA_DIR
 CAMERA_PREVIEW_DIR = MEDIA_DIR / "camera-preview"
 CAMERA_SNAPSHOT_DIR = DATA_DIR / "camera-preview-snapshots"
 DEPLOYED_COMMIT_FILE = Path("/opt/sea-speed-deploy/state/current-release")
@@ -33,6 +35,7 @@ DEPLOYED_COMMIT_FILE = Path("/opt/sea-speed-deploy/state/current-release")
 STATE_FILE = DATA_DIR / "cam1_state.json"
 EVENTS_FILE = DATA_DIR / "events.json"
 OBJECTS_DB_FILE = DATA_DIR / "objects.sqlite3"
+PASSAGES_DB_FILE = DATA_DIR / "water_passages.sqlite3"
 ROI_FILE = DATA_DIR / "cam1_roi.json"
 SPEED_CONFIG_FILE = DATA_DIR / "cam1_speed_config.json"
 SPEED_LINES_FILE = DATA_DIR / "cam1_speed_lines.json"
@@ -68,6 +71,10 @@ TELEMETRY_SCHEMA = "sea_speed_telemetry_v1"
 CAMERA_PREVIEW_CATALOG_SCHEMA = "sea_speed_camera_preview_catalog_v1"
 OBJECT_STATUSES = {"new", "reviewed", "ignored"}
 OBJECTS_RETENTION_LIMIT = 100
+PASSAGES_RETENTION_LIMIT = 300
+PASSAGE_STATUSES = {"tracking", "measuring", "measured", "completed"}
+PASSAGE_SPEED_STATUSES = {"unknown", "measuring", "measured", "incomplete"}
+PASSAGE_ID_RE = re.compile(r"^P-[A-Za-z0-9][A-Za-z0-9._-]{1,78}$")
 SHA_RE = re.compile(r"^[0-9a-fA-F]{40}$")
 CAMERA_PREVIEW_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 CAMERA_PREVIEW_SESSION_RE = re.compile(r"^[0-9a-f]{12}$")
@@ -91,6 +98,7 @@ CAMERA_SNAPSHOT_MIN_LUMA_SPREAD = 12.0
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 OVERLAY_DIR.mkdir(parents=True, exist_ok=True)
 EVENTS_MEDIA_DIR.mkdir(parents=True, exist_ok=True)
+PASSAGES_MEDIA_DIR.mkdir(parents=True, exist_ok=True)
 CAMERA_PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
 CAMERA_SNAPSHOT_DIR.mkdir(mode=0o755, parents=True, exist_ok=True)
 
@@ -363,6 +371,337 @@ def import_existing_events() -> int:
             imported += 1
     return imported
 
+
+@contextmanager
+def open_passages_db():
+    connection = sqlite3.connect(str(PASSAGES_DB_FILE), timeout=10)
+    connection.row_factory = sqlite3.Row
+    try:
+        yield connection
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
+def cleanup_passage_media(snapshot_url: Optional[str]) -> None:
+    if not snapshot_url:
+        return
+    prefix = "/sea-speed/media/passages/"
+    value = str(snapshot_url)
+    if not value.startswith(prefix):
+        return
+    filename = value[len(prefix):]
+    if not filename or filename != Path(filename).name or not filename.endswith(".jpg"):
+        return
+    try:
+        (PASSAGE_MEDIA_DIR / filename).unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def prune_water_passages(connection: sqlite3.Connection, target_limit: int = PASSAGES_RETENTION_LIMIT) -> List[str]:
+    target_limit = max(0, int(target_limit))
+    count = int(connection.execute("SELECT COUNT(*) FROM water_passages").fetchone()[0])
+    excess = max(0, count - target_limit)
+    if excess == 0:
+        return []
+    rows = connection.execute(
+        """
+        SELECT passage_id, snapshot_url
+        FROM water_passages
+        WHERE status = 'completed'
+        ORDER BY COALESCE(completed_at, last_seen_at, started_at) ASC, passage_id ASC
+        LIMIT ?
+        """,
+        (excess,),
+    ).fetchall()
+    if not rows:
+        return []
+    passage_ids = [str(row["passage_id"]) for row in rows]
+    placeholders = ",".join("?" for _ in passage_ids)
+    connection.execute(f"DELETE FROM water_passages WHERE passage_id IN ({placeholders})", passage_ids)
+    return [str(row["snapshot_url"]) for row in rows if row["snapshot_url"]]
+
+
+def initialize_water_passages_db() -> None:
+    orphan_urls: List[str] = []
+    with open_passages_db() as connection:
+        connection.execute("PRAGMA journal_mode=WAL")
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS water_passages (
+                passage_id TEXT PRIMARY KEY,
+                camera_id TEXT NOT NULL,
+                class_name TEXT NOT NULL,
+                status TEXT NOT NULL,
+                started_at TEXT NOT NULL,
+                last_seen_at TEXT NOT NULL,
+                completed_at TEXT,
+                track_fragments_json TEXT NOT NULL,
+                vessel_id TEXT,
+                confidence REAL,
+                direction TEXT,
+                speed_status TEXT NOT NULL,
+                speed_kmh REAL,
+                speed_method TEXT,
+                measurement_meta_json TEXT NOT NULL,
+                snapshot_url TEXT,
+                snapshot_score REAL NOT NULL DEFAULT 0,
+                observation_count INTEGER NOT NULL DEFAULT 0,
+                worker_source_commit TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_water_passages_last_seen ON water_passages(last_seen_at DESC)")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_water_passages_completed ON water_passages(status, completed_at)")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_water_passages_speed ON water_passages(speed_status, speed_kmh)")
+        orphan_urls.extend(prune_water_passages(connection, target_limit=PASSAGES_RETENTION_LIMIT))
+        count = int(connection.execute("SELECT COUNT(*) FROM water_passages").fetchone()[0])
+        if count > PASSAGES_RETENTION_LIMIT:
+            raise RuntimeError("water passage registry exceeds hard limit with non-prunable active rows")
+    for snapshot_url in orphan_urls:
+        cleanup_passage_media(snapshot_url)
+
+
+def _validate_passage_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="passage payload must be an object")
+    passage_id = str(payload.get("passage_id") or "").strip()
+    if not PASSAGE_ID_RE.fullmatch(passage_id):
+        raise HTTPException(status_code=400, detail="passage_id is invalid")
+    status = str(payload.get("status") or "tracking").strip()
+    if status not in PASSAGE_STATUSES:
+        raise HTTPException(status_code=400, detail="passage status is invalid")
+    speed_status = str(payload.get("speed_status") or "unknown").strip()
+    if speed_status not in PASSAGE_SPEED_STATUSES:
+        raise HTTPException(status_code=400, detail="speed_status is invalid")
+    started_at = str(payload.get("started_at") or "").strip()
+    last_seen_at = str(payload.get("last_seen_at") or started_at).strip()
+    completed_at = str(payload.get("completed_at") or "").strip() or None
+    if not started_at or len(started_at) > 80 or not last_seen_at or len(last_seen_at) > 80:
+        raise HTTPException(status_code=400, detail="passage timestamps are invalid")
+    class_name = str(payload.get("class_name") or "vessel").strip()
+    if class_name != "vessel":
+        raise HTTPException(status_code=400, detail="Water passage class_name must be vessel")
+    raw_fragments = payload.get("track_fragments") or []
+    if not isinstance(raw_fragments, list) or len(raw_fragments) > 64:
+        raise HTTPException(status_code=400, detail="track_fragments is invalid")
+    track_fragments: List[int] = []
+    for value in raw_fragments:
+        track_id = optional_int(value)
+        if track_id is None:
+            raise HTTPException(status_code=400, detail="track_fragments is invalid")
+        if track_id not in track_fragments:
+            track_fragments.append(track_id)
+    speed_kmh = optional_float(payload.get("speed_kmh"))
+    if speed_kmh is not None and speed_kmh < 0:
+        raise HTTPException(status_code=400, detail="speed_kmh must be >= 0")
+    if speed_status == "measured" and speed_kmh is None:
+        raise HTTPException(status_code=400, detail="measured passage requires speed_kmh")
+    measurement_meta = payload.get("measurement_meta") or {}
+    if not isinstance(measurement_meta, dict):
+        raise HTTPException(status_code=400, detail="measurement_meta must be an object")
+    measurement_meta_json = json.dumps(measurement_meta, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    if len(measurement_meta_json.encode("utf-8")) > 8192:
+        raise HTTPException(status_code=400, detail="measurement_meta is too large")
+    confidence = optional_float(payload.get("confidence"))
+    snapshot_score = optional_float(payload.get("snapshot_score")) or 0.0
+    observation_count = optional_int(payload.get("observation_count")) or 0
+    if snapshot_score < 0 or observation_count < 0:
+        raise HTTPException(status_code=400, detail="passage counters are invalid")
+    vessel_id = payload.get("vessel_id")
+    vessel_id = str(vessel_id).strip() if vessel_id not in (None, "") else None
+    if vessel_id is not None and len(vessel_id) > 128:
+        raise HTTPException(status_code=400, detail="vessel_id is invalid")
+    direction = payload.get("direction")
+    direction = str(direction).strip() if direction not in (None, "") else None
+    if direction is not None and len(direction) > 32:
+        raise HTTPException(status_code=400, detail="direction is invalid")
+    speed_method = payload.get("speed_method")
+    speed_method = str(speed_method).strip() if speed_method not in (None, "") else None
+    if speed_method is not None and len(speed_method) > 64:
+        raise HTTPException(status_code=400, detail="speed_method is invalid")
+    worker_source_commit = payload.get("worker_source_commit")
+    worker_source_commit = str(worker_source_commit).strip().lower() if worker_source_commit not in (None, "") else None
+    if worker_source_commit is not None and (len(worker_source_commit) != 40 or any(ch not in "0123456789abcdef" for ch in worker_source_commit)):
+        raise HTTPException(status_code=400, detail="worker_source_commit is invalid")
+    snapshot_url = payload.get("snapshot_url")
+    snapshot_url = str(snapshot_url).strip() if snapshot_url not in (None, "") else None
+    if snapshot_url is not None and not snapshot_url.startswith("/sea-speed/media/passages/"):
+        raise HTTPException(status_code=400, detail="snapshot_url is invalid")
+    return {
+        "passage_id": passage_id,
+        "camera_id": "cam1",
+        "class_name": "vessel",
+        "status": status,
+        "started_at": started_at,
+        "last_seen_at": last_seen_at,
+        "completed_at": completed_at,
+        "track_fragments": track_fragments,
+        "vessel_id": vessel_id,
+        "confidence": confidence,
+        "direction": direction,
+        "speed_status": speed_status,
+        "speed_kmh": speed_kmh,
+        "speed_method": speed_method,
+        "measurement_meta": measurement_meta,
+        "measurement_meta_json": measurement_meta_json,
+        "snapshot_url": snapshot_url,
+        "snapshot_score": snapshot_score,
+        "observation_count": observation_count,
+        "worker_source_commit": worker_source_commit,
+    }
+
+
+def passage_row_to_dict(row: sqlite3.Row) -> Dict[str, Any]:
+    data = dict(row)
+    try:
+        data["track_fragments"] = json.loads(data.pop("track_fragments_json", "[]"))
+    except Exception:
+        data["track_fragments"] = []
+    try:
+        data["measurement_meta"] = json.loads(data.pop("measurement_meta_json", "{}"))
+    except Exception:
+        data["measurement_meta"] = {}
+    return data
+
+
+def upsert_water_passage(payload: Dict[str, Any], snapshot_bytes: Optional[bytes] = None) -> Dict[str, Any]:
+    incoming = _validate_passage_payload(payload)
+    orphan_urls: List[str] = []
+    snapshot_path: Optional[Path] = None
+    snapshot_data: Optional[bytes] = None
+    with open_passages_db() as connection:
+        existing_row = connection.execute(
+            "SELECT * FROM water_passages WHERE passage_id = ?", (incoming["passage_id"],)
+        ).fetchone()
+        if existing_row is None:
+            count = int(connection.execute("SELECT COUNT(*) FROM water_passages").fetchone()[0])
+            if count >= PASSAGES_RETENTION_LIMIT:
+                orphan_urls.extend(prune_water_passages(connection, target_limit=PASSAGES_RETENTION_LIMIT - 1))
+                count = int(connection.execute("SELECT COUNT(*) FROM water_passages").fetchone()[0])
+                if count >= PASSAGES_RETENTION_LIMIT:
+                    raise RuntimeError("water passage registry is full with active passages")
+            current: Dict[str, Any] = {}
+            existing_fragments: List[int] = []
+            existing_meta: Dict[str, Any] = {}
+        else:
+            current = dict(existing_row)
+            try:
+                existing_fragments = json.loads(current.get("track_fragments_json") or "[]")
+            except Exception:
+                existing_fragments = []
+            try:
+                existing_meta = json.loads(current.get("measurement_meta_json") or "{}")
+            except Exception:
+                existing_meta = {}
+        fragments: List[int] = []
+        for value in [*existing_fragments, *incoming["track_fragments"]]:
+            track_id = optional_int(value)
+            if track_id is not None and track_id not in fragments:
+                fragments.append(track_id)
+        status_rank = {"tracking": 0, "measuring": 1, "measured": 2, "completed": 3}
+        speed_rank = {"unknown": 0, "measuring": 1, "incomplete": 2, "measured": 3}
+        current_status = str(current.get("status") or "tracking")
+        status = incoming["status"] if status_rank.get(incoming["status"], -1) >= status_rank.get(current_status, -1) else current_status
+        current_speed_status = str(current.get("speed_status") or "unknown")
+        use_incoming_speed = speed_rank.get(incoming["speed_status"], -1) >= speed_rank.get(current_speed_status, -1)
+        speed_status = incoming["speed_status"] if use_incoming_speed else current_speed_status
+        speed_kmh = incoming["speed_kmh"] if use_incoming_speed else optional_float(current.get("speed_kmh"))
+        direction = incoming["direction"] if use_incoming_speed and incoming["direction"] else current.get("direction")
+        speed_method = incoming["speed_method"] or current.get("speed_method")
+        measurement_meta = incoming["measurement_meta"] if use_incoming_speed else existing_meta
+        existing_snapshot_score = optional_float(current.get("snapshot_score")) or 0.0
+        snapshot_score = max(existing_snapshot_score, incoming["snapshot_score"])
+        snapshot_url = incoming["snapshot_url"] or current.get("snapshot_url")
+        if snapshot_bytes is not None and incoming["snapshot_score"] >= existing_snapshot_score:
+            if len(snapshot_bytes) > 5 * 1024 * 1024:
+                raise HTTPException(status_code=413, detail="passage snapshot is too large")
+            filename = f'{incoming["passage_id"]}.jpg'
+            snapshot_path = PASSAGE_MEDIA_DIR / filename
+            snapshot_data = bytes(snapshot_bytes)
+            snapshot_url = f"/sea-speed/media/passages/{filename}"
+        now = now_iso()
+        merged = {
+            **incoming,
+            "status": status,
+            "started_at": str(current.get("started_at") or incoming["started_at"]),
+            "last_seen_at": max(str(current.get("last_seen_at") or incoming["last_seen_at"]), incoming["last_seen_at"]),
+            "completed_at": incoming["completed_at"] or current.get("completed_at"),
+            "track_fragments": fragments,
+            "confidence": max(optional_float(current.get("confidence")) or 0.0, incoming["confidence"] or 0.0),
+            "direction": direction,
+            "speed_status": speed_status,
+            "speed_kmh": speed_kmh,
+            "speed_method": speed_method,
+            "measurement_meta": measurement_meta,
+            "measurement_meta_json": json.dumps(measurement_meta, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+            "snapshot_url": snapshot_url,
+            "snapshot_score": snapshot_score,
+            "observation_count": max(optional_int(current.get("observation_count")) or 0, incoming["observation_count"]),
+            "worker_source_commit": incoming["worker_source_commit"] or current.get("worker_source_commit"),
+        }
+        values = (
+            merged["passage_id"], "cam1", "vessel", merged["status"], merged["started_at"], merged["last_seen_at"],
+            merged["completed_at"], json.dumps(merged["track_fragments"]), merged["vessel_id"], merged["confidence"],
+            merged["direction"], merged["speed_status"], merged["speed_kmh"], merged["speed_method"],
+            merged["measurement_meta_json"], merged["snapshot_url"], merged["snapshot_score"],
+            merged["observation_count"], merged["worker_source_commit"],
+            str(current.get("created_at") or now), now,
+        )
+        connection.execute(
+            """
+            INSERT INTO water_passages (
+                passage_id, camera_id, class_name, status, started_at, last_seen_at, completed_at,
+                track_fragments_json, vessel_id, confidence, direction, speed_status, speed_kmh,
+                speed_method, measurement_meta_json, snapshot_url, snapshot_score, observation_count,
+                worker_source_commit, created_at, updated_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(passage_id) DO UPDATE SET
+                status=excluded.status, last_seen_at=excluded.last_seen_at, completed_at=excluded.completed_at,
+                track_fragments_json=excluded.track_fragments_json, vessel_id=excluded.vessel_id,
+                confidence=excluded.confidence, direction=excluded.direction,
+                speed_status=excluded.speed_status, speed_kmh=excluded.speed_kmh,
+                speed_method=excluded.speed_method, measurement_meta_json=excluded.measurement_meta_json,
+                snapshot_url=excluded.snapshot_url, snapshot_score=excluded.snapshot_score,
+                observation_count=excluded.observation_count, worker_source_commit=excluded.worker_source_commit,
+                updated_at=excluded.updated_at
+            """,
+            values,
+        )
+        orphan_urls.extend(prune_water_passages(connection, target_limit=PASSAGES_RETENTION_LIMIT))
+        row = connection.execute("SELECT * FROM water_passages WHERE passage_id = ?", (merged["passage_id"],)).fetchone()
+    if snapshot_path is not None and snapshot_data is not None:
+        try:
+            PASSAGE_MEDIA_DIR.mkdir(parents=True, exist_ok=True)
+            temp_path = snapshot_path.with_suffix(".jpg.tmp")
+            temp_path.write_bytes(snapshot_data)
+            temp_path.replace(snapshot_path)
+        except OSError as exc:
+            try:
+                temp_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+            raise HTTPException(status_code=503, detail="passage snapshot storage is unavailable") from exc
+    for snapshot_url in orphan_urls:
+        cleanup_passage_media(snapshot_url)
+    if row is None:
+        raise RuntimeError("water passage persistence failed")
+    return passage_row_to_dict(row)
+
+
+def list_water_passages(limit: int = 50) -> List[Dict[str, Any]]:
+    limit = max(1, min(int(limit), 200))
+    with open_passages_db() as connection:
+        rows = connection.execute(
+            "SELECT * FROM water_passages ORDER BY last_seen_at DESC, passage_id DESC LIMIT ?", (limit,)
+        ).fetchall()
+    return [passage_row_to_dict(row) for row in rows]
 
 def object_row_to_dict(row: sqlite3.Row, include_original: bool = False) -> Dict[str, Any]:
     data = dict(row)
@@ -820,6 +1159,7 @@ def start_camera_preview_locked(camera: Dict[str, str]) -> Dict[str, Any]:
 
 initialize_objects_db()
 import_existing_events()
+initialize_water_passages_db()
 
 
 @app.get("/api/cameras")
@@ -921,6 +1261,33 @@ def get_cam1_events(limit: int = 50) -> Dict[str, Any]:
 @app.post("/api/cam1/events")
 async def post_cam1_event(metadata: str = Form(...), snapshot: Optional[UploadFile] = File(None), authorization: Optional[str] = Header(None)) -> Dict[str, Any]:
     return await post_analytics_event("cam1", metadata, snapshot, authorization)
+
+
+@app.get("/api/cam1/passages")
+def get_cam1_passages(limit: int = 50) -> Dict[str, Any]:
+    passages = list_water_passages(limit)
+    return {"ok": True, "camera_id": "cam1", "count": len(passages), "passages": passages}
+
+
+@app.post("/api/cam1/passages")
+async def post_cam1_passage(
+    metadata: str = Form(...),
+    snapshot: Optional[UploadFile] = File(None),
+    authorization: Optional[str] = Header(None),
+) -> Dict[str, Any]:
+    require_auth(authorization)
+    try:
+        payload = json.loads(metadata)
+    except Exception:
+        raise HTTPException(status_code=400, detail="metadata must be valid JSON")
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="metadata must be a JSON object")
+    snapshot_bytes = await snapshot.read() if snapshot is not None else None
+    try:
+        passage = upsert_water_passage(payload, snapshot_bytes=snapshot_bytes)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=507, detail=str(exc)) from exc
+    return {"ok": True, "passage": passage}
 
 
 @app.get("/api/cam1/objects")
