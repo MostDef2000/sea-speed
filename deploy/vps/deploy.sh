@@ -227,6 +227,60 @@ check_auth_privilege_boundary() {
   log "Restricted Auth privilege boundary preflight passed before live source mutation"
 }
 
+protected_frontend_status() {
+  local status
+  status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --max-time 15 "$FRONTEND_URL" 2>/dev/null || true)"
+  if [[ ! "$status" =~ ^[0-9]{3}$ ]]; then
+    status="000"
+  fi
+  printf '%s\n' "$status"
+}
+
+recover_auth_boundary_before_source_mutation() {
+  [[ "$AUTH_BOUNDARY_REQUIRED" == "1" ]] || return 0
+  local status output rc recovered
+  status="$(protected_frontend_status)"
+  case "$status" in
+    302|401|403)
+      log "Protected Operator boundary preflight passed with HTTP ${status}"
+      return 0
+      ;;
+    500)
+      log "Protected Operator boundary reports HTTP 500; attempting bounded privileged Auth v1 recovery before live source mutation"
+      ;;
+    *)
+      echo "Protected Operator boundary preflight failed with non-recoverable HTTP ${status}: ${FRONTEND_URL}" >&2
+      return 43
+      ;;
+  esac
+
+  write_privileged_request reconcile
+  set +e
+  output="$(invoke_privileged_helper 2>&1)"
+  rc=$?
+  set -e
+  printf '%s\n' "$output"
+  [[ "$rc" -eq 0 ]] || return "$rc"
+  grep -Fq 'SEA_SPEED_AUTH_PRIVILEGE_BOUNDARY=PASS' <<<"$output" || return 44
+  grep -Fq "SOURCE_SHA=${COMMIT_SHA}" <<<"$output" || return 44
+  grep -Fq 'ACTION=reconcile' <<<"$output" || return 44
+  grep -Fq 'ARBITRARY_ROOT_EXECUTION=NO' <<<"$output" || return 44
+  grep -Fq 'SEA_SPEED_AUTH_RECOVERY=PASS' <<<"$output" || return 44
+  grep -Fq 'SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS' <<<"$output" || return 44
+
+  recovered="$(protected_frontend_status)"
+  case "$recovered" in
+    302|401|403)
+      log "Bounded Auth v1 recovery restored protected Operator boundary with HTTP ${recovered}"
+      printf 'AUTH_V1_RECOVERY_PRE_SOURCE=PASS\n'
+      ;;
+    *)
+      echo "Bounded Auth v1 recovery returned success markers but protected Operator boundary is HTTP ${recovered}" >&2
+      return 45
+      ;;
+  esac
+}
+
 bootstrap_current_release() {
   if [[ -s "$CURRENT_FILE" ]]; then return; fi
   if [[ ! -f "$API_TARGET" || ! -f "$FRONTEND_TARGET" || ! -f "$ROOT_FRONTEND_TARGET" ]]; then
@@ -519,9 +573,11 @@ main() {
   ensure_layout
   download_release
 
-  # This admission occurs after exact release staging but before any live source,
-  # service, current-release, deployment-manifest, or nginx mutation.
+  # Exact release staging and restricted-helper admission occur before any live source,
+  # service or release-state mutation. If the protected public boundary is already HTTP
+  # 500, only the fixed Auth v1 nginx boundary may be recovered at this checkpoint.
   check_auth_privilege_boundary
+  recover_auth_boundary_before_source_mutation
 
   bootstrap_current_release
   ensure_current_release_has_root_frontend
