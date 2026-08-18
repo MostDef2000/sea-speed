@@ -28,6 +28,8 @@ class AnalyticsProfilesTests(unittest.TestCase):
     def test_profile_defaults_are_exact(self) -> None:
         water = profiles.get_profile("water-v1")
         road = profiles.get_profile("road-v1")
+        self.assertEqual(profiles.DEFAULT_PROFILE, "water-v1")
+        self.assertEqual(profiles.get_profile(), water)
         for profile, camera, domain in ((water, "cam1", "water"), (road, "road1", "road")):
             self.assertEqual(profile.default_camera_id, camera)
             self.assertEqual(profile.domain, domain)

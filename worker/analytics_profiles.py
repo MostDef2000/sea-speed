@@ -56,7 +56,7 @@ PROFILES: dict[str, AnalyticsProfile] = {
         },
     ),
 }
-DEFAULT_PROFILE = "road-v1"
+DEFAULT_PROFILE = "water-v1"
 
 
 def get_profile(name: str | None = None) -> AnalyticsProfile:
