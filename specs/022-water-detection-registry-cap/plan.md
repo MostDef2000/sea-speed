@@ -46,14 +46,14 @@ Runtime validation occurs only after separate exact-SHA production authorization
 
 - TEST-001 | Covers: AC-001 | Level: unit | Priority: P0 | Evidence: `tests/test_analytics_profiles.py`
 - TEST-002 | Covers: AC-002,AC-003 | Level: unit | Priority: P0 | Evidence: `tests/test_api_contract.py`
-- TEST-003 | Covers: AC-004 | Level: regression | Priority: P0 | Evidence: existing API contract suite
+- TEST-003 | Covers: AC-004 | Level: integration | Priority: P0 | Evidence: existing API contract suite
 - TEST-004 | Covers: AC-005,AC-006 | Level: integration | Priority: P0 | Evidence: exact compare, PR Validation, aggregate Quality, post-merge Quality
-- TEST-005 | Covers: AC-007 | Level: runtime | Priority: P0 | Evidence: VPS deployment manifest and direct registry-count evidence
-- TEST-006 | Covers: AC-008 | Level: runtime | Priority: P0 | Evidence: Ubuntu deployment manifest, Water service/telemetry and resulting Water object evidence
+- TEST-005 | Covers: AC-007 | Level: runtime-manual | Priority: P0 | Evidence: VPS deployment manifest and direct registry-count evidence
+- TEST-006 | Covers: AC-008 | Level: runtime-manual | Priority: P0 | Evidence: Ubuntu deployment manifest, Water service/telemetry and resulting Water object evidence
 
 ## Correct-course check
 
-- Trigger: INITIAL_IMPLEMENTATION
+- Trigger: NONE
 - Issue impact: none beyond the approved Outcome Contract.
 - Specification impact: current specification directly reflects approved Water default and 100-row combined registry cap.
 - Plan impact: no architecture pivot identified.
@@ -71,3 +71,8 @@ Runtime validation occurs only after separate exact-SHA production authorization
 - TX-006 | Stage: HOUSEKEEPING | Mutation: POSSIBLE | Failure disposition: BEST-EFFORT | State after failure: verified release remains accepted; stale cleanup may remain | Retry: safe after acceptance | Rollback: none for housekeeping-only failure | Evidence: cleanup output
 - TX-007 | Stage: EVIDENCE | Mutation: NO | Failure disposition: FATAL | State after failure: task cannot reach DONE without durable evidence | Retry: re-read machine state and persist sanitized evidence; do not redeploy solely for evidence | Rollback: not applicable | Evidence: Issue #212, manifests, CI runs
 - TX-008 | Stage: ROLLBACK | Mutation: YES | Failure disposition: FATAL | State after failure: prior executable release restored or critical state recorded | Retry: prohibited until safety is resolved | Rollback: exact known prior VPS/Ubuntu release; pruned registry history is explicitly non-restorable | Evidence: rollback markers and health checks
+
+## Runtime feedback
+
+- Initial PR Validation #445 exposed a PR Change Contract enum defect; the PR metadata was corrected without source-scope expansion.
+- PR Validation #446 then exposed SDD validator contract mismatches: missing required User scenarios, unsupported test-level/trigger enums, and non-canonical traceability progress coverage. These are SDD-only remediation inside the approved feature paths; product behavior and protected boundaries are unchanged.
