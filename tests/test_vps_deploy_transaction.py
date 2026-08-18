@@ -237,7 +237,7 @@ if action == 'reconcile':
             print('SEA_SPEED_AUTH_RECOVERY_ROLLBACK=PASS')
             raise SystemExit(35)
         Path(os.environ['FAKE_RECOVERY_API_OBSERVED']).write_text(Path(os.environ['SEA_SPEED_API_TARGET']).read_text())
-        recovery_marker.write_text('recovered\n')
+        recovery_marker.write_text('recovered')
         print('SEA_SPEED_AUTH_CUTOVER=PASS')
         print('WORKER_PRIVATE_ROAD_API_BASE=http://10.123.239.101:18080/api/analytics/road1')
         print('SEA_SPEED_AUTH_RECOVERY=PASS')
