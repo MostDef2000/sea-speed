@@ -12,7 +12,7 @@
 - T-003 [P0] Publish fixed context plus source run ID, run number, conclusion and URL; map non-success conclusions fail-closed. IMPLEMENTED ON TASK BRANCH.
 - T-004 [P0] Extend Quality status tests with workflow trigger, permission, exact-SHA, identity and mapping assertions. IMPLEMENTED ON TASK BRANCH.
 - T-005 [P0] Reconcile SDD for control-plane-only impact and zero runtime deployment. IMPLEMENTED ON TASK BRANCH.
-- T-006 [P0] Verify exact five-path diff against authorization base and open canonical PR with machine-valid Change Contract. PENDING.
+- T-006 [P0] Verify exact five-path diff against authorization base and open canonical PR with machine-valid Change Contract. COMPLETE: PR #217 opened; initial metadata omission of required `Completion` section was corrected before fresh synchronize validation.
 - T-007 [P0] Reach exact-head PR Validation and aggregate Quality; remediate only in-scope deterministic defects. PENDING.
 - T-008 [P0] Re-check base/head/scope/reviews and merge only exact green head. PENDING.
 - T-009 [P0] Verify resulting exact main receives `sea-speed/quality-push-main` from its own push/main Quality and read it through Connector combined-status lookup without manual run ID. PENDING.
@@ -32,7 +32,7 @@
 ## Definition of Done
 
 - [x] Issue/spec/plan/tasks current — Issue #216 and SDD define the approved control-plane Outcome.
-- [ ] Exact changed-file scope verified — final branch must contain exactly the five authorized paths.
+- [x] Exact changed-file scope verified — Connector compare confirmed exactly the five authorized paths against authorization base before PR admission.
 - [ ] Required tests and evidence complete — source tests are authored; CI and merged-main end-to-end evidence remain.
 - [ ] Required CI green — exact-head PR Validation and aggregate Quality remain pending.
 - [ ] Exact-green-head merge complete — task branch is not yet merged.
