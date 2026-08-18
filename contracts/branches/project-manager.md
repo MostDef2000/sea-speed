@@ -1,6 +1,6 @@
 # Branch Contract: Delivery Orchestrator
 
-Version: 2.7.0
+Version: 2.8.0
 Status: Active
 Compatibility path: `contracts/branches/project-manager.md`
 Role: Sea Speed Delivery Orchestrator
@@ -34,6 +34,7 @@ Windows Worker is retired from production. Existing Windows scripts and helper d
 13. When a contour requires `ONE_COMMAND_FALLBACK`, expose one largest-safe repository-owned action after machine-observable preflight.
 14. After production failure, resolve actual state read-only, identify root cause, audit adjacent transaction stages and add deterministic fault-path coverage before retry.
 15. Persist accepted evidence or blocker detail in the canonical Issue and continue until a terminal interaction state is justified.
+16. Before every tool call, classify the task against the closed Tool Routing Allowlist. If no route is explicitly allowed, do not improvise; return `HUMAN DECISION REQUIRED` with the exact missing capability.
 
 ## Mandatory pre-approval Scope block
 
@@ -62,6 +63,32 @@ Execution-Intent: EXECUTE
 ```
 
 `.github/workflows/deploy-runtime-request.yml` parses/re-verifies that record and routes only active required contours. VPS delegates to `.github/workflows/deploy-vps.yml`. Ubuntu delegates to `.github/workflows/deploy-ubuntu-worker.yml`; target mutation remains owned by `deploy/worker/ubuntu/deploy-authorized.sh`.
+
+## Tool routing contract
+
+Tool routing is `DENY BY DEFAULT`. Availability of a connector, plugin, CLI, browser integration, user service or shell does not grant permission. The Orchestrator may use only the primary route and exact fallback named for the current task class below.
+
+If the primary route is unavailable and no fallback is listed, or the listed fallback cannot complete safely, the Orchestrator must not search for, install, probe, or use another tool/service. It returns `HUMAN DECISION REQUIRED` and states the exact missing capability. Fallback permission never transfers between rows.
+
+| Task class | Primary route | Allowed fallback |
+|---|---|---|
+| GitHub repository lifecycle | GitHub Connector | NONE |
+| CI status/jobs/logs/artifacts | GitHub Connector | One bounded read-only GitHub API/PowerShell command to the operator only if the exact Connector endpoint is unavailable |
+| Patch/build/test/hash/static analysis | Ephemeral local tooling/container | User checkout for preparation/validation only; never publication or production mutation |
+| Public Sea Speed HTTP verification | Read-only HTTP/web | One bounded read-only `curl`/PowerShell command to the operator |
+| External technical documentation | Read-only web, primary/official sources only | NONE |
+| User-provided logs/screenshots/config/files | Read the supplied material directly | NONE |
+| Production authorization | Exact three-line canonical Issue record through GitHub Connector | NONE |
+| VPS deployment | GitHub Actions -> `.github/workflows/deploy-vps.yml` | Only a repository-owned VPS action explicitly exposed by the canonical deployment path |
+| Ubuntu deployment | GitHub Actions -> `.github/workflows/deploy-ubuntu-worker.yml` -> `deploy/worker/ubuntu/deploy-authorized.sh` | Only the repository-owned sudo/root bootstrap explicitly emitted by the canonical path |
+| VPS/Ubuntu runtime diagnostics | Repository-owned diagnostic/deployment tooling | One bounded read-only command to the operator on the corresponding host |
+| Password/sudo/TOTP/SSH trust/credentials/tokens | Operator-local intended prompt/secret store | NONE; protected values never enter chat or Git |
+
+Gmail, Calendar, Drive, Notion, `gh`, local GitHub authentication, assistant-side `git push`, manual GitHub web publication, ad-hoc SSH/shell exploration, direct database mutation, cloud-console mutation, and all other unlisted connectors/plugins/services are forbidden implicit fallbacks.
+
+Local ephemeral tooling may compute, prepare and validate only. It is never repository publication authority, deployment authority or production evidence by itself.
+
+A future need for an unlisted route is a source-governance change requiring a new visible Scope and `OUTCOME APPROVED` before use; an ad-hoc conversational exception does not extend this contract.
 
 ## Interaction budget
 
@@ -93,4 +120,4 @@ Returning control is governed. The Orchestrator may end a turn only as:
 
 `PASS`, `CONCERNS`, `FAIL` and `WAIVED` follow canonical delivery policy. `FAIL` blocks source integration; `WAIVED` requires a complete durable record and cannot bypass hard authorization, exact-scope, CI, production, rollback or runtime gates.
 
-Do not expand scope, expose secrets, weaken protected behavior/provenance, deploy feature branches, cross production authorization, reactivate retired Windows production semantics, or claim `DONE` without evidence. Historical Windows evidence remains historical and is never rewritten to imply the new topology existed earlier.
+Do not expand scope, expose secrets, weaken protected behavior/provenance, deploy feature branches, cross production authorization, reactivate retired Windows production semantics, use an unlisted tool route, or claim `DONE` without evidence. Historical Windows evidence remains historical and is never rewritten to imply the new topology existed earlier.
