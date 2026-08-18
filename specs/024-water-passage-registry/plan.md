@@ -2,7 +2,7 @@
 
 - Specification: specs/024-water-passage-registry/spec.md
 - Issue: #218
-- Status: Implementing
+- Status: Correct-course remediation
 
 ## Architecture
 
@@ -13,6 +13,10 @@ Introduce pure-Python `worker/water_passage.py` as the bounded passage domain la
 The VPS creates a separate `water_passages` SQLite table and one `/media/passages/<stable passage filename>` object per retained passage. Upsert is keyed by `passage_id`. Retention deletes only oldest completed passages; if the cap cannot be satisfied without deleting active rows, the transaction fails closed. Pruned media is deleted after DB commit. No per-frame observation table exists.
 
 The Water operator history switches from legacy Water events to passage rows. A card can transition from measuring/null speed to measured speed/direction because its identity is stable by `passage_id`.
+
+The post-merge production preflight now also owns one narrow recovery transaction for the operator-observed protected `/sea-speed/` HTTP 500. `deploy/vps/deploy.sh` stages the exact release and validates the restricted helper first, then reads the anonymous protected Operator HTTP status before any live source/service/current-release mutation. Normal `302|401|403` continues without recovery. Exactly HTTP 500 invokes the same `reconcile` request through the root-owned helper. Any other response fails closed.
+
+The privileged helper first attempts the existing `--require-protected-baseline` cutover path. Recovery is admitted only when that exact prepare fails with the existing explicit `/sea-speed/ ... HTTP 500` marker. The helper then retries the same exact source-managed prepare/activate pipeline without the healthy-baseline prerequisite. This relaxation is not generic: source bundle digests, fixed Authentik/ZeroTier topology and cutover renderer remain unchanged. If recovery activation fails, the helper restores the exact pre-recovery nginx backup bytes under the bounded `/etc/nginx` and `/var/lib/sea-speed-auth-v1/backups` roots, validates nginx syntax/service state and returns failure. Successful recovery emits `SEA_SPEED_AUTH_RECOVERY=PASS`; `deploy.sh` then independently re-reads `/sea-speed/` and requires `302|401|403` before normal Water VPS mutation proceeds.
 
 ## Decisions
 
@@ -27,30 +31,37 @@ The Water operator history switches from legacy Water events to passage rows. A 
 - D-009: Package `worker/water_passage.py` explicitly in both Ubuntu Worker and edge exact artifacts because artifact construction is allowlist-based.
 - D-010: Mixed rollout order is VPS first, then Ubuntu Worker. Old Worker events remain compatible with the new VPS; new Worker passage transport is not compatible with an old VPS lacking `/api/cam1/passages`.
 - D-011: Rollback order is Ubuntu Worker first to the prior accepted executable, then VPS if required; this prevents a new Worker from targeting a rolled-back VPS API.
+- D-012: Treat current protected `/sea-speed/` HTTP 500 as a VPS release blocker. Recovery must complete before Water live-source mutation and before Ubuntu rollout.
+- D-013: Do not add a new generic root command/action. Reuse the exact `reconcile` request and fixed source-managed cutover; only the helper internally recognizes the explicit HTTP 500 baseline failure and enters the bounded fallback.
+- D-014: Recovery rollback proves exact pre-recovery nginx byte restoration plus nginx syntax/service health. It does not falsely require the already-broken public HTTP baseline to become healthy during rollback.
+- D-015: HTTP 200 at the anonymous protected Operator entrypoint is not a recovery success; it is treated as a fail-closed auth-boundary violation. Only `302|401|403` is healthy for the pre-source gate.
 
 ## Affected contours
 
-- VPS: REQUIRED — `api/app/main.py` adds bounded passage persistence/API/media and Water frontend reads it.
-- Ubuntu Worker/relay: REQUIRED — shared executable Worker source imports and executes passage logic.
+- VPS: REQUIRED — passage persistence/API/UI plus bounded Auth v1 recovery/deployment transaction behavior.
+- Ubuntu Worker/relay: REQUIRED — shared executable Worker source imports and executes passage logic after VPS acceptance.
 - Windows Worker: retired; NOT APPLICABLE.
-- Runtime execution capability at source time: VPS `CONNECTOR`; Ubuntu `ONE_COMMAND_FALLBACK` unless restricted transport is independently proven before release.
-- Operator actions expected: 1 under current capability evidence.
-- Mixed compatibility: VPS-first is mandatory; old Worker can continue legacy event transport while VPS is upgraded.
+- Runtime execution capability at source time: VPS `CONNECTOR`, but a changed exact privileged-helper bundle may require the existing protected privilege-bootstrap checkpoint before canonical deployment; Ubuntu `ONE_COMMAND_FALLBACK` unless restricted transport is independently proven before release.
+- Mixed compatibility: VPS-first is mandatory; Ubuntu remains blocked while `/sea-speed/` is HTTP 500 or VPS passage/API acceptance is incomplete.
 
 ## Validation
 
-Local deterministic validation covers pure passage behavior, pluggable speed strategy, bounded RAM state, SQLite upsert/retention/media cleanup, frontend markers and artifact allowlists. Existing CI then supplies full Water/Road/API/ROI/profile regressions plus SDD/contract/static security gates. PR admission requires exact authorized-path comparison, machine-valid mixed-contour Change Contract, Risk profile REQUIRED and Quality verdict PASS or CONCERNS with concrete finding. Merge requires fresh main/head/scope/review checks and expected-head protection, followed by exact-main Quality.
+Local/deterministic validation covers pure passage behavior, pluggable speed strategy, bounded RAM state, SQLite upsert/retention/media cleanup, frontend markers and artifact allowlists. Recovery validation adds three layers: helper unit tests prove only the exact 500 marker enters fallback and failed recovery activation requires the exact-baseline restorer; VPS transaction tests prove recovery happens before live source mutation and non-recoverable statuses fail closed; existing Auth v1/transaction/quality suites retain the fixed topology and no-arbitrary-root contracts.
 
-Production is separate. After a new exact-SHA production envelope, deploy VPS first and prove passage API/UI/storage health, then deploy Ubuntu and observe source/runtime/AI progression plus a natural vessel passage. Accuracy tuning is deferred; acceptance checks lifecycle correctness and bounded data behavior.
+PR admission requires exact authorized-path comparison, machine-valid mixed-contour Change Contract, Risk profile REQUIRED and Quality verdict PASS or CONCERNS with concrete finding. Merge requires fresh main/head/scope/review checks and expected-head protection, followed by exact-main Quality.
+
+Production is separate. After the remediation merges, the previous production fingerprint is stale. A new exact-SHA production envelope is required. The runtime sequence is: exact privileged-helper/release admission -> bounded Auth 500 recovery if needed -> prove `/sea-speed/` auth-gated -> deploy/verify VPS passage API/UI/storage -> deploy exact Ubuntu Worker -> natural-vessel passage acceptance. Numerical speed accuracy remains deferred.
 
 ## Risk profile
 
 - Risk profile: REQUIRED
-- RISK-001 | Category: DATA | Probability: 2 | Impact: 5 | Score: 10 | Mitigation: independent hard 300-row cap, completed-first deterministic pruning, stable one-file snapshots, fail-closed active overflow | Validation: API retention/media tests | Residual risk: a prolonged pathological active-only flood can reject new passage persistence | Owner: Delivery Orchestrator | Status: MITIGATED
-- RISK-002 | Category: TECH | Probability: 3 | Impact: 4 | Score: 12 | Mitigation: bounded time+distance stitch criteria, active-passage cap, explicit new-pass fallback | Validation: deterministic stitch/new-pass tests plus runtime observation | Residual risk: two nearby simultaneous vessels can still be mis-associated without visual ReID | Owner: Delivery Orchestrator | Status: ACCEPTED
-- RISK-003 | Category: OPS | Probability: 2 | Impact: 5 | Score: 10 | Mitigation: VPS-first rollout; old Worker remains compatible with upgraded VPS; rollback Worker before VPS | Validation: Change Contract plus production rollout evidence | Residual risk: partial rollout must remain visibly incomplete until both contours pass | Owner: Delivery Orchestrator | Status: MITIGATED
-- RISK-004 | Category: PERF | Probability: 2 | Impact: 3 | Score: 6 | Mitigation: fixed-size RAM deques and no per-frame network/SQLite writes; persist only state transitions/material snapshot improvements | Validation: unit contracts and production telemetry | Residual risk: scene with many simultaneous vessels may increase bounded in-memory work | Owner: Delivery Orchestrator | Status: MITIGATED
-- RISK-005 | Category: BUS | Probability: 3 | Impact: 3 | Score: 9 | Mitigation: declare speed accuracy out of scope; expose `speed_method`/status/metadata so later estimator replacement is non-breaking | Validation: strategy contract tests | Residual risk: test-stage numeric speed may be approximate | Owner: Product/operator | Status: ACCEPTED
+- RISK-001 | Category: DATA | Probability: 2 | Impact: 5 | Score: 10 | Mitigation: independent hard 300-row cap, completed-first deterministic pruning, stable one-file snapshots, fail-closed active overflow | Validation: API retention/media tests | Residual risk: prolonged active-only flood can reject new passage persistence | Owner: Delivery Orchestrator | Status: MITIGATED
+- RISK-002 | Category: TECH | Probability: 3 | Impact: 4 | Score: 12 | Mitigation: bounded time+distance stitch criteria, active-passage cap, explicit new-pass fallback | Validation: deterministic stitch/new-pass tests plus runtime observation | Residual risk: nearby simultaneous vessels can still be mis-associated without visual ReID | Owner: Delivery Orchestrator | Status: ACCEPTED
+- RISK-003 | Category: OPS | Probability: 2 | Impact: 5 | Score: 10 | Mitigation: VPS-first rollout; old Worker remains compatible with upgraded VPS; rollback Worker before VPS | Validation: Change Contract plus production rollout evidence | Residual risk: partial rollout remains incomplete until both contours pass | Owner: Delivery Orchestrator | Status: MITIGATED
+- RISK-004 | Category: PERF | Probability: 2 | Impact: 3 | Score: 6 | Mitigation: fixed-size RAM deques and no per-frame network/SQLite writes; persist only state transitions/material snapshot improvements | Validation: unit contracts and production telemetry | Residual risk: many simultaneous vessels increase bounded in-memory work | Owner: Delivery Orchestrator | Status: MITIGATED
+- RISK-005 | Category: BUS | Probability: 3 | Impact: 3 | Score: 9 | Mitigation: speed accuracy out of scope; expose `speed_method`/status/metadata for later replacement | Validation: strategy contract tests | Residual risk: test-stage numeric speed may be approximate | Owner: Product/operator | Status: ACCEPTED
+- RISK-006 | Category: SEC | Probability: 2 | Impact: 5 | Score: 10 | Mitigation: recovery only after exact HTTP 500 marker from protected-baseline verifier; exact root-owned bundle; fixed topology; bounded path roots; no new request action; exact rollback on failed activation | Validation: helper unit tests, transaction tests, aggregate Auth v1 regressions | Residual risk: recovery cannot repair a fundamentally unhealthy Authentik upstream and must fail closed | Owner: Delivery Orchestrator | Status: MITIGATED
+- RISK-007 | Category: OPS | Probability: 3 | Impact: 4 | Score: 12 | Mitigation: recover before live Water source mutation; re-read protected status before continuing; Ubuntu remains blocked until VPS accepted | Validation: simulated HTTP 500 deploy transaction and production acceptance | Residual risk: privilege bundle bootstrap may still be a protected human checkpoint when helper bytes change | Owner: Delivery Orchestrator | Status: CONCERNS
 
 ## Test design
 
@@ -64,34 +75,39 @@ Production is separate. After a new exact-SHA production envelope, deploy VPS fi
 - TEST-008 | Covers: AC-011,AC-012 | Level: integration | Priority: P0 | Evidence: frontend and exact-artifact contract tests
 - TEST-009 | Covers: AC-013 | Level: integration | Priority: P0 | Evidence: Connector exact diff, PR Validation, aggregate Quality, expected-head merge, exact-main Quality
 - TEST-010 | Covers: AC-014 | Level: runtime-manual | Priority: P0 | Evidence: separately authorized VPS-first/Ubuntu-second natural-vessel acceptance in Issue #218
+- TEST-011 | Covers: AC-015 | Level: integration | Priority: P0 | Evidence: `tests/test_vps_deploy_transaction.py` HTTP 500 recovery-before-source test
+- TEST-012 | Covers: AC-016 | Level: unit/integration | Priority: P0 | Evidence: helper fallback tests for exact 500 vs non-500 and failed activation restorer plus runtime authenticated/anonymous HTTP evidence
 
 ## Correct-course check
 
-- Trigger: ARCHITECTURE_PIVOT
-- Issue impact: #218 remains the canonical Issue; its initial two-gate wording is superseded by final authorization comment `5325409717` making speed strategy pluggable.
-- Specification impact: passage identity, bounded RAM observations, speed lifecycle and independent 300-row persistence are now explicit contracts.
-- Plan impact: `two_gate` becomes one strategy behind `SpeedEstimator`; mixed rollout and rollback ordering are explicit.
-- Tasks impact: source, tests, SDD, CI/merge and separately authorized mixed-contour acceptance are required.
-- Authorization impact: RESOLVED — final eleven-path authorization is comment `5325409717`; production remains unauthorized.
-- Follow-up: after this architecture is accepted on real passages, a separate Outcome may add bounded persistent vessel identity/ReID and another may improve metric speed accuracy.
+- Trigger: PRODUCTION_LEARNING + RELEASE_BLOCKER
+- Issue impact: #218 remains canonical. Operator reported protected `/sea-speed/` HTTP 500 after PR #219 merged but before production mutation.
+- Root cause: canonical deploy order had a circular admission dependency. Public frontend smoke rejected 500 before `run_auth_boundary`, while the privileged cutover's `--require-protected-baseline` rejected 500 before it could reconcile the boundary.
+- Adjacent-stage review: `deploy.sh`, restricted helper, cutover semantics, Auth v1 renderer/topology, release ordering and rollback were reviewed together. No model/Worker/MediaMTX/RTSP/data change is causal.
+- Specification impact: adds FR-017..019 and AC-015..016 for bounded pre-source HTTP 500 recovery.
+- Plan impact: adds a pre-source Auth recovery checkpoint and exact broken-baseline rollback semantics; normal healthy protected-baseline reconciliation remains unchanged.
+- Tasks impact: source remediation, focused tests, a new exact PR/merge/main Quality cycle and a fresh production fingerprint are required.
+- Authorization impact: RESOLVED — expanded source authorization is Issue #218 comment `5327660150`; old production fingerprint is invalidated; production remains unauthorized.
+- Follow-up: if runtime diagnostics show Authentik itself is unhealthy rather than a recoverable nginx/outpost boundary, recovery fails closed and a new causal remediation Scope is required rather than widening this path.
 
 ## Deployment transaction audit
 
 - Adjacent-stage review: COMPLETE
-- Root cause / architecture finding: #212 Water event identity was bound to transient ByteTrack tracks and event emission timing, so speed becoming available later could not update the same business record and tracker churn could create multiple event identities for one physical pass. Storage also had no passage-specific retention boundary.
-- Adjacent-stage findings: detector/profile/ROI/MediaMTX/Auth are not causal; VPS must precede Worker because the new consumer requires a new endpoint; exact artifact allowlists must include the new Worker module; existing Road flow remains an independent compatibility boundary; raw trajectories are unnecessary persistent data.
+- Root cause / architecture finding: the source architecture from #219 is valid, but existing production ingress is currently blocked by an Auth v1 HTTP 500 and the old transaction ordering could not self-repair that fail-closed state.
 
-- TX-001 | Stage: ADMISSION | Mutation: NO | Failure disposition: FATAL | State after failure: current accepted VPS/Worker remain unchanged | Retry: only after exact merged SHA has successful exact-main Quality and matching production authorization | Rollback: not applicable | Evidence: Issue #218, merged PR, exact SHA, Quality, authorization fingerprint
-- TX-002 | Stage: PRE-MUTATION | Mutation: NO | Failure disposition: FATAL | State after failure: prior runtimes remain active | Retry: fix exact artifact/release/host preflight without runtime mutation | Rollback: not applicable | Evidence: release manifests, exact artifact inventory including `worker/water_passage.py`, current runtime states
-- TX-003 | Stage: MUTATION | Mutation: YES | Failure disposition: FATAL | State after failure: partially mutated contour is not accepted | Retry: only after root cause is resolved for the same authorized SHA | Rollback: repository-owned exact rollback; VPS transaction first, Ubuntu second | Evidence: deploy transaction markers and exact source identities
-- TX-004 | Stage: VERIFICATION | Mutation: POSSIBLE | Failure disposition: FATAL | State after failure: failed contour remains unaccepted and later contour must not substitute for it | Retry: reverify after bounded remediation | Rollback: if VPS fails, do not deploy Worker; if Worker fails, rollback Worker while upgraded VPS may remain compatible pending decision | Evidence: VPS API/UI/DB cap, Ubuntu source/service/frame/AI, natural passage lifecycle
-- TX-005 | Stage: STATE-COMMIT | Mutation: YES | Failure disposition: FATAL | State after failure: exact release must not be marked accepted without verification | Retry: commit state only after verification | Rollback: restore prior current-release/manifest bindings | Evidence: deployment manifests and current-release markers
-- TX-006 | Stage: HOUSEKEEPING | Mutation: POSSIBLE | Failure disposition: BEST-EFFORT | State after failure: verified runtime may remain accepted while stale temp media/release cleanup is pending | Retry: cleanup without changing active source | Rollback: none for housekeeping-only failure | Evidence: retained passage/media counts and release cleanup output
-- TX-007 | Stage: EVIDENCE | Mutation: NO | Failure disposition: FATAL | State after failure: Outcome cannot reach DONE | Retry: collect/persist sanitized observable evidence without redeploying solely for documentation | Rollback: not applicable | Evidence: Issue #218 comments, exact Quality/run identity, passage/storage/runtime acceptance
-- TX-008 | Stage: ROLLBACK | Mutation: YES | Failure disposition: FATAL | State after failure: previous compatible Worker/VPS state is restored or unresolved production state is recorded fail-closed | Retry: prohibited until actual runtime state is verified | Rollback: Ubuntu first, then VPS if needed, preserving compatibility ordering | Evidence: rollback markers, prior exact SHA, API/Worker health and desired states
+- TX-001 | Stage: ADMISSION | Mutation: NO | Failure disposition: FATAL | State after failure: current accepted VPS/Worker remain unchanged | Retry: only after exact merged SHA has successful exact-main Quality, matching fresh production authorization and exact privileged bundle admission | Rollback: not applicable | Evidence: Issue #218, merged PR, exact SHA, Quality, authorization fingerprint
+- TX-002 | Stage: PRE-MUTATION | Mutation: BOUNDED AUTH RECOVERY ONLY | Failure disposition: FATAL | State after failure: Water API/frontend/current-release remain unchanged; failed recovery restores exact pre-recovery nginx bytes | Retry: only for the same exact authorized SHA after causal preflight issue is resolved | Rollback: exact nginx backup, syntax/service verification; no broken-baseline health fiction | Evidence: `AUTH_V1_RECOVERY_PRE_SOURCE=PASS` or exact failure/rollback markers
+- TX-003 | Stage: MUTATION | Mutation: YES | Failure disposition: FATAL | State after failure: partially mutated contour is not accepted | Retry: only after root cause is resolved for same authorized SHA | Rollback: repository-owned exact source rollback; VPS transaction before Ubuntu | Evidence: deploy transaction markers and exact source identities
+- TX-004 | Stage: VERIFICATION | Mutation: POSSIBLE | Failure disposition: FATAL | State after failure: failed contour remains unaccepted and Ubuntu must not substitute | Retry: reverify after bounded remediation | Rollback: if VPS fails, do not deploy Worker; if Worker fails, rollback Worker | Evidence: protected `/sea-speed/`, VPS API/UI/DB cap, Ubuntu source/service/frame/AI, natural passage lifecycle
+- TX-005 | Stage: STATE-COMMIT | Mutation: YES | Failure disposition: FATAL | State after failure: exact release is not accepted without verification | Retry: commit state only after verification | Rollback: restore prior current-release/manifest bindings | Evidence: deployment manifests/current-release markers
+- TX-006 | Stage: HOUSEKEEPING | Mutation: POSSIBLE | Failure disposition: BEST-EFFORT | State after failure: verified runtime may remain accepted while stale cleanup is pending | Retry: cleanup without changing active source | Rollback: none | Evidence: passage/media counts and release cleanup output
+- TX-007 | Stage: EVIDENCE | Mutation: NO | Failure disposition: FATAL | State after failure: Outcome cannot reach DONE | Retry: collect sanitized evidence without redeploy solely for documentation | Rollback: not applicable | Evidence: Issue #218 comments, Quality/run identity, recovery and passage acceptance
+- TX-008 | Stage: ROLLBACK | Mutation: YES | Failure disposition: FATAL | State after failure: previous compatible state restored or unresolved state recorded fail-closed | Retry: prohibited until actual runtime state verified | Rollback: Ubuntu first, then VPS if needed; recovery-phase rollback restores pre-recovery nginx only | Evidence: rollback markers, prior exact SHA, API/Worker/auth health
 
 ## Runtime feedback
 
-- Current source authorization base is `a2b27333d38ab6b430c51e814256535ca878b3fb`.
-- Current accepted executable Water Worker before this Outcome is `a43ad7bec5bbcd80887bad842ab28c20b135381a`; this new Outcome changes both Worker and VPS source and therefore requires a fresh exact merged production envelope.
-- Production accuracy of speed is intentionally not a test-stage gate; architecture, lifecycle, bounded state and replaceability are the target.
+- Initial source authorization base was `a2b27333d38ab6b430c51e814256535ca878b3fb`; PR #219 merged to `e814d32f9b743d674ce87556313e264debd0bc14` and exact-main Quality passed.
+- Current accepted executable Water Worker before this Outcome remains `a43ad7bec5bbcd80887bad842ab28c20b135381a`.
+- Operator-observed production ingress now reports HTTP 500 on `/sea-speed/`; no new Water production mutation has occurred under #218.
+- Root-cause checkpoint: Issue #218 comment `5327488945`. Expanded source authorization: comment `5327660150`.
+- Production accuracy of speed remains intentionally outside this test-stage gate; architecture, lifecycle, bounded state, recoverable protected ingress and replaceability are the target.
