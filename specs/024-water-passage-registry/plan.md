@@ -47,8 +47,8 @@ Production is separate. After a new exact-SHA production envelope, deploy VPS fi
 
 - Risk profile: REQUIRED
 - RISK-001 | Category: DATA | Probability: 2 | Impact: 5 | Score: 10 | Mitigation: independent hard 300-row cap, completed-first deterministic pruning, stable one-file snapshots, fail-closed active overflow | Validation: API retention/media tests | Residual risk: a prolonged pathological active-only flood can reject new passage persistence | Owner: Delivery Orchestrator | Status: MITIGATED
-- RISK-002 | Category: TECH | Probability: 3 | Impact: 4 | Score: 12 | Mitigation: bounded time+distance stitch criteria, active-passage cap, explicit new-pass fallback | Validation: deterministic stitch/new-pass tests plus runtime observation | Residual risk: two nearby simultaneous vessels can still be mis-associated without visual ReID | Owner: Delivery Orchestrator | Status: ACCEPTED FOR TEST STAGE
-- RISK-003 | Category: COMPAT | Probability: 2 | Impact: 5 | Score: 10 | Mitigation: VPS-first rollout; old Worker remains compatible with upgraded VPS; rollback Worker before VPS | Validation: Change Contract plus production rollout evidence | Residual risk: partial rollout must remain visibly incomplete until both contours pass | Owner: Delivery Orchestrator | Status: MITIGATED
+- RISK-002 | Category: TECH | Probability: 3 | Impact: 4 | Score: 12 | Mitigation: bounded time+distance stitch criteria, active-passage cap, explicit new-pass fallback | Validation: deterministic stitch/new-pass tests plus runtime observation | Residual risk: two nearby simultaneous vessels can still be mis-associated without visual ReID | Owner: Delivery Orchestrator | Status: ACCEPTED
+- RISK-003 | Category: OPS | Probability: 2 | Impact: 5 | Score: 10 | Mitigation: VPS-first rollout; old Worker remains compatible with upgraded VPS; rollback Worker before VPS | Validation: Change Contract plus production rollout evidence | Residual risk: partial rollout must remain visibly incomplete until both contours pass | Owner: Delivery Orchestrator | Status: MITIGATED
 - RISK-004 | Category: PERF | Probability: 2 | Impact: 3 | Score: 6 | Mitigation: fixed-size RAM deques and no per-frame network/SQLite writes; persist only state transitions/material snapshot improvements | Validation: unit contracts and production telemetry | Residual risk: scene with many simultaneous vessels may increase bounded in-memory work | Owner: Delivery Orchestrator | Status: MITIGATED
 - RISK-005 | Category: BUS | Probability: 3 | Impact: 3 | Score: 9 | Mitigation: declare speed accuracy out of scope; expose `speed_method`/status/metadata so later estimator replacement is non-breaking | Validation: strategy contract tests | Residual risk: test-stage numeric speed may be approximate | Owner: Product/operator | Status: ACCEPTED
 
@@ -60,14 +60,14 @@ Production is separate. After a new exact-SHA production envelope, deploy VPS fi
 - TEST-004 | Covers: AC-005 | Level: unit | Priority: P0 | Evidence: A→B/B→A and incomplete `TwoGateSpeedEstimator` tests
 - TEST-005 | Covers: AC-006 | Level: unit | Priority: P0 | Evidence: material best-snapshot replacement test
 - TEST-006 | Covers: AC-007,AC-008,AC-009 | Level: integration | Priority: P0 | Evidence: AST-isolated API SQLite/media retention tests
-- TEST-007 | Covers: AC-010 | Level: regression | Priority: P0 | Evidence: existing Water/Road/profile/ROI suites in aggregate Quality
-- TEST-008 | Covers: AC-011,AC-012 | Level: static integration | Priority: P0 | Evidence: frontend and exact-artifact contract tests
+- TEST-007 | Covers: AC-010 | Level: integration | Priority: P0 | Evidence: existing Water/Road/profile/ROI suites in aggregate Quality
+- TEST-008 | Covers: AC-011,AC-012 | Level: integration | Priority: P0 | Evidence: frontend and exact-artifact contract tests
 - TEST-009 | Covers: AC-013 | Level: integration | Priority: P0 | Evidence: Connector exact diff, PR Validation, aggregate Quality, expected-head merge, exact-main Quality
 - TEST-010 | Covers: AC-014 | Level: runtime-manual | Priority: P0 | Evidence: separately authorized VPS-first/Ubuntu-second natural-vessel acceptance in Issue #218
 
 ## Correct-course check
 
-- Trigger: PRODUCT_ARCHITECTURE
+- Trigger: ARCHITECTURE_PIVOT
 - Issue impact: #218 remains the canonical Issue; its initial two-gate wording is superseded by final authorization comment `5325409717` making speed strategy pluggable.
 - Specification impact: passage identity, bounded RAM observations, speed lifecycle and independent 300-row persistence are now explicit contracts.
 - Plan impact: `two_gate` becomes one strategy behind `SpeedEstimator`; mixed rollout and rollback ordering are explicit.
