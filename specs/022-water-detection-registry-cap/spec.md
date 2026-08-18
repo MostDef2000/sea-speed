@@ -3,68 +3,77 @@
 - Feature: 022-water-detection-registry-cap
 - Issue: #212
 - Status: Implementing
-- Owner outcome: Activate the existing Water analytics path safely and bound the shared SQLite Objects Registry to the newest 100 records for the temporary test phase.
+- Owner outcome: Keep the bounded newest-100 registry behavior and correct the production-observed Water detection regression without changing Road semantics.
 
 ## Product outcome
 
-Water analytics uses the existing `water-v1` profile as the safe default: `cam1`, `models/yolo26x.pt`, `imgsz=960`, confidence `0.15`, ByteTrack, `SAMPLE_FPS=5`, accepting model class `boat` as domain object `vessel`. Road remains explicitly `road-v1` and unchanged.
+Water analytics continues to use `water-v1`: `cam1`, `models/yolo26x.pt`, `imgsz=960`, confidence `0.15`, ByteTrack, `SAMPLE_FPS=5`, accepting model class `boat` as domain object `vessel`. For `water-v1`, YOLO inference runs on every sampled ROI-bounded frame instead of being gated by legacy motion contours. Motion remains available as telemetry but is not an admission gate or post-detection filter for Water. A newly tracked Water `vessel` emits one event per ByteTrack track without requiring a speed estimate.
 
-The shared SQLite Objects Registry retains at most the newest 100 rows across Water and Road. The cap is enforced at database initialization and after every successful new event insertion. Ordering is deterministic by `detected_at DESC, object_id DESC`. Snapshot/media files and JSON event histories are not pruned in this Outcome.
+`road-v1` remains explicitly selected and retains its existing motion-gated inference, motion-box filtering, speed estimation and event readiness semantics.
 
-The executable runtime target is the already merged exact main release `9e0cd96aa2f790f1ba806299c3dd4019e5572899`. Production learning does not change that release, the Outcome Contract, Water model/profile semantics, registry-cap behavior, or runtime contour set. It corrects only the truthful execution capability and pre-mutation sequence required to deliver that release safely.
+The existing shared SQLite Objects Registry remains capped at the newest 100 rows across Water and Road, ordered deterministically by `detected_at DESC, object_id DESC`. API/schema and snapshot/media retention remain unchanged.
 
 ## User scenarios
 
-### Scenario 1 - Water detector resolves to the intended profile
-Given the shared Water worker starts without an explicit analytics profile override, it resolves to `water-v1`, loads the existing YOLO26x configuration, accepts `boat` detections and publishes them as `vessel` without adopting Road classes.
+### Scenario 1 - small or distant vessel is not suppressed by motion preprocessing
+Given a real vessel is inside the active Water ROI on a sampled frame, Water runs YOLO even when the legacy motion detector reports `motion_now=false`, has no accepted motion boxes, or reports `MOTION idle`.
 
-### Scenario 2 - registry stays bounded during testing
-Given Water and Road events continue arriving, the persistent SQLite registry keeps only the newest 100 rows across both cameras, using deterministic detected-time/object-id ordering.
+### Scenario 2 - Water detection remains ROI bounded
+Given Water runs continuous sampled-frame inference, pixels outside the active ROI remain masked and resulting detections still pass the final ROI guard before they enter tracking/event telemetry.
 
-### Scenario 3 - oversized existing registry is normalized on startup
-Given the VPS already contains more than 100 registry rows when the new API release starts, initialization removes rows outside the newest 100 before normal API operation continues.
+### Scenario 3 - Water event does not require road-oriented speed readiness
+Given ByteTrack assigns a track ID to a Water `vessel`, the first accepted detection for that live track can create a Water event even when calibrated speed, pixel speed, or speed-line readiness is unavailable. The same active track does not create duplicate Water events.
 
-### Scenario 4 - production remains separately controlled
-Given source changes are merged, neither VPS storage mutation nor Ubuntu Water service activation occurs until the exact release passes production admission and the separately authorized runtime sequence is executed.
+### Scenario 4 - Road behavior remains unchanged
+Given `road-v1` is active, YOLO remains motion-gated, detections remain motion-box filtered, and the existing Road speed/event readiness rules continue to decide event posting.
+
+### Scenario 5 - registry remains bounded
+Given Water and Road events continue arriving, the persistent SQLite registry keeps no more than the newest 100 rows using the already accepted deterministic ordering.
 
 ## Requirements
 
-- FR-001: `DEFAULT_PROFILE` MUST be `water-v1`.
-- FR-002: `water-v1` MUST retain `models/yolo26x.pt`, `imgsz=960`, `conf=0.15`, `bytetrack.yaml`, `SAMPLE_FPS=5.0`, and `boat -> vessel` semantics.
-- FR-003: `road-v1` MUST remain explicit and unchanged.
-- FR-004: SQLite Objects Registry MUST contain no more than 100 rows after initialization completes.
-- FR-005: After a successful new object insertion, SQLite Objects Registry MUST contain no more than 100 rows.
-- FR-006: Retention MUST keep the newest records deterministically by `detected_at DESC, object_id DESC` and delete older rows only.
-- FR-007: API routes, filters, object schema fields, soft-delete/edit behavior and pagination contracts MUST remain compatible.
-- FR-008: Snapshot/media deletion and JSON event-history retention are out of scope.
-- FR-009: Production activation of Water MUST remain separately exact-SHA authorized.
-- FR-010: Mixed runtime rollout MUST be VPS first for storage-cap verification, then Ubuntu Worker for exact-source Water activation.
-- FR-011: For runtime target `9e0cd96aa2f790f1ba806299c3dd4019e5572899`, VPS execution capability MUST be treated as `ONE_COMMAND_FALLBACK` because the root-owned Auth privileged bundle is exact-source-bound; one repository-owned exact-source privilege-boundary bootstrap MUST pass before canonical Connector VPS deployment can cross the pre-live-mutation boundary.
-- FR-012: Ubuntu Worker execution MUST remain `ONE_COMMAND_FALLBACK` unless restricted zero-touch transport is independently observed as provisioned. Worst-case operator actions for the MIXED release are therefore two, one per required fallback contour.
+- FR-001: `water-v1` MUST remain `cam1`, `models/yolo26x.pt`, `imgsz=960`, `conf=0.15`, `bytetrack.yaml`, `SAMPLE_FPS=5.0`, and `boat -> vessel`.
+- FR-002: `road-v1` detector/profile values MUST remain unchanged.
+- FR-003: On `water-v1`, every sampled processing frame MUST be passed to YOLO regardless of current motion activity.
+- FR-004: Water raw detections MUST NOT be rejected solely because they do not intersect a legacy motion box.
+- FR-005: Water detections MUST remain constrained to the ROI snapshot bound to the sampled processing frame.
+- FR-006: Water motion detection MUST remain available for `motion_now` and `motion_area` telemetry.
+- FR-007: A Water event MUST require a tracked `vessel` with a non-null ByteTrack track ID.
+- FR-008: A Water event MUST NOT require `speed_ready`, calibrated speed, or minimum pixel speed.
+- FR-009: At most one successful Water event MUST be posted for one active ByteTrack track; a failed post MAY be retried because the track is not marked posted until transport succeeds.
+- FR-010: `road-v1` MUST preserve the existing motion gate, motion-box filter and speed/event readiness semantics.
+- FR-011: SQLite Objects Registry MUST remain capped at the newest 100 rows across Water and Road after initialization and successful insertions.
+- FR-012: API routes/schema, camera/RTSP/MediaMTX topology, Auth/private M2M, ROI editor/coordinates, snapshots/media retention and JSON event history MUST remain unchanged.
+- FR-013: Production deployment of the remediation MUST require a new exact-SHA production authorization for the merged executable release.
+- FR-014: Ubuntu runtime acceptance MUST preserve the current Road desired state and verify sustained Water inference health at the existing 5 FPS sampling rate.
 
 ## Acceptance criteria
 
-- AC-001: Analytics-profile tests prove no-argument profile resolution is `water-v1`, Water remains `boat -> vessel`, and Road defaults remain exact.
-- AC-002: API contract tests prove initialization prunes an oversized registry to exactly the newest 100 rows.
-- AC-003: API contract tests prove each successful insertion prunes the registry to at most 100 rows and preserves newest deterministic ordering.
-- AC-004: Existing API/filter/edit/delete contract tests remain green.
-- AC-005: Original product source remains the exact approved seven-path PR #213 release; the production-learning correction is limited to exactly this feature's `spec.md`, `plan.md`, and `tasks.md` and changes no executable source.
-- AC-006: Original PR Validation and aggregate Quality succeed on the exact product head, expected-head merge produces runtime target `9e0cd96aa2f790f1ba806299c3dd4019e5572899`, and the production-learning correction passes its own exact-head PR Validation/Quality, expected-head merge, and post-merge Quality without creating a new runtime target.
-- AC-007: After exact production authorization, the repository-owned VPS root privilege-boundary bootstrap passes for `9e0cd96aa2f790f1ba806299c3dd4019e5572899`, the subsequent canonical Connector VPS deployment is runtime-verified, and production proves registry count <=100 after deployment and new detections.
-- AC-008: Only after VPS acceptance, Ubuntu runtime proves exact source/profile/model provenance, `sea-speed-worker.service` running, advancing Water frame/state/AI telemetry and `vessel` detections entering the registry; if restricted zero-touch transport is absent, exactly one repository-owned Ubuntu fallback action is used.
+- AC-001: Automated regression proves `water-v1` calls detector inference when `motion_now=false`, motion AI activity is false, and `motion_boxes=[]`.
+- AC-002: Automated regression proves Water detections bypass `filter_detections_by_motion` but still pass the ROI filter.
+- AC-003: Existing ROI masking, ROI-change baseline reset and bound-frame ROI guard tests remain green.
+- AC-004: Automated regression proves `road-v1` does not invoke inference while motion AI activity is false and still invokes the motion-box filter when active.
+- AC-005: Automated regression proves a tracked Water `vessel` is eligible for an event with no speed readiness or pixel-speed value.
+- AC-006: Automated regression proves a posted Water track is not selected for a second event and an untracked detection is not event eligible.
+- AC-007: Analytics profile tests prove YOLO26x, `imgsz=960`, `conf=0.15`, ByteTrack, 5 FPS, Water class mapping and Road profile values are unchanged.
+- AC-008: Existing newest-100 SQLite registry behavior and API contracts remain green without source changes to API/storage paths.
+- AC-009: Exact PR diff contains only the six newly authorized repository paths and passes exact-head PR Validation plus aggregate Quality.
+- AC-010: Expected-head merge is followed by successful exact-main Quality before any production decision.
+- AC-011: After separate exact-SHA production authorization, Ubuntu exact-release acceptance proves `water-v1` provenance, running service, sustained sampled-frame inference/telemetry without unacceptable degradation, and preservation of the Road desired state.
+- AC-012: Final functional production acceptance requires a real naturally occurring moving vessel inside the Water ROI to produce non-zero `DETECTIONS`/`TRACKS` and a new `vessel` event in the operator event view; synthetic production events are not acceptable evidence.
 
 ## NFR assessment
 
-- NFR-001 | Area: DATA_SAFETY | Target: pruning is deterministic and bounded to rows older than the newest 100 | Validation: API unit tests plus production registry evidence | Evidence: `tests/test_api_contract.py` and Issue #212 | Status: CONCERNS
-- NFR-002 | Area: RELIABILITY | Target: Water default cannot accidentally select Road semantics | Validation: analytics-profile tests | Evidence: `tests/test_analytics_profiles.py` | Status: PASS
-- NFR-003 | Area: BACKWARD_COMPATIBILITY | Target: API URLs/schema/edit/delete behavior remains compatible | Validation: existing API contract suite | Evidence: `tests/test_api_contract.py` | Status: PASS
-- NFR-004 | Area: RELEASE_PROVENANCE | Target: mixed release is exact-main, quality-gated, rollback-capable, separately production-authorized, and each required runtime contour uses its truthful execution capability | Validation: PR/main quality, production admission, exact-source privilege bootstrap, and runtime manifests | Evidence: GitHub Actions and Issue #212 | Status: CONCERNS
+- NFR-001 | Area: RELIABILITY | Target: a valid small/distant Water target is not suppressed before YOLO by legacy contour thresholds | Validation: focused Water policy tests plus real-vessel runtime acceptance | Evidence: `tests/test_water_detection_pipeline.py` and Issue #212 runtime evidence | Status: CONCERNS
+- NFR-002 | Area: BACKWARD_COMPATIBILITY | Target: Road motion/speed/event semantics and protected Water model/profile values remain unchanged | Validation: focused Road policy regression plus analytics-profile suite | Evidence: `tests/test_water_detection_pipeline.py`, `tests/test_analytics_profiles.py` | Status: PASS
+- NFR-003 | Area: PERFORMANCE | Target: continuous Water inference at existing 5 FPS does not cause sustained GPU/service degradation on the production RTX 5070 | Validation: separately authorized Ubuntu runtime telemetry and service acceptance | Evidence: Issue #212 production acceptance | Status: CONCERNS
+- NFR-004 | Area: DATA_SAFETY | Target: existing newest-100 registry retention remains deterministic and API-compatible | Validation: unchanged API contract suite | Evidence: `tests/test_api_contract.py` | Status: PASS
+- NFR-005 | Area: RELEASE_PROVENANCE | Target: source merge and any later Ubuntu mutation are exact-SHA, quality-gated and separately authorized | Validation: PR/main Quality plus production admission and exact runtime evidence | Evidence: GitHub Actions and Issue #212 | Status: CONCERNS
 
 ## Runtime feedback
 
-- Original source integration is merged through PR #213 as exact runtime target `9e0cd96aa2f790f1ba806299c3dd4019e5572899`; `water-v1` is the safe default and SQLite retention is capped to newest 100 combined Water+Road rows in source.
-- Final original exact-head evidence is PR Validation #449 / run `32094366745` and Quality integration #399 / run `32094366780`, both successful before expected-head merge. The protected deployment implementation independently requires a successful exact `push/main` Quality run before any production mutation.
-- Durable accepted Ubuntu baseline records Water desired state/service stopped while Road remains running. YOLO26x protected model staging and CUDA self-test were previously accepted; this Outcome does not change the model binary or detector parameters.
-- Exact release production authorization was granted for `9e0cd96aa2f790f1ba806299c3dd4019e5572899`. To preserve the approved VPS-first rollout, the durable Issue authority was initially recorded without execution intent and a VPS-only request was issued rather than triggering the parallel MIXED router.
-- Production-learning evidence then established that `deploy/vps/deploy.sh` checks the root-owned Auth privilege bundle after exact release staging but before live application/service/current-release/nginx mutation, while the privileged bundle manifest requires its `source_sha` to equal the deployment request SHA. The last accepted root bundle is bound to an older runtime, so Connector-only VPS delivery of `9e0cd96...` cannot pass without an exact-source root bootstrap.
-- Fresh production-learning source authorization is Issue #212 comment `5323340646`, bounded to this SDD triplet only. The executable runtime target remains `9e0cd96aa2f790f1ba806299c3dd4019e5572899`; no API/Worker/deploy/workflow/model behavior changes in this correction.
+- Original product source was merged through PR #213 as executable runtime `9e0cd96aa2f790f1ba806299c3dd4019e5572899`; the subsequent PR #214 was specs-only production-learning evidence and current source/control-plane main became `f3febcd6d9ae6a57e052f6b4a50bf3ec9f75fdf1` without changing executable runtime bytes.
+- VPS and Ubuntu infrastructure acceptance for `9e0cd96...` proved exact source/profile/model readiness, service/telemetry progression and newest-100 registry behavior, but bounded acceptance observed no natural vessel event.
+- Fresh production observation later showed a real small moving vessel visually inside Camera 1 ROI while telemetry remained `MOTION idle`, `AI idle`, `DETECTIONS 0`, `TRACKS 0`. Exact-source review showed YOLO was gated by `MotionDetector` and detections were filtered again by current motion boxes. This invalidates the prior claim of functional Water detection acceptance while leaving the already proven infrastructure/runtime provenance evidence intact.
+- Issue #212 was reopened and the regression was recorded durably. Fresh source authorization for this six-path remediation is Issue #212 comment `5323802105`, based on current-main SHA `f3febcd6d9ae6a57e052f6b4a50bf3ec9f75fdf1` and operator reply `OUTCOME APPROVED`.
+- This source authorization does not authorize production. The future exact merged executable SHA requires a new production safety envelope before Ubuntu mutation.
