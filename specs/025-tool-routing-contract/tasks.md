@@ -8,14 +8,14 @@
 ## Delivery tasks
 
 - T-001 [P0] Record canonical Issue #221, exact intake main and the immediately preceding eight-path `OUTCOME APPROVED` source authorization. COMPLETE.
-- T-002 [P0] Add feature 025 SDD with deny-by-default semantics, closed route matrix, NFR assessment, test design, correct-course check, traceability and Definition of Done. COMPLETE ON TASK BRANCH.
+- T-002 [P0] Add feature 025 SDD with deny-by-default semantics, closed route matrix, NFR assessment, derived risk profile, test design, correct-course check, traceability and Definition of Done. COMPLETE ON TASK BRANCH.
 - T-003 [P0] Update `AGENTS.md` with the concise normative tool-routing admission rule and full approved route matrix. COMPLETE ON TASK BRANCH.
 - T-004 [P0] Update `contracts/SEA_SPEED_GOVERNANCE.md` so unlisted tools/services are forbidden and availability never grants permission. COMPLETE ON TASK BRANCH.
 - T-005 [P0] Update `contracts/SEA_SPEED_DELIVERY_POLICY.md` with lifecycle-specific primary/fallback routes and explicit forbidden implicit fallbacks. COMPLETE ON TASK BRANCH.
 - T-006 [P0] Update `contracts/branches/project-manager.md` so the Delivery Orchestrator never discovers alternate services after an allowlist gap and escalates only through the declared fallback or `HUMAN DECISION REQUIRED`. COMPLETE ON TASK BRANCH.
 - T-007 [P0] Update `contracts/runtime/RELEASE_READINESS_GATE.md` with tool-routing admission checks while preserving CONTROL_PLANE/no-production semantics for this Outcome. COMPLETE ON TASK BRANCH.
-- T-008 [P0] Open a draft PR with exact eight-file Change Contract, `CONTROL_PLANE`, VPS/Ubuntu deployment `NOT REQUIRED`, execution capabilities `NOT APPLICABLE`, and zero operator runtime actions. PENDING.
-- T-009 [P0] Reach exact-head PR Validation and aggregate Quality; remediate only deterministic defects inside the approved eight paths. PENDING.
+- T-008 [P0] Open a draft PR with exact eight-file Change Contract, `CONTROL_PLANE`, VPS/Ubuntu deployment `NOT REQUIRED`, execution capabilities `NOT APPLICABLE`, and zero operator runtime actions. COMPLETE: PR #222.
+- T-009 [P0] Reach exact-head PR Validation and aggregate Quality; remediate only deterministic defects inside the approved eight paths. IN PROGRESS.
 - T-010 [P0] Re-check main/head/scope/reviews and merge only the exact green head with expected-head protection, then require exact-main Quality. PENDING.
 - T-011 [P0] Persist terminal source evidence to Issue #221 and close only after the control-plane acceptance criteria are satisfied. PENDING.
 
@@ -44,7 +44,7 @@
 - [x] Deployment state resolved — this Outcome is CONTROL_PLANE and requires no VPS/Ubuntu deployment.
 - [x] Runtime acceptance resolved — no runtime acceptance applies because no runtime source/workflow/topology is changed.
 - [x] Deferred work recorded — any future unlisted tool/service requires a separate allowlist Scope rather than implicit expansion.
-- [x] Risks resolved or explicitly accepted — full risk profile is NOT REQUIRED for this bounded control-plane documentation contract.
+- [x] Risks resolved or explicitly accepted — derived risk profile is REQUIRED; RISK-001 and RISK-002 are MITIGATED by synchronized closed-route contracts and exact-head CI.
 - [x] Waivers resolved or current — no waiver is active.
 
 ## Completion gate
