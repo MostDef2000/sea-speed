@@ -88,14 +88,16 @@ Validation is contract/SDD/CI based because this Outcome intentionally changes n
 
 ## Risk profile
 
-- Risk profile: NOT REQUIRED
+- Risk profile: REQUIRED
+- RISK-001 | Category: OPS | Probability: 2 | Impact: 4 | Score: 8 | Mitigation: Keep one closed route matrix synchronized across all five canonical entry points; require exact changed-file/SDD/Change Contract CI before merge | Validation: exact contract diff review plus PR Validation/aggregate Quality | Residual risk: a future tool requirement may be blocked until a new allowlist Scope is approved, which is intentional fail-closed behavior | Owner: Delivery Orchestrator | Status: MITIGATED
+- RISK-002 | Category: SEC | Probability: 2 | Impact: 4 | Score: 8 | Mitigation: Explicitly prohibit unrelated private-service side channels, ad-hoc shells, direct DB/cloud-console mutation and unlisted connectors; keep protected inputs operator-local | Validation: cross-contract allowlist review and acceptance traceability | Residual risk: policy cannot prevent an external human from using tools outside the governed orchestrator, but such actions do not count as Sea Speed delivery evidence | Owner: Delivery Orchestrator | Status: MITIGATED
 
 ## Test design
 
-- TEST-001 | Covers: AC-001,AC-002,AC-010 | Level: integration | Priority: P0 | Evidence: exact contract diff review across `AGENTS.md`, Governance, Delivery Policy, Delivery Orchestrator, and Release Readiness
-- TEST-002 | Covers: AC-003,AC-004 | Level: integration | Priority: P0 | Evidence: GitHub execution and CI fallback clauses in the five canonical contracts plus PR Change Contract review
+- TEST-001 | Covers: AC-001,AC-002,AC-010,RISK-001,RISK-002 | Level: integration | Priority: P0 | Evidence: exact contract diff review across `AGENTS.md`, Governance, Delivery Policy, Delivery Orchestrator, and Release Readiness
+- TEST-002 | Covers: AC-003,AC-004,RISK-001 | Level: integration | Priority: P0 | Evidence: GitHub execution and CI fallback clauses in the five canonical contracts plus PR Change Contract review
 - TEST-003 | Covers: AC-005,AC-006 | Level: integration | Priority: P0 | Evidence: local-tooling and public-HTTP route clauses in canonical contracts
-- TEST-004 | Covers: AC-007,AC-008,AC-009 | Level: integration | Priority: P0 | Evidence: deployment/runtime-diagnostic/protected-input clauses in canonical contracts
+- TEST-004 | Covers: AC-007,AC-008,AC-009,RISK-002 | Level: integration | Priority: P0 | Evidence: deployment/runtime-diagnostic/protected-input clauses in canonical contracts
 - TEST-005 | Covers: AC-011,AC-012 | Level: integration | Priority: P0 | Evidence: Connector exact file comparison, PR Validation, aggregate Quality, expected-head merge and exact-main Quality
 
 ## Correct-course check
