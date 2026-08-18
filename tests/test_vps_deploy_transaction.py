@@ -1,17 +1,93 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DEPLOY_SCRIPT = ROOT / "deploy/vps/deploy.sh"
+HELPER_SOURCE = ROOT / "deploy/vps/sea-speed-auth-privileged-helper.py"
 OLD = "a" * 40
 CANDIDATE = "b" * 40
 OLDER = "c" * 40
+
+helper_spec = importlib.util.spec_from_file_location("sea_speed_auth_privileged_helper_test", HELPER_SOURCE)
+assert helper_spec and helper_spec.loader
+privileged_helper = importlib.util.module_from_spec(helper_spec)
+sys.modules[helper_spec.name] = privileged_helper
+helper_spec.loader.exec_module(privileged_helper)
+
+
+class SequenceRunner:
+    def __init__(self, responses: list[tuple[int, str]]) -> None:
+        self.responses = list(responses)
+        self.calls: list[list[str]] = []
+
+    def __call__(self, args: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        self.calls.append(list(args))
+        if not self.responses:
+            raise AssertionError(f"unexpected command: {args}")
+        returncode, stdout = self.responses.pop(0)
+        return subprocess.CompletedProcess(args=args, returncode=returncode, stdout=stdout)
+
+
+class PrivilegedAuthRecoveryTests(unittest.TestCase):
+    def test_http_500_prepare_failure_uses_narrow_recovery_without_protected_flag(self) -> None:
+        candidate = "d" * 64
+        runner = SequenceRunner(
+            [
+                (22, "NGINX_SITE=/etc/nginx/sites-available/mostdef.ru\nERROR /sea-speed/ is not auth-gated: HTTP 500\nERROR existing protected Auth v1 rollback baseline is not valid\n"),
+                (0, f"NGINX_SITE=/etc/nginx/sites-available/mostdef.ru\nCANDIDATE_SHA256={candidate}\nROLLBACK_CAPABILITY=MANUAL\n"),
+                (0, "SEA_SPEED_AUTH_CUTOVER=PASS\nWORKER_PRIVATE_ROAD_API_BASE=http://10.123.239.101:18080/api/analytics/road1\nROLLBACK_CAPABILITY=MANUAL\n"),
+            ]
+        )
+        restorer_called: list[str] = []
+
+        output = privileged_helper.run_cutover(
+            Path("/root/exact"),
+            runner,
+            restorer=lambda text, _runner: restorer_called.append(text) or "SEA_SPEED_AUTH_RECOVERY_ROLLBACK=PASS",
+        )
+
+        self.assertIn("SEA_SPEED_AUTH_RECOVERY=PASS", output)
+        self.assertEqual(restorer_called, [])
+        self.assertIn("--require-protected-baseline", runner.calls[0])
+        self.assertNotIn("--require-protected-baseline", runner.calls[1])
+        self.assertNotIn("--require-protected-baseline", runner.calls[2])
+        self.assertEqual(runner.responses, [])
+
+    def test_non_500_protected_baseline_failure_does_not_enter_recovery(self) -> None:
+        runner = SequenceRunner(
+            [(22, "ERROR public root expected 200, got 503\nERROR existing protected Auth v1 rollback baseline is not valid\n")]
+        )
+        with self.assertRaises(privileged_helper.BoundaryError):
+            privileged_helper.run_cutover(Path("/root/exact"), runner)
+        self.assertEqual(len(runner.calls), 1)
+
+    def test_failed_recovery_activation_requires_exact_baseline_restorer(self) -> None:
+        candidate = "e" * 64
+        runner = SequenceRunner(
+            [
+                (22, "NGINX_SITE=/etc/nginx/sites-available/mostdef.ru\nERROR /sea-speed/ is not auth-gated: HTTP 500\nERROR existing protected Auth v1 rollback baseline is not valid\n"),
+                (0, f"CANDIDATE_SHA256={candidate}\n"),
+                (35, "NGINX_SITE=/etc/nginx/sites-available/mostdef.ru\nNGINX_BACKUP=/var/lib/sea-speed-auth-v1/backups/pre.conf\nERROR Auth v1 candidate post-mutation verification failed rc=35\n"),
+            ]
+        )
+        restored: list[str] = []
+
+        def restorer(text: str, _runner: object) -> str:
+            restored.append(text)
+            return "SEA_SPEED_AUTH_RECOVERY_ROLLBACK=PASS"
+
+        with self.assertRaises(privileged_helper.BoundaryError) as raised:
+            privileged_helper.run_cutover(Path("/root/exact"), runner, restorer=restorer)
+        self.assertEqual(len(restored), 1)
+        self.assertIn("SEA_SPEED_AUTH_RECOVERY_ROLLBACK=PASS", str(raised.exception))
 
 
 class VpsDeployTransactionTests(unittest.TestCase):
@@ -109,6 +185,17 @@ if [[ "$url" == "$SEA_SPEED_ORIGIN_HEALTH_URL" ]]; then
     *) exit 64 ;;
   esac
 fi
+if [[ "$url" == "$SEA_SPEED_FRONTEND_URL" ]]; then
+  case "${FAKE_PUBLIC_MODE:-healthy}" in
+    healthy) printf '302'; exit 0 ;;
+    broken-500)
+      [[ -f "$FAKE_RECOVERY_MARKER" ]] && printf '302' || printf '500'
+      exit 0
+      ;;
+    bad-502) printf '502'; exit 0 ;;
+    *) printf '000'; exit 0 ;;
+  esac
+fi
 printf '200'
 """,
         )
@@ -134,6 +221,8 @@ from pathlib import Path
 request = json.loads(Path(os.environ['FAKE_PRIV_REQUEST']).read_text())
 action = request['action']
 mode = os.environ.get('FAKE_PRIV_MODE', 'success')
+public_mode = os.environ.get('FAKE_PUBLIC_MODE', 'healthy')
+recovery_marker = Path(os.environ['FAKE_RECOVERY_MARKER'])
 if action == 'status' and mode in {'missing', 'mismatch'}:
     print('ERROR privileged bundle source SHA mismatch')
     raise SystemExit(42)
@@ -143,6 +232,17 @@ print('ACTION=' + action)
 print('PRIVILEGED_TOPOLOGY=FIXED')
 print('ARBITRARY_ROOT_EXECUTION=NO')
 if action == 'reconcile':
+    if public_mode == 'broken-500' and not recovery_marker.exists():
+        if mode == 'recovery-fail':
+            print('SEA_SPEED_AUTH_RECOVERY_ROLLBACK=PASS')
+            raise SystemExit(35)
+        Path(os.environ['FAKE_RECOVERY_API_OBSERVED']).write_text(Path(os.environ['SEA_SPEED_API_TARGET']).read_text())
+        recovery_marker.write_text('recovered')
+        print('SEA_SPEED_AUTH_CUTOVER=PASS')
+        print('WORKER_PRIVATE_ROAD_API_BASE=http://10.123.239.101:18080/api/analytics/road1')
+        print('SEA_SPEED_AUTH_RECOVERY=PASS')
+        print('SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS')
+        raise SystemExit(0)
     if mode == 'auth-fail':
         print('SEA_SPEED_AUTH_ROLLBACK=PASS')
         print('AUTOMATIC_ROLLBACK=PASS')
@@ -154,7 +254,14 @@ if action == 'reconcile':
 """,
         )
 
-    def env(self, *, mode: str = "success", priv_mode: str = "success", prune_failure: str = "") -> dict[str, str]:
+    def env(
+        self,
+        *,
+        mode: str = "success",
+        priv_mode: str = "success",
+        prune_failure: str = "",
+        public_mode: str = "healthy",
+    ) -> dict[str, str]:
         env = os.environ.copy()
         env.update(
             {
@@ -181,6 +288,9 @@ if action == 'reconcile':
                 "SEA_SPEED_AUTH_PRIVILEGED_HELPER": str(self.privileged_helper),
                 "FAKE_PRIV_REQUEST": str(self.state / "auth-privileged-request.json"),
                 "FAKE_PRIV_MODE": priv_mode,
+                "FAKE_PUBLIC_MODE": public_mode,
+                "FAKE_RECOVERY_MARKER": str(self.root / "auth-recovered"),
+                "FAKE_RECOVERY_API_OBSERVED": str(self.root / "recovery-api-observed"),
                 "FAKE_ORIGIN_MODE": mode,
                 "FAKE_ORIGIN_FAILS": "2",
                 "FAKE_CURL_COUNT_FILE": str(self.root / "curl-count"),
@@ -192,11 +302,23 @@ if action == 'reconcile':
         )
         return env
 
-    def run_deploy(self, *, mode: str = "success", priv_mode: str = "success", prune_failure: str = "") -> subprocess.CompletedProcess[str]:
+    def run_deploy(
+        self,
+        *,
+        mode: str = "success",
+        priv_mode: str = "success",
+        prune_failure: str = "",
+        public_mode: str = "healthy",
+    ) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             ["bash", str(DEPLOY_SCRIPT), CANDIDATE],
             cwd=ROOT,
-            env=self.env(mode=mode, priv_mode=priv_mode, prune_failure=prune_failure),
+            env=self.env(
+                mode=mode,
+                priv_mode=priv_mode,
+                prune_failure=prune_failure,
+                public_mode=public_mode,
+            ),
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -217,6 +339,35 @@ if action == 'reconcile':
         self.assertIn("SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS", result.stdout)
         checks = {item["name"]: item["status"] for item in self.manifest()["checks"]}
         self.assertEqual(checks["auth_v1_road_private_m2m"], "passed")
+
+    def test_public_500_is_recovered_before_live_source_mutation(self) -> None:
+        result = self.run_deploy(public_mode="broken-500")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        observed = (self.root / "recovery-api-observed").read_text(encoding="utf-8")
+        self.assertIn(OLD, observed)
+        self.assertNotIn(CANDIDATE, observed)
+        self.assertIn("AUTH_V1_RECOVERY_PRE_SOURCE=PASS", result.stdout)
+        self.assertEqual(self.current(), CANDIDATE)
+
+    def test_public_500_recovery_failure_stops_before_live_source_mutation(self) -> None:
+        before_api = self.api.read_bytes()
+        before_operator = self.operator.read_bytes()
+        result = self.run_deploy(public_mode="broken-500", priv_mode="recovery-fail")
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(self.api.read_bytes(), before_api)
+        self.assertEqual(self.operator.read_bytes(), before_operator)
+        self.assertEqual(self.current(), OLD)
+        self.assertIn("SEA_SPEED_AUTH_RECOVERY_ROLLBACK=PASS", result.stdout)
+        self.assertFalse((self.state / "deployment-manifest.json").exists())
+
+    def test_nonrecoverable_public_status_stops_before_live_source_mutation(self) -> None:
+        before_api = self.api.read_bytes()
+        result = self.run_deploy(public_mode="bad-502")
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(self.api.read_bytes(), before_api)
+        self.assertEqual(self.current(), OLD)
+        self.assertIn("non-recoverable HTTP 502", result.stdout)
+        self.assertFalse((self.state / "deployment-manifest.json").exists())
 
     def test_privilege_boundary_mismatch_fails_before_live_source_mutation(self) -> None:
         before_api = self.api.read_bytes()

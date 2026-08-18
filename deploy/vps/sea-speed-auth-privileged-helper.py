@@ -25,6 +25,9 @@ SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 AUTHENTIK_UPSTREAM = "http://10.123.239.102:19000"
 WORKER_PRIVATE_LISTEN = "10.123.239.101:18080"
 WORKER_PRIVATE_PEER = "10.123.239.102"
+NGINX_ROOT = Path("/etc/nginx")
+AUTH_BACKUP_ROOT = Path("/var/lib/sea-speed-auth-v1/backups")
+BROKEN_PUBLIC_500_MARKER = "ERROR /sea-speed/ is not auth-gated: HTTP 500"
 
 ASSET_PATHS = (
     "deploy/vps/sea-speed-auth-cutover.sh",
@@ -181,8 +184,94 @@ def validate_bundle(
     return repo_root
 
 
-def run_cutover(repo_root: Path, runner: Callable[..., subprocess.CompletedProcess[str]]) -> str:
-    cutover = repo_root / "deploy/vps/sea-speed-auth-cutover.sh"
+def _marker_value(output: str, prefix: str) -> str:
+    value = ""
+    for line in output.splitlines():
+        if line.startswith(prefix):
+            value = line.split("=", 1)[1].strip()
+    return value
+
+
+def _candidate_sha(output: str) -> str:
+    candidate = _marker_value(output, "CANDIDATE_SHA256=")
+    if not SHA256_RE.fullmatch(candidate):
+        raise BoundaryError("Auth v1 prepare did not return an exact candidate SHA256")
+    return candidate
+
+
+def _resolve_bounded_regular(raw: str, root: Path, *, label: str) -> Path:
+    if not raw:
+        raise BoundaryError(f"{label} path missing from Auth v1 recovery output")
+    path = Path(raw)
+    if not path.is_absolute():
+        raise BoundaryError(f"{label} path must be absolute")
+    try:
+        resolved = path.resolve(strict=True)
+        root_resolved = root.resolve(strict=True)
+        resolved.relative_to(root_resolved)
+    except (OSError, ValueError) as exc:
+        raise BoundaryError(f"{label} path is outside the approved root") from exc
+    require_regular_secure(resolved, 0)
+    return resolved
+
+
+def restore_broken_auth_baseline(
+    output: str,
+    runner: Callable[..., subprocess.CompletedProcess[str]],
+) -> str:
+    """Restore the exact pre-recovery nginx file after a failed bounded recovery.
+
+    The prior public boundary is already unhealthy, so rollback proves exact byte
+    restoration plus nginx syntax/service health instead of requiring the broken
+    public HTTP contract to become healthy during rollback.
+    """
+
+    nginx_site = _resolve_bounded_regular(
+        _marker_value(output, "NGINX_SITE="), NGINX_ROOT, label="nginx site"
+    )
+    backup = _resolve_bounded_regular(
+        _marker_value(output, "NGINX_BACKUP="), AUTH_BACKUP_ROOT, label="nginx backup"
+    )
+    backup_sha = sha256_file(backup)
+    metadata = nginx_site.stat()
+    mode_bits = f"{stat.S_IMODE(metadata.st_mode):04o}"
+    rollback = nginx_site.with_name(nginx_site.name + ".sea-speed-recovery-rollback")
+    if rollback.exists() or rollback.is_symlink():
+        raise BoundaryError("bounded recovery rollback staging path already exists")
+
+    commands = (
+        ["install", "-o", str(metadata.st_uid), "-g", str(metadata.st_gid), "-m", mode_bits, str(backup), str(rollback)],
+        ["mv", "-f", str(rollback), str(nginx_site)],
+        ["nginx", "-t"],
+        ["systemctl", "reload", "nginx.service"],
+        ["systemctl", "is-active", "--quiet", "nginx.service"],
+    )
+    try:
+        for command in commands:
+            completed = runner(
+                command,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                check=False,
+            )
+            if completed.returncode != 0:
+                raise BoundaryError(
+                    f"bounded Auth v1 recovery rollback command failed rc={completed.returncode}: "
+                    f"{' '.join(command)}\n{(completed.stdout or '').rstrip()}"
+                )
+        if sha256_file(nginx_site) != backup_sha:
+            raise BoundaryError("bounded Auth v1 recovery rollback byte identity mismatch")
+    finally:
+        try:
+            if rollback.exists() or rollback.is_symlink():
+                rollback.unlink()
+        except OSError:
+            pass
+    return "SEA_SPEED_AUTH_RECOVERY_ROLLBACK=PASS"
+
+
+def _cutover_common(*, protected_baseline: bool) -> list[str]:
     common = [
         "--authentik-upstream",
         AUTHENTIK_UPSTREAM,
@@ -190,27 +279,73 @@ def run_cutover(repo_root: Path, runner: Callable[..., subprocess.CompletedProce
         WORKER_PRIVATE_LISTEN,
         "--worker-private-peer",
         WORKER_PRIVATE_PEER,
-        "--require-protected-baseline",
     ]
+    if protected_baseline:
+        common.append("--require-protected-baseline")
+    return common
+
+
+def run_cutover(
+    repo_root: Path,
+    runner: Callable[..., subprocess.CompletedProcess[str]],
+    *,
+    restorer: Callable[[str, Callable[..., subprocess.CompletedProcess[str]]], str] = restore_broken_auth_baseline,
+) -> str:
+    cutover = repo_root / "deploy/vps/sea-speed-auth-cutover.sh"
+    protected_common = _cutover_common(protected_baseline=True)
     prepared = runner(
-        ["bash", str(cutover), "prepare", *common],
+        ["bash", str(cutover), "prepare", *protected_common],
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         check=False,
     )
     output = prepared.stdout or ""
-    if prepared.returncode != 0:
-        raise BoundaryError(f"Auth v1 prepare failed rc={prepared.returncode}\n{output.rstrip()}")
-    candidate = ""
-    for line in output.splitlines():
-        if line.startswith("CANDIDATE_SHA256="):
-            candidate = line.split("=", 1)[1].strip()
-    if not SHA256_RE.fullmatch(candidate):
-        raise BoundaryError("Auth v1 prepare did not return an exact candidate SHA256")
 
+    recovery = prepared.returncode == 22 and BROKEN_PUBLIC_500_MARKER in output
+    if prepared.returncode != 0 and not recovery:
+        raise BoundaryError(f"Auth v1 prepare failed rc={prepared.returncode}\n{output.rstrip()}")
+
+    if recovery:
+        recovery_common = _cutover_common(protected_baseline=False)
+        retry = runner(
+            ["bash", str(cutover), "prepare", *recovery_common],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            check=False,
+        )
+        output += retry.stdout or ""
+        if retry.returncode != 0:
+            raise BoundaryError(
+                f"Auth v1 bounded recovery prepare failed rc={retry.returncode}\n{output.rstrip()}"
+            )
+        candidate = _candidate_sha(retry.stdout or "")
+        activated = runner(
+            ["bash", str(cutover), "activate", *recovery_common, "--expected-sha256", candidate],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            check=False,
+        )
+        output += activated.stdout or ""
+        if activated.returncode != 0:
+            rollback = restorer(output, runner)
+            raise BoundaryError(
+                f"Auth v1 bounded recovery activate failed rc={activated.returncode}\n"
+                f"{output.rstrip()}\n{rollback}"
+            )
+        for marker in (
+            "SEA_SPEED_AUTH_CUTOVER=PASS",
+            "WORKER_PRIVATE_ROAD_API_BASE=",
+        ):
+            if marker not in output:
+                raise BoundaryError(f"Auth v1 bounded recovery missing marker: {marker}")
+        return output.rstrip() + "\nSEA_SPEED_AUTH_RECOVERY=PASS\n"
+
+    candidate = _candidate_sha(output)
     activated = runner(
-        ["bash", str(cutover), "activate", *common, "--expected-sha256", candidate],
+        ["bash", str(cutover), "activate", *protected_common, "--expected-sha256", candidate],
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
