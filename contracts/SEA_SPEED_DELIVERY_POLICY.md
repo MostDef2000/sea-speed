@@ -1,6 +1,6 @@
 # Sea Speed Delivery Policy
 
-Version: 1.16.0
+Version: 1.17.0
 Status: Active
 
 ## 1. Purpose
@@ -31,6 +31,8 @@ New tasks use `OUTCOME APPROVED` only after the complete visible Scope block imm
 PR admission requires an exact Change Contract, exact changed-file match, valid SDD linkage for significant work, required CI and unchanged protected boundaries. Merge additionally requires fresh base/head comparison, zero unresolved review threads and expected-head protection when supported.
 
 After valid `OUTCOME APPROVED`, ordinary implementation defects, tests, CI remediation and PR metadata corrections inside the approved exact path set continue automatically. A deterministic stage such as PR created, queued/running CI, merge readiness or packaging is not a terminal handoff while a safe authorized next action remains.
+
+Tool capability does not expand source authorization or delivery authority. The Tool Routing Allowlist is deny by default and applies before every source, CI, release, deployment, diagnostic or evidence action.
 
 ## 4. Release identity
 
@@ -151,3 +153,29 @@ Production-equivalent deterministic deployment tests should execute the real tra
 For linked significant work, `scripts/ci/validate_sdd.py` requires a Deployment Transaction Audit when a changed path is under `deploy/**` or `scripts/release/**`, a deployment workflow changes, any runtime deployment field is `REQUIRED`, or the correct-course trigger is `PRODUCTION_LEARNING`.
 
 The audit covers exactly `ADMISSION`, `PRE-MUTATION`, `MUTATION`, `VERIFICATION`, `STATE-COMMIT`, `HOUSEKEEPING`, `EVIDENCE`, and `ROLLBACK`, with mutation possibility, failure disposition, state after failure, safe retry, rollback semantics and evidence. Production learning additionally requires completed adjacent-stage review and concrete root cause/findings.
+
+## 18. Tool Routing Allowlist
+
+Sea Speed delivery is `DENY BY DEFAULT` at the tool layer. Any tool, connector, service, CLI, side-channel, publication path or runtime mutation path that is not explicitly allowed below for the current task class is forbidden. A connected or installed capability does not grant permission. The Orchestrator must not discover, install, probe or substitute another service after an allowed route fails.
+
+A fallback is valid only for its own row. If the primary route is unavailable and no allowed fallback exists, or the declared fallback cannot complete safely, return `HUMAN DECISION REQUIRED` and name the exact capability gap.
+
+| Task class | Allowed primary route | Allowed fallback |
+|---|---|---|
+| Repository/Issue/PR/comment/branch/source/merge lifecycle | GitHub Connector | NONE |
+| CI status/jobs/logs/artifacts | GitHub Connector | One bounded read-only GitHub API/PowerShell command to the operator only when the exact Connector endpoint is unavailable |
+| Patch/build/test/hash/static analysis | Ephemeral local tooling/container | User checkout for preparation/validation only; never publication or production mutation |
+| Public Sea Speed HTTP verification | Read-only HTTP/web | One bounded read-only `curl`/PowerShell command to the operator |
+| External technical documentation | Read-only web using primary/official sources only | NONE |
+| User-provided logs/screenshots/config/files | Read the supplied material directly | NONE |
+| Production authorization | Exact three-line canonical Issue record through GitHub Connector | NONE |
+| VPS deployment | GitHub Actions -> `.github/workflows/deploy-vps.yml` | Only a repository-owned VPS action explicitly exposed by the canonical deployment path |
+| Ubuntu deployment | GitHub Actions -> `.github/workflows/deploy-ubuntu-worker.yml` -> `deploy/worker/ubuntu/deploy-authorized.sh` | Only the repository-owned sudo/root bootstrap explicitly emitted by the canonical path |
+| VPS/Ubuntu runtime diagnostics | Repository-owned diagnostic/deployment tooling | One bounded read-only command to the operator on the corresponding host |
+| Password/sudo/TOTP/SSH trust/credentials/tokens | Operator enters locally in the intended prompt/secret store | NONE; protected values never enter chat or Git |
+
+Gmail, Calendar, Drive, Notion, `gh`, local GitHub authentication, assistant-side `git push`, manual GitHub web publication, ad-hoc SSH/shell exploration, direct database mutation, cloud-console mutation and every other unlisted connector/plugin/service are explicitly forbidden implicit fallbacks.
+
+The GitHub API/PowerShell and `curl`/PowerShell fallbacks are evidence-only and read-only. They never authorize repository publication or runtime mutation.
+
+A future task requiring an unlisted tool/service must change the allowlist through the normal visible Scope -> `OUTCOME APPROVED` source lifecycle before use.
