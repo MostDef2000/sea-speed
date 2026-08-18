@@ -1,4 +1,6 @@
 """Bounded Water passage tracking and pluggable speed-measurement strategies."""
+# Keep this module in the remediation diff so the final production envelope binds the
+# VPS Auth recovery and the still-pending Ubuntu Water Passage rollout to one exact SHA.
 from __future__ import annotations
 
 import math
