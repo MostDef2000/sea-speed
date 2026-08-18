@@ -49,7 +49,7 @@ def objects_namespace(temp_dir: str) -> dict[str, Any]:
         "Any": Any, "Dict": Dict, "List": List, "Optional": Optional, "Path": Path,
         "json": json, "hashlib": hashlib, "sqlite3": sqlite3, "contextmanager": contextmanager,
         "uuid": uuid, "HTTPException": HTTPExceptionStub,
-        "OBJECT_STATUSES": {"new", "reviewed", "ignored"},
+        "OBJECT_STATUSES": {"new", "reviewed", "ignored"}, "OBJECTS_RETENTION_LIMIT": 100,
         "OBJECTS_DB_FILE": Path(temp_dir) / "objects.sqlite3",
         "EVENTS_FILE": Path(temp_dir) / "events.json",
         "now_iso": lambda: "2026-08-02T00:00:00+00:00",
@@ -57,9 +57,10 @@ def objects_namespace(temp_dir: str) -> dict[str, Any]:
 
 
 OBJECT_FUNCTIONS = {
-    "read_json_file", "open_objects_db", "initialize_objects_db", "optional_float", "optional_int",
-    "stable_object_id", "persist_object_event", "import_existing_events", "object_row_to_dict",
-    "build_objects_where", "get_cam1_objects", "get_cam1_object", "patch_cam1_object", "delete_cam1_object",
+    "read_json_file", "open_objects_db", "prune_objects_registry", "initialize_objects_db",
+    "optional_float", "optional_int", "stable_object_id", "persist_object_event", "import_existing_events",
+    "object_row_to_dict", "build_objects_where", "get_cam1_objects", "get_cam1_object",
+    "patch_cam1_object", "delete_cam1_object",
 }
 
 
@@ -102,6 +103,52 @@ class ApiContractTests(unittest.TestCase):
             self.assertTrue({"analytics_profile", "domain", "object_type", "model_class"}.issubset(columns))
             self.assertEqual((water["camera_id"], water["model_class"]), ("cam1", "boat"))
             self.assertEqual((road["camera_id"], road["domain"]), ("road1", "road"))
+
+    def test_objects_registry_initialization_prunes_to_newest_100(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            ns = objects_namespace(temp_dir)
+            load_functions(OBJECT_FUNCTIONS, ns)
+            ns["initialize_objects_db"]()
+            with ns["open_objects_db"]() as connection:
+                for index in range(105):
+                    object_id = f"seed-{index:03d}"
+                    detected_at = f"2026-08-02T10:{index // 60:02d}:{index % 60:02d}+00:00"
+                    connection.execute(
+                        """INSERT INTO objects (
+                            object_id, camera_id, detected_at, class_name, original_event_json,
+                            created_at, updated_at
+                        ) VALUES (?, 'cam1', ?, 'vessel', '{}', ?, ?)""",
+                        (object_id, detected_at, detected_at, detected_at),
+                    )
+            ns["initialize_objects_db"]()
+            with ns["open_objects_db"]() as connection:
+                rows = connection.execute(
+                    "SELECT object_id FROM objects ORDER BY detected_at DESC, object_id DESC"
+                ).fetchall()
+            self.assertEqual(len(rows), 100)
+            self.assertEqual(rows[0]["object_id"], "seed-104")
+            self.assertEqual(rows[-1]["object_id"], "seed-005")
+
+    def test_objects_registry_insert_prunes_to_newest_100(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            ns = objects_namespace(temp_dir)
+            load_functions(OBJECT_FUNCTIONS, ns)
+            ns["initialize_objects_db"]()
+            for index in range(101):
+                ns["persist_object_event"]({
+                    "event_id": f"event-{index:03d}",
+                    "camera_id": "cam1" if index % 2 == 0 else "road1",
+                    "created_at": f"2026-08-02T11:{index // 60:02d}:{index % 60:02d}+00:00",
+                    "class_name": "vessel" if index % 2 == 0 else "car",
+                })
+            with ns["open_objects_db"]() as connection:
+                rows = connection.execute(
+                    "SELECT object_id FROM objects ORDER BY detected_at DESC, object_id DESC"
+                ).fetchall()
+            self.assertEqual(len(rows), 100)
+            self.assertEqual(rows[0]["object_id"], "event-100")
+            self.assertEqual(rows[-1]["object_id"], "event-001")
+            self.assertNotIn("event-000", {row["object_id"] for row in rows})
 
     def test_legacy_cam1_objects_remain_camera_scoped(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -157,6 +204,8 @@ class ApiContractTests(unittest.TestCase):
         block = source[start:end]
         for marker in ("camera_id", "domain", "analytics_profile", "object_type"):
             self.assertIn(marker, block)
+        self.assertIn("OBJECTS_RETENTION_LIMIT = 100", source)
+        self.assertIn("def prune_objects_registry", source)
 
     def test_browser_worker_control_is_fixed_to_water_and_road1(self) -> None:
         source = SOURCE.read_text(encoding="utf-8")
