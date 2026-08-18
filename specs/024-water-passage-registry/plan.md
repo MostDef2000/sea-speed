@@ -80,7 +80,7 @@ Production is separate. After the remediation merges, the previous production fi
 
 ## Correct-course check
 
-- Trigger: PRODUCTION_LEARNING + RELEASE_BLOCKER
+- Trigger: PRODUCTION_LEARNING
 - Issue impact: #218 remains canonical. Operator reported protected `/sea-speed/` HTTP 500 after PR #219 merged but before production mutation.
 - Root cause: canonical deploy order had a circular admission dependency. Public frontend smoke rejected 500 before `run_auth_boundary`, while the privileged cutover's `--require-protected-baseline` rejected 500 before it could reconcile the boundary.
 - Adjacent-stage review: `deploy.sh`, restricted helper, cutover semantics, Auth v1 renderer/topology, release ordering and rollback were reviewed together. No model/Worker/MediaMTX/RTSP/data change is causal.
