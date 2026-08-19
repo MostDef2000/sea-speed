@@ -12,6 +12,10 @@ permissions:
   issues: read
   pull-requests: read
 
+concurrency:
+  group: sea-speed-autonomous-production
+  cancel-in-progress: false
+
 jobs:
   evaluate:
     name: Evaluate standing production delegation
@@ -42,13 +46,31 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Require quality commit is current main tip
+        id: freshness
+        env:
+          DEPLOY_SHA: ${{ steps.release.outputs.sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          CURRENT_MAIN="$(git rev-parse refs/remotes/origin/main)"
+          echo "current_main=$CURRENT_MAIN" >> "$GITHUB_OUTPUT"
+          if [[ "$CURRENT_MAIN" != "$DEPLOY_SHA" ]]; then
+            echo "fresh=false" >> "$GITHUB_OUTPUT"
+            echo "Ignoring stale successful Quality run for $DEPLOY_SHA; current main is $CURRENT_MAIN"
+            exit 0
+          fi
+          echo "fresh=true" >> "$GITHUB_OUTPUT"
+
       - name: Set up Python
+        if: ${{ steps.freshness.outputs.fresh == 'true' }}
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: "3.12"
 
       - name: Evaluate trusted standing delegation and repository policy
         id: policy
+        if: ${{ steps.freshness.outputs.fresh == 'true' }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
           DEPLOY_SHA: ${{ steps.release.outputs.sha }}
@@ -65,16 +87,27 @@ jobs:
             --evidence-output dist/production-policy-decision.json
 
       - name: Summarize policy decision
+        if: ${{ always() }}
         env:
+          FRESH: ${{ steps.freshness.outputs.fresh }}
+          CURRENT_MAIN: ${{ steps.freshness.outputs.current_main }}
+          DEPLOY_SHA: ${{ steps.release.outputs.sha }}
           ALLOWED: ${{ steps.policy.outputs.allowed }}
           REASON: ${{ steps.policy.outputs.reason }}
           DECISION_ID: ${{ steps.policy.outputs.policy_decision_id }}
         run: |
           {
             echo "### Sea Speed autonomous production policy"
-            echo "- Allowed: \`$ALLOWED\`"
-            echo "- Reason: \`$REASON\`"
-            echo "- Decision ID: \`$DECISION_ID\`"
+            echo "- Quality commit: \`$DEPLOY_SHA\`"
+            echo "- Current main: \`$CURRENT_MAIN\`"
+            echo "- Current-tip eligible: \`$FRESH\`"
+            if [[ "$FRESH" == "true" ]]; then
+              echo "- Allowed: \`$ALLOWED\`"
+              echo "- Reason: \`$REASON\`"
+              echo "- Decision ID: \`$DECISION_ID\`"
+            else
+              echo "- Execution: skipped because the Quality run is stale"
+            fi
             echo "- GitHub comments and repository text are not authority inputs."
           } >> "$GITHUB_STEP_SUMMARY"
 
