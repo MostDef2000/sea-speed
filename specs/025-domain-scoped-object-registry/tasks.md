@@ -7,7 +7,7 @@
 - [x] Lock Objects list requests to Water or Road scope and preserve the lock across Reset/reload.
 - [x] Keep generic API, object edit/delete workflow, storage schema and retention unchanged.
 - [x] Add focused frontend contract coverage.
-- [x] Correct PR Change Contract metadata to declare exactly the five-file implementation diff.
+- [x] Align PR Change Contract changed-file, risk and execution-capability fields with the exact VPS-only diff.
 - [ ] Exact-head source/syntax/contract validation is pending in canonical CI.
 - [x] Verify exact authorized-subset branch diff against current `main`.
 - [x] Open PR linked to this SDD; exact-head PR Validation + aggregate Quality are pending.
