@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mostdef.ru/sea-speed/contracts/production-autonomy-v1.schema.json",
+  "title": "Sea Speed production autonomy contracts",
+  "$defs": {
+    "sha40": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "standingDelegation": {
+      "type": "object",
+      "required": ["schema", "delegationId", "principal", "repository", "environment", "permissions", "mode", "policyHash", "enabled"],
+      "properties": {
+        "schema": {"const": "sea_speed_standing_production_delegation_v1"},
+        "delegationId": {"type": "string", "minLength": 1},
+        "principal": {"type": "string", "minLength": 1},
+        "repository": {"type": "string", "minLength": 1},
+        "environment": {"const": "production"},
+        "permissions": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "enum": ["deploy", "rollback"]}},
+        "mode": {"const": "autonomous"},
+        "policyHash": {"$ref": "#/$defs/sha256"},
+        "enabled": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    },
+    "policyDecision": {
+      "type": "object",
+      "required": ["schema", "decision", "reason", "repository", "environment", "action", "sourceCommit", "canonicalIssue", "pullRequest", "outcomeContractHash", "changeContractHash", "approvedFiles", "runtimeContours", "executionCapabilities", "delegationId", "principal", "policyVersion", "policyHash", "decisionId"],
+      "properties": {
+        "schema": {"const": "sea_speed_production_policy_decision_v1"},
+        "decision": {"type": "string", "enum": ["allow", "deny"]},
+        "reason": {"type": "string", "minLength": 1},
+        "repository": {"type": "string", "minLength": 1},
+        "environment": {"type": "string", "minLength": 1},
+        "action": {"type": "string", "minLength": 1},
+        "sourceCommit": {"$ref": "#/$defs/sha40"},
+        "canonicalIssue": {"type": "integer", "minimum": 1},
+        "pullRequest": {"type": "integer", "minimum": 1},
+        "outcomeContractHash": {"$ref": "#/$defs/sha256"},
+        "changeContractHash": {"$ref": "#/$defs/sha256"},
+        "approvedFiles": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "runtimeContours": {"type": "object"},
+        "executionCapabilities": {"type": "object"},
+        "delegationId": {"type": ["string", "null"]},
+        "principal": {"type": ["string", "null"]},
+        "policyVersion": {"type": "string", "minLength": 1},
+        "policyHash": {"$ref": "#/$defs/sha256"},
+        "decisionId": {"$ref": "#/$defs/sha256"}
+      },
+      "additionalProperties": false
+    }
+  }
+}
