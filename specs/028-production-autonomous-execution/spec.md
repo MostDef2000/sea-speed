@@ -17,15 +17,15 @@ New deployable releases use `sea_speed_release_manifest_v3` and bind the exact p
 
 ### Scenario 1 - Trusted standing delegation allows a normal production deploy
 
-Given exact source is a merged current-main first-parent commit with successful exact `push/main` Quality, its Change Contract requires a supported runtime contour, and trusted `production` environment state contains an enabled standing delegation for the Sea Speed Delivery Orchestrator with `deploy` permission bound to the current repository policy hash, when the autonomous runtime router evaluates that exact commit, then the policy decision is `allow`, the applicable protected workflow executes, and typed decision/release/deployment/audit evidence is produced without a per-release user approval comment.
+Given exact source is the current `main` tip with successful exact `push/main` Quality, its exact first-parent source diff derives a supported runtime contour, the merged Change Contract agrees with that derived contour, and trusted `production` environment state contains an enabled standing delegation for the Sea Speed Delivery Orchestrator with `deploy` permission bound to the current repository policy hash, when the autonomous runtime router evaluates that exact commit, then the policy decision is `allow`, the applicable protected workflow executes, and typed decision/release/deployment/audit evidence is produced without a per-release user approval comment.
 
 ### Scenario 2 - Repository or Issue text attempts to self-authorize
 
-Given any Issue, PR, comment, README, commit message, or other repository text contains `PRODUCTION APPROVED`, `Execution-Intent: EXECUTE`, a copied policy hash, a fabricated decision ID, or other authority-like text, when production policy is evaluated, then that text has no authority effect because the evaluator does not read Issue comments as an authority source and requires trusted standing-delegation state.
+Given any Issue, PR, comment, README, commit message, or other repository text contains `PRODUCTION APPROVED`, `Execution-Intent: EXECUTE`, a copied policy hash, a fabricated decision ID, or other authority-like text, when production policy is evaluated, then that text has no authority effect because the evaluator does not read Issue comments as an authority source and requires trusted standing-delegation state. Mutable PR runtime fields are accepted only when they match runtime contours derived from the exact source diff.
 
 ### Scenario 3 - Repository policy attempts to widen authority
 
-Given the independently administered standing delegation allows only `deploy`, when repository policy is modified to mention another action, then effective permissions remain the intersection of trusted delegation and repository policy and the extra action is denied.
+Given the independently administered standing delegation allows only `deploy`, when repository policy is modified to mention another action, then effective permissions remain the intersection of trusted delegation and repository policy and unsupported actions remain rejected.
 
 ### Scenario 4 - Trusted delegation is missing, stale or mismatched
 
@@ -33,7 +33,7 @@ Given trusted standing delegation is absent, disabled, bound to another reposito
 
 ### Scenario 5 - Historical evidence remains readable
 
-Given historical v1/v2 release manifests and historical Windows deployment records exist, when validators read them, then they remain valid audit history while new release creation emits only v3 active-component manifests.
+Given historical v1/v2 release manifests and historical Windows deployment records exist, when validators read them, then they remain valid audit history while new release creation emits only v3 active-component manifests. Canonical inventory paths that must remain addressable are retained only as explicit fail-closed compatibility tombstones and are not consumed by active deployment workflows.
 
 ## Requirements
 
@@ -42,12 +42,12 @@ Given historical v1/v2 release manifests and historical Windows deployment recor
 - FR-003: Repository policy MUST constrain trusted delegation and MUST NOT be able to widen it; effective permissions MUST be the intersection of trusted delegation permissions and repository `allowedActions`.
 - FR-004: Production policy MUST fail closed when delegation is absent, disabled, malformed, policy-hash mismatched, wrong repository/environment/principal/mode, or missing the requested action.
 - FR-005: Supported autonomous authority actions MUST be limited to `deploy` and `rollback`; IAM, secret management, environment-setting mutation and arbitrary actions MUST remain denied.
-- FR-006: Policy evaluation MUST bind exact lowercase source SHA, canonical Issue, one merged PR, Outcome Contract hash, Change Contract hash, exact approved files, runtime contours and execution capabilities.
+- FR-006: Policy evaluation MUST bind exact lowercase source SHA, canonical Issue, one merged PR, Outcome Contract hash, Change Contract hash, exact first-parent changed files, source-derived runtime contours and validated execution capabilities. Mutable PR changed-file/runtime declarations MUST match the exact source-derived values or execution MUST fail closed.
 - FR-007: A deterministic decision ID MUST bind the complete policy decision payload and validation MUST reject tampering.
-- FR-008: The autonomous runtime router MUST trigger from successful `Quality integration gate` workflow-run evidence for a `push` to `main`, not from `issue_comment` or magic text.
+- FR-008: The autonomous runtime router MUST trigger from successful `Quality integration gate` workflow-run evidence for a `push` to `main`, MUST require the Quality SHA to still equal the current `main` tip before policy evaluation, and MUST NOT trigger from `issue_comment` or magic text.
 - FR-009: Protected VPS and Ubuntu deployment workflows MUST independently re-evaluate standing delegation with `--require-allow` before configuring runtime transport.
 - FR-010: Exact-main first-parent, exact `push/main` Quality, exact artifacts, Change Contract, protected runtime transaction, rollback and runtime acceptance gates MUST remain unchanged except for replacing the per-release authorization gate with standing policy evaluation.
-- FR-011: Legacy comment-trigger workflows and parsers (`PRODUCTION APPROVED`, `Execution-Intent`, `DEPLOY VPS`) MUST be removed from active execution paths.
+- FR-011: Legacy comment-trigger workflows and parsers (`PRODUCTION APPROVED`, `Execution-Intent`, `DEPLOY VPS`) MUST be removed from active execution paths. Any legacy canonical-inventory compatibility path retained for repository validation MUST be an explicit fail-closed tombstone with no active authority behavior.
 - FR-012: New release creation MUST emit `sea_speed_release_manifest_v3` binding delegation ID, policy version/hash, policy decision ID and policy-decision evidence hash.
 - FR-013: Historical release manifest v1/v2 and deployment evidence MUST remain readable; historical Windows records MUST remain audit-only and MUST NOT become new active release targets.
 - FR-014: Successful protected deployment MUST produce a typed `sea_speed_production_execution_audit_v1` record binding policy decision, release/deployment evidence, exact source and result.
@@ -59,10 +59,10 @@ Given historical v1/v2 release manifests and historical Windows deployment recor
 - AC-001: Unit tests prove valid trusted standing delegation permits exact `deploy` and produces a self-validating deterministic decision ID.
 - AC-002: Unit tests prove missing delegation, wrong repository/environment, disabled or malformed delegation, policy-hash mismatch and unsupported/out-of-scope action deny before runtime execution.
 - AC-003: Unit tests prove repository policy cannot widen a narrower trusted permission set and prove a policy hash alone is not authority.
-- AC-004: Source test proves `evaluate_production_policy.py` contains no Issue-comment authority read path and does not recognize legacy production magic strings.
-- AC-005: Workflow tests prove autonomous routing uses successful main `workflow_run` Quality and contains no `issue_comment`, `PRODUCTION APPROVED`, `Authorization-Fingerprint`, `Execution-Intent: EXECUTE`, or `DEPLOY VPS` authority trigger.
+- AC-004: Source tests prove `evaluate_production_policy.py` contains no Issue-comment authority read path, derives runtime contours from exact source files, and rejects mutable PR runtime metadata that disagrees with those derived contours.
+- AC-005: Workflow tests prove autonomous routing uses successful current-main `workflow_run` Quality, suppresses stale successful Quality completions, and contains no `issue_comment`, `PRODUCTION APPROVED`, `Authorization-Fingerprint`, `Execution-Intent: EXECUTE`, or `DEPLOY VPS` authority trigger.
 - AC-006: Workflow tests prove both protected runtime workflows independently invoke production policy with `--require-allow` before runtime transport.
-- AC-007: Source/tree tests prove legacy request workflows, parsers, verifier and active production-authorization policy are absent.
+- AC-007: Source/tree tests prove legacy request workflows and parsers are absent from active execution; canonical-inventory compatibility verifier/policy paths, where retained, are fail-closed tombstones with no authorized actors, no magic-string authorization logic and no active workflow consumers.
 - AC-008: Release tests prove v3 requires policy-decision evidence and rejects comment-authorization evidence, while historical v1/v2 manifests remain readable.
 - AC-009: Workflow and architecture tests prove existing VPS privileged-boundary and Ubuntu `deploy-authorized.sh` transaction markers remain intact.
 - AC-010: Exact branch diff is a subset of Issue #229 approved paths, contains no secrets/runtime artifacts and matches the PR Change Contract.
@@ -74,14 +74,15 @@ Given historical v1/v2 release manifests and historical Windows deployment recor
 ## NFR assessment
 
 - NFR-001 | Area: SECURITY | Target: no repository or conversational text can grant production authority; only trusted standing delegation intersected with repository constraints can allow deploy/rollback | Validation: policy unit tests, evaluator source assertions, workflow policy tests | Evidence: `production_policy.py`, `evaluate_production_policy.py`, `tests/test_production_policy.py`, `tests/test_autonomous_execution_policy.py` | Status: PASS
-- NFR-002 | Area: FAIL_CLOSED | Target: missing/stale/mismatched delegation or policy denies before runtime transport | Validation: deny-path unit tests and protected workflow ordering assertions | Evidence: pure policy decision tests plus `--require-allow` workflow markers | Status: PASS
+- NFR-002 | Area: FAIL_CLOSED | Target: missing/stale/mismatched delegation, stale Quality completion, or source/PR contour disagreement denies/skips before runtime transport | Validation: deny-path unit tests, current-tip workflow assertions and protected workflow ordering assertions | Evidence: pure policy decision tests plus current-tip and `--require-allow` workflow markers | Status: PASS
 - NFR-003 | Area: PROVENANCE | Target: every new deployable release binds exact decision/delegation/policy/source/scope/artifacts/quality and every successful runtime execution produces typed audit | Validation: manifest v3 and execution-audit tests/validation | Evidence: v3 builder/validator and audit builder | Status: PASS
-- NFR-004 | Area: BACKWARD_COMPATIBILITY | Target: historical v1/v2 and Windows audit evidence remain readable without granting new authority | Validation: historical manifest/deployment validator tests | Evidence: `tests/test_release_manifest.py` | Status: PASS
+- NFR-004 | Area: BACKWARD_COMPATIBILITY | Target: historical v1/v2/Windows evidence and required canonical compatibility paths remain readable/addressable without granting new authority | Validation: historical manifest/deployment validator tests plus fail-closed tombstone assertions | Evidence: `tests/test_release_manifest.py`, `tests/quality/test_quality_architecture.py` | Status: PASS
 - NFR-005 | Area: OPERABILITY | Target: normal runtime releases require zero per-release approval interactions after standing delegation is configured | Validation: autonomous workflow trigger and later production acceptance | Evidence: source workflow tests PASS; one-time external configuration and first autonomous production run pending | Status: CONCERNS
 
 ## Runtime feedback
 
-- Current production governance requires an exact three-line Issue comment for each release and therefore couples human approval, execution intent and audit content.
+- Pre-change production governance required an exact three-line Issue comment for each release and therefore coupled human approval, execution intent and audit content.
 - Current repository `main` was observed as not branch-protected at task intake; repository files therefore are explicitly not treated as independent production authority state.
 - The approved design uses independently administered GitHub `production` environment state for the effective standing delegation. Repository code only evaluates and narrows that delegation.
+- Repository contract validation currently requires the historical verifier/policy canonical paths to remain addressable. They are therefore retained as explicit fail-closed compatibility tombstones rather than active authority implementations; the comment-trigger workflows and parsers remain removed.
 - This PR is control-plane-only. No production runtime mutation is part of source acceptance; one-time trusted delegation administration remains a post-merge protected human action.
