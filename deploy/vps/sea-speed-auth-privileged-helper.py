@@ -21,10 +21,14 @@ from typing import Callable
 
 SHA40_RE = re.compile(r"^[0-9a-f]{40}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+HLS_MEDIA_SEQUENCE_RE = re.compile(r"(?m)^#EXT-X-MEDIA-SEQUENCE:(\d+)\s*$")
 
 AUTHENTIK_UPSTREAM = "http://10.123.239.102:19000"
 WORKER_PRIVATE_LISTEN = "10.123.239.101:18080"
 WORKER_PRIVATE_PEER = "10.123.239.102"
+CAMERA1_PRIVATE_RELAY = "rtsp://10.123.239.102:8554/cam1"
+CAMERA1_LOCAL_HLS = "http://127.0.0.1:18889/cam1/index.m3u8"
+CAMERA1_H264_SERVICE = "sea-speed-camera1-h264.service"
 NGINX_ROOT = Path("/etc/nginx")
 AUTH_BACKUP_ROOT = Path("/var/lib/sea-speed-auth-v1/backups")
 BROKEN_PUBLIC_500_MARKER = "ERROR /sea-speed/ is not auth-gated: HTTP 500"
@@ -182,6 +186,122 @@ def validate_bundle(
         if staged_sha != expected_sha:
             raise BoundaryError(f"staged release does not match installed privileged bundle: {relative}")
     return repo_root
+
+
+def _run_fixed(
+    runner: Callable[..., subprocess.CompletedProcess[str]],
+    argv: list[str],
+    *,
+    timeout: int = 20,
+) -> subprocess.CompletedProcess[str]:
+    return runner(
+        argv,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=False,
+        timeout=timeout,
+    )
+
+
+def _camera1_hls_sequence(
+    runner: Callable[..., subprocess.CompletedProcess[str]],
+) -> int:
+    argv = [
+        "curl",
+        "--fail",
+        "--silent",
+        "--show-error",
+        "--max-time",
+        "8",
+        CAMERA1_LOCAL_HLS,
+    ]
+    completed = _run_fixed(runner, argv, timeout=10)
+    if completed.returncode != 0:
+        raise BoundaryError("Camera 1 local HLS playlist is unavailable")
+    output = completed.stdout or ""
+    match = HLS_MEDIA_SEQUENCE_RE.search(output)
+    if match is None:
+        raise BoundaryError("Camera 1 local HLS playlist has no media sequence")
+    return int(match.group(1))
+
+
+def _camera1_hls_advancing(
+    runner: Callable[..., subprocess.CompletedProcess[str]],
+) -> bool:
+    first = _camera1_hls_sequence(runner)
+    slept = _run_fixed(runner, ["sleep", "3"], timeout=5)
+    if slept.returncode != 0:
+        raise BoundaryError("Camera 1 freshness sampling delay failed")
+    second = _camera1_hls_sequence(runner)
+    return second > first
+
+
+def _probe_camera1_private_relay(
+    runner: Callable[..., subprocess.CompletedProcess[str]],
+) -> None:
+    argv = [
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-rtsp_transport",
+        "tcp",
+        "-rw_timeout",
+        "10000000",
+        "-i",
+        CAMERA1_PRIVATE_RELAY,
+        "-frames:v",
+        "1",
+        "-f",
+        "null",
+        "-",
+    ]
+    completed = _run_fixed(runner, argv, timeout=15)
+    if completed.returncode != 0:
+        raise BoundaryError("Camera 1 private Ubuntu relay did not produce a decodable frame")
+
+
+def run_camera1_h264_recovery(
+    runner: Callable[..., subprocess.CompletedProcess[str]],
+) -> str:
+    if _camera1_hls_advancing(runner):
+        return (
+            "CAMERA1_H264_FRESHNESS=PASS\n"
+            "CAMERA1_H264_RECOVERY=NOOP\n"
+            "CAMERA1_LOCAL_HLS_ADVANCING=PASS\n"
+            "CAMERA1_PRIVATE_RELAY=NOT_CHECKED\n"
+            f"CAMERA1_H264_SERVICE={CAMERA1_H264_SERVICE}"
+        )
+
+    _probe_camera1_private_relay(runner)
+    restarted = _run_fixed(
+        runner,
+        ["systemctl", "restart", CAMERA1_H264_SERVICE],
+        timeout=20,
+    )
+    if restarted.returncode != 0:
+        raise BoundaryError("fixed Camera 1 H264 service restart failed")
+    active = _run_fixed(
+        runner,
+        ["systemctl", "is-active", "--quiet", CAMERA1_H264_SERVICE],
+        timeout=10,
+    )
+    if active.returncode != 0:
+        raise BoundaryError("fixed Camera 1 H264 service is not active after restart")
+    startup_delay = _run_fixed(runner, ["sleep", "3"], timeout=5)
+    if startup_delay.returncode != 0:
+        raise BoundaryError("Camera 1 H264 startup delay failed")
+    if not _camera1_hls_advancing(runner):
+        raise BoundaryError("Camera 1 local HLS is still not advancing after fixed H264 restart")
+
+    return (
+        "CAMERA1_H264_FRESHNESS=PASS\n"
+        "CAMERA1_H264_RECOVERY=RESTARTED\n"
+        "CAMERA1_LOCAL_HLS_ADVANCING=PASS\n"
+        "CAMERA1_PRIVATE_RELAY=PASS\n"
+        f"CAMERA1_H264_SERVICE={CAMERA1_H264_SERVICE}"
+    )
 
 
 def _marker_value(output: str, prefix: str) -> str:
@@ -383,6 +503,9 @@ def execute_request(
         output = run_cutover(repo_root, runner)
         lines.extend(output.rstrip().splitlines())
         lines.append("SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS")
+        camera_output = run_camera1_h264_recovery(runner)
+        lines.extend(camera_output.rstrip().splitlines())
+        lines.append("SEA_SPEED_CAMERA1_H264_PRIVILEGED_RECOVERY=PASS")
     return lines
 
 
