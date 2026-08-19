@@ -11,6 +11,24 @@ The Water operator opens a Water registry scoped to `camera_id=cam1` and `domain
 
 Existing Water/Road operator markup may keep the common `/sea-speed/objects/` destination. When that destination has no explicit `scope`, the Objects page derives the initial scope only from the same-origin operator referrer (`/sea-speed/road/` -> Road; otherwise Water), immediately canonicalizes the current URL to `?scope=water|road`, and thereafter treats that explicit scope as authoritative across reload/reset. The Objects page itself exposes explicit Water/Road scoped links.
 
+## User scenarios
+
+### Scenario 1 - Water operator opens the Water registry
+
+Given an authenticated operator is on `/sea-speed/`, when the operator opens `Реестр объектов`, then the shared Objects page resolves to Water scope, canonicalizes the URL to `?scope=water`, and every list request remains locked to `camera_id=cam1` and `domain=water`.
+
+### Scenario 2 - Road operator opens the Road registry
+
+Given an authenticated operator is on `/sea-speed/road/`, when the operator opens `Реестр объектов`, then the shared Objects page resolves to Road scope, canonicalizes the URL to `?scope=road`, and every list request remains locked to `camera_id=road1` and `domain=road`.
+
+### Scenario 3 - Scope survives ordinary navigation and reset
+
+Given either scoped registry is open, when the operator reloads the page, copies the scoped URL, changes ordinary filters, paginates or presses Reset, then the selected Water/Road domain remains authoritative while search/date/speed/status filters and object detail operations continue to work within that domain.
+
+### Scenario 4 - Existing backend and retention remain unchanged
+
+Given the scoped registry UI is deployed, the generic `/sea-speed/api/objects` endpoint, SQLite schema, newest-100 Objects retention, newest-300 Water Passage retention, object edit/delete semantics, workers and analytics runtime remain unchanged.
+
 ## Requirements
 
 - FR-001: Entry from Water Operator MUST resolve to Water scope and entry from Road Operator MUST resolve to Road scope; this MAY be implemented by same-origin operator-referrer inference when the existing navigation URL has no explicit `scope`.
@@ -39,7 +57,15 @@ Existing Water/Road operator markup may keep the common `/sea-speed/objects/` de
 
 ## NFR assessment
 
-- NFR-001 | Area: BACKWARD_COMPATIBILITY | Target: no backend/API/storage contract change | Validation: exact diff plus frontend tests | Status: PASS
-- NFR-002 | Area: DATA_SAFETY | Target: no retention/schema mutation | Validation: `api/app/main.py` absent from diff | Status: PASS
-- NFR-003 | Area: UX_SAFETY | Target: ordinary navigation/reset cannot silently broaden a scoped registry | Validation: static contract + browser acceptance | Status: CONCERNS
-- NFR-004 | Area: OPERABILITY | Target: VPS-only rollout under existing deployment transaction | Validation: Change Contract + later deployment evidence | Status: CONCERNS
+- NFR-001 | Area: BACKWARD_COMPATIBILITY | Target: no backend/API/storage contract change | Validation: exact diff plus frontend behavioral tests | Evidence: `api/app/main.py` and storage paths absent from PR diff; `tests/test_frontend_contract.py` retained edit/delete/session assertions | Status: PASS
+- NFR-002 | Area: DATA_SAFETY | Target: no retention or schema mutation | Validation: exact changed-file scope | Evidence: final PR changed-file set contains only one frontend file, one test file and the linked SDD triplet | Status: PASS
+- NFR-003 | Area: UX_SAFETY | Target: ordinary navigation, reload and Reset cannot silently broaden a scoped registry | Validation: focused frontend contract plus later authenticated browser acceptance | Evidence: `tests/test_frontend_contract.py` scope-lock/canonicalization assertions; runtime acceptance remains pending until separately authorized deployment | Status: CONCERNS
+- NFR-004 | Area: OPERABILITY | Target: VPS-only rollout uses exact-SHA production authorization and canonical deployment transaction | Validation: Change Contract, exact-main Quality, deployment manifest and browser smoke | Evidence: source CI/merge evidence will be recorded on Issue #223 before any runtime authorization; runtime evidence is intentionally pending | Status: CONCERNS
+
+## Runtime feedback
+
+- Source authorization for the original seven-path outcome was granted with exact `OUTCOME APPROVED` after the operator-visible Scope on Issue #223.
+- Initial CI admission exposed only Change Contract metadata defects and then an SDD numeric-prefix collision because `025-tool-routing-contract` already exists on `main`; no product-source behavioral failure was observed in those attempts.
+- Fresh path-correction Scope was approved with exact `OUTCOME APPROVED`; the SDD triplet moved from branch-only `025-domain-scoped-object-registry` to unique `026-domain-scoped-object-registry` while the product outcome and runtime contour remained unchanged.
+- The final base-to-head diff is intentionally five paths: `frontend/sea-speed/objects/index.html`, `tests/test_frontend_contract.py`, and this `026` SDD triplet. Water/Road operator page bytes do not require modification because the shared Objects page can derive same-origin operator context when `scope` is absent.
+- Production mutation is not authorized by source approval. After exact-green merge and exact-main Quality, VPS runtime activation requires a separate exact-SHA production authorization and later authenticated browser acceptance.
