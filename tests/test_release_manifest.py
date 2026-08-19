@@ -29,11 +29,70 @@ def digest(value: object) -> str:
 
 
 class ReleaseManifestTests(unittest.TestCase):
-    def v2(self) -> dict[str, object]:
+    def v3(self) -> dict[str, object]:
         approved = ["deploy/vps/deploy.sh", "scripts/release/build_release_manifest.py"]
         payload: dict[str, object] = {
-            "schema": "sea_speed_release_manifest_v2",
+            "schema": "sea_speed_release_manifest_v3",
             "deliveryId": "vps-aaaaaaaaaaaa-aaaaaaaaaaaa",
+            "component": "vps",
+            "canonicalIssue": 229,
+            "pullRequest": 230,
+            "sourceCommit": "a" * 40,
+            "baseCommit": "b" * 40,
+            "outcomeContractHash": "c" * 64,
+            "changeContractHash": "d" * 64,
+            "delegationId": "prod-autonomy-v1",
+            "policyVersion": "1.0.0",
+            "policyHash": "e" * 64,
+            "policyDecisionId": "f" * 64,
+            "approvedScopeHash": "",
+            "approvedFiles": approved,
+            "actualFiles": list(approved),
+            "artifacts": [{"path": "dist/vps.tar.gz", "sha256": "1" * 64, "sizeBytes": 123}],
+            "evidence": {
+                "policyDecisionSha256": "2" * 64,
+                "exactArtifactsManifestSha256": "3" * 64,
+                "qualityEvidenceSha256": "4" * 64,
+            },
+            "createdAt": "2026-08-19T00:00:00+00:00",
+            "state": "ready_for_deployment",
+        }
+        binding = {
+            "canonicalIssue": 229,
+            "pullRequest": 230,
+            "sourceCommit": "a" * 40,
+            "baseCommit": "b" * 40,
+            "outcomeContractHash": "c" * 64,
+            "changeContractHash": "d" * 64,
+            "approvedFiles": approved,
+        }
+        payload["approvedScopeHash"] = digest(binding)
+        return payload
+
+    def test_v3_release_manifest_binds_policy_decision_and_scope(self) -> None:
+        payload = self.v3()
+        RELEASE_VALIDATOR.validate(payload)
+        payload["actualFiles"] = ["deploy/vps/deploy.sh"]
+        with self.assertRaises(SystemExit):
+            RELEASE_VALIDATOR.validate(payload)
+
+    def test_v3_rejects_comment_authorization_evidence(self) -> None:
+        payload = self.v3()
+        payload["evidence"]["productionAuthorizationSha256"] = "5" * 64
+        with self.assertRaises(SystemExit):
+            RELEASE_VALIDATOR.validate(payload)
+
+    def test_ready_for_deployment_requires_artifact(self) -> None:
+        payload = self.v3()
+        payload["artifacts"] = []
+        with self.assertRaises(SystemExit):
+            RELEASE_VALIDATOR.validate(payload)
+
+    def test_historical_v2_release_manifest_remains_readable(self) -> None:
+        approved = ["deploy/vps/deploy.sh"]
+        payload: dict[str, object] = {
+            "schema": "sea_speed_release_manifest_v2",
+            "deliveryId": "vps-historical",
             "component": "vps",
             "canonicalIssue": 172,
             "pullRequest": 173,
@@ -44,40 +103,17 @@ class ReleaseManifestTests(unittest.TestCase):
             "authorizationFingerprint": "e" * 64,
             "approvedScopeHash": "",
             "approvedFiles": approved,
-            "actualFiles": list(approved),
-            "artifacts": [{"path": "dist/vps.tar.gz", "sha256": "f" * 64, "sizeBytes": 123}],
-            "evidence": {
-                "productionAuthorizationSha256": "1" * 64,
-                "exactArtifactsManifestSha256": "2" * 64,
-                "qualityEvidenceSha256": "3" * 64,
-            },
+            "actualFiles": approved,
+            "artifacts": [],
+            "evidence": {"productionAuthorizationSha256": "f" * 64},
             "createdAt": "2026-08-15T00:00:00+00:00",
-            "state": "ready_for_deployment",
+            "state": "validated",
         }
-        binding = {
-            "canonicalIssue": 172,
-            "pullRequest": 173,
-            "sourceCommit": "a" * 40,
-            "baseCommit": "b" * 40,
-            "outcomeContractHash": "c" * 64,
-            "changeContractHash": "d" * 64,
-            "approvedFiles": approved,
-        }
-        payload["approvedScopeHash"] = digest(binding)
-        return payload
-
-    def test_v2_release_manifest_binds_approved_and_actual_scope(self) -> None:
-        payload = self.v2()
+        payload["approvedScopeHash"] = digest({
+            "canonicalIssue": 172, "pullRequest": 173, "sourceCommit": "a" * 40, "baseCommit": "b" * 40,
+            "outcomeContractHash": "c" * 64, "changeContractHash": "d" * 64, "approvedFiles": approved,
+        })
         RELEASE_VALIDATOR.validate(payload)
-        payload["actualFiles"] = ["deploy/vps/deploy.sh"]
-        with self.assertRaises(SystemExit):
-            RELEASE_VALIDATOR.validate(payload)
-
-    def test_ready_for_deployment_requires_artifact(self) -> None:
-        payload = self.v2()
-        payload["artifacts"] = []
-        with self.assertRaises(SystemExit):
-            RELEASE_VALIDATOR.validate(payload)
 
     def test_legacy_v1_windows_release_manifest_remains_readable(self) -> None:
         approved = ["worker/a.py"]
