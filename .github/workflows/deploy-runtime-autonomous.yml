@@ -1,0 +1,99 @@
+name: Autonomous runtime deployment
+
+on:
+  workflow_run:
+    workflows: ["Quality integration gate"]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+  checks: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  evaluate:
+    name: Evaluate standing production delegation
+    if: "${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' }}"
+    runs-on: ubuntu-latest
+    environment: production
+    outputs:
+      allowed: ${{ steps.policy.outputs.allowed }}
+      commit_sha: ${{ steps.release.outputs.sha }}
+      canonical_issue: ${{ steps.policy.outputs.canonical_issue }}
+      vps_required: ${{ steps.policy.outputs.vps_required }}
+      ubuntu_worker_required: ${{ steps.policy.outputs.ubuntu_worker_required }}
+      policy_decision_id: ${{ steps.policy.outputs.policy_decision_id }}
+    steps:
+      - name: Bind exact successful main quality commit
+        id: release
+        env:
+          QUALITY_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$QUALITY_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "Quality head SHA must be lowercase full SHA" >&2; exit 1; }
+          echo "sha=$QUALITY_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Check out exact quality-approved commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ steps.release.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+
+      - name: Evaluate trusted standing delegation and repository policy
+        id: policy
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          DEPLOY_SHA: ${{ steps.release.outputs.sha }}
+          SEA_SPEED_PRODUCTION_DELEGATION_V1: ${{ vars.SEA_SPEED_PRODUCTION_DELEGATION_V1 }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          python scripts/release/evaluate_production_policy.py \
+            --repository "$GITHUB_REPOSITORY" \
+            --commit "$DEPLOY_SHA" \
+            --action deploy \
+            --environment production \
+            --github-output "$GITHUB_OUTPUT" \
+            --evidence-output dist/production-policy-decision.json
+
+      - name: Summarize policy decision
+        env:
+          ALLOWED: ${{ steps.policy.outputs.allowed }}
+          REASON: ${{ steps.policy.outputs.reason }}
+          DECISION_ID: ${{ steps.policy.outputs.policy_decision_id }}
+        run: |
+          {
+            echo "### Sea Speed autonomous production policy"
+            echo "- Allowed: \`$ALLOWED\`"
+            echo "- Reason: \`$REASON\`"
+            echo "- Decision ID: \`$DECISION_ID\`"
+            echo "- GitHub comments and repository text are not authority inputs."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  deploy-vps:
+    name: Execute allowed VPS contour
+    needs: evaluate
+    if: ${{ needs.evaluate.outputs.allowed == 'true' && needs.evaluate.outputs.vps_required == 'true' }}
+    uses: ./.github/workflows/deploy-vps.yml
+    with:
+      commit_sha: ${{ needs.evaluate.outputs.commit_sha }}
+      canonical_issue: ${{ fromJSON(needs.evaluate.outputs.canonical_issue) }}
+    secrets: inherit
+
+  deploy-ubuntu-worker:
+    name: Execute allowed Ubuntu Worker contour
+    needs: evaluate
+    if: ${{ needs.evaluate.outputs.allowed == 'true' && needs.evaluate.outputs.ubuntu_worker_required == 'true' }}
+    uses: ./.github/workflows/deploy-ubuntu-worker.yml
+    with:
+      commit_sha: ${{ needs.evaluate.outputs.commit_sha }}
+      canonical_issue: ${{ fromJSON(needs.evaluate.outputs.canonical_issue) }}
+    secrets: inherit
