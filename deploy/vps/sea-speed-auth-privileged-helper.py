@@ -247,7 +247,7 @@ def _probe_camera1_private_relay(
         "error",
         "-rtsp_transport",
         "tcp",
-        "-rw_timeout",
+        "-timeout",
         "10000000",
         "-i",
         CAMERA1_PRIVATE_RELAY,

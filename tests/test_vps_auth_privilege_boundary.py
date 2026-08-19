@@ -226,7 +226,27 @@ class CameraFreshnessRecoveryTests(unittest.TestCase):
         restart_calls = [argv for argv in calls if argv[:2] == ["systemctl", "restart"]]
         self.assertEqual(restart_calls, [["systemctl", "restart", "sea-speed-camera1-h264.service"]])
         ffmpeg_call = next(argv for argv in calls if argv[0] == "ffmpeg")
-        self.assertIn("rtsp://10.123.239.102:8554/cam1", ffmpeg_call)
+        self.assertEqual(
+            ffmpeg_call,
+            [
+                "ffmpeg",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-rtsp_transport",
+                "tcp",
+                "-timeout",
+                "10000000",
+                "-i",
+                "rtsp://10.123.239.102:8554/cam1",
+                "-frames:v",
+                "1",
+                "-f",
+                "null",
+                "-",
+            ],
+        )
+        self.assertNotIn("-rw_timeout", ffmpeg_call)
         for forbidden in ("nginx.service", "sea-speed-camera1-hls-http.service", "mediamtx.service", "sea-speed-worker.service", "sea-speed-road-worker.service"):
             self.assertFalse(any(forbidden in argv for argv in calls))
 
