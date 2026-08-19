@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import hashlib
 import json
 import os
 import re
+import subprocess
 import sys
 import urllib.request
 from pathlib import Path
@@ -19,6 +21,7 @@ from production_policy import PolicyError, decision_payload, parse_delegation, v
 ISSUE_FIELD_RE = re.compile(r"^- Issue:\s*#(\d+)\s*$", re.MULTILINE)
 FIELD_RE = re.compile(r"^- ([A-Za-z][A-Za-z0-9 /_-]*):\s*(.*?)\s*$", re.MULTILINE)
 DECLARED_PATH_RE = re.compile(r"^\s{2}- `([^`]+)`\s*$", re.MULTILINE)
+ACTIVE_IMPACTS = {"VPS", "UBUNTU_WORKER"}
 
 
 def github_json(url: str, token: str) -> object:
@@ -53,7 +56,97 @@ def declared_changed_files(pr_body: str) -> list[str]:
     return paths
 
 
-def release_metadata(repository: str, source_commit: str, token: str, expected_issue: int | None) -> dict[str, object]:
+def exact_changed_files(source_commit: str) -> list[str]:
+    try:
+        output = subprocess.check_output(
+            ["git", "diff", "--name-only", f"{source_commit}^", source_commit],
+            text=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        raise PolicyError("cannot resolve exact first-parent source diff") from exc
+    paths = sorted(line for line in output.splitlines() if line)
+    if not paths:
+        raise PolicyError("exact merged source diff is empty")
+    return paths
+
+
+def classify_file(path: str, change_policy: dict[str, object]) -> str:
+    rules = change_policy.get("rules")
+    if not isinstance(rules, list):
+        raise PolicyError("change-control policy rules are missing")
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        patterns = rule.get("patterns")
+        impact = rule.get("impact")
+        if not isinstance(patterns, list) or not isinstance(impact, str):
+            continue
+        if any(isinstance(pattern, str) and fnmatch.fnmatchcase(path, pattern) for pattern in patterns):
+            return impact
+    return "NONE"
+
+
+def derive_release_contract(actual_files: list[str], change_policy: dict[str, object]) -> tuple[dict[str, str], set[str]]:
+    impacts = [classify_file(path, change_policy) for path in actual_files]
+    active = {impact for impact in impacts if impact in ACTIVE_IMPACTS}
+    if len(active) > 1:
+        production_impact = "MIXED"
+    elif active:
+        production_impact = next(iter(active))
+    elif "CONTROL_PLANE" in impacts:
+        production_impact = "CONTROL_PLANE"
+    else:
+        production_impact = "NONE"
+    return {
+        "productionImpact": production_impact,
+        "vps": "REQUIRED" if "VPS" in active else "NOT REQUIRED",
+        "ubuntuWorkerRelay": "REQUIRED" if "UBUNTU_WORKER" in active else "NOT REQUIRED",
+    }, active
+
+
+def validate_pr_runtime_metadata(
+    fields: dict[str, str],
+    derived_contours: dict[str, str],
+    active: set[str],
+) -> dict[str, str]:
+    required = (
+        "Production impact", "VPS deployment", "Ubuntu worker/relay update",
+        "VPS execution capability", "Ubuntu worker execution capability",
+    )
+    missing = [name for name in required if not fields.get(name)]
+    if missing:
+        raise PolicyError("PR Change Contract is missing runtime fields: " + ", ".join(missing))
+    declared = {
+        "productionImpact": fields["Production impact"],
+        "vps": fields["VPS deployment"],
+        "ubuntuWorkerRelay": fields["Ubuntu worker/relay update"],
+    }
+    if declared != derived_contours:
+        raise PolicyError(
+            "mutable PR runtime metadata does not match exact source-derived contours: "
+            f"declared={declared} derived={derived_contours}"
+        )
+    capabilities = {
+        "vps": fields["VPS execution capability"],
+        "ubuntuWorkerRelay": fields["Ubuntu worker execution capability"],
+    }
+    for contour, key in (("VPS", "vps"), ("UBUNTU_WORKER", "ubuntuWorkerRelay")):
+        capability = capabilities[key]
+        if contour in active:
+            if capability not in {"CONNECTOR", "ONE_COMMAND_FALLBACK"}:
+                raise PolicyError(f"required contour {contour} has invalid execution capability {capability}")
+        elif capability != "NOT APPLICABLE":
+            raise PolicyError(f"non-applicable contour {contour} must declare NOT APPLICABLE capability")
+    return capabilities
+
+
+def release_metadata(
+    repository: str,
+    source_commit: str,
+    token: str,
+    expected_issue: int | None,
+    change_policy: dict[str, object],
+) -> dict[str, object]:
     validate_sha40(source_commit)
     pulls = github_json(f"https://api.github.com/repos/{repository}/commits/{source_commit}/pulls", token)
     if not isinstance(pulls, list):
@@ -70,35 +163,30 @@ def release_metadata(repository: str, source_commit: str, token: str, expected_i
     issue_number = int(issue_match.group(1))
     if expected_issue is not None and issue_number != expected_issue:
         raise PolicyError("PR Change Contract canonical Issue does not match requested Issue")
+
+    actual_files = exact_changed_files(source_commit)
+    declared_files = declared_changed_files(pr_body)
+    if declared_files != actual_files:
+        raise PolicyError(
+            "mutable PR changed-file declaration does not match exact source diff: "
+            f"declared={declared_files} actual={actual_files}"
+        )
+    runtime_contours, active = derive_release_contract(actual_files, change_policy)
+    fields = {name: value.strip() for name, value in FIELD_RE.findall(pr_body)}
+    execution_capabilities = validate_pr_runtime_metadata(fields, runtime_contours, active)
+
     issue = github_json(f"https://api.github.com/repos/{repository}/issues/{issue_number}", token)
     if not isinstance(issue, dict) or issue.get("pull_request"):
         raise PolicyError("canonical Issue is missing or resolves to a pull request")
     issue_body = issue.get("body") or ""
     outcome_text = outcome_contract(issue_body)
-    fields = {name: value.strip() for name, value in FIELD_RE.findall(pr_body)}
-    required = (
-        "Production impact", "VPS deployment", "Ubuntu worker/relay update",
-        "VPS execution capability", "Ubuntu worker execution capability",
-    )
-    missing = [name for name in required if not fields.get(name)]
-    if missing:
-        raise PolicyError("PR Change Contract is missing runtime fields: " + ", ".join(missing))
-    runtime_contours = {
-        "productionImpact": fields["Production impact"],
-        "vps": fields["VPS deployment"],
-        "ubuntuWorkerRelay": fields["Ubuntu worker/relay update"],
-    }
-    execution_capabilities = {
-        "vps": fields["VPS execution capability"],
-        "ubuntuWorkerRelay": fields["Ubuntu worker execution capability"],
-    }
     return {
         "canonicalIssue": issue_number,
         "pullRequest": pr_number,
         "sourceCommit": source_commit,
         "outcomeContractHash": hashlib.sha256(outcome_text.encode("utf-8")).hexdigest(),
         "changeContractHash": hashlib.sha256(pr_body.encode("utf-8")).hexdigest(),
-        "approvedFiles": declared_changed_files(pr_body),
+        "approvedFiles": actual_files,
         "runtimeContours": runtime_contours,
         "executionCapabilities": execution_capabilities,
     }
@@ -106,10 +194,10 @@ def release_metadata(repository: str, source_commit: str, token: str, expected_i
 
 def evaluate(
     *, repository: str, source_commit: str, token: str, policy: dict[str, object], delegation_raw: str | None,
-    action: str, environment: str, expected_issue: int | None = None,
+    action: str, environment: str, change_policy: dict[str, object], expected_issue: int | None = None,
 ) -> dict[str, object]:
     validate_policy(policy)
-    metadata = release_metadata(repository, source_commit, token, expected_issue)
+    metadata = release_metadata(repository, source_commit, token, expected_issue, change_policy)
     delegation = parse_delegation(delegation_raw)
     return decision_payload(
         policy=policy,
@@ -140,6 +228,7 @@ def main() -> int:
     parser.add_argument("--action", default="deploy")
     parser.add_argument("--environment", default="production")
     parser.add_argument("--policy", type=Path, default=Path("data/contracts/production-autonomy-policy-v1.json"))
+    parser.add_argument("--change-control-policy", type=Path, default=Path("data/contracts/change-control-policy-v1.json"))
     parser.add_argument("--delegation-json")
     parser.add_argument("--github-output", type=Path)
     parser.add_argument("--evidence-output", type=Path)
@@ -154,6 +243,7 @@ def main() -> int:
         raw_delegation = os.environ.get("SEA_SPEED_PRODUCTION_DELEGATION_V1", "")
     try:
         policy = json.loads(args.policy.read_text(encoding="utf-8"))
+        change_policy = json.loads(args.change_control_policy.read_text(encoding="utf-8"))
         decision = evaluate(
             repository=args.repository,
             source_commit=args.commit,
@@ -162,6 +252,7 @@ def main() -> int:
             delegation_raw=raw_delegation,
             action=args.action,
             environment=args.environment,
+            change_policy=change_policy,
             expected_issue=args.issue,
         )
         if args.require_allow and decision["decision"] != "allow":
