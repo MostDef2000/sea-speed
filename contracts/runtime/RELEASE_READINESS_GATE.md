@@ -1,6 +1,6 @@
 # Sea Speed Release Readiness Gate
 
-Version: 1.11.0
+Version: 1.12.0
 Status: Active
 
 ## Gate
@@ -19,15 +19,17 @@ Release Readiness Gate
 - SDD linkage valid for significant change: YES/NO/NOT APPLICABLE
 - Delivery quality layer valid: YES/NO/NOT APPLICABLE
 - Deployment transaction audit valid: YES/NO/NOT APPLICABLE
-- Production-learning adjacent-stage review complete: YES/NO/NOT APPLICABLE
 - Risk profile applicability correct: YES/NO/NOT APPLICABLE
 - Quality verdict: PASS/CONCERNS/WAIVED/NOT APPLICABLE
 - Secrets/runtime artifacts absent: YES/NO
 - Tool routing allowlist respected: YES/NO
-- Any fallback used is explicitly allowed for this task class: YES/NO/NOT APPLICABLE
 - Exact artifact inventory and SHA-256 valid: YES/NO/NOT APPLICABLE
 - Quality evidence valid: YES/NO/NOT APPLICABLE
-- Release manifest v2 valid: YES/NO/NOT APPLICABLE
+- Release manifest v3 valid: YES/NO/NOT APPLICABLE
+- Standing delegation required: YES/NO
+- Standing delegation state: VALID/MISSING/INVALID/NOT APPLICABLE
+- Production policy decision: ALLOW/DENY/NOT APPLICABLE
+- Policy decision ID bound to exact release: YES/NO/NOT APPLICABLE
 - VPS deployment required: YES/NO
 - VPS execution capability: CONNECTOR/ONE_COMMAND_FALLBACK/NOT APPLICABLE
 - Ubuntu worker/relay update required: YES/NO
@@ -35,10 +37,6 @@ Release Readiness Gate
 - Operator actions expected: <non-negative integer>
 - Mixed-contour compatibility declared: YES/NO/NOT APPLICABLE
 - Rollout and rollback order declared: YES/NO/NOT APPLICABLE
-- Production safety envelope available: YES/NO/NOT APPLICABLE
-- Durable production authorization matches current fingerprint: YES/NO/NOT APPLICABLE
-- Production execution intent: EXECUTE/AUTHORIZE_ONLY/NOT APPLICABLE
-- Final exact lowercase 40-character source SHA bound to envelope: YES/NO/NOT APPLICABLE
 - Acceptance evidence plan available: YES/NO
 - Rollback target available: YES/NO/NOT APPLICABLE
 - Safe to continue: YES/NO
@@ -46,105 +44,69 @@ Release Readiness Gate
 
 ## Capability preflight
 
-The active production runtime contours are **VPS** and **Ubuntu Worker/relay**. New Change Contracts contain only those deployment and execution-capability fields. `MIXED` means both active contours apply.
+Active production contours are VPS and Ubuntu Worker/relay. Required contours need `CONNECTOR` or `ONE_COMMAND_FALLBACK`; non-required contours use `NOT APPLICABLE`. Windows is retired.
 
-A required active contour with `MISSING` or `NOT APPLICABLE` fails admission. A non-required active contour must be `NOT APPLICABLE`. `Operator actions expected` equals the number of required `ONE_COMMAND_FALLBACK` contours.
+## Tool routing admission
 
-For VPS, repository-owned Connector execution exists. For Ubuntu, `.github/workflows/deploy-ubuntu-worker.yml` plus `deploy/worker/ubuntu/deploy-authorized.sh` provide protected orchestration and target transaction; zero-touch is `CONNECTOR` only when the restricted transport boundary is independently provisioned, otherwise `ONE_COMMAND_FALLBACK`.
+Tool capability is not self-authorizing. GitHub lifecycle uses GitHub Connector only. Runtime policy evaluation and protected deployment use repository-owned GitHub Actions. Standing delegation administration uses independently controlled GitHub `production` environment settings by a human administrator and has no agent fallback. Protected credential entry remains operator-local.
 
-Windows Worker is retired. Windows-specific scripts/documentation are deprecated non-production tooling and do not enter this gate. Historical Windows release/deployment manifests remain readable through historical schemas/validators but cannot create a new runtime requirement.
-
-## Tool routing admission gate
-
-Tool capability is not self-authorizing. Sea Speed tool routing is `DENY BY DEFAULT`: an unlisted tool, connector, service, CLI, side-channel, publication path or runtime mutation path is forbidden even when technically available.
-
-Before release/deployment/acceptance work, classify the action against the canonical Tool Routing Allowlist in `AGENTS.md`, `contracts/SEA_SPEED_GOVERNANCE.md`, `contracts/SEA_SPEED_DELIVERY_POLICY.md`, and `contracts/branches/project-manager.md`.
-
-Fallbacks are row-specific. If a primary route is unavailable, only the fallback explicitly listed for that same task class may be used. If no fallback exists, or the declared fallback cannot complete safely, release execution stops at `HUMAN DECISION REQUIRED`; the Orchestrator does not search for another connector, plugin, service, shell or notification channel.
-
-Release-relevant route constraints include:
-
-- GitHub repository lifecycle: GitHub Connector only; no fallback.
-- CI status/jobs/logs/artifacts: GitHub Connector; only one bounded read-only GitHub API/PowerShell operator command when the exact Connector endpoint is unavailable.
-- Production authorization: exact three-line canonical Issue record through GitHub Connector only.
-- VPS deployment: `.github/workflows/deploy-vps.yml`; only a repository-owned fallback explicitly exposed by the canonical deployment path.
-- Ubuntu deployment: `.github/workflows/deploy-ubuntu-worker.yml` -> `deploy/worker/ubuntu/deploy-authorized.sh`; only the repository-owned sudo/root bootstrap explicitly emitted by that path.
-- VPS/Ubuntu runtime diagnostics: repository-owned diagnostic/deployment tooling; only one bounded read-only operator command on the corresponding host.
-- Protected password/sudo/TOTP/SSH trust/credentials/tokens: operator-local intended prompt/secret store only; values never enter chat or Git.
-
-Gmail, Calendar, Drive, Notion, `gh`, local GitHub authentication, assistant-side `git push`, manual GitHub web publication, ad-hoc SSH/shell exploration, direct database mutation, cloud-console mutation and every other unlisted connector/plugin/service are forbidden implicit fallbacks.
+If the required route is unavailable and no exact fallback exists, return `HUMAN DECISION REQUIRED`; do not discover another service.
 
 ## Terminal interaction gate
 
-Release readiness is internal and does not create a status handoff. The Delivery Orchestrator returns control only as:
-
-- `DONE`: the approved Outcome has all mandatory evidence.
-- `BLOCKED`: a concrete external blocker prevents safe authorized continuation; state the external blocker, evidence, unblock condition and next admissible action. A remediable source/test/CI/metadata defect or queued/running CI is not a blocker.
-- `HUMAN DECISION REQUIRED`: continuation requires a genuine human decision, authorization or protected input, configured environment review, or irreversible/high-risk choice. State the exact decision, bounded options/consequences when relevant and exact reply/action format. Deterministic execution resumes after the decision.
-
-`FAILED` is an internal event, not a terminal interaction state. Remediate it automatically when possible. “PR created”, “CI is running”, merge readiness and deployment preparation are not terminal while a safe authorized next action exists.
+Return control only as `DONE`, `BLOCKED`, `HUMAN DECISION REQUIRED`. `FAILED` is an internal observation. PR created, CI running, merge ready, release built and deployment prepared are not terminal.
 
 ## Aggregate quality gate
 
-The merge-facing context remains `Quality integration gate / quality-integration`. It succeeds only when all required independent domains succeed. The static/contract domain executes `scripts/ci/validate_sdd.py` for PR events. Workflow presence does not prove branch-protection settings.
+The merge-facing context remains `Quality integration gate / quality-integration`. It succeeds only when all required independent domains succeed. Workflow presence does not prove branch protection.
 
 ## Delivery quality gate
 
-For significant work, linked SDD includes NFR assessment, risk/test design, correct-course, acceptance traceability and Definition of Done. Full risk profile is derived from security, schema, destructive/data migration, `MIXED` runtime, or another explicit high-risk trigger.
-
-A quality waiver is never a hard gate bypass. No waiver bypasses source authorization, exact diff, active runtime derivation, protected-boundary reauthorization, secret checks, aggregate CI, production authorization, release provenance, rollback or runtime acceptance.
+Significant work includes current NFR assessment, risk/test design, correct-course, acceptance traceability and Definition of Done. Full risk profile derives from security/schema/destructive/data-migration/MIXED/other explicit high-risk triggers. Waivers never bypass hard gates.
 
 ## Release provenance gate
 
-When runtime delivery applies, new release provenance uses `sea_speed_release_manifest_v2`. Validate Issue, PR, Outcome/Change Contract hashes, exact base/source, approved versus actual files, scope hash, artifacts, SHA-256/size and quality/exact-artifact evidence.
+New runtime delivery uses `sea_speed_release_manifest_v3`, binding Issue, PR, Outcome/Change Contract hashes, exact base/source, approved/actual files, scope hash, artifacts, quality evidence, delegation ID, policy version/hash and policy decision ID. Historical v1/v2/Windows evidence remains readable audit history only.
 
-New release creation supports `vps`, `ubuntu-worker`, `mixed`, and `governance`. It must reject `windows-worker`. Persisted historical schemas and validators may continue reading Windows records solely for audit/rollback compatibility.
+## Standing production policy gate
 
-## Production authorization and execution-intent gate
+Production never runs merely because of source approval, push, merge, Issue/PR/comment text or a known hash. Runtime authority is a current independently administered standing delegation intersected with repository policy.
 
-Production never runs because of PR, push, merge or source authorization. Durable authority is:
+Before transport verify:
 
-```text
-PRODUCTION APPROVED <exact-sha>
-Authorization-Fingerprint: <current-fingerprint>
-```
+- exact lowercase current-main first-parent SHA;
+- successful exact `push/main` Quality;
+- exactly one applicable merged PR and canonical Issue;
+- valid current standing delegation for repository/environment/principal/mode;
+- requested action present in both trusted permissions and repository allowed actions;
+- delegation `policyHash` equals current repository policy hash;
+- deterministic typed policy decision is `allow` and bound to exact release metadata;
+- exact artifacts/release evidence and rollback target are valid.
 
-Authorize-and-execute adds:
+The standing action set is `deploy`, `rollback` only. IAM/secrets/settings administration is excluded. Missing/invalid delegation is deny. Legacy per-release comment authorization is non-authoritative historical evidence.
 
-```text
-Execution-Intent: EXECUTE
-```
-
-Before execution verify exact lowercase SHA, current-main first-parent history, exact successful `push/main` quality, one applicable merged PR/canonical Issue, current fingerprint, explicit execution intent, valid artifacts/release evidence, unchanged active runtime contours/protected boundaries/rollback semantics and known rollback target.
-
-Modern fingerprints contain only VPS/Ubuntu contour fields. Historical immutable PR bodies containing legacy Windows fields keep their historical fingerprint shape when read by `verify_production_authorization.py`.
-
-`.github/workflows/deploy-runtime-request.yml` routes only VPS and/or Ubuntu and contains no SSH/runtime mutation logic.
+`.github/workflows/deploy-runtime-autonomous.yml` routes only after successful main Quality. VPS/Ubuntu protected workflows independently re-evaluate policy before transport.
 
 ## VPS gate
 
-When VPS deployment is required, `.github/workflows/deploy-vps.yml` remains the single protected implementation. Verify exact source/quality/authorization/provenance, health/source identity, applicable product/security smokes and rollback target.
+When VPS is required, `.github/workflows/deploy-vps.yml` remains protected. Verify exact source/Quality/policy/provenance, health/source identity, applicable product/security smoke and rollback target.
 
 ## Ubuntu Worker/relay gate
 
-When Ubuntu update is required, `.github/workflows/deploy-ubuntu-worker.yml` validates exact main, quality, authorization, artifacts and release evidence before transport. `deploy/worker/ubuntu/deploy-authorized.sh` owns target mutation, verification, evidence and rollback. If restricted Connector transport is unavailable, one exact server-pull bootstrap may be emitted and the workflow must not claim runtime success before it executes.
-
-Post-mutation evidence includes exact source/runtime identity, protected-local-state preservation, applicable service state and freshness/frame/AI/relay telemetry.
+When Ubuntu is required, `.github/workflows/deploy-ubuntu-worker.yml` verifies exact source/Quality/policy/artifacts before transport. `deploy/worker/ubuntu/deploy-authorized.sh` owns target mutation, verification, evidence and rollback. A one-command fallback is transport, not approval.
 
 ## Mixed-contour gate
 
-When both active contours apply, `MIXED` is only the summary. Exact VPS and Ubuntu fields equal the derived set, compatibility and rollout/rollback order are explicit, and completion of one contour never substitutes for the other.
+When both active contours apply, exact VPS/Ubuntu flags remain authoritative. Completion of one contour never substitutes for the other.
 
 ## Documentation/control-plane rule
 
-Governance, SDD, documentation and delivery/quality tooling with derived `CONTROL_PLANE` impact require authorized source lifecycle and aggregate PR/post-merge quality only. VPS and Ubuntu deployment states and the production safety envelope are `NOT REQUIRED`. No production authorization is needed.
+Governance, SDD, documentation and control tooling with `CONTROL_PLANE` impact require authorized source lifecycle and PR/post-merge Quality only. Runtime deployment is `NOT REQUIRED` unless the Outcome explicitly includes later settings/runtime acceptance evidence.
 
 ## Deployment transaction gate
 
-Before merging deployment/release-affecting significant work, the linked plan covers exactly `ADMISSION`, `PRE-MUTATION`, `MUTATION`, `VERIFICATION`, `STATE-COMMIT`, `HOUSEKEEPING`, `EVIDENCE`, and `ROLLBACK`. Each stage states mutation possibility, failure disposition, state after failure, safe retry, rollback and evidence. Production learning additionally records root cause and completed adjacent-stage review.
+Deployment/release-affecting significant work covers `ADMISSION`, `PRE-MUTATION`, `MUTATION`, `VERIFICATION`, `STATE-COMMIT`, `HOUSEKEEPING`, `EVIDENCE`, `ROLLBACK`, including mutation possibility, failure disposition, safe retry, rollback and evidence.
 
 ## Evidence rule
 
-Green PR is not deployment evidence. Merge is not release. Release is not deployment. Deployment is not acceptance. `DONE` requires every applicable transition plus terminal Issue evidence.
-
-Internal release-gate verdicts may be `APPROVED FOR RELEASE`, `CHANGES REQUIRED`, or `BLOCKED`; they do not replace the terminal interaction states defined above.
+Green PR is not deployment evidence. Merge is not release. Release is not deployment. Deployment is not acceptance. A successful runtime execution must retain typed policy-decision, release-manifest-v3, deployment and execution-audit evidence before terminal acceptance.
