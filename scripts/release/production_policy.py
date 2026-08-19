@@ -13,6 +13,7 @@ POLICY_SCHEMA = "sea-speed-production-autonomy-policy/v1"
 DELEGATION_SCHEMA = "sea_speed_standing_production_delegation_v1"
 DECISION_SCHEMA = "sea_speed_production_policy_decision_v1"
 ALLOWED_DECISIONS = {"allow", "deny"}
+STANDING_ACTIONS = {"deploy", "rollback"}
 
 
 class PolicyError(ValueError):
@@ -45,6 +46,8 @@ def validate_policy(policy: dict[str, Any]) -> dict[str, Any]:
             raise PolicyError(f"{key} must be a non-empty string list")
         if value != sorted(set(value)):
             raise PolicyError(f"{key} must be sorted and unique")
+    if not set(policy["allowedActions"]).issubset(STANDING_ACTIONS):
+        raise PolicyError("allowedActions may contain only deploy and rollback")
     if policy.get("requiredDelegationMode") != "autonomous":
         raise PolicyError("requiredDelegationMode must be autonomous")
     principal = policy.get("requiredPrincipal")
@@ -85,6 +88,8 @@ def validate_delegation(delegation: dict[str, Any], policy: dict[str, Any]) -> d
         raise PolicyError("standing delegation permissions must be a non-empty string list")
     if permissions != sorted(set(permissions)):
         raise PolicyError("standing delegation permissions must be sorted and unique")
+    if not set(permissions).issubset(STANDING_ACTIONS):
+        raise PolicyError("standing delegation permissions may contain only deploy and rollback")
     expected_hash = policy_hash(policy)
     if delegation["policyHash"] != expected_hash:
         raise PolicyError("standing delegation policyHash does not match repository policy")
@@ -132,7 +137,9 @@ def decision_payload(
     reason = "standing_delegation_missing"
     delegation_id = None
     principal = None
-    if delegation is not None:
+    if action not in STANDING_ACTIONS:
+        reason = "unsupported_action"
+    elif delegation is not None:
         try:
             validate_delegation(delegation, policy)
         except PolicyError as exc:
@@ -150,8 +157,6 @@ def decision_payload(
                 reason = "delegation_environment_mismatch"
             elif action not in effective_permissions(delegation, policy):
                 reason = "action_not_delegated"
-            elif action not in {"deploy", "rollback"}:
-                reason = "unsupported_action"
             else:
                 decision = "allow"
                 reason = "standing_delegation_and_repository_policy_allow"
@@ -189,6 +194,8 @@ def validate_decision(decision: dict[str, Any], *, require_allow: bool = False) 
     if not isinstance(source_commit, str):
         raise PolicyError("decision sourceCommit is required")
     validate_sha40(source_commit, "decision source commit")
+    if decision.get("action") not in STANDING_ACTIONS:
+        raise PolicyError("decision action must be deploy or rollback")
     for key in ("policyHash", "decisionId", "outcomeContractHash", "changeContractHash"):
         value = decision.get(key)
         if not isinstance(value, str) or not SHA256_RE.fullmatch(value):
