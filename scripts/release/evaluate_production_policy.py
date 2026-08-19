@@ -11,6 +11,9 @@ import sys
 import urllib.request
 from pathlib import Path
 
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 from production_policy import PolicyError, decision_payload, parse_delegation, validate_policy, validate_sha40
 
 ISSUE_FIELD_RE = re.compile(r"^- Issue:\s*#(\d+)\s*$", re.MULTILINE)
