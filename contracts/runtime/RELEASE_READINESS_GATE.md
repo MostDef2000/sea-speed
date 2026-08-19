@@ -1,6 +1,6 @@
 # Sea Speed Release Readiness Gate
 
-Version: 1.12.0
+Version: 1.12.1
 Status: Active
 
 ## Gate
@@ -62,7 +62,7 @@ The merge-facing context remains `Quality integration gate / quality-integration
 
 ## Delivery quality gate
 
-Significant work includes current NFR assessment, risk/test design, correct-course, acceptance traceability and Definition of Done. Full risk profile derives from security/schema/destructive/data-migration/MIXED/other explicit high-risk triggers. Waivers never bypass hard gates.
+Significant work includes current NFR assessment, risk/test design, correct-course, acceptance traceability and Definition of Done. Full risk profile derives from security/schema/destructive/data-migration/MIXED/other explicit high-risk triggers. A waiver never bypasses a hard gate: source authorization, exact scope, required CI, standing production policy, rollback and runtime acceptance remain mandatory.
 
 ## Release provenance gate
 
