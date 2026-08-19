@@ -1,0 +1,16 @@
+{
+  "schema": "sea-speed-production-autonomy-policy/v1",
+  "version": "1.0.0",
+  "allowedRepositories": [
+    "MostDef2000/sea-speed"
+  ],
+  "allowedEnvironments": [
+    "production"
+  ],
+  "allowedActions": [
+    "deploy",
+    "rollback"
+  ],
+  "requiredDelegationMode": "autonomous",
+  "requiredPrincipal": "sea-speed-delivery-orchestrator"
+}
