@@ -50,6 +50,9 @@ Production acceptance is separate: install the exact-source helper bundle once t
 
 This change broadens a production root helper and can restart one production service, so security-boundary and operational risk are explicit. Risk is bounded by the existing no-argument sudo rule, exact-source bundle validation, fixed request schema, fixed service/URLs, relay-before-restart prerequisite, post-restart freshness gate, unchanged source rollback transaction, and separate exact-SHA production authorization.
 
+- RISK-001 | Category: SEC | Probability: 2 | Impact: 5 | Score: 10 | Mitigation: keep recovery inside the exact-source no-argument helper with fixed relay/HLS/service constants and no caller-selected root arguments | Validation: unsupported-action, no-argument, fixed-command and exact-source bundle tests | Residual risk: the helper can restart one fixed production service only after bounded prerequisites | Owner: Sea Speed Delivery Orchestrator | Status: MITIGATED
+- RISK-002 | Category: OPS | Probability: 3 | Impact: 3 | Score: 9 | Mitigation: treat unavailable or malformed HLS and unreadable relay as pre-restart fatal and require post-restart HLS sequence progression | Validation: no-op, relay-failure-before-restart and post-restart-static tests | Residual risk: an external camera or relay outage can still block VPS deployment without mutating unrelated services | Owner: Sea Speed Delivery Orchestrator | Status: MITIGATED
+
 ## Test design
 
 - TEST-001 | Covers: AC-001 | Level: unit | Priority: P0 | Evidence: advancing HLS sequence returns NOOP; captured commands contain no `ffmpeg` and no service restart
@@ -58,7 +61,7 @@ This change broadens a production root helper and can restart one production ser
 - TEST-004 | Covers: AC-004 | Level: unit | Priority: P0 | Evidence: post-restart equal HLS sequences raise fail-closed error
 - TEST-005 | Covers: AC-005 | Level: unit | Priority: P0 | Evidence: fixed constants plus existing unsupported-action rejection and no-argument installer assertions
 - TEST-006 | Covers: AC-007 | Level: integration | Priority: P0 | Evidence: privileged reconcile test returns Auth PASS plus Camera 1 freshness PASS markers
-- TEST-007 | Covers: AC-008 | Level: contract | Priority: P0 | Evidence: deployment source assertion keeps accepted `runtime_verified` behind successful `run_auth_boundary`
+- TEST-007 | Covers: AC-008 | Level: integration | Priority: P0 | Evidence: deployment source assertion keeps accepted `runtime_verified` behind successful `run_auth_boundary`
 - TEST-008 | Covers: AC-009,AC-010 | Level: integration | Priority: P0 | Evidence: exact authorized-subset PR diff, exact-head PR Validation + aggregate Quality, expected-head merge, exact-main Quality
 - TEST-009 | Covers: AC-011,AC-012 | Level: end-to-end | Priority: P0 | Evidence: exact-source privilege bootstrap PASS followed by canonical VPS deployment `runtime_verified`
 - TEST-010 | Covers: AC-013 | Level: runtime-manual | Priority: P0 | Evidence: authenticated current-day advancing clean video and unchanged Water/Road worker state
