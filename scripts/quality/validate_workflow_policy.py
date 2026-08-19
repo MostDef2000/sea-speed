@@ -111,8 +111,10 @@ def main() -> int:
             "name: Autonomous runtime deployment", "workflow_run:", 'workflows: ["Quality integration gate"]',
             "github.event.workflow_run.conclusion == 'success'", "github.event.workflow_run.event == 'push'",
             "github.event.workflow_run.head_branch == 'main'", "environment: production",
-            "vars.SEA_SPEED_PRODUCTION_DELEGATION_V1", "evaluate_production_policy.py",
-            "uses: ./.github/workflows/deploy-vps.yml", "uses: ./.github/workflows/deploy-ubuntu-worker.yml",
+            "Require quality commit is current main tip", "refs/remotes/origin/main", "Ignoring stale successful Quality run",
+            "steps.freshness.outputs.fresh == 'true'", "vars.SEA_SPEED_PRODUCTION_DELEGATION_V1",
+            "evaluate_production_policy.py", "uses: ./.github/workflows/deploy-vps.yml",
+            "uses: ./.github/workflows/deploy-ubuntu-worker.yml",
         ),
     )
     for forbidden in ("issue_comment:", "PRODUCTION APPROVED", "Authorization-Fingerprint", "Execution-Intent: EXECUTE", "DEPLOY VPS "):
@@ -168,7 +170,7 @@ def main() -> int:
         except ValueError as exc:
             fail(str(exc))
 
-    print("Workflow policy valid: exact-main quality -> standing delegation policy -> protected VPS/Ubuntu execution; legacy comment authority absent")
+    print("Workflow policy valid: current-tip exact-main quality -> standing delegation policy -> protected VPS/Ubuntu execution; legacy comment authority absent")
     return 0
 
 
