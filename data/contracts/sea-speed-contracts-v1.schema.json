@@ -113,24 +113,35 @@
     },
     "sea_speed_release_manifest_v3": {
       "type": "object",
-      "required": ["schema", "component", "source_commit", "artifact_sha256", "state", "delegation_id", "policy_version", "policy_hash", "policy_decision_id"],
+      "required": [
+        "schema", "deliveryId", "component", "canonicalIssue", "pullRequest", "sourceCommit", "baseCommit",
+        "outcomeContractHash", "changeContractHash", "delegationId", "policyVersion", "policyHash",
+        "policyDecisionId", "approvedScopeHash", "approvedFiles", "actualFiles", "artifacts", "evidence",
+        "createdAt", "state"
+      ],
       "properties": {
         "schema": {"const": "sea_speed_release_manifest_v3"},
-        "component": {"type": "string", "enum": ["edge", "vps", "ubuntu-worker", "mixed", "governance"]},
-        "source_commit": {"$ref": "#/$defs/sha40"},
-        "artifact_sha256": {"$ref": "#/$defs/sha256"},
-        "canonical_issue": {"type": "integer", "minimum": 1},
-        "pull_request": {"type": "integer", "minimum": 1},
-        "outcome_contract_hash": {"$ref": "#/$defs/sha256"},
-        "change_contract_hash": {"$ref": "#/$defs/sha256"},
-        "approved_scope_hash": {"$ref": "#/$defs/sha256"},
-        "delegation_id": {"type": "string", "minLength": 1},
-        "policy_version": {"type": "string", "minLength": 1},
-        "policy_hash": {"$ref": "#/$defs/sha256"},
-        "policy_decision_id": {"$ref": "#/$defs/sha256"},
-        "state": {"type": "string", "enum": ["built", "ready_for_deployment", "deployed", "runtime_verified"]}
+        "deliveryId": {"type": "string", "minLength": 1},
+        "component": {"type": "string", "enum": ["vps", "ubuntu-worker", "mixed", "governance"]},
+        "canonicalIssue": {"type": "integer", "minimum": 1},
+        "pullRequest": {"type": "integer", "minimum": 1},
+        "sourceCommit": {"$ref": "#/$defs/sha40"},
+        "baseCommit": {"$ref": "#/$defs/sha40"},
+        "outcomeContractHash": {"$ref": "#/$defs/sha256"},
+        "changeContractHash": {"$ref": "#/$defs/sha256"},
+        "delegationId": {"type": "string", "minLength": 1},
+        "policyVersion": {"type": "string", "minLength": 1},
+        "policyHash": {"$ref": "#/$defs/sha256"},
+        "policyDecisionId": {"$ref": "#/$defs/sha256"},
+        "approvedScopeHash": {"$ref": "#/$defs/sha256"},
+        "approvedFiles": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "actualFiles": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "artifacts": {"type": "array"},
+        "evidence": {"type": "object", "minProperties": 1},
+        "createdAt": {"type": "string", "minLength": 1},
+        "state": {"type": "string", "enum": ["validated", "packaged", "ready_for_deployment"]}
       },
-      "additionalProperties": true
+      "additionalProperties": false
     },
     "sea_speed_media_boundary_v1": {
       "type": "object",
