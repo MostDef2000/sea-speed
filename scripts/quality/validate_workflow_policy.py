@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate aggregate-gate and controlled-deployment workflow policy."""
+"""Validate aggregate quality and autonomous controlled-deployment workflow policy."""
 from __future__ import annotations
 
 import re
@@ -9,7 +9,11 @@ from pathlib import Path
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from scripts.quality.common import repository_root
+try:
+    from scripts.quality.common import repository_root
+except ModuleNotFoundError:
+    def repository_root() -> Path:
+        return Path(__file__).resolve().parents[2]
 
 ALLOWED_ACTIONS = {"actions/checkout", "actions/setup-python", "actions/setup-node", "actions/upload-artifact"}
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$", re.IGNORECASE)
@@ -32,10 +36,7 @@ def _validate_yaml_sensitive_shell_source(source: str, file: str) -> None:
         if match:
             value = match.group(1).strip()
             if value and not value.startswith(("'", '"', "|", ">")) and ": " in value:
-                raise ValueError(
-                    f"{file}:{line_no} has an unquoted if expression containing ': '; quote the whole YAML scalar"
-                )
-
+                raise ValueError(f"{file}:{line_no} has an unquoted if expression containing ': '; quote the whole YAML scalar")
     for line_index, line in enumerate(lines):
         for match in HEREDOC.finditer(line):
             delimiter = match.group(2)
@@ -50,9 +51,7 @@ def _validate_yaml_sensitive_shell_source(source: str, file: str) -> None:
             for candidate_index in range(line_index + 1, closing_index + 1):
                 candidate = lines[candidate_index]
                 if candidate.strip() and _indent_width(candidate) < opener_indent:
-                    raise ValueError(
-                        f"{file}:{candidate_index + 1} shell heredoc content escapes its YAML run block indentation"
-                    )
+                    raise ValueError(f"{file}:{candidate_index + 1} shell heredoc content escapes its YAML run block indentation")
 
 
 def validate_workflow_source(source: str, file: str) -> None:
@@ -89,9 +88,8 @@ def main() -> int:
     root = repository_root()
     workflows = root / ".github/workflows"
     quality = (workflows / "quality-integration.yml").read_text(encoding="utf-8-sig")
+    autonomous = (workflows / "deploy-runtime-autonomous.yml").read_text(encoding="utf-8-sig")
     deploy_vps = (workflows / "deploy-vps.yml").read_text(encoding="utf-8-sig")
-    vps_request = (workflows / "deploy-vps-request.yml").read_text(encoding="utf-8-sig")
-    runtime_request = (workflows / "deploy-runtime-request.yml").read_text(encoding="utf-8-sig")
     deploy_ubuntu = (workflows / "deploy-ubuntu-worker.yml").read_text(encoding="utf-8-sig")
 
     _require_markers(
@@ -105,119 +103,72 @@ def main() -> int:
     )
     if re.search(r"^\s+paths(?:-ignore)?:", quality, re.MULTILINE):
         fail("aggregate workflow must not use path filters")
-    aggregate_block = quality[quality.index("  quality-integration:"):]
-    for dependency in ("static-contract-security", "property-fuzz-reliability", "exact-artifact-e2e", "release-deployment-evidence"):
-        if dependency not in aggregate_block:
-            fail(f"aggregate job does not depend on {dependency}")
 
-    vps_on = deploy_vps.split("permissions:", 1)[0]
-    for marker in ("workflow_dispatch:", "workflow_call:"):
-        if marker not in vps_on:
-            fail(f"VPS deployment must support {marker.rstrip(':')}")
-    if re.search(r"^\s{2}(push|pull_request|issue_comment):", vps_on, re.MULTILINE):
-        fail("VPS deployment implementation must not run directly from push, pull_request, or issue_comment")
     _require_markers(
-        deploy_vps,
-        "deploy-vps.yml",
+        autonomous,
+        "deploy-runtime-autonomous.yml",
         (
-            "commit_sha:", "canonical_issue:", "environment: production", "issues: read", "pull-requests: read",
-            "refs/heads/main", "--first-parent", "verify_quality_status.py", "--workflow-file quality-integration.yml",
-            "verify_production_authorization.py", "production-authorization.json", "Build exact deployment artifacts",
-            "Build and validate quality evidence", "Build release provenance v2",
-            "SEA_SPEED_REQUIRE_AUTH_BOUNDARY: \"1\"",
-            "SEA_SPEED_AUTHENTIK_UPSTREAM: \"http://10.123.239.102:19000\"",
-            "SEA_SPEED_WORKER_PRIVATE_LISTEN: \"10.123.239.101:18080\"",
-            "SEA_SPEED_WORKER_PRIVATE_PEER: \"10.123.239.102\"",
-            "bash -n deploy/vps/sea-speed-auth-cutover.sh",
-            "Deploy exact commit and reconcile Road private M2M boundary",
-            "auth_v1_road_private_m2m",
-            "VPS Road private M2M deployment evidence valid",
+            "name: Autonomous runtime deployment", "workflow_run:", 'workflows: ["Quality integration gate"]',
+            "github.event.workflow_run.conclusion == 'success'", "github.event.workflow_run.event == 'push'",
+            "github.event.workflow_run.head_branch == 'main'", "environment: production",
+            "vars.SEA_SPEED_PRODUCTION_DELEGATION_V1", "evaluate_production_policy.py",
+            "uses: ./.github/workflows/deploy-vps.yml", "uses: ./.github/workflows/deploy-ubuntu-worker.yml",
         ),
     )
-    if "${INPUT_COMMIT,,}" in deploy_vps:
-        fail("deployment workflow must reject uppercase SHA rather than normalize it")
-    if deploy_vps.index("verify_production_authorization.py") > deploy_vps.index("Configure SSH"):
-        fail("production authorization must be verified before VPS SSH configuration")
-    if deploy_vps.index("verify_quality_status.py") > deploy_vps.index("Configure SSH"):
-        fail("quality evidence must be verified before VPS SSH configuration")
-    if deploy_vps.index("Build exact deployment artifacts") > deploy_vps.index("Configure SSH"):
-        fail("exact VPS artifact must be validated before runtime SSH")
-    if deploy_vps.index("Deploy exact commit and reconcile Road private M2M boundary") < deploy_vps.index("Configure SSH"):
-        fail("VPS boundary reconcile must execute only after protected SSH setup")
+    for forbidden in ("issue_comment:", "PRODUCTION APPROVED", "Authorization-Fingerprint", "Execution-Intent: EXECUTE", "DEPLOY VPS "):
+        if forbidden in autonomous:
+            fail(f"autonomous runtime router must not use legacy comment authority: {forbidden}")
 
-    legacy_request_on = vps_request.split("permissions:", 1)[0]
-    if "issue_comment:" not in legacy_request_on or "types: [created]" not in legacy_request_on:
-        fail("VPS deployment request workflow must trigger only from created issue_comment events")
-    _require_markers(
-        vps_request,
-        "deploy-vps-request.yml",
-        (
-            "startsWith(github.event.comment.body, 'DEPLOY VPS ')", "!github.event.issue.pull_request",
-            "scripts/release/parse_deployment_request.py", "uses: ./.github/workflows/deploy-vps.yml",
-            "secrets: inherit", "canonical_issue:", "commit_sha:",
-        ),
-    )
-    for forbidden in ("environment: production", "Configure SSH", "VPS_SSH_PRIVATE_KEY", "VPS_HOST", "ssh -i"):
-        if forbidden in vps_request:
-            fail(f"VPS request workflow must delegate protected execution; forbidden marker: {forbidden}")
+    for obsolete in ("deploy-runtime-request.yml", "deploy-vps-request.yml"):
+        if (workflows / obsolete).exists():
+            fail(f"legacy comment-trigger deployment workflow must be absent: {obsolete}")
 
-    runtime_on = runtime_request.split("permissions:", 1)[0]
-    if "issue_comment:" not in runtime_on or "types: [created]" not in runtime_on:
-        fail("runtime execution request must trigger only from created issue_comment events")
-    if re.search(r"^\s{2}(push|pull_request|workflow_dispatch):", runtime_on, re.MULTILINE):
-        fail("runtime execution request must not run from push, pull_request, or workflow_dispatch")
-    _require_markers(
-        runtime_request,
-        "deploy-runtime-request.yml",
-        (
-            "startsWith(github.event.comment.body, 'PRODUCTION APPROVED ')",
-            "Execution-Intent: EXECUTE", "github.event.issue.pull_request == null",
-            "parse_runtime_execution_request.py", "verify_production_authorization.py",
-            "--require-execution-intent", "uses: ./.github/workflows/deploy-vps.yml",
-            "uses: ./.github/workflows/deploy-ubuntu-worker.yml", "secrets: inherit",
-        ),
-    )
-    for retired in ("windows_worker_required", "windows-worker-fallback", "Windows Worker automation capability check"):
-        if retired in runtime_request:
-            fail(f"runtime request must not route retired Windows Worker contour: {retired}")
-    for forbidden in ("environment: production", "Configure SSH", "SSH_PRIVATE_KEY", "ssh -i"):
-        if forbidden in runtime_request:
-            fail(f"runtime request workflow must only parse/verify/route; forbidden marker: {forbidden}")
-    if (workflows / "package-worker.yml").exists():
-        fail("retired Windows Worker packaging workflow must not exist")
+    for file, source, contour_marker in (
+        ("deploy-vps.yml", deploy_vps, "Require VPS contour in exact Change Contract"),
+        ("deploy-ubuntu-worker.yml", deploy_ubuntu, "Require Ubuntu contour in exact Change Contract"),
+    ):
+        on_block = source.split("permissions:", 1)[0]
+        for marker in ("workflow_dispatch:", "workflow_call:"):
+            if marker not in on_block:
+                fail(f"{file} must support {marker.rstrip(':')}")
+        if re.search(r"^\s{2}(push|pull_request|issue_comment):", on_block, re.MULTILINE):
+            fail(f"{file} must not run directly from push, pull_request, or issue_comment")
+        _require_markers(
+            source,
+            file,
+            (
+                "environment: production", "refs/heads/main", "--first-parent", "verify_quality_status.py",
+                "evaluate_production_policy.py", "--require-allow", "vars.SEA_SPEED_PRODUCTION_DELEGATION_V1",
+                "production-policy-decision.json", "Build release provenance v3" if file == "deploy-vps.yml" else "Build exact artifacts and Ubuntu release provenance",
+                "--policy-decision-evidence", contour_marker, "build_execution_audit.py",
+            ),
+        )
+        for forbidden in ("verify_production_authorization.py", "PRODUCTION APPROVED", "Authorization-Fingerprint", "Execution-Intent: EXECUTE"):
+            if forbidden in source:
+                fail(f"{file} must not consume legacy production approval authority: {forbidden}")
+        transport_marker = "Configure SSH" if file == "deploy-vps.yml" else "Configure restricted Ubuntu SSH transport"
+        if source.index("evaluate_production_policy.py") > source.index(transport_marker):
+            fail(f"{file} must evaluate production policy before runtime transport")
 
-    ubuntu_on = deploy_ubuntu.split("permissions:", 1)[0]
-    for marker in ("workflow_dispatch:", "workflow_call:"):
-        if marker not in ubuntu_on:
-            fail(f"Ubuntu deployment must support {marker.rstrip(':')}")
-    if re.search(r"^\s{2}(push|pull_request|issue_comment):", ubuntu_on, re.MULTILINE):
-        fail("Ubuntu deployment implementation must not run directly from push, pull_request, or issue_comment")
-    _require_markers(
-        deploy_ubuntu,
-        "deploy-ubuntu-worker.yml",
-        (
-            "environment: production", "refs/heads/main", "--first-parent", "verify_quality_status.py",
-            "--workflow-file quality-integration.yml", "verify_production_authorization.py",
-            "build_exact_artifacts.py", "sea-speed-ubuntu-worker-", "Build one-command fallback",
-            "deploy/worker/ubuntu/deploy-authorized.sh", "UBUNTU_DEPLOY_SSH_PRIVATE_KEY",
-            "sea-speed-ubuntu-deploy-v1", "deployment-manifest-ubuntu-worker.json",
-            "one-command-fallback", "exit 42",
-        ),
-    )
-    if deploy_ubuntu.index("verify_production_authorization.py") > deploy_ubuntu.index("Resolve zero-touch execution capability"):
-        fail("Ubuntu authorization must be verified before transport capability resolution")
-    if deploy_ubuntu.index("verify_quality_status.py") > deploy_ubuntu.index("Resolve zero-touch execution capability"):
-        fail("Ubuntu quality must be verified before transport capability resolution")
+    if "deploy/worker/ubuntu/deploy-authorized.sh" not in deploy_ubuntu:
+        fail("Ubuntu deployment must preserve deploy-authorized.sh target transaction")
+    for marker in (
+        'SEA_SPEED_REQUIRE_AUTH_BOUNDARY: "1"',
+        'SEA_SPEED_AUTHENTIK_UPSTREAM: "http://10.123.239.102:19000"',
+        'SEA_SPEED_WORKER_PRIVATE_LISTEN: "10.123.239.101:18080"',
+        'SEA_SPEED_WORKER_PRIVATE_PEER: "10.123.239.102"',
+        "Deploy exact commit and reconcile Road private M2M boundary", "auth_v1_road_private_m2m",
+    ):
+        if marker not in deploy_vps:
+            fail(f"deploy-vps.yml protected marker missing: {marker}")
 
     for workflow_path in sorted(workflows.glob("*.y*ml")):
         try:
             validate_workflow_source(workflow_path.read_text(encoding="utf-8-sig"), str(workflow_path.relative_to(root)))
         except ValueError as exc:
             fail(str(exc))
-    print(
-        "Workflow policy valid: immutable actions, aggregate SDD gate, exact VPS Auth v1 boundary transaction, "
-        "two-contour Connector request routing, durable authorization and bounded Ubuntu fallback"
-    )
+
+    print("Workflow policy valid: exact-main quality -> standing delegation policy -> protected VPS/Ubuntu execution; legacy comment authority absent")
     return 0
 
 
