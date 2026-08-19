@@ -1,0 +1,8 @@
+{
+  "schema": "sea-speed-production-authorization-policy/v1",
+  "status": "retired-compatibility-tombstone",
+  "authorizedActors": [],
+  "authority": "NONE",
+  "replacement": "data/contracts/production-autonomy-policy-v1.json",
+  "note": "Historical compatibility path only. This file grants no production authority and is not consumed by active deployment workflows."
+}
