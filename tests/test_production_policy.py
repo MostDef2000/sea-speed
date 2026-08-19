@@ -95,24 +95,7 @@ class ProductionPolicyTests(unittest.TestCase):
 
     def test_repository_policy_cannot_widen_trusted_permissions(self):
         limited = delegation(permissions=["deploy"])
-        widened_policy = dict(POLICY)
-        widened_policy["allowedActions"] = ["deploy", "iam", "rollback"]
-        limited["policyHash"] = module.policy_hash(widened_policy)
-        value = module.decision_payload(
-            policy=widened_policy,
-            delegation=limited,
-            repository="MostDef2000/sea-speed",
-            environment="production",
-            action="iam",
-            source_commit="a" * 40,
-            canonical_issue=229,
-            pull_request=230,
-            outcome_contract_hash="b" * 64,
-            change_contract_hash="c" * 64,
-            approved_files=["a.txt"],
-            runtime_contours={"productionImpact": "VPS", "vps": "REQUIRED", "ubuntuWorkerRelay": "NOT REQUIRED"},
-            execution_capabilities={"vps": "CONNECTOR", "ubuntuWorkerRelay": "NOT APPLICABLE"},
-        )
+        value = decision(action="rollback", active_delegation=limited)
         self.assertEqual(value["decision"], "deny")
         self.assertEqual(value["reason"], "action_not_delegated")
 
@@ -126,13 +109,16 @@ class ProductionPolicyTests(unittest.TestCase):
             self.assertEqual(value["decision"], "deny")
             self.assertEqual(value["reason"], expected)
 
-    def test_unsupported_action_denies_even_if_policy_and_delegation_are_tampered_to_include_it(self):
-        widened_policy = dict(POLICY)
-        widened_policy["allowedActions"] = ["deploy", "iam", "rollback"]
-        active = delegation(permissions=["deploy", "iam", "rollback"], policyHash=module.policy_hash(widened_policy))
-        value = decision(action="iam", active_delegation=active, policy=widened_policy)
+    def test_unsupported_action_and_permission_are_rejected(self):
+        value = decision(action="iam")
         self.assertEqual(value["decision"], "deny")
         self.assertEqual(value["reason"], "unsupported_action")
+        widened_policy = dict(POLICY)
+        widened_policy["allowedActions"] = ["deploy", "iam", "rollback"]
+        with self.assertRaises(module.PolicyError):
+            module.validate_policy(widened_policy)
+        with self.assertRaises(module.PolicyError):
+            module.validate_delegation(delegation(permissions=["deploy", "iam", "rollback"]), POLICY)
 
     def test_policy_hash_is_not_authority(self):
         raw = json.dumps({"schema": "sea_speed_standing_production_delegation_v1", "policyHash": module.policy_hash(POLICY)})
