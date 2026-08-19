@@ -22,6 +22,35 @@ The retired `/cams/hls/cam1/index.m3u8` route is not a compatibility requirement
 - `scripts/operations/nginx_sea_speed_auth.py` subsequently applies the Authentik Forward Auth boundary to every `/sea-speed/**` location and retires all `/cams/**` locations.
 - `deploy/vps/sea-speed-auth-cutover.sh` is the only production activation path for this route after Auth v1.
 - `deploy/vps/camera1-direct-h264-cutover.sh` is retained as a read-only compatibility status helper. Its standalone `activate` mode is deliberately retired.
+- `deploy/vps/sea-speed-auth-privileged-helper.py` owns the fixed no-argument privileged recovery boundary used by the canonical VPS deployment transaction. After Auth v1 reconcile succeeds, it also verifies that the local Camera 1 HLS media sequence advances. If the playlist is valid but static, it first decodes one frame from the fixed credential-free Ubuntu relay `rtsp://10.123.239.102:8554/cam1`, then restarts only `sea-speed-camera1-h264.service`, and requires a newly advancing local HLS sequence before returning success.
+
+## H264 freshness recovery
+
+Issue #226 adds a bounded recovery path for the observed failure mode where the Ubuntu private relay is live but the VPS H264 compatibility producer remains stuck on an old HLS playlist. The recovery is part of the existing exact-source-bound privileged `reconcile` transaction, so the ordinary VPS deployment cannot reach accepted `runtime_verified` state if Camera 1 HLS freshness fails.
+
+The fixed recovery contract is:
+
+```text
+local http://127.0.0.1:18889/cam1/index.m3u8 advances
+  -> no-op
+
+local HLS is valid but does not advance
+  -> decode one frame from rtsp://10.123.239.102:8554/cam1
+  -> restart only sea-speed-camera1-h264.service
+  -> require the local HLS media sequence to advance
+```
+
+Fail-closed rules:
+
+- an unavailable or malformed local HLS playlist is not treated as proof of a stale H264 producer and causes failure without a restart;
+- an unreadable Ubuntu private relay causes failure before any restart;
+- failure to restart or activate `sea-speed-camera1-h264.service` causes failure;
+- a still-static HLS playlist after the fixed restart causes deployment failure;
+- the helper does not restart nginx, `sea-speed-camera1-hls-http.service`, MediaMTX, `sea-speed-worker.service`, or `sea-speed-road-worker.service`;
+- no caller-provided service name, media URL, shell command, or root argument is accepted;
+- the browser URL remains `/sea-speed/media/cam1/index.m3u8` and the camera/relay/Auth topology is unchanged.
+
+Because the privileged helper bundle is exact-source-bound, any release that changes this helper requires the repository-owned `install-auth-privilege-boundary.sh` bootstrap for that exact approved source before the canonical VPS deployment can use the new recovery logic.
 
 ## Safety rule
 
@@ -31,7 +60,7 @@ This ordering guarantees that `/sea-speed/media/cam1/` is not introduced as an u
 
 ## Acceptance
 
-After the separately authorized Auth v1 production cutover:
+After the separately authorized Auth v1 / Issue #226 production deployment:
 
 - anonymous `/cams/hls/cam1/index.m3u8` exposes no camera content;
 - anonymous `/sea-speed/media/cam1/index.m3u8` is denied/redirected through Authentik;
@@ -39,6 +68,8 @@ After the separately authorized Auth v1 production cutover:
 - the browser upstream remains `127.0.0.1:18889/cam1/`;
 - VPS MediaMTX is not reintroduced into the accepted Camera 1 browser path;
 - live viewing remains independent of the AI worker;
+- stale HLS recovery is a no-op when the playlist already advances;
+- stale HLS recovery restarts only `sea-speed-camera1-h264.service` after a successful fixed private-relay frame probe;
 - no camera credential is exposed in browser URLs or repository content.
 
 Production mutation still requires an exact merged `main` SHA and separate `PRODUCTION APPROVED` authorization.
