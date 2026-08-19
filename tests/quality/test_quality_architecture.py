@@ -18,12 +18,19 @@ class QualityArchitectureTests(unittest.TestCase):
     def test_protected_workflow_admission_contracts_remain(self) -> None:
         deploy = (ROOT / ".github/workflows/deploy-vps.yml").read_text(encoding="utf-8")
         ubuntu = (ROOT / ".github/workflows/deploy-ubuntu-worker.yml").read_text(encoding="utf-8")
+        autonomous = (ROOT / ".github/workflows/deploy-runtime-autonomous.yml").read_text(encoding="utf-8")
         for source in (deploy, ubuntu):
             self.assertIn("environment: production", source)
             self.assertIn("verify_quality_status.py", source)
-            self.assertIn("verify_production_authorization.py", source)
+            self.assertIn("evaluate_production_policy.py", source)
+            self.assertIn("--require-allow", source)
             self.assertIn("--first-parent", source)
+            self.assertIn("production-policy-decision.json", source)
+            self.assertNotIn("verify_production_authorization.py", source)
         self.assertIn("deploy/worker/ubuntu/deploy-authorized.sh", ubuntu)
+        self.assertIn("workflow_run:", autonomous)
+        self.assertIn('workflows: ["Quality integration gate"]', autonomous)
+        self.assertNotIn("issue_comment:", autonomous)
         for marker in (
             'SEA_SPEED_REQUIRE_AUTH_BOUNDARY: "1"',
             'SEA_SPEED_AUTHENTIK_UPSTREAM: "http://10.123.239.102:19000"',
@@ -33,6 +40,24 @@ class QualityArchitectureTests(unittest.TestCase):
             "auth_v1_road_private_m2m",
         ):
             self.assertIn(marker, deploy)
+
+    def test_comment_authority_paths_are_retired_or_fail_closed_tombstones(self) -> None:
+        self.assertFalse((ROOT / ".github/workflows/deploy-runtime-request.yml").exists())
+        self.assertFalse((ROOT / ".github/workflows/deploy-vps-request.yml").exists())
+        self.assertFalse((ROOT / "scripts/release/parse_runtime_execution_request.py").exists())
+        self.assertFalse((ROOT / "scripts/release/parse_deployment_request.py").exists())
+
+        verifier = (ROOT / "scripts/release/verify_production_authorization.py").read_text(encoding="utf-8")
+        self.assertIn("Retired compatibility tombstone", verifier)
+        self.assertIn("return 2", verifier)
+        self.assertNotIn("PRODUCTION APPROVED", verifier)
+        self.assertNotIn("Authorization-Fingerprint", verifier)
+        self.assertNotIn("Execution-Intent: EXECUTE", verifier)
+
+        policy = json.loads((ROOT / "data/contracts/production-authorization-policy-v1.json").read_text(encoding="utf-8"))
+        self.assertEqual(policy["status"], "retired-compatibility-tombstone")
+        self.assertEqual(policy["authorizedActors"], [])
+        self.assertEqual(policy["authority"], "NONE")
 
     def test_vps_deploy_uses_restricted_privilege_boundary_before_live_mutation(self) -> None:
         source = (ROOT / "deploy/vps/deploy.sh").read_text(encoding="utf-8")
@@ -45,9 +70,9 @@ class QualityArchitectureTests(unittest.TestCase):
 
     def test_windows_package_workflow_is_retired(self) -> None:
         self.assertFalse((ROOT / ".github/workflows/package-worker.yml").exists())
-        runtime = (ROOT / ".github/workflows/deploy-runtime-request.yml").read_text(encoding="utf-8")
-        self.assertNotIn("windows_worker_required", runtime)
-        self.assertNotIn("windows-worker-fallback", runtime)
+        autonomous = (ROOT / ".github/workflows/deploy-runtime-autonomous.yml").read_text(encoding="utf-8")
+        self.assertNotIn("windows_worker_required", autonomous)
+        self.assertNotIn("windows-worker-fallback", autonomous)
 
     def test_exact_artifacts_are_deterministic_and_bind_active_profiles(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

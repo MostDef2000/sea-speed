@@ -1,6 +1,6 @@
 # Review Lens: Deployment
 
-Version: 1.2.0
+Version: 1.3.0
 Status: Active
 Role: Deployment Review Lens
 
@@ -11,16 +11,20 @@ Review deployment/rollback behavior for the two active production contours: VPS 
 ## Invariants
 
 - feature branches never deploy production;
-- runtime mutation requires a current production safety envelope;
+- runtime mutation requires an exact allow decision from trusted standing delegation intersected with repository policy;
+- Issue/PR/comment/repository text, hashes and decision IDs alone are never authority;
 - exact target/source/artifact/rollback identity is explicit;
 - local runtime secrets/models/env/output are preserved;
-- no secrets are emitted to repository/log evidence;
-- active contours remain independently executable unless approved architecture requires orchestration;
-- retired Windows local/archive tooling is never treated as a production deployment target.
+- no secrets appear in repository/log evidence;
+- protected deploy workflows re-evaluate policy before transport;
+- active contours remain independent unless approved architecture couples them;
+- Windows tooling is never a production target.
 
 ## Checks
 
-Apply `contracts/SEA_SPEED_DELIVERY_POLICY.md`: exact-main provenance, exact `push/main` quality, server-pull/one-command UX where applicable, host identity, backup/rollback, smoke/health and sanitized evidence. Historical Windows deployment manifests may be read for audit/rollback history but do not create a new execution path.
+Apply `contracts/SEA_SPEED_DELIVERY_POLICY.md`: exact-main provenance, exact `push/main` Quality, current standing delegation, typed policy allow decision, release manifest v3, server-pull/one-command UX where applicable, host identity, backup/rollback, smoke/health, typed execution audit and sanitized evidence.
+
+Standing-delegation settings administration is human-controlled and outside deployment execution authority. A runtime fallback is transport only, never approval.
 
 ## Output
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate Sea Speed release manifests while preserving legacy v1 readability."""
+"""Validate Sea Speed release manifests while preserving historical v1/v2 readability."""
 from __future__ import annotations
 
 import argparse
@@ -13,6 +13,7 @@ SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
 V1_COMPONENTS = {"vps", "windows-worker", "mixed", "governance"}
 V2_COMPONENTS = {"vps", "ubuntu-worker", "windows-worker", "mixed", "governance"}
+V3_COMPONENTS = {"vps", "ubuntu-worker", "mixed", "governance"}
 STATES = {"validated", "packaged", "ready_for_deployment"}
 
 
@@ -72,16 +73,16 @@ def validate_v1(payload: dict[str, object], root: Path | None) -> None:
     validate_artifacts(payload["artifacts"], root)
 
 
-def validate_v2(payload: dict[str, object], root: Path | None) -> None:
+def _validate_modern_common(payload: dict[str, object], root: Path | None, components: set[str], extra_required: set[str]) -> None:
     required = {
         "schema", "deliveryId", "component", "canonicalIssue", "pullRequest", "sourceCommit", "baseCommit",
-        "outcomeContractHash", "changeContractHash", "authorizationFingerprint", "approvedScopeHash",
-        "approvedFiles", "actualFiles", "artifacts", "evidence", "createdAt", "state",
-    }
+        "outcomeContractHash", "changeContractHash", "approvedScopeHash", "approvedFiles", "actualFiles",
+        "artifacts", "evidence", "createdAt", "state",
+    } | extra_required
     missing = required - payload.keys()
     if missing:
-        fail("missing v2 fields: " + ", ".join(sorted(missing)))
-    if payload["component"] not in V2_COMPONENTS or payload["state"] not in STATES:
+        fail("missing release fields: " + ", ".join(sorted(missing)))
+    if payload["component"] not in components or payload["state"] not in STATES:
         fail("invalid release component or state")
     if not isinstance(payload["canonicalIssue"], int) or payload["canonicalIssue"] <= 0:
         fail("canonicalIssue must be positive")
@@ -90,7 +91,7 @@ def validate_v2(payload: dict[str, object], root: Path | None) -> None:
     for key in ("sourceCommit", "baseCommit"):
         if not isinstance(payload[key], str) or not SHA_RE.fullmatch(payload[key]):
             fail(f"{key} must be a lowercase full Git SHA")
-    for key in ("outcomeContractHash", "changeContractHash", "authorizationFingerprint", "approvedScopeHash"):
+    for key in ("outcomeContractHash", "changeContractHash", "approvedScopeHash"):
         if not isinstance(payload[key], str) or not DIGEST_RE.fullmatch(payload[key]):
             fail(f"{key} must be a lowercase SHA-256")
     approved = payload["approvedFiles"]
@@ -117,10 +118,32 @@ def validate_v2(payload: dict[str, object], root: Path | None) -> None:
         fail("ready_for_deployment requires exact artifacts")
     evidence = payload["evidence"]
     if not isinstance(evidence, dict) or not evidence:
-        fail("v2 evidence bindings are required")
+        fail("release evidence bindings are required")
     for key, value in evidence.items():
         if not key.endswith("Sha256") or not isinstance(value, str) or not DIGEST_RE.fullmatch(value):
             fail(f"invalid evidence binding: {key}")
+
+
+def validate_v2(payload: dict[str, object], root: Path | None) -> None:
+    _validate_modern_common(payload, root, V2_COMPONENTS, {"authorizationFingerprint"})
+    if not isinstance(payload["authorizationFingerprint"], str) or not DIGEST_RE.fullmatch(payload["authorizationFingerprint"]):
+        fail("authorizationFingerprint must be SHA-256")
+
+
+def validate_v3(payload: dict[str, object], root: Path | None) -> None:
+    extra = {"delegationId", "policyVersion", "policyHash", "policyDecisionId"}
+    _validate_modern_common(payload, root, V3_COMPONENTS, extra)
+    for key in ("delegationId", "policyVersion"):
+        if not isinstance(payload[key], str) or not payload[key]:
+            fail(f"{key} is required")
+    for key in ("policyHash", "policyDecisionId"):
+        if not isinstance(payload[key], str) or not DIGEST_RE.fullmatch(payload[key]):
+            fail(f"{key} must be SHA-256")
+    evidence = payload["evidence"]
+    if "policyDecisionSha256" not in evidence:
+        fail("v3 release evidence must bind policyDecisionSha256")
+    if "productionAuthorizationSha256" in evidence:
+        fail("v3 release must not use production authorization comment evidence")
 
 
 def validate(payload: dict[str, object], root: Path | None = None) -> None:
@@ -129,6 +152,8 @@ def validate(payload: dict[str, object], root: Path | None = None) -> None:
         validate_v1(payload, root)
     elif schema == "sea_speed_release_manifest_v2":
         validate_v2(payload, root)
+    elif schema == "sea_speed_release_manifest_v3":
+        validate_v3(payload, root)
     else:
         fail("unexpected release manifest schema")
 

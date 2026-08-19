@@ -8,7 +8,7 @@ on:
         required: true
         type: string
       canonical_issue:
-        description: "Canonical GitHub Issue number carrying durable production authorization"
+        description: "Canonical GitHub Issue number bound by the merged Change Contract"
         required: true
         type: number
   workflow_call:
@@ -18,7 +18,7 @@ on:
         required: true
         type: string
       canonical_issue:
-        description: "Canonical GitHub Issue number carrying durable production authorization"
+        description: "Canonical GitHub Issue number bound by the merged Change Contract"
         required: true
         type: number
 
@@ -68,9 +68,7 @@ jobs:
           git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
           git cat-file -e "${DEPLOY_SHA}^{commit}" 2>/dev/null || git fetch --no-tags origin "$DEPLOY_SHA"
           FIRST_PARENT_MATCH=0
-          while IFS= read -r commit; do
-            [[ "$commit" == "$DEPLOY_SHA" ]] && FIRST_PARENT_MATCH=1
-          done < <(git rev-list --first-parent origin/main)
+          while IFS= read -r commit; do [[ "$commit" == "$DEPLOY_SHA" ]] && FIRST_PARENT_MATCH=1; done < <(git rev-list --first-parent origin/main)
           [[ "$FIRST_PARENT_MATCH" == "1" ]] || { echo "Deployment commit is not on current origin/main first-parent history" >&2; exit 1; }
           git checkout --detach "$DEPLOY_SHA"
           [[ "$(git rev-parse HEAD)" == "$DEPLOY_SHA" ]]
@@ -86,32 +84,32 @@ jobs:
             --commit "$DEPLOY_SHA" \
             --workflow-file quality-integration.yml
 
-      - name: Verify durable production authorization and execution intent
-        id: authorization
+      - name: Evaluate standing production delegation
+        id: policy
         env:
           GITHUB_TOKEN: ${{ github.token }}
           DEPLOY_SHA: ${{ steps.release.outputs.sha }}
           CANONICAL_ISSUE: ${{ inputs.canonical_issue }}
+          SEA_SPEED_PRODUCTION_DELEGATION_V1: ${{ vars.SEA_SPEED_PRODUCTION_DELEGATION_V1 }}
         run: |
           set -euo pipefail
           mkdir -p dist
-          python scripts/release/verify_production_authorization.py \
+          python scripts/release/evaluate_production_policy.py \
             --repository "$GITHUB_REPOSITORY" \
             --commit "$DEPLOY_SHA" \
             --issue "$CANONICAL_ISSUE" \
-            --require-execution-intent \
+            --action deploy \
+            --environment production \
+            --require-allow \
             --github-output "$GITHUB_OUTPUT" \
-            --evidence-output dist/production-authorization.json
+            --evidence-output dist/production-policy-decision.json
 
       - name: Require Ubuntu contour in exact Change Contract
         env:
-          UBUNTU_REQUIRED: ${{ steps.authorization.outputs.ubuntu_worker_required }}
+          UBUNTU_REQUIRED: ${{ steps.policy.outputs.ubuntu_worker_required }}
         run: |
           set -euo pipefail
-          [[ "$UBUNTU_REQUIRED" == "true" ]] || {
-            echo "Exact Change Contract does not require Ubuntu Worker deployment" >&2
-            exit 1
-          }
+          [[ "$UBUNTU_REQUIRED" == "true" ]] || { echo "Exact Change Contract does not require Ubuntu Worker deployment" >&2; exit 1; }
 
       - name: Validate Ubuntu deployment tooling
         run: |
@@ -131,13 +129,8 @@ jobs:
           set -euo pipefail
           python scripts/quality/build_exact_artifacts.py --source-commit "$DEPLOY_SHA" --output-dir dist/exact
           python scripts/quality/validate_exact_artifacts.py --manifest dist/exact/exact-artifacts.json
-          python scripts/quality/build_quality_evidence.py \
-            --source-commit "$DEPLOY_SHA" \
-            --artifacts-manifest dist/exact/exact-artifacts.json \
-            --output dist/quality-evidence.json
-          python scripts/quality/validate_quality_evidence.py \
-            --evidence dist/quality-evidence.json \
-            --artifacts-manifest dist/exact/exact-artifacts.json
+          python scripts/quality/build_quality_evidence.py --source-commit "$DEPLOY_SHA" --artifacts-manifest dist/exact/exact-artifacts.json --output dist/quality-evidence.json
+          python scripts/quality/validate_quality_evidence.py --evidence dist/quality-evidence.json --artifacts-manifest dist/exact/exact-artifacts.json
           ARTIFACT_SHA="$(python - <<'PY'
           import json
           m=json.load(open('dist/exact/exact-artifacts.json', encoding='utf-8'))
@@ -151,7 +144,7 @@ jobs:
             --component ubuntu-worker \
             --source-commit "$DEPLOY_SHA" \
             --base-commit "$BASE_SHA" \
-            --authorization-evidence dist/production-authorization.json \
+            --policy-decision-evidence dist/production-policy-decision.json \
             --artifact "dist/exact/sea-speed-ubuntu-worker-${DEPLOY_SHA}.tar.gz" \
             --exact-artifacts-manifest dist/exact/exact-artifacts.json \
             --quality-evidence dist/quality-evidence.json \
@@ -199,8 +192,7 @@ jobs:
           set -euo pipefail
           ssh -i "$HOME/.ssh/sea-speed-ubuntu-deploy" -p "$DEPLOY_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes \
             "$DEPLOY_USER@$DEPLOY_HOST" \
-            "sea-speed-ubuntu-deploy-v1 '$DEPLOY_SHA' '$CANONICAL_ISSUE' '$ARTIFACT_SHA'" \
-            > dist/deployment-manifest-ubuntu-worker.json
+            "sea-speed-ubuntu-deploy-v1 '$DEPLOY_SHA' '$CANONICAL_ISSUE' '$ARTIFACT_SHA'" > dist/deployment-manifest-ubuntu-worker.json
           python scripts/release/validate_deployment_manifest.py dist/deployment-manifest-ubuntu-worker.json
 
       - name: Build one-command fallback
@@ -239,8 +231,17 @@ jobs:
             echo "### Ubuntu Worker execution fallback"
             echo "The repository has not observed a provisioned restricted zero-touch Ubuntu transport."
             echo "Run the uploaded exact one-command bootstrap on the canonical Ubuntu worker as root/sudo."
-            echo "This is one operator action; it stages exact main source and hands off to deploy-authorized.sh."
+            echo "This fallback is repository-owned runtime transport, not a production approval step."
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Build typed execution audit
+        if: ${{ steps.capability.outputs.mode == 'connector' }}
+        run: |
+          python scripts/release/build_execution_audit.py \
+            --policy-decision dist/production-policy-decision.json \
+            --release-manifest dist/release-manifest-ubuntu-worker.json \
+            --deployment-manifest dist/deployment-manifest-ubuntu-worker.json \
+            --output dist/execution-audit-ubuntu-worker.json
 
       - name: Upload Ubuntu release and deployment evidence
         if: ${{ always() }}
@@ -248,11 +249,12 @@ jobs:
         with:
           name: sea-speed-ubuntu-deployment-${{ steps.release.outputs.sha }}
           path: |
-            dist/production-authorization.json
+            dist/production-policy-decision.json
             dist/release-manifest-ubuntu-worker.json
             dist/quality-evidence.json
             dist/exact/exact-artifacts.json
             dist/deployment-manifest-ubuntu-worker.json
+            dist/execution-audit-ubuntu-worker.json
             dist/ubuntu-worker-one-command.sh
           retention-days: 30
           if-no-files-found: warn
@@ -268,9 +270,11 @@ jobs:
         env:
           DEPLOY_SHA: ${{ steps.release.outputs.sha }}
           CANONICAL_ISSUE: ${{ inputs.canonical_issue }}
+          DECISION_ID: ${{ steps.policy.outputs.policy_decision_id }}
         run: |
           echo "### Sea Speed Ubuntu Worker deployment" >> "$GITHUB_STEP_SUMMARY"
           echo "- Commit: \`$DEPLOY_SHA\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Canonical Issue: #$CANONICAL_ISSUE" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Standing delegation policy decision: \`$DECISION_ID\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Execution: restricted Connector-addressable SSH protocol" >> "$GITHUB_STEP_SUMMARY"
           echo "- Runtime state: verified by deployment manifest" >> "$GITHUB_STEP_SUMMARY"

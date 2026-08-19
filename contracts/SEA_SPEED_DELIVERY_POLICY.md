@@ -1,68 +1,63 @@
 # Sea Speed Delivery Policy
 
-Version: 1.17.0
+Version: 1.18.1
 Status: Active
 
 ## 1. Purpose
 
-Define quality admission, release provenance, runtime applicability, production authorization, operator execution and completion evidence for the two active production contours: **VPS** and **Ubuntu Worker/relay**.
+Define source admission, release provenance, runtime applicability, standing production authority, autonomous policy execution and completion evidence for the two active production contours: **VPS** and **Ubuntu Worker/relay**.
 
-Windows Worker is retired as a production/runtime component. Historical documents and tests may use the former name **Windows AI Worker**; that name is retained only for historical compatibility and does not identify an active contour. Historical Windows evidence remains readable audit history; deprecated Windows scripts are non-production local/archive tooling.
+Windows Worker is retired. The historical name **Windows AI Worker** may still appear in immutable audit evidence and compatibility tests; it does not identify an active production contour. Historical Windows evidence remains readable audit history only.
 
 ## 2. Applicability
 
 | Changed paths | VPS | Ubuntu Worker/relay |
 |---|---:|---:|
 | `api/**`, `frontend/**`, `deploy/vps/**` | YES | NO unless compatibility requires |
-| `deploy/worker/ubuntu/**`, `worker/ubuntu_*` | NO | YES |
-| shared executable `worker/**` | NO | YES |
+| `deploy/worker/ubuntu/**`, `worker/ubuntu_*`, shared executable `worker/**` | NO | YES |
 | API contract plus shared Worker consumer | YES | YES |
 | contracts/docs/specs/control tooling | NO | NO |
-| `worker/*.ps1`, `worker/*.cmd`, `worker/windows/**`, Windows helper docs | NO | NO |
+| Windows-specific scripts/docs | NO | NO |
 
-`MIXED` means both active contours apply; it never replaces exact VPS/Ubuntu declarations. Ubuntu-only runtime source must not be reduced to CONTROL_PLANE by a generic `deploy/**` rule.
-
-Windows `.cmd`/`.ps1` assets may remain portable/local tooling, but they are not a production target, release contour, deployment requirement, production-authorization field or runtime acceptance gate.
+`MIXED` means both active contours and never replaces the exact contour flags.
 
 ## 3. Source admission and continuation
 
-New tasks use `OUTCOME APPROVED` only after the complete visible Scope block immediately precedes the approval. Before the first repository write resolve `VISIBLE_SCOPE_PRESENTED=YES`, `SCOPE_IMMEDIATELY_PRECEDES_APPROVAL=YES`, and `SOURCE_AUTHORIZATION_ADMISSION=OPEN`.
+New tasks use `OUTCOME APPROVED` only after complete visible Scope immediately precedes the approval. Before first repository write require `VISIBLE_SCOPE_PRESENTED=YES`, `SCOPE_IMMEDIATELY_PRECEDES_APPROVAL=YES`, `SOURCE_AUTHORIZATION_ADMISSION=OPEN`.
 
-PR admission requires an exact Change Contract, exact changed-file match, valid SDD linkage for significant work, required CI and unchanged protected boundaries. Merge additionally requires fresh base/head comparison, zero unresolved review threads and expected-head protection when supported.
+PR admission requires exact Change Contract, exact changed-file match, valid SDD for significant work, required CI and unchanged protected boundaries. Merge requires fresh base/head comparison, zero unresolved review threads and expected-head protection when supported.
 
-After valid `OUTCOME APPROVED`, ordinary implementation defects, tests, CI remediation and PR metadata corrections inside the approved exact path set continue automatically. A deterministic stage such as PR created, queued/running CI, merge readiness or packaging is not a terminal handoff while a safe authorized next action remains.
-
-Tool capability does not expand source authorization or delivery authority. The Tool Routing Allowlist is deny by default and applies before every source, CI, release, deployment, diagnostic or evidence action.
+After valid source approval, in-scope defects/tests/CI/metadata remediation continue automatically. Tool capability does not expand source authority.
 
 ## 4. Release identity
 
-Every new deployable release uses `sea_speed_release_manifest_v2` and binds canonical Issue, merged PR, exact source/base commits, Outcome/Change Contract hashes, approved and actual files, deterministic scope hash, component, exact artifact digest/size and quality/exact-artifact evidence.
+New deployable releases use `sea_speed_release_manifest_v3`. The manifest binds Issue, merged PR, exact source/base, Outcome/Change Contract hashes, approved/actual files, scope hash, artifacts, exact-artifact/quality evidence, delegation ID, policy version/hash and policy decision ID.
 
-New release creation supports active components only: `vps`, `ubuntu-worker`, `mixed`, and `governance`. Existing schemas/validators may continue reading historical `windows-worker` manifests. Historical readability does not authorize a new Windows release.
+New release creation supports active components `vps`, `ubuntu-worker`, `mixed`, `governance`. Historical v1/v2 and Windows records remain readable.
 
-Deployment manifest v1 remains backward-readable for persisted VPS, Ubuntu and historical Windows evidence. New runtime delivery is VPS/Ubuntu only.
+## 5. Standing production authority
 
-## 5. Production authorization and execution intent
+Source authorization never authorizes runtime mutation. Runtime authority comes from an independently administered standing delegation in trusted GitHub `production` environment state plus deterministic repository policy evaluation.
 
-Source authorization never authorizes runtime mutation. Runtime change requires durable exact-SHA authorization on the canonical Issue:
+The trusted delegation is not a repository file, Issue field or comment. Repository policy may narrow but cannot widen it. Effective actions are the intersection of trusted permissions and repository allowed actions.
 
-```text
-PRODUCTION APPROVED <full-lowercase-40-character-sha>
-Authorization-Fingerprint: <sha256>
-Execution-Intent: EXECUTE
-```
+Allowed standing actions are exactly `deploy` and `rollback`. IAM, secret management, environment/settings administration, branch protection and arbitrary infrastructure mutation are not delegated.
 
-The first two lines provide authority; the third provides execution intent. The fingerprint binds Issue, merged PR, exact source, Outcome Contract, exact active runtime contour set, security impact, deployment target and rollback semantics.
+Historical comment strings (`PRODUCTION APPROVED`, `Authorization-Fingerprint`, `Execution-Intent: EXECUTE`, `DEPLOY VPS`) have no authority effect for new execution. Hashes and decision IDs are not credentials.
 
-Modern PR fingerprints contain only VPS/Ubuntu contour fields. To preserve immutable audit history, `scripts/release/verify_production_authorization.py` reproduces the legacy Windows field in the payload only when the historical PR body itself contains that legacy field.
+Before runtime transport prove exact lowercase SHA, current-main first-parent ancestry, successful exact `push/main` Quality, one applicable merged PR/canonical Issue, allow policy decision from current trusted delegation/policy, exact artifacts/release evidence and known rollback.
 
-Before mutation prove exact lowercase SHA, current-main first-parent ancestry, successful exact `push/main` Quality integration, one applicable merged PR, current durable fingerprint, explicit execution intent, valid exact artifacts/release/quality evidence and known rollback target.
+## 6. Autonomous runtime routing
 
-`.github/workflows/deploy-runtime-request.yml` routes only VPS and/or Ubuntu according to the exact merged Change Contract. It contains no runtime SSH/mutation logic itself.
+`.github/workflows/deploy-runtime-autonomous.yml` is the normal router. It runs only from successful `Quality integration gate` workflow-run evidence for `push` on `main`, evaluates exact merged release metadata and routes only required VPS/Ubuntu contours when policy allows.
 
-## 6. Runtime execution capability
+Each protected runtime workflow independently re-evaluates standing policy with `--require-allow` before runtime transport. Manual workflow dispatch cannot bypass authority.
 
-Every runtime-impacting Change Contract declares only these active fields:
+Missing/stale/invalid delegation denies without runtime mutation. Autonomous activation requires one independently administered environment-setting action after source integration; no per-run reviewer gate may recreate per-release approval.
+
+## 7. Runtime execution capability
+
+Every runtime-impacting Change Contract declares:
 
 ```text
 VPS deployment: REQUIRED / NOT REQUIRED
@@ -72,15 +67,11 @@ Ubuntu worker execution capability: CONNECTOR / ONE_COMMAND_FALLBACK / MISSING /
 Operator actions expected: <integer>
 ```
 
-A required contour cannot use `MISSING` or `NOT APPLICABLE`; a non-required contour must use `NOT APPLICABLE`. `Operator actions expected` equals the number of required active contours using `ONE_COMMAND_FALLBACK`.
+A required contour cannot use `MISSING`/`NOT APPLICABLE`; a non-required contour must use `NOT APPLICABLE`. Operator actions equal required `ONE_COMMAND_FALLBACK` contours. A transport fallback is not a production approval.
 
-## 7. Mixed-contour rollout
+## 8. Canonical operator targets and protected values
 
-When both active contours apply, declare compatibility, schema/migration requirements, rollout order, acceptance and rollback order. VPS and Ubuntu Worker/relay remain independent failure domains unless an approved architecture explicitly couples them.
-
-## 8. Canonical operator execution context
-
-Current non-secret operator targets, subject to runtime verification:
+Non-secret targets, subject to runtime verification:
 
 ```text
 Production VPS: root@82.146.37.153:22
@@ -89,93 +80,75 @@ Ubuntu worker: seaspeedadmin@10.123.239.102:22
 Worker transport: ZeroTier
 ```
 
-Credentials, keys, passwords, TOTP and populated environment values remain local/trusted and never enter chat or Git.
+Credentials, keys, passwords, TOTP and populated environment values remain local/trusted and never enter chat/Git.
 
 ## 9. Repository-owned server-pull model
 
-The default interactive VPS/Ubuntu fallback is target-local server-pull of the exact authorized SHA, then handoff to a repository-owned entrypoint that owns admission, preparation, mutation, verification, evidence and rollback. Substantive deployment logic must not be embedded in ad hoc operator commands.
+The default target fallback is repository-owned server-pull of exact source followed by the canonical target entrypoint. Substantive deployment logic must not be embedded in ad-hoc operator commands.
 
-## 10. Operator interaction budget
+## 10. Interaction budget
 
-Normal successful task:
+Normal successful task after standing delegation activation:
 
 ```text
 OUTCOME APPROVED: 1
-PRODUCTION APPROVED + Authorization-Fingerprint + Execution-Intent: 1 per exact release
+per-release production approval: 0
+standing delegation administration: rare protected settings action, not per release
 manual runtime command: 0 target, <=1 fallback per required active contour
-intermediate deterministic confirmation prompts: 0
+intermediate deterministic confirmations: 0
 ```
 
-Extra interaction is reserved for material reauthorization, a new exact source SHA, password/sudo/TOTP/secret entry, host trust, configured environment reviewer, irreversible/high-risk decision or evidence unavailable to safe automation.
+Extra interaction is reserved for source reauthorization, standing-delegation/settings administration, password/sudo/TOTP/secret entry, host trust, configured environment review, irreversible/high-risk choice or evidence unavailable to safe automation.
 
 ## 11. VPS execution and evidence
 
-`.github/workflows/deploy-vps.yml` remains the single protected VPS implementation. It performs exact-main, quality, authorization, artifact/release and rollback admission before SSH. VPS completion requires exact deployed source, health/smoke evidence, applicable product/security checks and a known rollback target.
+`.github/workflows/deploy-vps.yml` remains the single protected VPS implementation. It verifies exact main, Quality, standing policy, artifacts/release provenance and rollback before SSH. VPS completion requires exact deployed source, health/smoke/product/security evidence and known rollback target.
 
 ## 12. Ubuntu Worker/relay execution and evidence
 
-`.github/workflows/deploy-ubuntu-worker.yml` is the protected reusable Ubuntu orchestrator. `deploy/worker/ubuntu/deploy-authorized.sh` owns the target-side exact deployment transaction. Restricted zero-touch transport is `CONNECTOR` only when independently provisioned; otherwise the truthful capability is `ONE_COMMAND_FALLBACK` and one repository-owned bootstrap is exposed.
+`.github/workflows/deploy-ubuntu-worker.yml` remains the protected reusable Ubuntu orchestrator. `deploy/worker/ubuntu/deploy-authorized.sh` owns target mutation, verification, evidence and rollback. Restricted zero-touch transport is `CONNECTOR` only when independently provisioned; otherwise one repository-owned fallback may be emitted.
 
-Ubuntu completion requires exact source/runtime identity, protected-local-state preservation, valid deployment evidence, service state and applicable advancing freshness/frame/AI/relay evidence. Hosted CI alone does not prove physical NVIDIA/camera runtime.
+Ubuntu completion requires exact source/runtime identity, protected-local-state preservation, deployment evidence, service state and applicable freshness/frame/AI/relay evidence. Hosted CI alone does not prove physical runtime.
 
-## 13. Retired Windows tooling and historical evidence
+## 13. Execution audit
 
-Windows Worker has no active runtime completion gate. The legacy Windows packaging workflow named `package-worker` is removed and must remain absent. Exact edge artifacts must not contain `.cmd`, `.ps1` or `worker/windows/**` content. New release tooling must reject `windows-worker` as a new component.
+A successful protected runtime execution produces `sea_speed_production_execution_audit_v1` binding policy decision/delegation/policy identity, exact source/Issue/PR, target, runtime-verified deployment manifest and evidence hashes. The audit records execution; it does not create authority.
 
-Persisted Windows release/deployment manifests and immutable historical Issue/PR/fingerprint evidence remain readable and are not rewritten. Deprecated Windows scripts may stay in the repository as non-production local/archive tooling so generic cross-platform Python compatibility is not conflated with a supported Windows deployment target.
+## 14. Retired Windows and media/security boundaries
 
-## 14. Media and security boundaries
-
-The active media mode remains `mvp_v1`; `edge_v2` is a separate protected migration. Runtime identity fields do not redefine detection/tracking/calibration/speed/event formulas.
+Windows has no active runtime gate. Historical Windows manifests remain readable. Active media mode remains `mvp_v1`; `edge_v2` is a separate protected migration. Runtime authority changes do not alter detection/tracking/calibration/speed/event formulas.
 
 ## 15. Completion and terminal interaction
 
 Merge is not release. Release is not deployment. Deployment is not acceptance.
 
-The Delivery Orchestrator may return control only in one terminal interaction state:
-
-- `DONE`: all mandatory evidence for the approved Outcome is satisfied.
-- `BLOCKED`: a concrete external blocker makes continuation objectively impossible. The response records the external blocker, supporting evidence, unblock condition and next admissible action. A remediable in-scope source/test/CI/PR-metadata failure, transient failure or queued/running CI is not `BLOCKED`.
-- `HUMAN DECISION REQUIRED`: continuation requires a genuine human decision, authorization or protected input, configured environment review, or irreversible/high-risk choice. The response gives the exact decision, bounded options/consequences when relevant and exact reply/action format. Deterministic execution resumes after the decision.
-
-`FAILED` is an internal event, not a terminal interaction state. Remediate it automatically where possible; otherwise classify the real boundary as `BLOCKED` or `HUMAN DECISION REQUIRED`.
+Return control only as `DONE`, `BLOCKED`, `HUMAN DECISION REQUIRED`. `FAILED` is internal and must be remediated or classified at the actual boundary.
 
 ## 16. Delivery quality admission
 
-A linked significant PR is quality-enabled only when its SDD includes current NFR assessment, risk/test design, correct-course check, traceability and Definition of Done, and the Change Contract declares the derived Risk profile plus quality verdict.
-
-Full risk profiling is required for security impact, API/event/state/storage schema impact, destructive/data migration, `MIXED` runtime or another explicit high-risk trigger. `FAIL` blocks. `WAIVED` requires a complete durable waiver. A waiver never bypasses a hard gate: authorization, exact scope, active runtime derivation, secrets, CI, production authorization, rollback and acceptance remain mandatory.
-
-Production-equivalent deterministic deployment tests should execute the real transaction entrypoint with isolated fake external/runtime boundaries when executable ordering/rollback semantics are in scope.
+Significant work requires NFR assessment, risk/test design, correct-course check, traceability and Definition of Done. Full risk profile is required for security/schema/destructive/migration/MIXED/other high-risk triggers. `FAIL` blocks. A waiver never bypasses a hard gate: source authorization, exact scope, secrets, required CI, standing production policy, rollback and runtime acceptance remain mandatory.
 
 ## 17. Deployment transaction audit
 
-For linked significant work, `scripts/ci/validate_sdd.py` requires a Deployment Transaction Audit when a changed path is under `deploy/**` or `scripts/release/**`, a deployment workflow changes, any runtime deployment field is `REQUIRED`, or the correct-course trigger is `PRODUCTION_LEARNING`.
-
-The audit covers exactly `ADMISSION`, `PRE-MUTATION`, `MUTATION`, `VERIFICATION`, `STATE-COMMIT`, `HOUSEKEEPING`, `EVIDENCE`, and `ROLLBACK`, with mutation possibility, failure disposition, state after failure, safe retry, rollback semantics and evidence. Production learning additionally requires completed adjacent-stage review and concrete root cause/findings.
+Linked significant work requires the eight-stage Deployment Transaction Audit when `deploy/**`, `scripts/release/**`, deployment workflows, runtime deployment requirements, or `PRODUCTION_LEARNING` apply. Stages are exactly `ADMISSION`, `PRE-MUTATION`, `MUTATION`, `VERIFICATION`, `STATE-COMMIT`, `HOUSEKEEPING`, `EVIDENCE`, `ROLLBACK`.
 
 ## 18. Tool Routing Allowlist
 
-Sea Speed delivery is `DENY BY DEFAULT` at the tool layer. Any tool, connector, service, CLI, side-channel, publication path or runtime mutation path that is not explicitly allowed below for the current task class is forbidden. A connected or installed capability does not grant permission. The Orchestrator must not discover, install, probe or substitute another service after an allowed route fails.
-
-A fallback is valid only for its own row. If the primary route is unavailable and no allowed fallback exists, or the declared fallback cannot complete safely, return `HUMAN DECISION REQUIRED` and name the exact capability gap.
+Sea Speed is DENY BY DEFAULT.
 
 | Task class | Allowed primary route | Allowed fallback |
 |---|---|---|
 | Repository/Issue/PR/comment/branch/source/merge lifecycle | GitHub Connector | NONE |
-| CI status/jobs/logs/artifacts | GitHub Connector | One bounded read-only GitHub API/PowerShell command to the operator only when the exact Connector endpoint is unavailable |
-| Patch/build/test/hash/static analysis | Ephemeral local tooling/container | User checkout for preparation/validation only; never publication or production mutation |
-| Public Sea Speed HTTP verification | Read-only HTTP/web | One bounded read-only `curl`/PowerShell command to the operator |
-| External technical documentation | Read-only web using primary/official sources only | NONE |
-| User-provided logs/screenshots/config/files | Read the supplied material directly | NONE |
-| Production authorization | Exact three-line canonical Issue record through GitHub Connector | NONE |
-| VPS deployment | GitHub Actions -> `.github/workflows/deploy-vps.yml` | Only a repository-owned VPS action explicitly exposed by the canonical deployment path |
-| Ubuntu deployment | GitHub Actions -> `.github/workflows/deploy-ubuntu-worker.yml` -> `deploy/worker/ubuntu/deploy-authorized.sh` | Only the repository-owned sudo/root bootstrap explicitly emitted by the canonical path |
-| VPS/Ubuntu runtime diagnostics | Repository-owned diagnostic/deployment tooling | One bounded read-only command to the operator on the corresponding host |
-| Password/sudo/TOTP/SSH trust/credentials/tokens | Operator enters locally in the intended prompt/secret store | NONE; protected values never enter chat or Git |
+| CI status/jobs/logs/artifacts | GitHub Connector | One bounded read-only GitHub API/PowerShell operator command when exact endpoint unavailable |
+| Patch/build/test/hash/static analysis | Ephemeral local tooling/container | User checkout for preparation/validation only |
+| Public Sea Speed HTTP verification | Read-only HTTP/web | One bounded read-only curl/PowerShell operator command |
+| External technical documentation | Read-only web, primary/official sources | NONE |
+| User-provided logs/screenshots/config/files | Direct read | NONE |
+| Standing delegation administration | Independently controlled GitHub `production` environment settings by human administrator | NONE |
+| Production policy evaluation | Repository-owned evaluator in protected GitHub Actions | NONE |
+| VPS deployment | GitHub Actions -> `.github/workflows/deploy-vps.yml` | Repository-owned VPS action exposed by canonical path only |
+| Ubuntu deployment | GitHub Actions -> `.github/workflows/deploy-ubuntu-worker.yml` -> `deploy/worker/ubuntu/deploy-authorized.sh` | Repository-owned sudo/root bootstrap emitted by canonical path only |
+| VPS/Ubuntu runtime diagnostics | Repository-owned tooling | One bounded read-only host command to operator |
+| Password/sudo/TOTP/SSH trust/credentials/tokens | Operator-local intended prompt/secret store | NONE |
 
-Gmail, Calendar, Drive, Notion, `gh`, local GitHub authentication, assistant-side `git push`, manual GitHub web publication, ad-hoc SSH/shell exploration, direct database mutation, cloud-console mutation and every other unlisted connector/plugin/service are explicitly forbidden implicit fallbacks.
-
-The GitHub API/PowerShell and `curl`/PowerShell fallbacks are evidence-only and read-only. They never authorize repository publication or runtime mutation.
-
-A future task requiring an unlisted tool/service must change the allowlist through the normal visible Scope -> `OUTCOME APPROVED` source lifecycle before use.
+All unlisted connectors/plugins/services and ad-hoc mutation paths are forbidden implicit fallbacks.

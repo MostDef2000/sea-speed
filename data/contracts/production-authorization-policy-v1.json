@@ -1,19 +1,8 @@
 {
   "schema": "sea-speed-production-authorization-policy/v1",
-  "version": "1.0.0",
-  "authorizedActors": [
-    "MostDef2000"
-  ],
-  "approvalPrefix": "PRODUCTION APPROVED",
-  "fingerprintFields": [
-    "canonicalIssue",
-    "pullRequest",
-    "sourceCommit",
-    "outcomeContract",
-    "runtimeContours",
-    "securityImpact",
-    "deploymentTarget",
-    "rollbackTarget"
-  ],
-  "failClosed": true
+  "status": "retired-compatibility-tombstone",
+  "authorizedActors": [],
+  "authority": "NONE",
+  "replacement": "data/contracts/production-autonomy-policy-v1.json",
+  "note": "Historical compatibility path only. This file grants no production authority and is not consumed by active deployment workflows."
 }
