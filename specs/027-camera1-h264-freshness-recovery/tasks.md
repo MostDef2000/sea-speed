@@ -16,8 +16,8 @@
 - T-008 [x] Add focused tests for no-op, fixed restart, relay failure before restart, post-restart stale failure, forbidden service names, fixed constants and reconcile integration.
 - T-009 [x] Prove accepted VPS `runtime_verified` state remains behind successful `run_auth_boundary`; no deploy-script source change is required for the narrow recovery design.
 - T-010 [x] Update the protected Camera 1 H264 runbook and complete the linked `027` spec/plan/tasks quality layer, risk profile, correct-course record and eight-stage Deployment Transaction Audit.
-- T-011 [ ] Verify exact branch diff is an authorized subset, contains no secrets/runtime media and matches the PR Change Contract.
-- T-012 [ ] Open the linked PR and obtain exact-head PR Validation plus aggregate Quality on one head; remediate only in-scope deterministic failures.
+- T-011 [x] Verify exact branch diff is an authorized subset, contains no secrets/runtime media and matches the PR Change Contract.
+- T-012 [x] Open linked PR #227; pre-final exact head `5ea33d74d1c5c4c36f8701e11cb338b02a64e548` passed PR Validation `32232720306` and aggregate Quality `32232720337`; the final checklist head must reproduce both gates before merge.
 - T-013 [ ] Refresh `main`, exact PR head, changed-file set, reviews and unresolved threads; merge only with expected-head protection.
 - T-014 [ ] Require exact-main Quality after merge and record durable source-integration evidence on Issue #226.
 - T-015 [ ] Compute the merged release production fingerprint and obtain a separate exact-SHA `PRODUCTION APPROVED` envelope with `Execution-Intent: EXECUTE`.
@@ -45,9 +45,9 @@
 ## Definition of Done
 
 - [x] Issue/spec/plan/tasks current — #226 source intent, fixed privilege boundary, risk profile, production-learning findings and deployment transaction audit are represented.
-- [ ] Exact changed-file scope verified — final PR diff must remain a subset of the eight authorized paths and exactly match the declared Change Contract.
-- [ ] Required tests and evidence complete — focused helper tests, full PR CI, exact-main Quality, production bootstrap/deployment and browser acceptance are all required.
-- [ ] Required CI green — PR Validation and aggregate Quality must succeed on one exact head, followed by exact-main Quality after merge.
+- [x] Exact changed-file scope verified — PR #227 diff is exactly six paths, all within the eight-path approved Scope, and matches the declared Change Contract.
+- [ ] Required tests and evidence complete — focused helper tests and pre-final full PR CI passed; final-head CI, exact-main Quality, production bootstrap/deployment and browser acceptance remain required.
+- [ ] Required CI green — final checklist head must pass PR Validation and aggregate Quality, followed by exact-main Quality after merge.
 - [ ] Exact-green-head merge complete — merge only after fresh base/head/scope/review gate with expected-head protection.
 - [ ] Deployment state resolved — merged exact release must be separately production-authorized, helper bundle refreshed once, and canonical VPS deployment accepted.
 - [ ] Runtime acceptance resolved — authenticated clean Camera 1 stream must show current advancing video; Water/Road worker state remains unaffected.
