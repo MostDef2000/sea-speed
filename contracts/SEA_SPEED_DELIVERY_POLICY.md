@@ -1,13 +1,13 @@
 # Sea Speed Delivery Policy
 
-Version: 1.18.0
+Version: 1.18.1
 Status: Active
 
 ## 1. Purpose
 
 Define source admission, release provenance, runtime applicability, standing production authority, autonomous policy execution and completion evidence for the two active production contours: **VPS** and **Ubuntu Worker/relay**.
 
-Windows Worker is retired. Historical Windows evidence remains readable audit history only.
+Windows Worker is retired. The historical name **Windows AI Worker** may still appear in immutable audit evidence and compatibility tests; it does not identify an active production contour. Historical Windows evidence remains readable audit history only.
 
 ## 2. Applicability
 
@@ -126,7 +126,7 @@ Return control only as `DONE`, `BLOCKED`, `HUMAN DECISION REQUIRED`. `FAILED` is
 
 ## 16. Delivery quality admission
 
-Significant work requires NFR assessment, risk/test design, correct-course check, traceability and Definition of Done. Full risk profile is required for security/schema/destructive/migration/MIXED/other high-risk triggers. `FAIL` blocks; `WAIVED` never bypasses hard gates.
+Significant work requires NFR assessment, risk/test design, correct-course check, traceability and Definition of Done. Full risk profile is required for security/schema/destructive/migration/MIXED/other high-risk triggers. `FAIL` blocks. A waiver never bypasses a hard gate: source authorization, exact scope, secrets, required CI, standing production policy, rollback and runtime acceptance remain mandatory.
 
 ## 17. Deployment transaction audit
 
