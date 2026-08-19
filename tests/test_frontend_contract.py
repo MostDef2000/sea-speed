@@ -105,12 +105,22 @@ class FrontendContractTests(unittest.TestCase):
         self.assertNotIn('/sea-speed/api/worker/control/start"', self.road)
         self.assertNotIn('/sea-speed/api/worker/control/stop"', self.road)
 
-    def test_objects_registry_is_cross_camera_and_filterable(self) -> None:
+    def test_objects_registry_is_domain_scoped_from_water_and_road(self) -> None:
+        self.assertIn('href="/sea-speed/objects/">Реестр объектов</a>', self.source)
+        self.assertIn('href="/sea-speed/objects/">Реестр объектов</a>', self.road)
         self.assertIn('const OBJECTS_URL="/sea-speed/api/objects"', self.objects)
-        self.assertIn('name="camera_id"', self.objects)
-        self.assertIn('name="domain"', self.objects)
-        self.assertIn('value="cam1"', self.objects)
-        self.assertIn('value="road1"', self.objects)
+        self.assertIn('water:{camera_id:"cam1",domain:"water"', self.objects)
+        self.assertIn('road:{camera_id:"road1",domain:"road"', self.objects)
+        self.assertIn('const requestedScope=new URLSearchParams(window.location.search).get("scope")', self.objects)
+        self.assertIn('const referrerPath=', self.objects)
+        self.assertIn('referrerPath.startsWith("/sea-speed/road/")?"road":"water"', self.objects)
+        self.assertIn('function applyRegistryScope()', self.objects)
+        self.assertIn('history.replaceState(null,"",url)', self.objects)
+        self.assertIn('camera_id:registryScope.camera_id,domain:registryScope.domain', self.objects)
+        self.assertIn('if(key==="camera_id"||key==="domain")continue', self.objects)
+        self.assertIn('filters.reset();applyRegistryScope();offset=0;loadObjects()', self.objects)
+        self.assertRegex(self.objects, r'name="camera_id"[^>]*disabled')
+        self.assertRegex(self.objects, r'name="domain"[^>]*disabled')
         for marker in ('method:"PATCH"', 'method:"DELETE"', 'credentials:"same-origin"', 'id="objectsGrid"'):
             self.assertIn(marker, self.objects)
 
