@@ -28,7 +28,7 @@ class DeliveryContractConvergenceTests(unittest.TestCase):
             self.assertIn("Review Lens", text, path)
             self.assertIn("Delivery Orchestrator", text, path)
 
-    def test_new_authorization_model_excludes_legacy(self) -> None:
+    def test_source_authorization_remains_outcome_approved(self) -> None:
         template = self.read(".github/pull_request_template.md")
         validator = self.read("scripts/ci/validate_change_contract.py")
         self.assertIn("Source authorization: OUTCOME APPROVED", template)
@@ -51,12 +51,14 @@ class DeliveryContractConvergenceTests(unittest.TestCase):
         self.assertIn("VPS deployment:", template)
         self.assertIn("Ubuntu worker/relay update:", template)
 
-    def test_runtime_router_has_no_windows_fallback(self) -> None:
-        workflow = self.read(".github/workflows/deploy-runtime-request.yml")
-        self.assertNotIn("windows_worker_required", workflow)
-        self.assertNotIn("windows-worker-fallback", workflow)
+    def test_autonomous_runtime_router_has_no_comment_authority(self) -> None:
+        workflow = self.read(".github/workflows/deploy-runtime-autonomous.yml")
+        self.assertNotIn("issue_comment:", workflow)
+        self.assertNotIn("PRODUCTION APPROVED", workflow)
+        self.assertNotIn("Execution-Intent: EXECUTE", workflow)
         self.assertIn("deploy-vps", workflow)
         self.assertIn("deploy-ubuntu-worker", workflow)
+        self.assertIn("SEA_SPEED_PRODUCTION_DELEGATION_V1", workflow)
 
     def test_actions_pin_risk_is_closed_but_retained(self) -> None:
         risks = json.loads(self.read("data/quality/accepted-risks-v1.json"))["risks"]
@@ -64,8 +66,8 @@ class DeliveryContractConvergenceTests(unittest.TestCase):
         self.assertEqual(target["status"], "closed")
         self.assertTrue(target["resolution_evidence"])
 
-    def test_historical_decisions_are_retained_and_dr004_exists(self) -> None:
-        for number in (1, 2, 3, 4):
+    def test_historical_decisions_are_retained_and_dr005_exists(self) -> None:
+        for number in (1, 2, 3, 4, 5):
             matches = list((ROOT / "docs/decision_records").glob(f"DR-{number:03d}-*.md"))
             self.assertTrue(matches, number)
 
