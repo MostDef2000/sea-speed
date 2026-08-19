@@ -3,9 +3,10 @@
 Original Issue: #115  
 Runtime topology revision: #122  
 Split nginx cutover remediation: #140  
-Browser auth routing remediation: #146
+Browser auth routing remediation: #146  
+Session retention revision: #231
 
-Sea Speed Auth v1 replaces the legacy browser Basic Auth/public camera contour with self-hosted Authentik Forward Auth. Issue #122 relocated Authentik and PostgreSQL from the undersized public VPS to the commissioned Ubuntu worker. Issue #140 makes the final cutover compatible with the production `mostdef.ru` split nginx layout. Issue #146 corrects the canonical-host and Forward Auth callback routing discovered during authenticated browser acceptance. This runbook describes bounded runtime sequencing only; it is not production authorization.
+Sea Speed Auth v1 replaces the legacy browser Basic Auth/public camera contour with self-hosted Authentik Forward Auth. Issue #122 relocated Authentik and PostgreSQL from the undersized public VPS to the commissioned Ubuntu worker. Issue #140 makes the final cutover compatible with the production `mostdef.ru` split nginx layout. Issue #146 corrects the canonical-host and Forward Auth callback routing discovered during authenticated browser acceptance. Issue #231 extends the managed Sea Speed browser session to 30 days without changing roles, Owner TOTP, Forward Auth routing or analytics behavior. Runtime execution follows the current standing-production-delegation policy; this runbook does not itself grant runtime authority.
 
 ## Final browser boundary
 
@@ -79,7 +80,29 @@ Password-recovery deep acceptance is deferred/non-blocking by current operator d
 
 ### Session/token timing
 
-The Authentik User Login Stage browser session remains targeted at **12 hours**. The Sea Speed Proxy Provider access-token validity is intentionally **96 hours**. These are separate timers. The 96 hours provider token does not redefine or extend the 12 hours browser login-stage session contract.
+The canonical Authentik User Login Stage browser session is **30 days** for both `sea-speed-authentication-login` and `sea-speed-enrollment-login`. `remember_me_offset` and `remember_device` remain `seconds=0`, so no separate remember-me/device extension is introduced. The Sea Speed Proxy Provider access-token validity remains intentionally **96 hours**. These are separate timers; the provider token setting does not redefine the browser login-stage session contract.
+
+## Issue #231 - bounded 30-day session reconciliation
+
+Production Authentik runs on the Ubuntu Worker, while the canonical identity blueprint remains `deploy/vps/authentik/blueprints/sea-speed-auth-v1.yaml`. Change-control therefore classifies this specific blueprint subtree as `UBUNTU_WORKER` before the generic `deploy/vps/**` rule.
+
+The canonical Ubuntu target transaction detects an Authentik-blueprint-only exact merge diff and runs:
+
+```text
+deploy/worker/ubuntu/authentik/reconcile-blueprint.sh
+```
+
+The reconcile transaction is deliberately narrower than a full Authentik stage/restage:
+
+- it requires the exact source blueprint to contain exactly two `session_duration: days=30` values;
+- it preserves Owner TOTP, role and password-policy markers;
+- it writes through the existing mounted blueprint path at `/opt/sea-speed-auth/blueprints/sea-speed-auth-v1.yaml`;
+- it does not run `docker compose pull`, restart PostgreSQL, restart Authentik containers, or touch Water/Road services;
+- the already-running Authentik worker observes the blueprint file modification and applies the managed instance;
+- acceptance queries the Authentik worker ORM for exactly `sea-speed-authentication-login` and `sea-speed-enrollment-login`, requiring `days=30`, `seconds=0`, `seconds=0` for duration/remember-me/remember-device;
+- if the expected runtime values do not appear, the previous blueprint bytes are restored and the previous two-stage runtime values must be observed again before the transaction reports a bounded rollback.
+
+The protected GitHub Actions Ubuntu workflow evaluates standing production delegation with `--require-allow` before runtime transport. The target transaction does not consume the retired per-release authorization verifier. If restricted zero-touch Ubuntu SSH is unavailable, the workflow emits the exact one-command fallback only after policy allow; that operator-local root/sudo execution is transport, not a new production-approval step.
 
 ## Issue #146 - Canonical host and Forward Auth callback routing
 
@@ -100,9 +123,7 @@ Launch URL: https://mostdef.ru/sea-speed/
 
 Do not configure the Proxy Provider External host as `https://mostdef.ru/sea-speed/`. A path-bearing External host can make Authentik emit callback URLs under `/sea-speed/outpost.goauthentik.io/**`; that path is intentionally protected by `/sea-speed/**` and therefore creates recursive authentication. The only unauthenticated callback/start contour is root `/outpost.goauthentik.io/**` on canonical `mostdef.ru`.
 
-Issue #146 does not add nginx buffer tuning: production evidence did not show `upstream sent too big header`. It also does not change the worker Authentik private origin, worker M2M listener, browser session/token timers, Camera 1 media path, or `/cams/**` retirement.
-
-After the #146 source merge, changing the live Proxy Provider External host and activating the regenerated nginx candidate are production mutations and require a fresh literal `PRODUCTION APPROVED <exact-main-sha>`.
+Issue #146 does not add nginx buffer tuning: production evidence did not show `upstream sent too big header`. It also does not change the worker Authentik private origin, worker M2M listener, Camera 1 media path, or `/cams/**` retirement. Its historical production authorization record remains audit evidence only; current runtime mutations use standing production policy evaluation.
 
 ## Machine-to-machine worker contour remains separate
 
@@ -158,20 +179,20 @@ After successful activation the root `mostdef.ru` site is the flattened reviewed
 
 ## Preconditions for remaining production work
 
-Before the next mutation require all of the following:
+Before any new runtime mutation require all of the following:
 
-1. The applicable Auth v1 remediation source is merged to `main` with required CI green.
-2. The new exact full 40-character `main` SHA is identified.
-3. A fresh literal `PRODUCTION APPROVED <exact-sha>` is recorded for the remaining provider/nginx rollout. Any production approval bound to an earlier SHA is superseded for these mutations.
-4. Current private Authentik health and public `auth.mostdef.ru` readiness remain good.
-5. Current nginx root site/snippet layout and private M2M addresses are freshly validated by the bounded launcher/cutover path.
+1. The applicable source is merged to current `main` with exact-main Quality green.
+2. The new exact full 40-character `main` SHA is identified and remains the current main tip for autonomous routing.
+3. The independently administered `production` standing delegation is enabled and the repository policy evaluator returns `allow` for the exact Issue/PR/source-derived contour.
+4. Current private Authentik health and public `auth.mostdef.ru` readiness remain good when the operation depends on them.
+5. The applicable repository-owned transaction validates its exact target topology before mutation.
 6. `SEA_SPEED_API_TOKEN` and other secrets remain available only through protected runtime channels.
 
-Do not restage working Authentik identity internals merely because the final nginx source SHA changed; revalidate health and continue from the next integration checkpoint.
+No Issue comment, SDD text or per-release approval string grants production authority under the current model.
 
 ## Phase A - Prepare the exact nginx candidate
 
-Use the freshly approved exact source and current private addresses. Shape:
+Use the current policy-allowed exact source and current private addresses. Shape:
 
 ```bash
 sudo ./deploy/vps/sea-speed-auth-cutover.sh prepare \
@@ -224,9 +245,9 @@ Activation must:
 - never automatically restore the old public `/cams/**` contour;
 - require public `/ -> 200`, `www` canonical redirect, `/cams/** -> 404/410`, anonymous `/sea-speed/** -> 302/401/403`, protected Camera 1 -> 302/401/403 and embedded root outpost ping -> 204.
 
-For #146 remediation, update the live Sea Speed Proxy Provider External host to exactly `https://mostdef.ru` inside the same approved production checkpoint before browser acceptance. Keep the Application launch URL at `https://mostdef.ru/sea-speed/`.
+For #146 remediation, the live Sea Speed Proxy Provider External host is exactly `https://mostdef.ru`; the Application launch URL remains `https://mostdef.ru/sea-speed/`.
 
-Immediately apply any still-pending prepared worker M2M URL update and restart only the applicable Sea Speed worker service. If the worker M2M cutover is already proven, do not repeat it merely for #146.
+Immediately apply any still-pending prepared worker M2M URL update and restart only the applicable Sea Speed worker service. If the worker M2M cutover is already proven, do not repeat it merely for an unrelated Authentik session change.
 
 ## Phase D - Primary integration acceptance
 
@@ -250,7 +271,9 @@ Authenticated browser:
 - login callback stays under root `/outpost.goauthentik.io/**`, never `/sea-speed/outpost.goauthentik.io/**`;
 - `/sea-speed/`, Cameras, Objects and expected API operations load;
 - Camera 1 H.264 playlist/video advances through `/sea-speed/media/cam1/index.m3u8`;
-- crafted client `X-authentik-*` headers do not bypass or control identity.
+- crafted client `X-authentik-*` headers do not bypass or control identity;
+- a newly created Sea Speed login session is governed by the 30-day User Login Stage duration;
+- explicit Logout still terminates the active session.
 
 Worker M2M from the exact approved peer:
 
@@ -262,7 +285,7 @@ Direct-origin checks from an untrusted Internet host must show no direct access 
 
 ## Phase E - Controlled fail-closed dependency test
 
-After normal acceptance passes, interrupt only the worker Authentik private dependency inside the approved production envelope:
+After normal acceptance passes, interrupt only the worker Authentik private dependency inside an explicitly applicable runtime test envelope:
 
 1. verify `/sea-speed/**` becomes unavailable/denied and never anonymous;
 2. verify public `/` remains available;
@@ -275,13 +298,15 @@ Do not stop camera relay or the Sea Speed worker application for this test.
 
 The safe failure posture is a closed/unavailable private Sea Speed surface, not anonymous access.
 
-If preparation, activation or acceptance fails:
+For the #231 blueprint-only transaction, failed runtime verification restores the pre-change blueprint bytes and requires the pre-change login-stage runtime values to reappear before reporting `AUTHENTIK_BLUEPRINT_ROLLBACK=PASS`. It does not restart Water/Road services or PostgreSQL.
+
+For historical nginx/provider cutover failures:
 
 1. stop further rollout steps and preserve sanitized evidence;
 2. do not automatically restore `/cams/**`;
 3. do not move Authentik back to the undersized VPS;
 4. retain the root-only nginx backup path printed by activation;
-5. obtain an explicit production rollback decision before restoring a previous nginx/M2M topology;
-6. if rollback is approved, restore matching nginx and worker M2M runtime URLs together and re-run the large integration checks.
+5. route any requested runtime rollback through the current standing-delegation rollback policy and repository-owned rollback transaction;
+6. restore matching nginx and worker M2M runtime URLs together when that historical topology rollback is actually required, then re-run the large integration checks.
 
-Never disclose Authentik secrets, SMTP passwords, TOTP seeds/codes, invitation/recovery links, `SEA_SPEED_API_TOKEN`, camera credentials, SSH private keys, Authorization headers, OAuth callback codes, or OAuth state values in #146/#140/#122/#115 evidence.
+Never disclose Authentik secrets, SMTP passwords, TOTP seeds/codes, invitation/recovery links, `SEA_SPEED_API_TOKEN`, camera credentials, SSH private keys, Authorization headers, OAuth callback codes, or OAuth state values in #231/#146/#140/#122/#115 evidence.
