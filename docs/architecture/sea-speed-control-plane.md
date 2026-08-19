@@ -1,68 +1,76 @@
 # Sea Speed Control Plane
 
-Version: 2.1.0
+Version: 2.2.0
 Status: Active
 
 ## Overview
 
-GitHub `main` is the source of truth. Sea Speed has two active production runtime contours: VPS and Ubuntu Worker/relay. The delivery control plane is repository-centric and uses one persistent orchestration context.
+GitHub `main` is the source of truth. Sea Speed has two active production runtime contours: VPS and Ubuntu Worker/relay. The Delivery Orchestrator owns one task context from source intake through acceptance, while production execution authority is a separately administered standing delegation.
 
-Windows Worker is retired as a production/runtime component. Existing Windows scripts/documentation are deprecated non-production local/archive tooling. Historical Windows Issue/PR/release/deployment evidence remains immutable/readable audit history.
+Windows Worker is retired from production. Historical Windows evidence remains immutable/readable audit history.
 
 ## Control layers
 
-1. GitHub Issues: canonical backlog, authorization and audit history.
-2. Task Intake: read-only evidence/task-shaping lens.
+1. GitHub Issues: canonical backlog, source authorization and task history.
+2. Task Intake: read-only task shaping.
 3. SDD: product intent, architecture, bounded tasks and runtime feedback.
 4. Canonical governance/runtime contracts.
-5. **Sea Speed Delivery Orchestrator**: scope lock, implementation coordination, PR/CI, merge, runtime continuation and terminal evidence.
-6. Domain/release contracts: optional review lenses/checklists; no mandatory autonomous handoff.
-7. GitHub Connector: repository lifecycle transport.
-8. Runtime execution: protected VPS/Ubuntu workflow or operator-owned target shell under separate production authorization.
+5. Sea Speed Delivery Orchestrator: scope lock, source implementation, PR/CI, merge, policy-driven runtime continuation and terminal evidence.
+6. GitHub Connector: repository lifecycle transport.
+7. Trusted GitHub `production` environment state: independently administered standing production delegation.
+8. Repository production policy: deterministic constraint/evaluation layer that can narrow but not widen trusted delegation.
+9. Protected VPS/Ubuntu workflows and target transactions.
 
-## Repository control flow
+## Source flow
 
 ```text
 User request
--> Delivery Orchestrator recovers main / Issue / evidence
--> optional read-only Task Intake lens
--> Outcome Contract + visible Implementation Scope Check
+-> current-main recovery
+-> Outcome Contract + visible Scope
 -> OUTCOME APPROVED
--> fresh branch + implementation
--> optional review lenses
--> integrity gate
--> PR Validation + Quality integration
--> expected-head merge
--> post-merge exact-main verification
--> separate production envelope when an active runtime contour applies
--> runtime acceptance
--> terminal Issue evidence
+-> fresh branch + SDD/source
+-> integrity + PR/CI
+-> exact-green merge
+-> exact-main Quality
 ```
+
+`OUTCOME APPROVED` remains source authority only.
+
+## Runtime flow
+
+```text
+successful Quality integration gate for push/main
+-> exact merged Issue/PR/Change Contract resolution
+-> trusted standing delegation + repository policy
+-> typed allow/deny decision
+-> applicable protected VPS/Ubuntu workflow
+-> independent policy re-check before transport
+-> exact artifact/release v3
+-> runtime transaction + verification
+-> typed execution audit
+```
+
+Issue/PR/comment/README/repository prose is not a runtime authority input. Historical `PRODUCTION APPROVED`, authorization fingerprints, execution-intent text and `DEPLOY VPS` comments remain audit-only.
+
+## Trust boundary
+
+The effective delegation lives outside ordinary repository lifecycle writes in GitHub `production` environment state. Repository policy contains no effective authority. Policy hashes and decision IDs are integrity identifiers, not credentials.
+
+The standing delegation grants only `deploy` and `rollback` when both trusted delegation and repository policy allow them. IAM, secrets, environment/settings administration, branch protection and arbitrary infrastructure mutation remain outside Delivery Orchestrator authority.
+
+Standing delegation administration is a human settings operation. Autonomous operation requires no per-run environment reviewer prompt; otherwise the environment reviewer would recreate per-release approval.
 
 ## Runtime contours
 
 ### VPS
-
-API, frontend, public nginx/TLS and VPS deployment infrastructure when changed.
+FastAPI, frontend, public nginx/TLS and VPS deployment infrastructure.
 
 ### Ubuntu Worker/relay
-
-Shared Worker runtime, Ubuntu-specific Worker service/deployment, private relay and Linux-hosted operations when changed.
+Shared Worker runtime, Ubuntu service/deployment, private relay and Linux-hosted operations.
 
 ### Mixed
+`MIXED` means both active contours; exact VPS/Ubuntu flags remain authoritative.
 
-`MIXED` means both VPS and Ubuntu Worker/relay apply; the exact two deployment flags remain authoritative.
+## Evidence and compatibility
 
-### Retired Windows tooling
-
-`worker/*.ps1`, `worker/*.cmd`, `worker/windows/**`, `worker/README.txt`, and `worker/UPDATE.md` may remain for historical/local use but do not create a production contour, packaging workflow, release, deployment action or acceptance requirement. Generic Python portability is distinct from a supported runtime target.
-
-## Remote execution boundary
-
-Operator-owned control stations may establish SSH/ZeroTier transport, but transport does not grant source or production authorization. Root/sudo/password/TOTP/credential boundaries stay local to the operator/trusted UI. Repository-owned deployment logic executes target-local from exact approved source when safe.
-
-## Compatibility and evidence
-
-Merge is not release; release is not deployment; deployment is not acceptance. Runtime identity, rollback and product evidence are verified independently for each applicable active contour.
-
-Modern production authorization fingerprints bind VPS/Ubuntu runtime fields only. Historical immutable PRs containing legacy Windows fields retain their old fingerprint shape when read by compatibility logic. Historical Windows manifests remain readable but cannot reactivate a Windows production target.
+Merge is not release; release is not deployment; deployment is not acceptance. New release evidence uses `sea_speed_release_manifest_v3` and typed execution audit. Historical v1/v2 and Windows records remain readable but cannot authorize or create a new Windows runtime path.
