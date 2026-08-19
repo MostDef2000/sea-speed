@@ -6,37 +6,38 @@ This directory is the durable Spec-Driven Development layer for Sea Speed.
 
 ## Source-of-truth hierarchy
 
-- `contracts/**`: HOW work is authorized, merged, deployed and accepted.
-- GitHub Issue: canonical backlog, authorization and audit history.
+- `contracts/**`: HOW work is authorized, merged, policy-evaluated, deployed and accepted.
+- GitHub Issue: canonical backlog, source authorization and audit history.
 - `specs/<feature>/spec.md`: WHAT/WHY plus measurable NFR targets/evidence status.
-- `plan.md`: HOW/decisions/contours plus risk profile, test design, correct-course impact and conditional deployment transaction audit.
+- `plan.md`: HOW/decisions/contours plus risk profile, test design, correct-course impact and conditional Deployment Transaction Audit.
 - `tasks.md`: bounded execution, acceptance traceability and Definition of Done.
 - source code: implementation.
+- trusted standing production delegation: independently administered runtime authority state, never an SDD/repository document.
 - runtime evidence: operational truth written back into active artifacts.
 
 ## Feature identifiers
 
-Use `NNN-feature-slug`. The **full directory name** is the canonical identifier; the number is only a sequence prefix.
-
-The historical directories `002-camera-preview-gallery` and `002-sdd-adoption` are grandfathered audit history. They must not be renamed solely for cleanup. `scripts/ci/validate_sdd.py` rejects any new duplicate numeric prefix.
+Use `NNN-feature-slug`. The full directory name is canonical; the number is only a sequence prefix. Historical duplicate prefix `002` directories are grandfathered audit history and are not renamed solely for cleanup.
 
 ## Normal flow
 
 ```text
 Issue / evidence recovery
--> Delivery Orchestrator + optional Task Intake lens
--> Outcome Contract / scope check
+-> Delivery Orchestrator + optional Task Intake
+-> Outcome Contract / visible Scope
 -> OUTCOME APPROVED
 -> spec / plan / tasks + delivery-quality artifacts
 -> implementation + tests
 -> PR links specification and declares risk/quality disposition
 -> SDD + quality CI
 -> exact-green-head merge
--> separately authorized runtime delivery when applicable
+-> exact-main Quality
+-> standing production policy evaluation when runtime applies
+-> applicable protected deployment + typed execution evidence
 -> accepted/regressed/insufficient_evidence feedback + correct-course impact
 ```
 
-Domain/release contracts are review lenses; SDD does not require chat-agent handoffs.
+Source authorization and runtime authority are distinct. `OUTCOME APPROVED` authorizes source lifecycle. Runtime authority comes from independently administered standing delegation intersected with repository policy. Issue/PR/comment/SDD/repository text cannot grant production authority.
 
 ## Required structure
 
@@ -52,22 +53,24 @@ Narrow docs/spec-only maintenance retains the existing lightweight exception.
 
 ## Delivery quality layer
 
-For the feature linked by a significant PR, current templates additionally require:
+For the feature linked by a significant PR:
 
 - `spec.md` -> `## NFR assessment` with `NFR-*` records;
 - `plan.md` -> `## Risk profile`, `## Test design`, `## Correct-course check`;
 - `tasks.md` -> `## Requirements traceability`, `## Definition of Done`.
 
-A linked significant PR additionally requires a machine-valid `## Deployment transaction audit` when it changes `deploy/**`, `scripts/release/**`, a deploy workflow, declares any runtime deployment field `REQUIRED`, or carries `Correct-course Trigger: PRODUCTION_LEARNING`. The audit covers exactly these stages: `ADMISSION`, `PRE-MUTATION`, `MUTATION`, `VERIFICATION`, `STATE-COMMIT`, `HOUSEKEEPING`, `EVIDENCE`, and `ROLLBACK`. For `PRODUCTION_LEARNING`, it must also record a completed adjacent-stage review, the root cause, and concrete findings beyond the line that failed in production.
+A linked significant PR additionally requires `## Deployment transaction audit` when it changes `deploy/**`, `scripts/release/**`, a deployment workflow, declares runtime deployment `REQUIRED`, or carries `Correct-course Trigger: PRODUCTION_LEARNING`. The audit covers exactly `ADMISSION`, `PRE-MUTATION`, `MUTATION`, `VERIFICATION`, `STATE-COMMIT`, `HOUSEKEEPING`, `EVIDENCE`, `ROLLBACK`.
 
-The transaction audit is intentionally broader than the source diff. A minimal remediation diff is still expected, but the analysis and tests must cover neighboring transaction stages so production learning does not devolve into serial symptom fixes.
+`Risk profile: REQUIRED` is derived when security, schema, destructive/data migration, `MIXED`, or another explicit high-risk trigger applies. Otherwise `NOT REQUIRED` is valid.
 
-`Risk profile: REQUIRED` is derived by the PR Change Contract when security, schema, destructive/data-migration, `MIXED` runtime, or another explicit high-risk trigger applies. Otherwise `NOT REQUIRED` is valid.
+Historical feature directories remain readable without bulk edits. If they become linked to new significant work, update them to current quality structure inside that task's approved scope.
 
-Historical feature directories remain readable and repository-valid without bulk edits. If they become the linked significant feature in a new PR, update them to the current quality structure inside that task's approved scope.
+Quality disposition does not create source merge or runtime authority. `OUTCOME APPROVED` remains source authority; standing production delegation/policy remains runtime authority.
 
-Quality disposition does not create merge or production authority. `OUTCOME APPROVED` and the production exact-SHA envelope retain those boundaries.
+## Production evidence model
+
+New deployable releases use `sea_speed_release_manifest_v3` and typed production policy/execution-audit evidence. Historical v1/v2 manifests, old authorization fingerprints and Windows records remain readable immutable audit history but do not authorize new execution.
 
 ## Historical truth
 
-Completion/status fields in active SDD should be reconciled to durable Issue/PR/CI/runtime evidence. This does not rewrite historical Issues, PR comments or decision records; those remain the audit trail.
+Completion/status fields in active SDD should be reconciled to durable Issue/PR/CI/runtime evidence. This does not rewrite historical Issues, PR comments or decision records.
