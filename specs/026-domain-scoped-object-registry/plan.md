@@ -2,87 +2,89 @@
 
 - Specification: specs/026-domain-scoped-object-registry/spec.md
 - Issue: #223
-- Status: Source implementation
+- Status: Production-learning delivery correction
 
 ## Architecture
 
-This is a bounded protected-frontend change. The existing Water and Road Operator pages keep their current navigation targets, authenticated session behavior and runtime controls. The shared Objects page becomes domain-scoped by resolving one of two immutable frontend scopes:
+The product architecture remains unchanged: one shared Objects frontend uses the existing generic `/sea-speed/api/objects` API and SQLite storage, with immutable Water (`cam1` / `water`) or Road (`road1` / `road`) scope in the browser. This corrective PR changes no frontend, backend, storage, Worker, camera, authentication, proxy, media or analytics source.
 
-- `water` -> `camera_id=cam1`, `domain=water`;
-- `road` -> `camera_id=road1`, `domain=road`.
+The production runtime target remains exact merged product SHA `0af31b5e2516fb0d529228a51025693e7a932779`. Request runtime deployment run `32219455747` proved that source admission, authorization, quality, provenance and transport were valid, but the protected VPS privilege bundle was still bound to the prior source SHA. The deployment therefore stopped before candidate acceptance.
 
-A valid explicit `?scope=water|road` is authoritative. If scope is absent, only a same-origin `/sea-speed/road/` referrer selects Road; all other entries default Water. The resolved scope is immediately canonicalized into the URL. Camera/domain controls are rendered as locked reflections of that scope, while search/date/speed/status filters, pagination and object detail operations remain on the existing generic `/sea-speed/api/objects` contract.
-
-No backend, SQLite, worker, camera, Authentik, nginx, MediaMTX, H264 or analytics-runtime code changes are permitted. Runtime impact is VPS-only because the served Objects HTML belongs to the VPS release.
+The production-learning correction records the effective VPS capability for this rollout as `ONE_COMMAND_FALLBACK` with one operator action: refresh the repository-owned protected privilege boundary to the exact authorized product target, then retry the existing canonical VPS deployment for the same target. Ubuntu Worker remains NOT REQUIRED. The corrective merge SHA is control-plane evidence only and is not a replacement runtime release.
 
 ## Decisions
 
-- D-001: Reuse one shared Objects page and one existing API/storage implementation; do not fork Water/Road databases or backend endpoints.
-- D-002: Make explicit `scope` authoritative and canonicalize inferred context immediately so reload/direct links do not depend on referrer state.
-- D-003: Infer Road only from a same-origin Road Operator referrer when scope is absent; otherwise default Water, including unsupported explicit scope after canonicalization.
-- D-004: Force scoped `camera_id` and `domain` into every list query and ignore ordinary form attempts to override those two keys.
-- D-005: Reset clears ordinary filters only, then reapplies the immutable active scope.
-- D-006: Preserve existing PATCH/DELETE/session/pagination behavior and newest-100/newest-300 retention semantics.
-- D-007: Treat `frontend/sea-speed/index.html` and `frontend/sea-speed/road/index.html` as authorized but unchanged because their common Objects links are sufficient for contextual resolution.
-- D-008: Use unique SDD prefix `026`; `025-tool-routing-contract` remains untouched.
+- D-001: Keep the original product implementation and exact runtime target unchanged; corrective source is SDD-only.
+- D-002: Preserve one shared Objects page and existing API/storage implementation.
+- D-003: Treat run `32219455747` as authoritative production-learning evidence: admission and transport passed, candidate acceptance did not.
+- D-004: Correct rollout capability from `CONNECTOR` to `ONE_COMMAND_FALLBACK` because the protected privilege bundle is exact-source-bound.
+- D-005: Require exactly one operator action to refresh that repository-owned boundary to target `0af31b5e2516fb0d529228a51025693e7a932779`.
+- D-006: After refresh evidence, retry failed VPS deployment job `95967126921` / run `32219455747`; do not create another production authorization record and do not deploy Ubuntu Worker.
+- D-007: Preserve authorization fingerprint semantics; Issue #223 Outcome Contract and merged PR #224 authorization-bound fields remain unchanged.
+- D-008: Final runtime acceptance still requires accepted `runtime_verified` VPS evidence followed by authenticated Water/Road browser smoke.
 
 ## Affected contours
 
-- VPS: REQUIRED after separate exact-SHA production authorization because `frontend/sea-speed/objects/index.html` is served from the VPS release.
-- Ubuntu Worker/relay: NOT REQUIRED. No worker, relay, analytics profile or protected source changes.
-- Windows: retired and not an active production contour.
-- Backend/API/storage: unchanged; generic `/sea-speed/api/objects` filtering is reused.
-- Camera/RTSP/H264/MediaMTX: unchanged and explicitly out of scope.
-- Authentik/nginx/private M2M: unchanged and explicitly out of scope.
+- Corrective source PR: CONTROL_PLANE / NONE; exactly the `026` SDD triplet.
+- Existing authorized product target: VPS REQUIRED for `0af31b5e2516fb0d529228a51025693e7a932779`.
+- VPS execution capability for this rollout: ONE_COMMAND_FALLBACK.
+- Operator actions expected: 1.
+- Ubuntu Worker/relay: NOT REQUIRED.
+- Backend/API/storage: unchanged.
+- Camera/media and authentication/proxy topology: unchanged and out of scope.
 
 ## Validation
 
-Source validation requires the final base-to-head diff to remain exactly the intended five-file subset of the corrected seven-path authorization: Objects frontend, focused frontend contract test, and the `026` SDD triplet. PR Validation must pass Change Contract admission, SDD validation, repository/contracts/schema/runtime-evidence validation and behavioral tests. Aggregate Quality must pass on the same exact final head.
+Corrective source validation requires the final base-to-head diff to contain exactly three paths: `spec.md`, `plan.md`, and `tasks.md` in `specs/026-domain-scoped-object-registry/`. PR Validation and aggregate Quality must pass on the same exact corrective head. Before merge, refresh current `main`, exact head, changed-file set and review state; merge only with expected-head protection. Exact-main Quality must then pass on the corrective merge SHA.
 
-Before merge, refresh current `main`, exact PR head, changed-file scope and review state. Merge only with expected-head protection. Then require exact-main Quality on the resulting merge commit and persist source-integration evidence on Issue #223.
-
-Runtime validation is separate: only after a fresh exact-SHA production authorization may the canonical VPS deployment transaction activate the merged release. Acceptance requires Water entry showing only `cam1/water`, Road entry showing only `road1/road`, scope persistence across Reset/reload, and smoke coverage for filters/pagination/edit/delete compatibility.
+The corrective merge does not replace production authorization for the product target and does not deploy the corrective SHA. After corrective source evidence is durable, the one repository-owned protected-boundary refresh must report exact-target PASS markers. Then retry failed VPS job `95967126921` in request run `32219455747`. Accepted deployment evidence must validate `runtime_verified` for the exact authorized target. Browser acceptance then proves Water entry shows only `cam1/water`, Road entry shows only `road1/road`, scope survives Reset/reload, and ordinary scoped operations remain usable.
 
 ## Risk profile
 
 - Risk profile: NOT REQUIRED
 
-The change is frontend-only and reuses existing authenticated API/storage behavior. It introduces no security-impact field, schema migration, destructive data change, MIXED runtime contour, new secret, new trust boundary or privileged implementation. Production risk is handled by exact-SHA authorization, canonical VPS deployment, rollback and browser acceptance.
+The corrective source change is SDD-only and introduces no new security boundary, runtime code, schema, destructive data change, secret or MIXED runtime requirement. The production-learning trigger still requires a complete Deployment Transaction Audit. Runtime risk remains bounded by the existing fail-closed exact-source boundary, exact target authorization, one repository-owned operator action, canonical deployment retry, rollback identity and browser acceptance.
 
 ## Test design
 
-- TEST-001 | Covers: AC-001,AC-002,AC-003,AC-004,AC-005,AC-006 | Level: integration | Priority: P0 | Evidence: `tests/test_frontend_contract.py` domain-resolution, scope-lock, Reset/reload, filter/pagination and existing detail-operation assertions
-- TEST-002 | Covers: AC-007 | Level: integration | Priority: P0 | Evidence: exact five-file changed-scope verification plus PR Validation and aggregate Quality on one exact head
-- TEST-003 | Covers: AC-008 | Level: end-to-end | Priority: P0 | Evidence: expected-head merge followed by exact-main Quality and Issue #223 source-integration evidence
-- TEST-004 | Covers: AC-009 | Level: runtime-manual | Priority: P0 | Evidence: separately authorized VPS deployment manifest plus authenticated Water/Road browser acceptance
+- TEST-001 | Covers: AC-001,AC-002,AC-003,AC-004,AC-005,AC-006 | Level: integration | Priority: P0 | Evidence: previously green frontend contract tests on product PR #224; no product bytes change in corrective PR
+- TEST-002 | Covers: AC-007,AC-008 | Level: integration | Priority: P0 | Evidence: PR #224 exact-head CI and exact-main Quality run `32218234279` for product target `0af31b5e2516fb0d529228a51025693e7a932779`
+- TEST-003 | Covers: AC-010 | Level: integration | Priority: P0 | Evidence: exact three-path corrective diff plus PR Validation and aggregate Quality on one exact corrective head, expected-head merge and exact-main Quality
+- TEST-004 | Covers: AC-011 | Level: runtime-manual | Priority: P0 | Evidence: repository-owned protected-boundary refresh markers proving exact target and fixed privilege topology
+- TEST-005 | Covers: AC-012 | Level: end-to-end | Priority: P0 | Evidence: retried VPS job `95967126921` reaches accepted `runtime_verified` for exact product target while Ubuntu contour remains skipped
+- TEST-006 | Covers: AC-009 | Level: runtime-manual | Priority: P0 | Evidence: authenticated Water/Road browser acceptance after accepted VPS deployment
 
 ## Correct-course check
 
-- Trigger: NONE
-- Issue impact: NONE; the approved product outcome remains Water-only registry from Water and Road-only registry from Road.
-- Specification impact: NONE beyond completing the mandatory SDD quality structure and the already approved `025` to `026` path correction.
-- Plan impact: NONE beyond recording the canonical validation and later VPS transaction explicitly.
-- Tasks impact: NONE beyond making CI, merge, production authorization and runtime acceptance gates machine-auditable.
-- Authorization impact: NONE; the corrected path Scope already received exact `OUTCOME APPROVED`, and production remains separately unauthorized.
-- Follow-up: complete exact-head CI, expected-head merge and exact-main Quality; then request separate exact-SHA production authorization before VPS mutation.
+- Trigger: PRODUCTION_LEARNING
+- Issue impact: Issue #223 keeps the same product Outcome; runtime acceptance now records one required operator boundary refresh before canonical VPS retry.
+- Specification impact: delivery requirements now distinguish the unchanged product target from the SDD-only corrective merge and record `ONE_COMMAND_FALLBACK`.
+- Plan impact: rollout sequence is corrected to source-learning CI/merge -> protected-boundary refresh -> retry existing authorized VPS job -> browser acceptance.
+- Tasks impact: corrective source CI/merge tasks and the one operator-action/retry evidence path are added; previously completed product source tasks are marked complete.
+- Authorization impact: corrective source has fresh `OUTCOME APPROVED`; existing production authorization for target `0af31b5e2516fb0d529228a51025693e7a932779` remains unchanged because authorization-bound Issue/PR fields are not modified.
+- Follow-up: merge the three-path corrective PR, obtain exact-target protected-boundary PASS evidence, retry failed VPS job `95967126921`, validate `runtime_verified`, complete authenticated browser acceptance, then persist final Issue #223 evidence.
 
 ## Deployment transaction audit
 
 - Adjacent-stage review: COMPLETE
+- Production-learning root cause: the protected VPS privilege bundle is intentionally bound to an exact source SHA; run `32219455747` requested `0af31b5e2516fb0d529228a51025693e7a932779` while the installed bundle still identified the previous source, so deployment failed closed before candidate acceptance.
+- Production-learning adjacent-stage findings: admission, exact-main Quality, durable authorization, exact artifacts, quality evidence, release provenance, transport configuration and Ubuntu contour routing behaved correctly; the stale element was delivery capability classification because one repository-owned protected-boundary refresh is required before retry.
 
-- TX-001 | Stage: ADMISSION | Mutation: NO | Failure disposition: FATAL | State after failure: production remains on the previously accepted VPS release and the candidate is rejected | Retry: only after exact merged target, exact-main Quality and durable production authorization are all valid | Rollback: not applicable because no production mutation occurred | Evidence: current-main first-parent identity, exact-main Quality, production authorization verifier
-- TX-002 | Stage: PRE-MUTATION | Mutation: NO | Failure disposition: FATAL | State after failure: candidate release is not activated and existing production remains unchanged | Retry: only after protected Auth/runtime preconditions and release provenance pass | Rollback: not applicable before live mutation | Evidence: canonical VPS deployment admission and preflight logs
-- TX-003 | Stage: MUTATION | Mutation: YES | Failure disposition: FATAL | State after failure: candidate activation is rejected and previous accepted VPS release remains or is restored | Retry: only after the mutation failure cause is resolved and actual state is re-read | Rollback: restore exact previous accepted VPS release through the canonical deployment transaction | Evidence: deployment mutation logs and previous/current release markers
-- TX-004 | Stage: VERIFICATION | Mutation: POSSIBLE | Failure disposition: FATAL | State after failure: unverified candidate is not accepted as production | Retry: only after protected route/frontend/API verification failures are resolved | Rollback: canonical deployment restores the previous accepted release if verification fails | Evidence: protected health checks, frontend route checks and exact release identity
-- TX-005 | Stage: STATE-COMMIT | Mutation: YES | Failure disposition: FATAL | State after failure: current-release/deployment manifest are not accepted unless verification passed | Retry: only after exact candidate verification is re-established | Rollback: restore previous current-release/manifest state through the canonical deploy transaction | Evidence: deployment manifest with exact source commit, runtime verification and accepted state
-- TX-006 | Stage: HOUSEKEEPING | Mutation: POSSIBLE | Failure disposition: BEST-EFFORT | State after failure: verified active runtime remains accepted while stale cleanup may remain pending | Retry: safe after accepted runtime without changing the active release | Rollback: no rollback of a verified release for housekeeping-only failure | Evidence: release pruning/cleanup output
-- TX-007 | Stage: EVIDENCE | Mutation: NO | Failure disposition: FATAL | State after failure: runtime may be healthy but Issue #223 cannot be terminally accepted without durable deployment and browser evidence | Retry: re-read machine-observable state and persist sanitized evidence without redeploying solely for evidence | Rollback: not applicable to evidence recording | Evidence: workflow/run IDs, deployment manifest and authenticated browser acceptance recorded on Issue #223
-- TX-008 | Stage: ROLLBACK | Mutation: YES | Failure disposition: FATAL | State after failure: exact previous accepted VPS release is restored or the unresolved critical state remains fail-closed and documented | Retry: prohibited until actual runtime state and rollback outcome are verified | Rollback: use the exact previous accepted release recorded by the deployment transaction | Evidence: rollback markers, previous source SHA/current-release marker and protected health smoke
+- TX-001 | Stage: ADMISSION | Mutation: NO | Failure disposition: FATAL | State after failure: production remains on the previous accepted VPS release and candidate is not admitted | Retry: only with exact authorized target, exact-main Quality and durable production authorization intact | Rollback: not applicable before runtime mutation | Evidence: request job `95967088051` success, target `0af31b5e2516fb0d529228a51025693e7a932779`, Quality run `32218234279`
+- TX-002 | Stage: PRE-MUTATION | Mutation: POSSIBLE | Failure disposition: FATAL | State after failure: candidate remains unaccepted and previous production remains active | Retry: refresh repository-owned protected boundary to exact target, require PASS evidence, then retry failed VPS job | Rollback: protected-boundary installer is transactional; product runtime rollback is not required before candidate activation | Evidence: run `32219455747` reported a required privilege-boundary bootstrap and source-SHA mismatch; later PASS markers unblock retry
+- TX-003 | Stage: MUTATION | Mutation: YES | Failure disposition: FATAL | State after failure: canonical deployment rejects candidate and preserves or restores previous accepted VPS release | Retry: only after actual runtime state and exact boundary identity are verified | Rollback: restore exact previous accepted VPS release through canonical deployment transaction | Evidence: retried VPS deployment logs and previous/current release markers
+- TX-004 | Stage: VERIFICATION | Mutation: POSSIBLE | Failure disposition: FATAL | State after failure: unverified candidate is not accepted as production | Retry: only after protected frontend/API/auth verification failures are resolved | Rollback: canonical transaction restores previous accepted release if verification cannot pass | Evidence: deployment checks, protected health and exact release identity
+- TX-005 | Stage: STATE-COMMIT | Mutation: YES | Failure disposition: FATAL | State after failure: deployment manifest/current-release state cannot claim acceptance unless verification passed | Retry: only after exact candidate verification is re-established | Rollback: restore previous current-release/manifest state through canonical deployment transaction | Evidence: deployment manifest with exact source commit, `runtimeVerified=true`, `state=runtime_verified`
+- TX-006 | Stage: HOUSEKEEPING | Mutation: POSSIBLE | Failure disposition: BEST-EFFORT | State after failure: verified active runtime remains accepted while stale cleanup may remain pending | Retry: safe after accepted runtime without changing active release | Rollback: no rollback solely for housekeeping failure after verified acceptance | Evidence: release cleanup output from retried deployment
+- TX-007 | Stage: EVIDENCE | Mutation: NO | Failure disposition: FATAL | State after failure: runtime may be healthy but Issue #223 remains open until durable deployment and browser evidence are recorded | Retry: re-read machine-observable state and persist sanitized evidence without redeploying solely for evidence | Rollback: not applicable to evidence recording | Evidence: corrective CI/merge IDs, protected-boundary PASS markers, retried deployment IDs and browser acceptance recorded on Issue #223
+- TX-008 | Stage: ROLLBACK | Mutation: YES | Failure disposition: FATAL | State after failure: previous accepted VPS release is restored or unresolved critical state remains fail-closed and documented | Retry: prohibited until actual runtime and rollback state are verified | Rollback: use exact previous accepted VPS release recorded by canonical transaction | Evidence: rollback markers, previous source/current-release identity and protected health smoke
 
 ## Runtime feedback
 
-- Initial implementation stayed within the approved frontend/test/SDD boundary; no backend, storage, worker, camera or auth path entered the PR diff.
-- Early PR Validation attempts failed only at Change Contract/SDD admission: first on PR metadata fields, then on a duplicate SDD prefix because `025-tool-routing-contract` already occupies `025` on `main`.
-- Fresh path-correction authorization moved the branch-only SDD triplet to unique prefix `026`. Final GitHub changed-file inspection shows exactly five paths: Objects frontend, frontend contract test and `specs/026-domain-scoped-object-registry/{spec,plan,tasks}.md`.
-- Change Contract admission now passes with derived impact `VPS` and five changed files. The remaining remediation is completion of the repository-mandated SDD quality structure followed by normal behavioral CI.
-- No production mutation is claimed or authorized during source integration. VPS deployment remains a later exact-SHA transaction after merge and exact-main Quality.
+- Product PR #224 merged as `0af31b5e2516fb0d529228a51025693e7a932779`; exact-main Quality run `32218234279` succeeded.
+- Issue #223 carries exact production authorization for the same target with execution intent `EXECUTE`.
+- Request runtime deployment run `32219455747` validated authorization, target, Quality, tooling, exact artifacts, quality evidence and release provenance; transport configuration succeeded and Ubuntu Worker was skipped.
+- VPS job `95967126921` then failed before accepted candidate state because the protected privilege bundle source SHA did not match the authorized target.
+- Root cause is delivery capability metadata, not product code or transport. Effective capability for this rollout is `ONE_COMMAND_FALLBACK`, operator actions expected `1`.
+- Corrective source is limited to this SDD triplet and does not modify product code, deploy scripts, workflows, Issue Outcome Contract, PR #224 fields, production fingerprint, target SHA or Ubuntu Worker state.
+- After corrective merge and exact-main Quality, perform the one repository-owned protected-boundary refresh and retry existing failed VPS job `95967126921`; do not create a duplicate production authorization comment. Final completion still requires `runtime_verified` and authenticated Water/Road registry acceptance.
