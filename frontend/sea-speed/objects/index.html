@@ -15,17 +15,17 @@
 <header class="topbar">
 <div class="header-brand">
 <a class="project-home" href="/" aria-label="На главную mostdef.ru" title="mostdef.ru"><svg class="project-lighthouse" viewBox="0 0 48 48" aria-hidden="true" focusable="false"><path fill="#ffe59a" opacity=".28" d="M27 8 47 3v11z"/><path fill="#d24f49" d="M14 13h20v5H14z"/><path fill="#ffe59a" d="M18 6h12v7H18z"/><path fill="#d24f49" d="m17 18-3 23h20l-3-23z"/><path fill="#edf8f6" d="M16 25h16l-1 8H15z"/><path fill="#91e6df" d="M11 41h26v3H11z"/></svg></a>
-<div class="header-copy"><p class="eyebrow">Sea Speed · persistent registry</p><h1>Объекты</h1><p class="subtitle">Сохранённые детекции воды и дороги, фотографии и операторская обработка.</p></div>
+<div class="header-copy"><p id="registryEyebrow" class="eyebrow">Sea Speed · Water registry</p><h1 id="registryTitle">Объекты воды</h1><p id="registrySubtitle" class="subtitle">Сохранённые детекции воды, фотографии и операторская обработка.</p></div>
 </div>
 <div class="header-actions">
 <div class="session-bar" aria-label="Сессия пользователя"><span class="session-login"><span class="session-label">Пользователь</span><strong id="sessionUser" class="session-user">…</strong></span><a class="logout-link" href="/outpost.goauthentik.io/sign_out">Выйти</a></div>
-<nav class="nav" aria-label="Sea Speed navigation"><a href="/sea-speed/">Оператор</a><a href="/sea-speed/objects/">Объекты</a><a href="/sea-speed/cameras/">Камеры</a><a href="/sea-speed/road/">Дорога</a></nav>
+<nav class="nav" aria-label="Sea Speed navigation"><a href="/sea-speed/">Вода</a><a href="/sea-speed/objects/?scope=water">Реестр воды</a><a href="/sea-speed/road/">Дорога</a><a href="/sea-speed/objects/?scope=road">Реестр дороги</a><a href="/sea-speed/cameras/">Камеры</a></nav>
 </div>
 </header>
 <form id="filters" class="panel filters">
 <div class="field"><label for="searchInput">Поиск</label><input id="searchInput" name="search" placeholder="ID, класс или комментарий"></div>
-<div class="field"><label for="cameraInput">Камера</label><select id="cameraInput" name="camera_id"><option value="">Все</option><option value="cam1">cam1 · вода</option><option value="road1">road1 · дорога</option></select></div>
-<div class="field"><label for="domainInput">Домен</label><select id="domainInput" name="domain"><option value="">Все</option><option value="water">water</option><option value="road">road</option></select></div>
+<div class="field"><label for="cameraInput">Камера</label><select id="cameraInput" name="camera_id" disabled><option value="cam1">cam1 · вода</option><option value="road1">road1 · дорога</option></select></div>
+<div class="field"><label for="domainInput">Домен</label><select id="domainInput" name="domain" disabled><option value="water">water</option><option value="road">road</option></select></div>
 <div class="field"><label for="dateFromInput">С даты</label><input id="dateFromInput" name="date_from" type="datetime-local"></div>
 <div class="field"><label for="dateToInput">По дату</label><input id="dateToInput" name="date_to" type="datetime-local"></div>
 <div class="field"><label for="speedMinInput">Скорость от</label><input id="speedMinInput" name="speed_min" type="number" min="0" step="0.1" placeholder="km/h"></div>
@@ -33,7 +33,7 @@
 <div class="field"><label for="statusInput">Статус</label><select id="statusInput" name="status"><option value="">Все</option><option value="new">Новый</option><option value="reviewed">Проверен</option><option value="ignored">Игнорировать</option></select></div>
 <div class="filter-actions"><button class="primary" type="submit">Применить</button><button id="resetBtn" class="ghost" type="button">Сбросить</button></div>
 </form>
-<div class="summary-row"><div id="summary">Загрузка…</div><div>Все analytics cameras · SQLite registry</div></div>
+<div class="summary-row"><div id="summary">Загрузка…</div><div id="registryScopeLabel">Water · cam1 · SQLite registry</div></div>
 <section id="objectsGrid" class="objects-grid" aria-live="polite"><div class="panel empty">Загрузка объектов…</div></section>
 <nav class="pager" aria-label="Пагинация"><button id="prevBtn" type="button">← Назад</button><span id="pageInfo">Страница 1</span><button id="nextBtn" type="button">Вперёд →</button></nav>
 </main>
@@ -59,8 +59,17 @@ const SESSION_URL="/sea-speed/api/session";
 const SESSION_WATCHDOG_MS=15000;
 const OBJECTS_URL="/sea-speed/api/objects";
 const PAGE_SIZE=24;
+const REGISTRY_SCOPES={
+  water:{camera_id:"cam1",domain:"water",title:"Объекты воды",eyebrow:"Sea Speed · Water registry",subtitle:"Сохранённые детекции воды, фотографии и операторская обработка.",label:"Water · cam1 · SQLite registry"},
+  road:{camera_id:"road1",domain:"road",title:"Дорожные события",eyebrow:"Sea Speed · Road registry",subtitle:"Дорожные детекции, фотографии и операторская обработка.",label:"Road · road1 · SQLite registry"},
+};
+const requestedScope=new URLSearchParams(window.location.search).get("scope");
+const referrerPath=(()=>{try{let url=new URL(document.referrer);return url.origin===window.location.origin?url.pathname:""}catch(_error){return ""}})();
+const inferredScope=referrerPath.startsWith("/sea-speed/road/")?"road":"water";
+const registryScopeKey=Object.prototype.hasOwnProperty.call(REGISTRY_SCOPES,requestedScope)?requestedScope:(requestedScope?"water":inferredScope);
+const registryScope=REGISTRY_SCOPES[registryScopeKey];
 const $=id=>document.getElementById(id);
-const sessionUser=$("sessionUser"),filters=$("filters"),objectsGrid=$("objectsGrid"),summary=$("summary"),prevBtn=$("prevBtn"),nextBtn=$("nextBtn"),pageInfo=$("pageInfo"),modalBackdrop=$("modalBackdrop"),closeBtn=$("closeBtn"),editForm=$("editForm"),deleteBtn=$("deleteBtn"),toast=$("toast");
+const sessionUser=$("sessionUser"),filters=$("filters"),objectsGrid=$("objectsGrid"),summary=$("summary"),prevBtn=$("prevBtn"),nextBtn=$("nextBtn"),pageInfo=$("pageInfo"),modalBackdrop=$("modalBackdrop"),closeBtn=$("closeBtn"),editForm=$("editForm"),deleteBtn=$("deleteBtn"),toast=$("toast"),cameraInput=$("cameraInput"),domainInput=$("domainInput"),registryTitle=$("registryTitle"),registryEyebrow=$("registryEyebrow"),registrySubtitle=$("registrySubtitle"),registryScopeLabel=$("registryScopeLabel");
 let offset=0,total=0,currentObject=null,toastTimer=null,sessionIdentityEstablished=false,sessionRedirecting=false;
 const escapeHtml=value=>String(value??"").replace(/[&<>"']/g,char=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[char]);
 const formatDate=value=>{if(!value)return "—";let date=new Date(value);return Number.isNaN(date.getTime())?value:date.toLocaleString()};
@@ -69,7 +78,8 @@ const statusLabel=value=>({new:"Новый",reviewed:"Проверен",ignored:
 function redirectForReauthentication(){if(sessionRedirecting)return;sessionRedirecting=true;const protectedUrl=window.location.pathname+window.location.search+window.location.hash;window.top.location.replace(protectedUrl)}
 async function loadSessionIdentity(){try{let response=await fetch(SESSION_URL,{cache:"no-store",credentials:"same-origin"}),body={};try{body=await response.json()}catch(_error){}let username=String(body.username||"").trim();if(!response.ok||!username)throw Error("trusted identity unavailable");sessionIdentityEstablished=true;sessionUser.textContent=username;sessionUser.classList.remove("bad")}catch(_error){if(sessionIdentityEstablished){redirectForReauthentication();return}sessionUser.textContent="недоступно";sessionUser.classList.add("bad")}}
 function showToast(message,bad=false){clearTimeout(toastTimer);toast.textContent=message;toast.className=`toast show${bad?" bad":""}`;toastTimer=setTimeout(()=>toast.className="toast",2600)}
-function filterParams(){let data=new FormData(filters),params=new URLSearchParams({limit:String(PAGE_SIZE),offset:String(offset)});for(let [key,value] of data.entries()){value=String(value).trim();if(!value)continue;if((key==="date_from"||key==="date_to")&&value){let date=new Date(value);if(!Number.isNaN(date.getTime()))value=date.toISOString()}params.set(key,value)}return params}
+function applyRegistryScope(){cameraInput.value=registryScope.camera_id;domainInput.value=registryScope.domain;registryTitle.textContent=registryScope.title;registryEyebrow.textContent=registryScope.eyebrow;registrySubtitle.textContent=registryScope.subtitle;registryScopeLabel.textContent=registryScope.label;document.title=`Sea Speed Objects · ${registryScopeKey==="road"?"Road":"Water"}`;let url=new URL(window.location.href);if(url.searchParams.get("scope")!==registryScopeKey){url.searchParams.set("scope",registryScopeKey);history.replaceState(null,"",url)}}
+function filterParams(){let data=new FormData(filters),params=new URLSearchParams({limit:String(PAGE_SIZE),offset:String(offset),camera_id:registryScope.camera_id,domain:registryScope.domain});for(let [key,value] of data.entries()){if(key==="camera_id"||key==="domain")continue;value=String(value).trim();if(!value)continue;if((key==="date_from"||key==="date_to")&&value){let date=new Date(value);if(!Number.isNaN(date.getTime()))value=date.toISOString()}params.set(key,value)}return params}
 async function request(url,options={}){let response=await fetch(url,{cache:"no-store",credentials:"same-origin",...options});if(!response.ok){let body=await response.text();try{body=JSON.parse(body).detail||body}catch(_error){}throw Error(`${response.status}: ${body}`)}return response.json()}
 function photoMarkup(object,className=""){return object.snapshot_url?`<img class="${className}" src="${escapeHtml(object.snapshot_url)}" alt="Детекция ${escapeHtml(object.object_id)}">`:'<div class="photo-empty">Фотография отсутствует</div>'}
 function renderObjects(objects){if(!objects.length){objectsGrid.innerHTML='<div class="panel empty">По выбранным условиям объектов нет.</div>';return}objectsGrid.innerHTML=objects.map(object=>`<article class="panel object-card" data-object-id="${escapeHtml(object.object_id)}"><div class="object-photo">${photoMarkup(object)}<span class="speed-badge">${escapeHtml(formatSpeed(object.speed_kmh))}</span><span class="status-badge status-${escapeHtml(object.status)}">${escapeHtml(statusLabel(object.status))}</span></div><div class="object-body"><div class="object-title"><h2>${escapeHtml(object.class_name||"object")}</h2><div class="object-id" title="${escapeHtml(object.object_id)}">${escapeHtml(object.object_id)}</div></div><div class="object-meta"><div>Камера<span class="meta-value">${escapeHtml(object.camera_id||"—")}</span></div><div>Домен<span class="meta-value">${escapeHtml(object.domain||"—")}</span></div><div>Дата<span class="meta-value">${escapeHtml(formatDate(object.detected_at))}</span></div><div>Track ID<span class="meta-value">${escapeHtml(object.track_id??"—")}</span></div><div>Confidence<span class="meta-value">${object.confidence==null?"—":escapeHtml(Number(object.confidence).toFixed(2))}</span></div><div>Обновлено<span class="meta-value">${escapeHtml(formatDate(object.updated_at))}</span></div></div><p class="comment-preview">${escapeHtml(object.comment||"Комментария нет")}</p><div class="card-actions"><button class="primary open-object" type="button">Открыть</button></div></div></article>`).join("");objectsGrid.querySelectorAll(".open-object").forEach(button=>button.addEventListener("click",()=>openObject(button.closest("[data-object-id]").dataset.objectId)))}
@@ -78,13 +88,13 @@ async function loadObjects(){objectsGrid.innerHTML='<div class="panel empty">З�
 async function openObject(objectId){try{let data=await request(`${OBJECTS_URL}/${encodeURIComponent(objectId)}`);currentObject=data.object;$("modalTitle").textContent=`${currentObject.class_name||"object"} · ${formatSpeed(currentObject.speed_kmh)}`;$("detailPhoto").innerHTML=photoMarkup(currentObject,"detail-image");$("detailJson").textContent=JSON.stringify(currentObject.original_event||{},null,2);$("editObjectId").value=currentObject.object_id;$("editClassName").value=currentObject.class_name||"";$("editSpeed").value=currentObject.speed_kmh??"";$("editStatus").value=currentObject.status||"new";$("editComment").value=currentObject.comment||"";modalBackdrop.classList.add("open");document.body.style.overflow="hidden";closeBtn.focus()}catch(error){showToast(error.message,true)}}
 function closeModal(){modalBackdrop.classList.remove("open");document.body.style.overflow="";currentObject=null}
 filters.addEventListener("submit",event=>{event.preventDefault();offset=0;loadObjects()});
-$("resetBtn").addEventListener("click",()=>{filters.reset();offset=0;loadObjects()});
+$("resetBtn").addEventListener("click",()=>{filters.reset();applyRegistryScope();offset=0;loadObjects()});
 prevBtn.addEventListener("click",()=>{offset=Math.max(0,offset-PAGE_SIZE);loadObjects();scrollTo({top:0,behavior:"smooth"})});
 nextBtn.addEventListener("click",()=>{if(offset+PAGE_SIZE<total)offset+=PAGE_SIZE;loadObjects();scrollTo({top:0,behavior:"smooth"})});
 closeBtn.addEventListener("click",closeModal);modalBackdrop.addEventListener("click",event=>{if(event.target===modalBackdrop)closeModal()});addEventListener("keydown",event=>{if(event.key==="Escape"&&modalBackdrop.classList.contains("open"))closeModal()});
 editForm.addEventListener("submit",async event=>{event.preventDefault();if(!currentObject)return;let speed=$("editSpeed").value.trim();let payload={class_name:$("editClassName").value.trim(),speed_kmh:speed===""?null:Number(speed),status:$("editStatus").value,comment:$("editComment").value};try{let data=await request(`${OBJECTS_URL}/${encodeURIComponent(currentObject.object_id)}`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});currentObject=data.object;showToast("Изменения сохранены");closeModal();loadObjects()}catch(error){showToast(error.message,true)}});
 deleteBtn.addEventListener("click",async()=>{if(!currentObject||!confirm("Удалить запись из рабочего реестра? Фотография останется на сервере."))return;try{await request(`${OBJECTS_URL}/${encodeURIComponent(currentObject.object_id)}`,{method:"DELETE"});showToast("Запись удалена");closeModal();if(offset>=Math.max(0,total-1)&&offset>0)offset=Math.max(0,offset-PAGE_SIZE);loadObjects()}catch(error){showToast(error.message,true)}});
-loadSessionIdentity();loadObjects();setInterval(()=>void loadSessionIdentity(),SESSION_WATCHDOG_MS);
+applyRegistryScope();loadSessionIdentity();loadObjects();setInterval(()=>void loadSessionIdentity(),SESSION_WATCHDOG_MS);
 </script>
 </body>
 </html>
