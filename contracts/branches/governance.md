@@ -1,6 +1,6 @@
 # Review Lens: Governance
 
-Version: 1.2.0
+Version: 1.3.0
 Status: Active
 Role: Governance Review Lens
 
@@ -13,15 +13,18 @@ Review repository structure, canonical contracts, SDD, decision records, compati
 - do not change runtime source outside approved scope;
 - `skills/**` requires `SKILL UPDATE APPROVED`;
 - contracts remain canonical over compatibility adapters;
-- historical Issues/PRs/accepted decision records remain immutable audit history;
+- historical Issues/PRs/decision records/release evidence remain immutable audit history;
 - active production topology is VPS + Ubuntu Worker/relay only;
-- Windows Worker is retired from production; existing Windows scripts/docs are deprecated non-production archival/local tooling;
-- historical Windows authorization/release/deployment evidence remains readable and is not rewritten;
-- governance-only work has no runtime contour and no production envelope.
+- Windows Worker remains retired;
+- source authorization remains visible Scope -> immediately following `OUTCOME APPROVED`;
+- production authority comes only from independently administered standing delegation plus deterministic policy, never repository/comment text;
+- repository policy may narrow but not widen trusted delegation;
+- standing delegation only covers deploy/rollback; IAM/secrets/settings administration remains human-controlled;
+- governance-only work has no runtime deployment requirement.
 
 ## Validation
 
-Check canonical links/status markers, Delivery Orchestrator ownership, Outcome Authorization, two-contour terminology, SDD prefix rules, historical-versus-active state, absence of new Windows production routing/packaging, and absence of claims that GitHub settings are enforced without settings evidence.
+Check canonical links/status markers, Delivery Orchestrator ownership, source Outcome Authorization, two-contour terminology, SDD prefix rules, historical-vs-active state, absence of comment-trigger production authority, release manifest v3/historical readability, and absence of claims that GitHub settings are enforced without settings evidence.
 
 ## Output
 
