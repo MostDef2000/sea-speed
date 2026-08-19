@@ -41,16 +41,23 @@ class QualityArchitectureTests(unittest.TestCase):
         ):
             self.assertIn(marker, deploy)
 
-    def test_comment_authority_paths_are_retired(self) -> None:
+    def test_comment_authority_paths_are_retired_or_fail_closed_tombstones(self) -> None:
         self.assertFalse((ROOT / ".github/workflows/deploy-runtime-request.yml").exists())
         self.assertFalse((ROOT / ".github/workflows/deploy-vps-request.yml").exists())
-        for path in (
-            "scripts/release/verify_production_authorization.py",
-            "scripts/release/parse_runtime_execution_request.py",
-            "scripts/release/parse_deployment_request.py",
-            "data/contracts/production-authorization-policy-v1.json",
-        ):
-            self.assertFalse((ROOT / path).exists(), path)
+        self.assertFalse((ROOT / "scripts/release/parse_runtime_execution_request.py").exists())
+        self.assertFalse((ROOT / "scripts/release/parse_deployment_request.py").exists())
+
+        verifier = (ROOT / "scripts/release/verify_production_authorization.py").read_text(encoding="utf-8")
+        self.assertIn("Retired compatibility tombstone", verifier)
+        self.assertIn("return 2", verifier)
+        self.assertNotIn("PRODUCTION APPROVED", verifier)
+        self.assertNotIn("Authorization-Fingerprint", verifier)
+        self.assertNotIn("Execution-Intent: EXECUTE", verifier)
+
+        policy = json.loads((ROOT / "data/contracts/production-authorization-policy-v1.json").read_text(encoding="utf-8"))
+        self.assertEqual(policy["status"], "retired-compatibility-tombstone")
+        self.assertEqual(policy["authorizedActors"], [])
+        self.assertEqual(policy["authority"], "NONE")
 
     def test_vps_deploy_uses_restricted_privilege_boundary_before_live_mutation(self) -> None:
         source = (ROOT / "deploy/vps/deploy.sh").read_text(encoding="utf-8")
