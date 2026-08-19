@@ -2,7 +2,7 @@
 set -euo pipefail
 
 usage() {
-  cat <<'EOF'
+  cat <<'USAGE'
 Usage: deploy-authorized.sh <40-character-source-commit> --issue N [options]
 
 Options:
@@ -11,15 +11,15 @@ Options:
   --token-file PATH         Root-owned GitHub read token (default: /etc/sea-speed/github-read-token)
   --artifact-sha256 SHA256  Optional exact ubuntu-worker artifact digest for evidence
 
-This is the repository-owned Ubuntu production transaction. It requires the
-canonical Issue to contain the exact production authorization plus
-`Execution-Intent: EXECUTE`, stages the exact current-main source, reconciles
-protected water/road profile configuration from protected private runtime
-inputs, preserves independent Water/Road operator desired states, activates it
-through that source's updater, verifies exact worker/control/road identity,
-records deployment evidence, and restores protected configuration plus the
-previously active exact release if post-reconciliation activation fails.
-EOF
+This is the repository-owned Ubuntu production transaction invoked only after
+protected GitHub Actions has allowed the exact release under standing production
+delegation. The target transaction independently proves exact current-main
+first-parent source. Authentik-blueprint-only releases reconcile only the
+already-running Authentik blueprint and verify the managed login stages without
+restarting Water/Road workers. Worker-runtime releases retain the protected
+profile reconciliation, exact updater, identity verification, and rollback
+transaction.
+USAGE
 }
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then usage; exit 0; fi
@@ -33,13 +33,13 @@ install_root="/opt/sea-speed-worker"
 service_user="sea-speed"
 token_file="/etc/sea-speed/github-read-token"
 artifact_sha256=""
-repository="MostDef2000/sea-speed"
 repository_url="https://github.com/MostDef2000/sea-speed.git"
 worker_service="sea-speed-worker.service"
 road_service="sea-speed-road-worker.service"
 control_service="sea-speed-worker-control.service"
 test_mode="${SEA_SPEED_DEPLOY_TEST_MODE:-0}"
 systemd_unit_root="${SEA_SPEED_SYSTEMD_UNIT_ROOT:-/etc/systemd/system}"
+authentik_runtime_root="${SEA_SPEED_AUTHENTIK_RUNTIME_ROOT:-/opt/sea-speed-auth}"
 preview_catalog="/var/lib/sea-speed-camera-preview/active/camera-preview-catalog.json"
 
 while [[ $# -gt 0 ]]; do
@@ -61,6 +61,7 @@ if [[ "$test_mode" == "1" ]]; then
 else
   [[ "$EUID" -eq 0 ]] || { echo "ERROR run as root" >&2; exit 1; }
   [[ "$systemd_unit_root" == "/etc/systemd/system" ]] || { echo "ERROR production systemd unit root is fixed" >&2; exit 1; }
+  [[ "$authentik_runtime_root" == "/opt/sea-speed-auth" ]] || { echo "ERROR production Authentik runtime root is fixed" >&2; exit 1; }
 fi
 [[ "$target" =~ ^[0-9a-f]{40}$ ]] || { echo "ERROR target must be a lowercase 40-character SHA" >&2; exit 2; }
 [[ "$issue" =~ ^[1-9][0-9]*$ ]] || { echo "ERROR --issue must be a positive integer" >&2; exit 2; }
@@ -69,15 +70,9 @@ if [[ -n "$artifact_sha256" && ! "$artifact_sha256" =~ ^[0-9a-f]{64}$ ]]; then
   echo "ERROR artifact SHA-256 must be lowercase 64 hex" >&2
   exit 2
 fi
-for command_name in git python3 systemctl stat install mktemp flock grep; do
+for command_name in git python3 systemctl stat install mktemp flock grep chmod rm cat; do
   command -v "$command_name" >/dev/null 2>&1 || { echo "ERROR required command missing: $command_name" >&2; exit 4; }
 done
-[[ -f "$token_file" ]] || { echo "ERROR protected GitHub token missing: $token_file" >&2; exit 5; }
-[[ "$(stat -c '%a' "$token_file")" == "600" ]] || { echo "ERROR GitHub token mode must be 600" >&2; exit 5; }
-if [[ "$test_mode" != "1" && "$(stat -c '%u' "$token_file")" != "0" ]]; then
-  echo "ERROR GitHub token must be owned by root" >&2
-  exit 5
-fi
 
 updater_root="$install_root/updater"
 if [[ "$test_mode" == "1" ]]; then
@@ -115,26 +110,125 @@ done < <(git -C "$stage" rev-list --first-parent refs/remotes/origin/main)
 [[ "$first_parent_match" == "1" ]] || { echo "ERROR target is not on current main first-parent history" >&2; exit 7; }
 git -C "$stage" -c advice.detachedHead=false checkout --quiet --detach "$target"
 [[ "$(git -C "$stage" rev-parse HEAD)" == "$target" ]] || { echo "ERROR staged target mismatch" >&2; exit 7; }
+previous_main="$(git -C "$stage" rev-parse "${target}^")"
 
+# Classify the exact merge diff for target-side transaction selection. The
+# protected workflow already derived the release contour from repository policy;
+# this narrower target classification prevents an Authentik-only release from
+# restarting analytics workers merely because deployment tooling changed too.
+authentik_blueprint_changed=false
+worker_runtime_changed=false
+while IFS= read -r path; do
+  case "$path" in
+    deploy/vps/authentik/blueprints/sea-speed-auth-v1.yaml)
+      authentik_blueprint_changed=true
+      ;;
+    worker/*)
+      worker_runtime_changed=true
+      ;;
+    deploy/worker/ubuntu/*)
+      case "$path" in
+        deploy/worker/ubuntu/deploy-authorized.sh|deploy/worker/ubuntu/authentik/*) ;;
+        *) worker_runtime_changed=true ;;
+      esac
+      ;;
+  esac
+done < <(git -C "$stage" diff --name-only "${target}^" "$target")
+
+if [[ "$authentik_blueprint_changed" == true && "$worker_runtime_changed" == true ]]; then
+  echo "ERROR combined Authentik-blueprint and analytics-worker mutation is not supported by this transaction" >&2
+  exit 8
+fi
+
+service_state() {
+  if systemctl is-active --quiet "$1"; then
+    printf 'active'
+  else
+    printf 'inactive'
+  fi
+}
+
+write_authentik_manifest() {
+  local manifest="$1"
+  TARGET="$target" PREVIOUS="$previous_main" ARTIFACT_SHA256="$artifact_sha256" MANIFEST="$manifest" ISSUE="$issue" python3 - <<'PY'
+import json, os
+from datetime import datetime, timezone
+from pathlib import Path
+artifact = os.environ["ARTIFACT_SHA256"] or None
+payload = {
+    "schema": "sea_speed_deployment_manifest_v1",
+    "deliveryId": "ubuntu-auth-" + os.environ["TARGET"][:12] + "-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ"),
+    "target": "ubuntu-worker",
+    "sourceCommit": os.environ["TARGET"],
+    "previousVersion": os.environ["PREVIOUS"],
+    "artifactSha256": artifact,
+    "installedAt": datetime.now(timezone.utc).isoformat(),
+    "checks": [
+        {"name": "current-main-first-parent", "status": "passed"},
+        {"name": "authentik-blueprint-exact-source", "status": "passed"},
+        {"name": "authentik-login-session-days-30", "status": "passed"},
+        {"name": "authentik-login-stage-count-2", "status": "passed"},
+        {"name": "water-road-services-unchanged", "status": "passed"},
+    ],
+    "rollbackTarget": os.environ["PREVIOUS"],
+    "runtimeVerified": True,
+    "state": "runtime_verified",
+}
+Path(os.environ["MANIFEST"]).write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+PY
+  chmod 0600 "$manifest"
+}
+
+if [[ "$authentik_blueprint_changed" == true ]]; then
+  for required in \
+    deploy/worker/ubuntu/authentik/reconcile-blueprint.sh \
+    deploy/vps/authentik/blueprints/sea-speed-auth-v1.yaml; do
+    [[ -f "$stage/$required" ]] || { echo "ERROR target lacks Authentik deployment component: $required" >&2; exit 8; }
+  done
+
+  worker_before="$(service_state "$worker_service")"
+  road_before="$(service_state "$road_service")"
+  echo "DEPLOY_MUTATION target=$target contour=authentik-blueprint previous=$previous_main water_state=$worker_before road_state=$road_before"
+  SEA_SPEED_AUTHENTIK_RECONCILE_TEST_MODE="$test_mode" \
+  SEA_SPEED_AUTHENTIK_RECONCILE_ATTEMPTS="${SEA_SPEED_AUTHENTIK_RECONCILE_ATTEMPTS:-30}" \
+  SEA_SPEED_AUTHENTIK_RECONCILE_SLEEP_SECONDS="${SEA_SPEED_AUTHENTIK_RECONCILE_SLEEP_SECONDS:-2}" \
+    bash "$stage/deploy/worker/ubuntu/authentik/reconcile-blueprint.sh" \
+      --source "$stage/deploy/vps/authentik/blueprints/sea-speed-auth-v1.yaml" \
+      --runtime-root "$authentik_runtime_root"
+  worker_after="$(service_state "$worker_service")"
+  road_after="$(service_state "$road_service")"
+  [[ "$worker_after" == "$worker_before" && "$road_after" == "$road_before" ]] || {
+    echo "ERROR Authentik-only transaction changed Water/Road service state" >&2; exit 23;
+  }
+  manifest="$updater_root/deployment-manifest-ubuntu-worker.json"
+  write_authentik_manifest "$manifest"
+  printf 'DEPLOYMENT_ACCEPTED target=%s previous=%s contour=authentik-blueprint water_state=%s road_state=%s\n' \
+    "$target" "$previous_main" "$worker_after" "$road_after"
+  printf 'DEPLOYMENT_MANIFEST path=%s\n' "$manifest"
+  exit 0
+fi
+
+[[ "$worker_runtime_changed" == true ]] || {
+  echo "ERROR exact Ubuntu release contains no supported Authentik or analytics-worker runtime mutation" >&2
+  exit 8
+}
+
+# Analytics-worker releases keep the established exact-source transaction.
 for required in \
-  scripts/release/verify_production_authorization.py \
   deploy/worker/ubuntu/configure-analytics-profiles.py \
   deploy/worker/ubuntu/update-exact.sh \
   deploy/worker/ubuntu/rollback-exact.sh; do
   [[ -f "$stage/$required" ]] || { echo "ERROR target lacks required deployment component: $required" >&2; exit 8; }
 done
-
+[[ -f "$token_file" ]] || { echo "ERROR protected GitHub token missing: $token_file" >&2; exit 5; }
+[[ "$(stat -c '%a' "$token_file")" == "600" ]] || { echo "ERROR GitHub token mode must be 600" >&2; exit 5; }
+if [[ "$test_mode" != "1" && "$(stat -c '%u' "$token_file")" != "0" ]]; then
+  echo "ERROR GitHub token must be owned by root" >&2
+  exit 5
+fi
 IFS= read -r github_token < "$token_file" || true
 [[ -n "${github_token:-}" ]] || { echo "ERROR GitHub token file is empty" >&2; exit 5; }
-auth_evidence="$updater_root/production-authorization-$target.json"
-GITHUB_TOKEN="$github_token" python3 "$stage/scripts/release/verify_production_authorization.py" \
-  --repository "$repository" \
-  --commit "$target" \
-  --issue "$issue" \
-  --require-execution-intent \
-  --evidence-output "$auth_evidence"
 unset github_token
-chmod 0600 "$auth_evidence"
 
 active_marker="$install_root/shared/runtime/active-source-commit"
 previous="$(cat "$active_marker" 2>/dev/null || true)"
@@ -307,7 +401,7 @@ verify_active_target() {
 }
 
 rolled_back=false
-echo "DEPLOY_MUTATION target=$target previous=$previous desired_state=$desired road_desired_state=$road_desired protected_config_reconciled=$protected_config_reconciled"
+echo "DEPLOY_MUTATION target=$target contour=analytics-worker previous=$previous desired_state=$desired road_desired_state=$road_desired protected_config_reconciled=$protected_config_reconciled"
 if ! SEA_SPEED_SYSTEMD_UNIT_ROOT="$systemd_unit_root" SEA_SPEED_DEPLOY_TEST_MODE="$test_mode" \
     bash "$stage/deploy/worker/ubuntu/update-exact.sh" \
     "$target" \
@@ -356,7 +450,7 @@ runtime_id="$(cat "$install_root/releases/$target/runtime-id")"
 manifest="$updater_root/deployment-manifest-ubuntu-worker.json"
 road_configured=true
 TARGET="$target" PREVIOUS="$previous" RUNTIME_ID="$runtime_id" DESIRED="$desired" ROAD_DESIRED="$road_desired" ROAD_CONFIGURED="$road_configured" \
-PROTECTED_CONFIG_RECONCILED="$protected_config_reconciled" ARTIFACT_SHA256="$artifact_sha256" MANIFEST="$manifest" ROLLED_BACK="$rolled_back" python3 - <<'PY'
+PROTECTED_CONFIG_RECONCILED="$protected_config_reconciled" ARTIFACT_SHA256="$artifact_sha256" MANIFEST="$manifest" python3 - <<'PY'
 import json, os
 from datetime import datetime, timezone
 from pathlib import Path
@@ -370,7 +464,6 @@ payload = {
     "artifactSha256": artifact,
     "installedAt": datetime.now(timezone.utc).isoformat(),
     "checks": [
-        {"name": "production-authorization-execution-intent", "status": "passed"},
         {"name": "current-main-first-parent", "status": "passed"},
         {"name": "protected-road-profile-config-reconciled", "status": "passed" if os.environ["PROTECTED_CONFIG_RECONCILED"] == "true" else "failed"},
         {"name": "exact-worker-source-runtime", "status": "passed"},
