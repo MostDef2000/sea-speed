@@ -12,6 +12,7 @@
       "sea_speed_worker_state_v2",
       "sea_speed_object_v2",
       "sea_speed_release_manifest_v2",
+      "sea_speed_release_manifest_v3",
       "sea_speed_media_boundary_v1"
     ]},
     "payload": {"type": "object"}
@@ -106,6 +107,27 @@
         "outcome_contract_hash": {"$ref": "#/$defs/sha256"},
         "change_contract_hash": {"$ref": "#/$defs/sha256"},
         "approved_scope_hash": {"$ref": "#/$defs/sha256"},
+        "state": {"type": "string", "enum": ["built", "ready_for_deployment", "deployed", "runtime_verified"]}
+      },
+      "additionalProperties": true
+    },
+    "sea_speed_release_manifest_v3": {
+      "type": "object",
+      "required": ["schema", "component", "source_commit", "artifact_sha256", "state", "delegation_id", "policy_version", "policy_hash", "policy_decision_id"],
+      "properties": {
+        "schema": {"const": "sea_speed_release_manifest_v3"},
+        "component": {"type": "string", "enum": ["edge", "vps", "ubuntu-worker", "mixed", "governance"]},
+        "source_commit": {"$ref": "#/$defs/sha40"},
+        "artifact_sha256": {"$ref": "#/$defs/sha256"},
+        "canonical_issue": {"type": "integer", "minimum": 1},
+        "pull_request": {"type": "integer", "minimum": 1},
+        "outcome_contract_hash": {"$ref": "#/$defs/sha256"},
+        "change_contract_hash": {"$ref": "#/$defs/sha256"},
+        "approved_scope_hash": {"$ref": "#/$defs/sha256"},
+        "delegation_id": {"type": "string", "minLength": 1},
+        "policy_version": {"type": "string", "minLength": 1},
+        "policy_hash": {"$ref": "#/$defs/sha256"},
+        "policy_decision_id": {"$ref": "#/$defs/sha256"},
         "state": {"type": "string", "enum": ["built", "ready_for_deployment", "deployed", "runtime_verified"]}
       },
       "additionalProperties": true
