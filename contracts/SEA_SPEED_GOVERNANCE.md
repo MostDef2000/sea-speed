@@ -1,6 +1,6 @@
 # Sea Speed Governance
 
-Version: 1.16.0
+Version: 1.16.1
 Status: Active
 Source of truth: GitHub `main`
 
@@ -119,7 +119,9 @@ Significant PRs link one active specification with NFR assessment, risk/test des
 
 Deployment/release changes, deployment workflow changes, runtime deployment `REQUIRED`, or `PRODUCTION_LEARNING` require a Deployment Transaction Audit covering `ADMISSION`, `PRE-MUTATION`, `MUTATION`, `VERIFICATION`, `STATE-COMMIT`, `HOUSEKEEPING`, `EVIDENCE`, `ROLLBACK`.
 
-Quality verdicts are `PASS`, `CONCERNS`, `FAIL`, `WAIVED`; `FAIL` blocks. Waivers never bypass source authorization, exact scope, secrets, CI, standing production policy, rollback or acceptance.
+Quality verdicts are `PASS`, `CONCERNS`, `FAIL`, `WAIVED`; `FAIL` blocks. A waiver never bypasses a hard gate: source authorization, exact scope, secrets, required CI, standing production policy, rollback and acceptance remain mandatory.
+
+For historical audit vocabulary, the former per-release production hard gate used text beginning `PRODUCTION APPROVED`. That string is retained here only so old evidence remains intelligible; it is not active authority.
 
 ## 11. Tool Routing Allowlist — closed admission
 
