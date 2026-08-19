@@ -1,9 +1,23 @@
 from __future__ import annotations
 
+import importlib.util
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+EVALUATOR_PATH = ROOT / "scripts/release/evaluate_production_policy.py"
+spec = importlib.util.spec_from_file_location("evaluate_production_policy", EVALUATOR_PATH)
+assert spec and spec.loader
+EVALUATOR = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(EVALUATOR)
+
+CHANGE_POLICY = {
+    "rules": [
+        {"impact": "VPS", "patterns": ["api/**", "frontend/**", "deploy/vps/**"]},
+        {"impact": "UBUNTU_WORKER", "patterns": ["deploy/worker/ubuntu/**", "worker/**"]},
+        {"impact": "CONTROL_PLANE", "patterns": [".github/workflows/**", "scripts/release/**", "contracts/**"]},
+    ]
+}
 
 
 class AutonomousExecutionPolicyTests(unittest.TestCase):
@@ -11,12 +25,16 @@ class AutonomousExecutionPolicyTests(unittest.TestCase):
         self.assertFalse((ROOT / ".github/workflows/deploy-runtime-request.yml").exists())
         self.assertFalse((ROOT / ".github/workflows/deploy-vps-request.yml").exists())
 
-    def test_autonomous_router_uses_quality_workflow_run_and_trusted_environment_state(self):
+    def test_autonomous_router_uses_current_tip_quality_and_trusted_environment_state(self):
         source = (ROOT / ".github/workflows/deploy-runtime-autonomous.yml").read_text(encoding="utf-8")
         self.assertIn("workflow_run:", source)
         self.assertIn('workflows: ["Quality integration gate"]', source)
         self.assertIn("github.event.workflow_run.event == 'push'", source)
         self.assertIn("github.event.workflow_run.head_branch == 'main'", source)
+        self.assertIn("Require quality commit is current main tip", source)
+        self.assertIn("refs/remotes/origin/main", source)
+        self.assertIn("Ignoring stale successful Quality run", source)
+        self.assertIn("steps.freshness.outputs.fresh == 'true'", source)
         self.assertIn("environment: production", source)
         self.assertIn("vars.SEA_SPEED_PRODUCTION_DELEGATION_V1", source)
         self.assertIn("evaluate_production_policy.py", source)
@@ -34,11 +52,39 @@ class AutonomousExecutionPolicyTests(unittest.TestCase):
             self.assertNotIn("PRODUCTION APPROVED", source)
 
     def test_repository_text_cannot_become_authority_input(self):
-        evaluator = (ROOT / "scripts/release/evaluate_production_policy.py").read_text(encoding="utf-8")
+        evaluator = EVALUATOR_PATH.read_text(encoding="utf-8")
         self.assertIn("SEA_SPEED_PRODUCTION_DELEGATION_V1", evaluator)
         self.assertNotIn("/comments", evaluator)
         self.assertNotIn("PRODUCTION APPROVED", evaluator)
         self.assertNotIn("authorizedActors", evaluator)
+
+    def test_runtime_contours_are_derived_from_exact_source_paths(self):
+        vps, active_vps = EVALUATOR.derive_release_contract(["api/app/main.py"], CHANGE_POLICY)
+        self.assertEqual(vps, {"productionImpact": "VPS", "vps": "REQUIRED", "ubuntuWorkerRelay": "NOT REQUIRED"})
+        self.assertEqual(active_vps, {"VPS"})
+        mixed, active_mixed = EVALUATOR.derive_release_contract(
+            ["frontend/sea-speed/index.html", "worker/runtime.py"], CHANGE_POLICY
+        )
+        self.assertEqual(mixed["productionImpact"], "MIXED")
+        self.assertEqual(active_mixed, {"VPS", "UBUNTU_WORKER"})
+
+    def test_mutable_pr_runtime_metadata_must_match_derived_contours(self):
+        derived = {"productionImpact": "VPS", "vps": "REQUIRED", "ubuntuWorkerRelay": "NOT REQUIRED"}
+        valid = {
+            "Production impact": "VPS",
+            "VPS deployment": "REQUIRED",
+            "Ubuntu worker/relay update": "NOT REQUIRED",
+            "VPS execution capability": "CONNECTOR",
+            "Ubuntu worker execution capability": "NOT APPLICABLE",
+        }
+        self.assertEqual(
+            EVALUATOR.validate_pr_runtime_metadata(valid, derived, {"VPS"}),
+            {"vps": "CONNECTOR", "ubuntuWorkerRelay": "NOT APPLICABLE"},
+        )
+        tampered = dict(valid)
+        tampered["VPS deployment"] = "NOT REQUIRED"
+        with self.assertRaises(EVALUATOR.PolicyError):
+            EVALUATOR.validate_pr_runtime_metadata(tampered, derived, {"VPS"})
 
 
 if __name__ == "__main__":
