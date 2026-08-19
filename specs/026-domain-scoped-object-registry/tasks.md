@@ -9,6 +9,7 @@
 - [x] Add focused frontend contract coverage.
 - [x] Align PR Change Contract changed-file, risk and execution-capability fields with the exact VPS-only diff.
 - [x] Correct SDD numeric prefix from conflicting `025` to unique `026` under fresh Outcome approval.
+- [x] Confirm final base-to-head diff exposes only the five intended `026`/frontend/test paths.
 - [ ] Exact-head source/syntax/contract validation is pending in canonical CI.
 - [x] Verify exact authorized-subset branch diff against current `main`.
 - [x] Open PR linked to this SDD; exact-head PR Validation + aggregate Quality are pending.
