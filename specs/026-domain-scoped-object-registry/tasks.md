@@ -24,7 +24,7 @@
 - T-016 [x] Classify run `32219455747` as `PRODUCTION_LEARNING`: authorization, Quality, provenance and transport passed; protected privilege-bundle exact-source precondition failed before candidate acceptance.
 - T-017 [x] Obtain fresh `OUTCOME APPROVED` for the exact three-path corrective SDD Scope without changing product bytes, runtime target, authorization-bound Issue/PR fields or Ubuntu Worker state.
 - T-018 [x] Record effective VPS capability `ONE_COMMAND_FALLBACK`, operator actions expected `1`, root cause, adjacent-stage findings and full eight-stage Deployment Transaction Audit in the `026` SDD triplet.
-- T-019 [ ] Require corrective PR changed-file set to be exactly the three approved SDD paths and pass PR Validation plus aggregate Quality on the same exact head.
+- T-019 [ ] Require corrective PR changed-file set to be exactly the three approved SDD paths, derived Production impact `NONE`, and pass PR Validation plus aggregate Quality on the same exact head.
 - T-020 [ ] Refresh current `main`, corrective head, exact changed-file scope and review state; merge only with expected-head protection, then require exact-main Quality on corrective merge SHA.
 - T-021 [ ] Perform the one repository-owned protected-boundary refresh on the VPS for exact product target `0af31b5e2516fb0d529228a51025693e7a932779` and record its exact-target/fixed-topology PASS markers.
 - T-022 [ ] Retry failed VPS deployment job `95967126921` in run `32219455747`; require accepted `runtime_verified` evidence for the original authorized product target and confirm Ubuntu contour remains skipped.
