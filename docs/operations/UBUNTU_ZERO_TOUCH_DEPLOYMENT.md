@@ -49,12 +49,15 @@ scripts/operations/bootstrap_ubuntu_zero_touch_transport.sh --public-key-file <o
 
 The script:
 
-- creates/locks dedicated system account `sea-speed-deploy` if absent;
+- creates the dedicated system account `sea-speed-deploy` if absent;
+- disables password authentication with a non-locking invalid password marker so OpenSSH public-key authentication remains possible;
 - installs root-owned `/usr/local/sbin/sea-speed-ubuntu-zero-touch-gate` mode `0755`;
 - writes one `authorized_keys` record using OpenSSH `restrict` and a forced command;
 - writes one sudoers rule allowing only the same gate in `--execute` mode;
 - validates the sudoers file with `visudo`;
 - reports only public key/host fingerprints and non-secret boundary state.
+
+The deploy account MUST NOT be password-locked during active zero-touch service. On Linux a leading `!` in the shadow password field causes sshd to reject the account before public-key authentication. Password login remains impossible because the active bootstrap uses the non-locking invalid password marker `*NP*`; the deploy key is still constrained by `restrict` plus the forced command.
 
 It never creates or prints a private key.
 
@@ -64,7 +67,7 @@ Rollback of the transport boundary uses:
 scripts/operations/bootstrap_ubuntu_zero_touch_transport.sh --remove
 ```
 
-This removes the dedicated authorized key and sudo rule and locks the account. It does not change application runtime state.
+Removal deletes the dedicated authorized key and sudo rule and then locks the account. It does not change application runtime state.
 
 ## Forced-command protocol
 
@@ -119,6 +122,7 @@ Zero-touch is active only when:
 
 - GitHub reports public protected main with required checks;
 - the production environment standing delegation remains valid;
+- the deploy account is SSH-accessible by the dedicated public key while password authentication remains impossible;
 - the restricted Worker key cannot open a shell/PTY or forwarding channel;
 - malformed SHA/Issue/hash and arbitrary commands are rejected;
 - an exact policy-allowed Ubuntu release traverses VPS ProxyJump, reaches `runtime_verified`, and creates a typed execution audit;
