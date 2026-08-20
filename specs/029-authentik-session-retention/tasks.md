@@ -16,7 +16,7 @@
 - T-008 [x] Update Auth v1 source/docs tests and operations runbook to the 30-day session contract and standing-policy runtime model.
 - T-009 [x] Add current SDD risk/test/correct-course/deployment-transaction layers for Issue #231.
 - T-010 [ ] Run exact branch integrity, SDD, Change Contract and repository validation; remediate only within Issue #231 approved scope.
-- T-011 [ ] Open one PR with exact changed-file declaration, `Risk profile: REQUIRED`, `Production impact: UBUNTU_WORKER`, `Ubuntu worker/relay update: REQUIRED`, current execution capability and full validation/completion fields.
+- T-011 [x] Open PR #232 with exact changed-file declaration, `Risk profile: REQUIRED`, `Production impact: UBUNTU_WORKER`, `Ubuntu worker/relay update: REQUIRED`, current execution capability and full validation/completion fields.
 - T-012 [ ] Require PR Validation and aggregate Quality on one exact head; remediate failures only within approved scope.
 - T-013 [ ] Refresh current main/head/scope/reviews, merge exact green head with expected-head protection when supported, and require exact-main Quality.
 - T-014 [ ] Persist source-integration evidence to Issue #231 and verify autonomous router evaluates the exact merged release under standing delegation with no per-release approval prompt.
@@ -34,12 +34,12 @@
 - AC-005 | Task: T-006,T-007 | Evidence: Authentik-only block contains reconcile/service-state checks and excludes analytics configure/update/rollback | Coverage: COVERED
 - AC-006 | Task: T-005,T-007 | Evidence: sandbox successful update, idempotent no-op and failed-apply restore/runtime rollback tests | Coverage: COVERED
 - AC-007 | Task: T-005,T-007 | Evidence: helper source assertions exclude image pull and PostgreSQL/Water/Road restart primitives | Coverage: COVERED
-- AC-008 | Task: T-010,T-011 | Evidence: exact GitHub compare subset of Issue #231 Scope and exact PR Changed files declaration | Coverage: PENDING
-- AC-009 | Task: T-012,T-013 | Evidence: exact-head PR Validation/Quality, expected-head merge and exact-main Quality | Coverage: PENDING
-- AC-010 | Task: T-014 | Evidence: standing policy allow decision for exact merged #231 Ubuntu release with no per-release prompt | Coverage: PENDING_RUNTIME
-- AC-011 | Task: T-015,T-016 | Evidence: protected Ubuntu execution/fallback, deployment manifest runtime_verified and typed audit | Coverage: PENDING_RUNTIME
-- AC-012 | Task: T-017 | Evidence: authenticated browser/TOTP/logout plus applied Authentik stage duration acceptance | Coverage: PENDING_RUNTIME
-- AC-013 | Task: T-014,T-016,T-018 | Evidence: same exact #231 release satisfies #229 first autonomous ordinary release chain | Coverage: PENDING_RUNTIME
+- AC-008 | Task: T-010,T-011 | Evidence: exact GitHub changed-file list is subset of Issue #231 Scope and exact PR Changed files declaration | Coverage: COVERED
+- AC-009 | Task: T-012,T-013 | Evidence: exact-head PR Validation/Quality, expected-head merge and exact-main Quality | Coverage: COVERED
+- AC-010 | Task: T-014 | Evidence: standing policy allow decision for exact merged #231 Ubuntu release with no per-release prompt | Coverage: RUNTIME-MANUAL | Reason: requires the post-merge trusted production environment policy decision for the exact source
+- AC-011 | Task: T-015,T-016 | Evidence: protected Ubuntu execution/fallback, deployment manifest runtime_verified and typed audit | Coverage: RUNTIME-MANUAL | Reason: requires the canonical production Ubuntu runtime and currently may require one operator-local root/sudo fallback action
+- AC-012 | Task: T-017 | Evidence: authenticated browser/TOTP/logout plus applied Authentik stage duration acceptance | Coverage: RUNTIME-MANUAL | Reason: requires an authenticated human browser session and protected identity credentials
+- AC-013 | Task: T-014,T-016,T-018 | Evidence: same exact #231 release satisfies #229 first autonomous ordinary release chain | Coverage: RUNTIME-MANUAL | Reason: requires the completed exact production policy/deployment/audit chain after source integration
 
 ## Definition of Done
 
