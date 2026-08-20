@@ -2,8 +2,11 @@
 
 - Feature: 030-ubuntu-zero-touch-transport
 - Issue: #234
+- Specification: `specs/030-ubuntu-zero-touch-transport/spec.md`
 
-## Source tasks
+## Delivery tasks
+
+### Source phase
 
 - [x] T001 Recover current public/main/Quality/runtime evidence and confirm `main` is currently unprotected.
 - [x] T002 Define protected-public-main source hard gate and tests.
@@ -15,7 +18,7 @@
 - [ ] T008 PR Validation and aggregate Quality pass on one exact head.
 - [ ] T009 Merge with expected head and exact-main Quality pass.
 
-## Independent activation tasks
+### Independent activation phase
 
 - [ ] T010 Human/admin enables public `main` protection: PR required, required `Repository validation` + `quality-integration`, force-push/delete disabled, no silent bypass/per-release reviewer.
 - [ ] T011 Human/admin confirms `production` standing delegation remains present and unchanged.
@@ -27,32 +30,45 @@
 - [ ] T017 Runtime evidence confirms deployment manifest `runtime_verified`, typed execution audit and both Authentik login stages `days=30`.
 - [ ] T018 Reconcile Issue #231/#234/#229 completion from durable runtime evidence.
 
+## Completion gate
+
+Source completion requires T008-T009 with exact-scope PR evidence and exact-main Quality. Overall Outcome completion additionally requires T010-T018. Until the independently administered source-protection and transport bootstrap is installed and the #231 runtime retry is verified, terminal state remains BLOCKED or HUMAN DECISION REQUIRED rather than DONE.
+
 ## Requirements traceability
 
-| Requirement | Tasks | Evidence |
-|---|---|---|
-| FR-001..FR-003 protected source | T002, T008-T011 | verifier tests, workflows, GitHub settings/Connector |
-| FR-004..FR-006 runner/ProxyJump | T003, T012-T016 | workflow tests + production run |
-| FR-007..FR-010 dedicated forced command | T004-T005, T012-T015 | gate/bootstrap tests + installed-boundary probe |
-| FR-011..FR-014 exact source/artifact/manifest | T004, T016-T017 | gate tests + deployment evidence |
-| FR-015..FR-016 strict SSH/no fallback | T003, T012-T016 | workflow policy + negative probe |
-| FR-017..FR-018 bootstrap/rollback | T005, T014-T015 | bootstrap output + remove path |
-| FR-019..FR-020 authority unchanged | T006, T008-T018 | policy/contract tests + policy decision evidence |
+- AC-001 | Task: T001,T010 | Evidence: Connector repository visibility plus independently verified protected-main settings | Coverage: RUNTIME-MANUAL | Reason: branch/ruleset activation is an independently administered GitHub settings action outside repository writes
+- AC-002 | Task: T002 | Evidence: `tests/test_production_source_protection.py` private/unprotected/missing-context denial cases | Coverage: COVERED
+- AC-003 | Task: T002,T003,T006 | Evidence: workflow-policy and architecture tests proving source protection precedes policy/transport | Coverage: COVERED
+- AC-004 | Task: T003 | Evidence: Ubuntu workflow source and zero-touch transport tests | Coverage: COVERED
+- AC-005 | Task: T004,T015 | Evidence: forced-command gate tests plus installed-boundary negative probe | Coverage: RUNTIME-MANUAL | Reason: source tests cover parser denial; installed sshd forced-command behavior requires runtime probe
+- AC-006 | Task: T004 | Evidence: gate source/tests prove first-parent validation and deterministic artifact recomputation before target transaction | Coverage: COVERED
+- AC-007 | Task: T005 | Evidence: bootstrap source/tests prove `restrict`, forced command, locked account, root-owned gate and exact sudo rule | Coverage: COVERED
+- AC-008 | Task: T008 | Evidence: PR Change Contract and exact changed-file comparison against Issue #234 Scope | Coverage: COVERED
+- AC-009 | Task: T008,T009 | Evidence: PR Validation, aggregate Quality, expected-head merge and exact-main Quality | Coverage: COVERED
+- AC-010 | Task: T010 | Evidence: Connector/settings evidence for PR/check enforcement, force-push/delete denial and bypass disposition | Coverage: RUNTIME-MANUAL | Reason: repository protection settings are independently administered outside agent repository writes
+- AC-011 | Task: T011,T012,T013 | Evidence: production environment standing-delegation presence and secret-name/host-trust presence without exposing values | Coverage: RUNTIME-MANUAL | Reason: credentials and environment settings are operator-controlled protected state
+- AC-012 | Task: T014,T015 | Evidence: installed authorized-key/sudo boundary plus rejected shell/PTY/forward/non-protocol probes | Coverage: RUNTIME-MANUAL | Reason: sshd capability restriction must be verified on the commissioned Worker
+- AC-013 | Task: T016,T017 | Evidence: protected #231 Ubuntu deployment manifest and typed execution audit with operator actions 0 | Coverage: RUNTIME-MANUAL | Reason: physical production execution cannot be proven by hosted CI alone
+- AC-014 | Task: T017,T018 | Evidence: runtime ORM/UI evidence for both login stages `days=30` and reconciled Issue completion | Coverage: RUNTIME-MANUAL | Reason: Authentik runtime state and browser behavior require commissioned production evidence
 
 ## Definition of Done
 
-- [ ] Exact changed-file scope equals the approved Issue #234 Scope.
-- [ ] Security risk profile is REQUIRED and has no unresolved FAIL finding.
-- [ ] Full Deployment Transaction Audit contains all eight canonical stages.
-- [ ] New scripts pass Python/shell syntax and repository behavioral tests.
-- [ ] Workflow policy proves source protection before policy/transport and no recurring Ubuntu manual fallback.
-- [ ] PR Validation + aggregate Quality pass on the exact merged head.
-- [ ] Exact-main Quality passes after merge.
+- [x] Issue/spec/plan/tasks current for canonical Issue #234 and `specs/030-ubuntu-zero-touch-transport/spec.md`.
+- [x] Exact changed-file scope verified against the approved Issue #234 Scope.
+- [ ] Required tests and evidence complete, including runtime-only evidence after independent activation.
+- [ ] Required CI green on one exact PR head and exact-main push.
+- [ ] Exact-green-head merge complete with expected-head protection.
+- [ ] Deployment state resolved: zero-touch transport installed or explicitly rolled back/removed.
+- [ ] Runtime acceptance resolved: #231 retry is `runtime_verified` with typed execution audit.
+- [x] Deferred work recorded: independently administered settings/credential/bootstrap tasks T010-T015 remain explicit until source merge.
+- [ ] Risks resolved or explicitly accepted; no unresolved FAIL finding.
+- [x] Waivers resolved or current: no waiver is used for source authorization, CI, standing production policy, source protection or runtime acceptance.
+- [x] Security risk profile is REQUIRED and full Deployment Transaction Audit contains all eight canonical stages.
+- [x] Workflow policy requires source protection before policy/transport and removes recurring Ubuntu one-command fallback from steady state.
 - [ ] `main` protection and required checks are independently enabled and verified.
 - [ ] Standing delegation remains unchanged/valid.
 - [ ] Dedicated Worker transport is installed with restricted key and gate-only sudo.
 - [ ] Negative SSH capability probes pass.
-- [ ] Exact #231 release completes through zero-touch CONNECTOR with `runtime_verified` and typed audit.
-- [ ] Authentik UI/runtime confirms both login stages at `days=30` and explicit logout semantics remain.
+- [ ] Authentik runtime confirms both login stages at `days=30`; explicit logout semantics remain.
 - [ ] Operator actions expected for subsequent ordinary Ubuntu releases: `0`.
 - [ ] Terminal completion is not claimed before durable runtime acceptance.
