@@ -387,7 +387,7 @@ class SeaSpeedAuthV1Tests(unittest.TestCase):
         self.assertNotIn("systemctl restart mediamtx", source)
         self.assertNotIn("0.0.0.0:9000", source)
 
-    def test_blueprint_is_invite_only_and_owner_totp_only(self) -> None:
+    def test_blueprint_is_invite_only_owner_totp_only_and_30_day_session(self) -> None:
         source = BLUEPRINT.read_text(encoding="utf-8")
         for group in ("Sea Speed Owner", "Sea Speed Admin", "Sea Speed Operator", "Sea Speed Viewer"):
             self.assertIn(f"name: {group}", source)
@@ -399,7 +399,10 @@ class SeaSpeedAuthV1Tests(unittest.TestCase):
         self.assertIn("not_configured_action: deny", source)
         self.assertIn("- totp", source)
         self.assertIn('name="Sea Speed Owner"', source)
-        self.assertIn("session_duration: hours=12", source)
+        self.assertEqual(source.count("session_duration: days=30"), 2)
+        self.assertNotIn("session_duration: hours=12", source)
+        self.assertEqual(source.count("remember_me_offset: seconds=0"), 2)
+        self.assertEqual(source.count("remember_device: seconds=0"), 2)
         self.assertIn("slug: sea-speed-owner-totp-setup", source)
         self.assertIn("designation: stage_configuration", source)
         self.assertIn("authentication: require_authenticated", source)
@@ -491,7 +494,7 @@ class SeaSpeedAuthV1Tests(unittest.TestCase):
         self.assertIn("sea-speed-auth-cutover.sh", ops_doc)
         self.assertIn("sea-speed-*.conf", ops_doc)
         self.assertIn("96 hours", ops_doc)
-        self.assertIn("12 hours", ops_doc)
+        self.assertIn("30 days", ops_doc)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import unittest
 from pathlib import Path
 
@@ -11,13 +12,9 @@ assert spec and spec.loader
 EVALUATOR = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(EVALUATOR)
 
-CHANGE_POLICY = {
-    "rules": [
-        {"impact": "VPS", "patterns": ["api/**", "frontend/**", "deploy/vps/**"]},
-        {"impact": "UBUNTU_WORKER", "patterns": ["deploy/worker/ubuntu/**", "worker/**"]},
-        {"impact": "CONTROL_PLANE", "patterns": [".github/workflows/**", "scripts/release/**", "contracts/**"]},
-    ]
-}
+CHANGE_POLICY = json.loads(
+    (ROOT / "data/contracts/change-control-policy-v1.json").read_text(encoding="utf-8")
+)
 
 
 class AutonomousExecutionPolicyTests(unittest.TestCase):
@@ -67,6 +64,22 @@ class AutonomousExecutionPolicyTests(unittest.TestCase):
         )
         self.assertEqual(mixed["productionImpact"], "MIXED")
         self.assertEqual(active_mixed, {"VPS", "UBUNTU_WORKER"})
+
+    def test_authentik_blueprint_routes_to_ubuntu_not_vps(self):
+        contours, active = EVALUATOR.derive_release_contract(
+            ["deploy/vps/authentik/blueprints/sea-speed-auth-v1.yaml"], CHANGE_POLICY
+        )
+        self.assertEqual(
+            contours,
+            {
+                "productionImpact": "UBUNTU_WORKER",
+                "vps": "NOT REQUIRED",
+                "ubuntuWorkerRelay": "REQUIRED",
+            },
+        )
+        self.assertEqual(active, {"UBUNTU_WORKER"})
+        self.assertEqual(CHANGE_POLICY["rules"][0]["impact"], "UBUNTU_WORKER")
+        self.assertIn("deploy/vps/authentik/blueprints/**", CHANGE_POLICY["rules"][0]["patterns"])
 
     def test_mutable_pr_runtime_metadata_must_match_derived_contours(self):
         derived = {"productionImpact": "VPS", "vps": "REQUIRED", "ubuntuWorkerRelay": "NOT REQUIRED"}

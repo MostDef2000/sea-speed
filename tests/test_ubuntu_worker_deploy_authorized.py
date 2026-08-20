@@ -8,6 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "deploy" / "worker" / "ubuntu" / "deploy-authorized.sh"
 CONFIGURE = ROOT / "deploy" / "worker" / "ubuntu" / "configure-analytics-profiles.py"
 ROAD_ENV_EXAMPLE = ROOT / "deploy" / "worker" / "ubuntu" / "road-worker.env.example"
+RECONCILE = ROOT / "deploy" / "worker" / "ubuntu" / "authentik" / "reconcile-blueprint.sh"
 
 
 class UbuntuAuthorizedDeploymentTests(unittest.TestCase):
@@ -16,22 +17,51 @@ class UbuntuAuthorizedDeploymentTests(unittest.TestCase):
 
     def test_shell_syntax(self) -> None:
         subprocess.run(["bash", "-n", str(SCRIPT)], check=True)
+        subprocess.run(["bash", "-n", str(RECONCILE)], check=True)
 
-    def test_authorization_config_reconciliation_activation_and_verification_order(self) -> None:
-        authorization = self.source.index("verify_production_authorization.py")
+    def test_target_transaction_uses_standing_policy_transport_not_retired_verifier(self) -> None:
+        self.assertIn("protected GitHub Actions has allowed the exact release under standing production", self.source)
+        self.assertIn("rev-list --first-parent refs/remotes/origin/main", self.source)
+        self.assertIn('git -C "$stage" diff --name-only "${target}^" "$target"', self.source)
+        self.assertNotIn("verify_production_authorization.py", self.source)
+        self.assertNotIn("--require-execution-intent", self.source)
+        self.assertNotIn("PRODUCTION APPROVED", self.source)
+
+    def test_authentik_only_release_is_separate_from_worker_runtime_mutation(self) -> None:
+        for marker in (
+            "authentik_blueprint_changed=false",
+            "worker_runtime_changed=false",
+            "deploy/vps/authentik/blueprints/sea-speed-auth-v1.yaml",
+            "deploy/worker/ubuntu/deploy-authorized.sh|deploy/worker/ubuntu/authentik/*",
+            "combined Authentik-blueprint and analytics-worker mutation is not supported",
+            "contour=authentik-blueprint",
+            "reconcile-blueprint.sh",
+            "water-road-services-unchanged",
+        ):
+            self.assertIn(marker, self.source)
+        auth_start = self.source.index('if [[ "$authentik_blueprint_changed" == true ]]')
+        worker_start = self.source.index("# Analytics-worker releases keep the established exact-source transaction.")
+        auth_block = self.source[auth_start:worker_start]
+        self.assertIn('service_state "$worker_service"', auth_block)
+        self.assertIn('service_state "$road_service"', auth_block)
+        self.assertNotIn("configure-analytics-profiles.py", auth_block)
+        self.assertNotIn("update-exact.sh", auth_block)
+        self.assertNotIn("rollback-exact.sh", auth_block)
+        self.assertNotIn("systemctl restart", auth_block)
+
+    def test_worker_authorization_config_reconciliation_activation_and_verification_order(self) -> None:
+        first_parent = self.source.index("rev-list --first-parent refs/remotes/origin/main")
         backup = self.source.index("if ! backup_protected_config")
         configure = self.source.index('python3 "$stage/deploy/worker/ubuntu/configure-analytics-profiles.py"')
         mutation = self.source.index('bash "$stage/deploy/worker/ubuntu/update-exact.sh"')
         verification = self.source.index("if ! verify_active_target")
-        manifest = self.source.index('manifest="$updater_root/deployment-manifest-ubuntu-worker.json"')
-        self.assertLess(authorization, backup)
+        manifest = self.source.rindex('manifest="$updater_root/deployment-manifest-ubuntu-worker.json"')
+        self.assertLess(first_parent, backup)
         self.assertLess(backup, configure)
         self.assertLess(configure, mutation)
         self.assertLess(mutation, verification)
         self.assertLess(verification, manifest)
         for marker in (
-            "--require-execution-intent",
-            "--first-parent",
             "deploy/worker/ubuntu/configure-analytics-profiles.py",
             "deploy/worker/ubuntu/update-exact.sh",
             "deploy/worker/ubuntu/rollback-exact.sh",
@@ -75,7 +105,7 @@ class UbuntuAuthorizedDeploymentTests(unittest.TestCase):
 
     def test_post_activation_failure_restores_config_before_source_rollback(self) -> None:
         verify_call = self.source.index("if ! verify_active_target")
-        runtime_manifest = self.source.index('manifest="$updater_root/deployment-manifest-ubuntu-worker.json"')
+        runtime_manifest = self.source.rindex('manifest="$updater_root/deployment-manifest-ubuntu-worker.json"')
         failure_block = self.source[verify_call:runtime_manifest]
         restore = failure_block.index("restore_protected_config")
         rollback = failure_block.index('bash "$stage/deploy/worker/ubuntu/rollback-exact.sh"')
@@ -108,11 +138,11 @@ class UbuntuAuthorizedDeploymentTests(unittest.TestCase):
         ):
             self.assertIn(marker, self.source)
 
-    def test_manifest_records_road_desired_state_without_secret_values(self) -> None:
+    def test_manifests_record_runtime_checks_without_secret_values(self) -> None:
         self.assertIn('"protected-road-profile-config-reconciled"', self.source)
         self.assertIn('"road-worker-desired-state-" + os.environ["ROAD_DESIRED"]', self.source)
-        self.assertIn('ROAD_DESIRED="$road_desired"', self.source)
-        self.assertNotIn('"road-worker-active"', self.source)
+        self.assertIn('"authentik-login-session-days-30"', self.source)
+        self.assertIn('"water-road-services-unchanged"', self.source)
         self.assertNotIn("HLS_URL=", self.source)
         self.assertNotIn("SEA_SPEED_API_TOKEN=", self.source)
 
@@ -129,7 +159,7 @@ class UbuntuAuthorizedDeploymentTests(unittest.TestCase):
         self.assertNotIn(public, example)
         self.assertIn("private Worker->VPS M2M endpoint", example)
 
-    def test_rollback_remains_automatic_on_post_activation_failure(self) -> None:
+    def test_worker_rollback_remains_automatic_on_post_activation_failure(self) -> None:
         self.assertIn("DEPLOY_ROLLED_BACK", self.source)
         self.assertIn("rollback-exact.sh", self.source)
         self.assertIn("runtimeVerified", self.source)
