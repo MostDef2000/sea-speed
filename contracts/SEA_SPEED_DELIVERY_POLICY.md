@@ -7,7 +7,7 @@ Status: Active
 
 Define source admission, release provenance, runtime applicability, standing production authority, autonomous policy execution and completion evidence for the two active production contours: **VPS** and **Ubuntu Worker/relay**.
 
-Windows Worker is retired. Historical Windows evidence remains readable audit history only.
+Windows Worker is retired. The historical name **Windows AI Worker** may still appear in immutable compatibility/audit evidence; it does not identify an active production contour. Historical Windows evidence remains readable audit history only.
 
 ## 2. Applicability
 
