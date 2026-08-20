@@ -13,6 +13,14 @@ Keep GitHub-hosted Actions as the only workflow executor. Keep the public GitHub
 
 The gate is transport enforcement, not policy authority. Standing production authority remains only the trusted `production` environment delegation intersected with repository policy. The gate adds a second target-side blast-radius boundary: only exact first-parent source and a matching deterministic Ubuntu artifact digest can reach the existing `deploy-authorized.sh` transaction.
 
+## Affected contours
+
+- Source PR impact: `CONTROL_PLANE`; no VPS or Ubuntu application mutation is performed by the source PR.
+- VPS deployment: `NOT REQUIRED` for this source PR. The existing VPS is later reused only as the SSH `ProxyJump` transport bridge.
+- Ubuntu Worker/relay update: `NOT REQUIRED` for this source PR. One-time post-merge transport bootstrap changes only the Worker SSH/deploy access boundary, not Water/Road/Auth runtime state.
+- Runtime acceptance after activation: Ubuntu `CONNECTOR` path is exercised by retrying exact Issue #231; that later execution owns the Authentik runtime mutation and verification.
+- Windows Worker: retired/not applicable.
+
 ## Decisions
 
 1. Repository remains public while GitHub Free is the control plane; private visibility is production deny.
@@ -53,6 +61,14 @@ Risk verdict: CONCERNS until branch protection, Worker credential and negative r
 - Runtime negative: arbitrary command/PTY/forward request denied by dedicated Worker key.
 - Runtime positive: Issue #231 exact release dispatched through current protected workflow, `runtime_verified` manifest + execution audit, Authentik 30-day stage verification.
 
+## Validation
+
+- Local/source: Python compile for new/modified Python, `bash -n` for shell entrypoints, workflow YAML parse, source-protection unit tests, zero-touch static security tests, existing policy/convergence/quality regressions.
+- PR: `PR Validation / Repository validation` and aggregate `Quality integration gate / quality-integration` must both succeed on the exact PR head.
+- Post-merge: exact-main Quality must succeed before independent activation.
+- Administrative: Connector/settings evidence must show public protected `main`, required checks, unchanged standing delegation and production environment transport configuration.
+- Runtime: negative SSH capability probes followed by exact #231 positive deployment with `runtime_verified`, typed audit and Authentik `days=30`.
+
 ## Correct-course check
 
 Correct-course Trigger: PRODUCTION_LEARNING
@@ -60,6 +76,14 @@ Correct-course Trigger: PRODUCTION_LEARNING
 The prior one-command deployment exposed two production facts: the GitHub runner lacked Worker transport, and Authentik blueprint mode `0600` blocked container reconciliation. #233 corrected the blueprint permission defect. #234 addresses the transport defect without weakening the human-controlled authority boundary. Public GitHub Free constraints changed the selected architecture from potential self-hosted/private designs to protected public main plus GitHub-hosted ProxyJump.
 
 No product detection/tracking/calibration/speed semantics change. No standing delegation widening. No new ZeroTier control-plane dependency.
+
+## Runtime feedback
+
+- Issue #231 proved current production Authentik still reports `hours=12`; the first bounded attempt rolled back successfully after an unreadable `0600` bind-mounted blueprint.
+- PR #233/current main repaired that blueprint mode to `0644`.
+- The subsequent autonomous run reached standing policy `allow` but stopped with exit 42 because zero-touch Ubuntu SSH transport was not provisioned.
+- Repository visibility is public again on GitHub Free, while `main` is currently unprotected; #234 therefore adds a fail-closed protected-source gate and defers activation until independent branch/ruleset administration.
+- Existing VPS GitHub-hosted SSH capability is retained as transport-only ProxyJump; no new ZeroTier control-plane credential is introduced.
 
 ## Deployment transaction audit
 
