@@ -80,6 +80,17 @@ class UbuntuZeroTouchTransportTests(unittest.TestCase):
         self.assertIn('new_users+=("$principal")', bootstrap)
         self.assertNotIn("AllowUsers sea-speed-deploy\n", bootstrap)
 
+    def test_effective_allowusers_parser_accumulates_all_sshd_rows(self):
+        bootstrap = self.read("scripts/operations/bootstrap_ubuntu_zero_touch_transport.sh")
+        start = bootstrap.index("effective_allowusers() {")
+        end = bootstrap.index("\n}\n\nallowusers_contains()", start)
+        parser = bootstrap[start:end]
+        self.assertIn("BEGIN { emitted = 0 }", parser)
+        self.assertIn('printf "%s%s", (emitted ? " " : ""), $i', parser)
+        self.assertIn("emitted = 1", parser)
+        self.assertIn("if (emitted)", parser)
+        self.assertNotIn("\n      exit\n", parser)
+
     def test_source_protection_is_checked_before_transport(self):
         for path in (
             ".github/workflows/deploy-runtime-autonomous.yml",
