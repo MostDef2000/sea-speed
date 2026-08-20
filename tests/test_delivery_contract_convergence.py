@@ -59,6 +59,21 @@ class DeliveryContractConvergenceTests(unittest.TestCase):
         self.assertIn("deploy-vps", workflow)
         self.assertIn("deploy-ubuntu-worker", workflow)
         self.assertIn("SEA_SPEED_PRODUCTION_DELEGATION_V1", workflow)
+        self.assertIn("verify_source_protection.py", workflow)
+
+    def test_public_protected_main_and_zero_touch_transport_converge_across_contracts(self) -> None:
+        policy = self.read("contracts/SEA_SPEED_DELIVERY_POLICY.md")
+        gate = self.read("contracts/runtime/RELEASE_READINESS_GATE.md")
+        deploy = self.read("contracts/branches/deploy.md")
+        architecture = self.read("docs/architecture/sea-speed-control-plane.md")
+        operations = self.read("docs/operations/UBUNTU_ZERO_TOUCH_DEPLOYMENT.md")
+        for source in (policy, gate, deploy, architecture, operations):
+            self.assertIn("protected", source.lower())
+            self.assertIn("sea-speed-deploy", source)
+            self.assertIn("ProxyJump", source)
+        self.assertIn("Operator actions expected: 0", policy)
+        self.assertIn("verify_source_protection.py", gate)
+        self.assertIn("forced command", operations)
 
     def test_actions_pin_risk_is_closed_but_retained(self) -> None:
         risks = json.loads(self.read("data/quality/accepted-risks-v1.json"))["risks"]

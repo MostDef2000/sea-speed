@@ -1,19 +1,20 @@
 # Sea Speed Delivery Policy
 
-Version: 1.18.1
+Version: 1.19.0
 Status: Active
 
 ## 1. Purpose
 
 Define source admission, release provenance, runtime applicability, standing production authority, autonomous policy execution and completion evidence for the two active production contours: **VPS** and **Ubuntu Worker/relay**.
 
-Windows Worker is retired. The historical name **Windows AI Worker** may still appear in immutable audit evidence and compatibility tests; it does not identify an active production contour. Historical Windows evidence remains readable audit history only.
+Windows Worker is retired. The historical name **Windows AI Worker** may still appear in immutable compatibility/audit evidence; it does not identify an active production contour. Historical Windows evidence remains readable audit history only.
 
 ## 2. Applicability
 
 | Changed paths | VPS | Ubuntu Worker/relay |
 |---|---:|---:|
-| `api/**`, `frontend/**`, `deploy/vps/**` | YES | NO unless compatibility requires |
+| `api/**`, `frontend/**`, `deploy/vps/**` | YES | NO unless a more-specific rule applies |
+| `deploy/vps/authentik/blueprints/**` | NO | YES |
 | `deploy/worker/ubuntu/**`, `worker/ubuntu_*`, shared executable `worker/**` | NO | YES |
 | API contract plus shared Worker consumer | YES | YES |
 | contracts/docs/specs/control tooling | NO | NO |
@@ -33,27 +34,27 @@ After valid source approval, in-scope defects/tests/CI/metadata remediation cont
 
 New deployable releases use `sea_speed_release_manifest_v3`. The manifest binds Issue, merged PR, exact source/base, Outcome/Change Contract hashes, approved/actual files, scope hash, artifacts, exact-artifact/quality evidence, delegation ID, policy version/hash and policy decision ID.
 
-New release creation supports active components `vps`, `ubuntu-worker`, `mixed`, `governance`. Historical v1/v2 and Windows records remain readable.
+Historical v1/v2 and Windows records remain readable but cannot authorize new execution.
 
-## 5. Standing production authority
+## 5. Standing production authority and protected source
 
 Source authorization never authorizes runtime mutation. Runtime authority comes from an independently administered standing delegation in trusted GitHub `production` environment state plus deterministic repository policy evaluation.
 
-The trusted delegation is not a repository file, Issue field or comment. Repository policy may narrow but cannot widen it. Effective actions are the intersection of trusted permissions and repository allowed actions.
+The trusted delegation is not a repository file, Issue field or comment. Repository policy may narrow but cannot widen it. Effective actions are the intersection of trusted permissions and repository allowed actions. Allowed standing actions are exactly `deploy` and `rollback`; IAM, secret management, environment/settings administration, branch protection and arbitrary infrastructure mutation are not delegated.
 
-Allowed standing actions are exactly `deploy` and `rollback`. IAM, secret management, environment/settings administration, branch protection and arbitrary infrastructure mutation are not delegated.
+Production execution additionally requires a protected source boundary. On the GitHub Free control plane Sea Speed production source MUST remain public, `main` MUST report `protected=true`, and the required merge-facing checks `Repository validation` and `quality-integration` MUST be present. `.github/workflows/deploy-runtime-autonomous.yml`, `.github/workflows/deploy-vps.yml` and `.github/workflows/deploy-ubuntu-worker.yml` fail closed through `scripts/release/verify_source_protection.py` before production policy evaluation or transport.
 
-Historical comment strings (`PRODUCTION APPROVED`, `Authorization-Fingerprint`, `Execution-Intent: EXECUTE`, `DEPLOY VPS`) have no authority effect for new execution. Hashes and decision IDs are not credentials.
+Branch/ruleset administration is independently controlled and cannot be performed by the Delivery Orchestrator. The administrative target is: PR required, required checks enabled, force-push/delete disabled, no bypass that can silently skip those controls, and no mandatory per-release human reviewer.
 
-Before runtime transport prove exact lowercase SHA, current-main first-parent ancestry, successful exact `push/main` Quality, one applicable merged PR/canonical Issue, allow policy decision from current trusted delegation/policy, exact artifacts/release evidence and known rollback.
+Historical comment strings (`PRODUCTION APPROVED`, `Authorization-Fingerprint`, `Execution-Intent: EXECUTE`, `DEPLOY VPS`) have no authority effect. Hashes and decision IDs are integrity identifiers, not credentials.
 
 ## 6. Autonomous runtime routing
 
-`.github/workflows/deploy-runtime-autonomous.yml` is the normal router. It runs only from successful `Quality integration gate` workflow-run evidence for `push` on `main`, evaluates exact merged release metadata and routes only required VPS/Ubuntu contours when policy allows.
+`.github/workflows/deploy-runtime-autonomous.yml` is the normal router. It runs only from successful `Quality integration gate` workflow-run evidence for `push` on `main`, requires the Quality SHA to remain the current main tip, verifies source protection, evaluates exact merged release metadata and routes only required VPS/Ubuntu contours when policy allows.
 
-Each protected runtime workflow independently re-evaluates standing policy with `--require-allow` before runtime transport. Manual workflow dispatch cannot bypass authority.
+Each protected runtime workflow independently verifies source protection and re-evaluates standing policy with `--require-allow` before transport. Manual workflow dispatch cannot bypass source protection, Quality or standing policy.
 
-Missing/stale/invalid delegation denies without runtime mutation. Autonomous activation requires one independently administered environment-setting action after source integration; no per-run reviewer gate may recreate per-release approval.
+Missing/stale/invalid delegation, private repository visibility, unprotected main or missing required status checks deny without runtime mutation.
 
 ## 7. Runtime execution capability
 
@@ -67,72 +68,95 @@ Ubuntu worker execution capability: CONNECTOR / ONE_COMMAND_FALLBACK / MISSING /
 Operator actions expected: <integer>
 ```
 
-A required contour cannot use `MISSING`/`NOT APPLICABLE`; a non-required contour must use `NOT APPLICABLE`. Operator actions equal required `ONE_COMMAND_FALLBACK` contours. A transport fallback is not a production approval.
+After zero-touch Ubuntu transport activation, the normal Ubuntu capability is `CONNECTOR` and operator actions are `0`. Historical Change Contracts that recorded `ONE_COMMAND_FALLBACK` remain immutable evidence; transport capability may improve without changing their runtime authority.
 
-## 8. Canonical operator targets and protected values
+A required contour cannot use `MISSING`/`NOT APPLICABLE`; a non-required contour must use `NOT APPLICABLE`. A transport capability never creates production authority.
+
+## 8. Canonical production targets and transport
 
 Non-secret targets, subject to runtime verification:
 
 ```text
 Production VPS: root@82.146.37.153:22
 Expected VPS hostname: mostdef.fvds.ru
-Ubuntu worker: seaspeedadmin@10.123.239.102:22
+Ubuntu operator target: seaspeedadmin@10.123.239.102:22
+Ubuntu automated deploy target: sea-speed-deploy@10.123.239.102:22
 Worker transport: ZeroTier
+Automated worker route: GitHub-hosted runner -> VPS SSH ProxyJump -> ZeroTier -> Ubuntu Worker
 ```
 
-Credentials, keys, passwords, TOTP and populated environment values remain local/trusted and never enter chat/Git.
+The VPS is a transport bridge for Ubuntu zero-touch delivery and does not become Ubuntu production authority.
 
-## 9. Repository-owned server-pull model
+Credentials, private keys, passwords, TOTP and populated environment values remain trusted/local and never enter repository/chat evidence.
 
-The default target fallback is repository-owned server-pull of exact source followed by the canonical target entrypoint. Substantive deployment logic must not be embedded in ad-hoc operator commands.
+## 9. Restricted Ubuntu zero-touch boundary
 
-## 10. Interaction budget
+The Ubuntu production deploy key is dedicated to one account, `sea-speed-deploy`. Its `authorized_keys` entry MUST use OpenSSH `restrict` plus a forced command pointing to root-owned `/usr/local/sbin/sea-speed-ubuntu-zero-touch-gate`.
 
-Normal successful task after standing delegation activation:
+The gate accepts exactly:
+
+```text
+sea-speed-ubuntu-deploy-v1 <40-char-sha> <canonical-issue> <artifact-sha256>
+```
+
+The unprivileged entrypoint validates syntax and may invoke only the same root-owned gate through one narrowly-scoped `sudo -n` rule. Root mode re-fetches public `main`, requires the target on current main first-parent history, checks out exact source, recomputes the deterministic Ubuntu exact-artifact digest, requires digest equality, and then invokes `deploy/worker/ubuntu/deploy-authorized.sh`. Successful stdout is only the validated runtime deployment manifest; diagnostic output goes to stderr.
+
+The key MUST NOT provide a general shell, PTY, forwarding, agent forwarding, arbitrary sudo or public Internet exposure of the Worker.
+
+## 10. Repository-owned server-pull model
+
+VPS and Ubuntu target transactions may fetch exact public repository source after protected workflow admission. Public source bytes are not authority; the protected source state, exact Quality, standing policy decision and restricted runtime credential are the security boundary.
+
+Substantive deployment logic must remain in repository-owned target entrypoints rather than ad-hoc operator commands.
+
+## 11. Interaction budget
+
+Normal successful task after zero-touch activation:
 
 ```text
 OUTCOME APPROVED: 1
 per-release production approval: 0
 standing delegation administration: rare protected settings action, not per release
-manual runtime command: 0 target, <=1 fallback per required active contour
+manual runtime command: 0
+Operator actions expected: 0
 intermediate deterministic confirmations: 0
 ```
 
-Extra interaction is reserved for source reauthorization, standing-delegation/settings administration, password/sudo/TOTP/secret entry, host trust, configured environment review, irreversible/high-risk choice or evidence unavailable to safe automation.
+One-time bootstrap of branch protection, environment secret material and the dedicated Worker forced-command boundary is independent administration, not a recurring release step.
 
-## 11. VPS execution and evidence
+## 12. VPS execution and evidence
 
-`.github/workflows/deploy-vps.yml` remains the single protected VPS implementation. It verifies exact main, Quality, standing policy, artifacts/release provenance and rollback before SSH. VPS completion requires exact deployed source, health/smoke/product/security evidence and known rollback target.
+`.github/workflows/deploy-vps.yml` remains the single protected VPS implementation. It verifies public protected main, exact main/Quality, standing policy, artifacts/release provenance and rollback before SSH. VPS completion requires exact deployed source, health/smoke/product/security evidence and known rollback target.
 
-## 12. Ubuntu Worker/relay execution and evidence
+## 13. Ubuntu Worker/relay execution and evidence
 
-`.github/workflows/deploy-ubuntu-worker.yml` remains the protected reusable Ubuntu orchestrator. `deploy/worker/ubuntu/deploy-authorized.sh` owns target mutation, verification, evidence and rollback. Restricted zero-touch transport is `CONNECTOR` only when independently provisioned; otherwise one repository-owned fallback may be emitted.
+`.github/workflows/deploy-ubuntu-worker.yml` remains the protected reusable Ubuntu orchestrator. It verifies protected source, exact main/Quality/policy/artifacts, configures strict host-key VPS ProxyJump transport and sends only the restricted three-argument deployment request.
 
-Ubuntu completion requires exact source/runtime identity, protected-local-state preservation, deployment evidence, service state and applicable freshness/frame/AI/relay evidence. Hosted CI alone does not prove physical runtime.
+`deploy/worker/ubuntu/deploy-authorized.sh` owns target mutation, verification, evidence and rollback. Ubuntu completion requires exact source/runtime identity, protected-local-state preservation, deployment evidence, service state and applicable freshness/frame/AI/relay evidence. Hosted CI alone does not prove physical runtime.
 
-## 13. Execution audit
+## 14. Execution audit
 
 A successful protected runtime execution produces `sea_speed_production_execution_audit_v1` binding policy decision/delegation/policy identity, exact source/Issue/PR, target, runtime-verified deployment manifest and evidence hashes. The audit records execution; it does not create authority.
 
-## 14. Retired Windows and media/security boundaries
+## 15. Retired Windows and media/security boundaries
 
 Windows has no active runtime gate. Historical Windows manifests remain readable. Active media mode remains `mvp_v1`; `edge_v2` is a separate protected migration. Runtime authority changes do not alter detection/tracking/calibration/speed/event formulas.
 
-## 15. Completion and terminal interaction
+## 16. Completion and terminal interaction
 
 Merge is not release. Release is not deployment. Deployment is not acceptance.
 
 Return control only as `DONE`, `BLOCKED`, `HUMAN DECISION REQUIRED`. `FAILED` is internal and must be remediated or classified at the actual boundary.
 
-## 16. Delivery quality admission
+## 17. Delivery quality admission
 
-Significant work requires NFR assessment, risk/test design, correct-course check, traceability and Definition of Done. Full risk profile is required for security/schema/destructive/migration/MIXED/other high-risk triggers. `FAIL` blocks. A waiver never bypasses a hard gate: source authorization, exact scope, secrets, required CI, standing production policy, rollback and runtime acceptance remain mandatory.
+Significant work requires NFR assessment, risk/test design, correct-course check, traceability and Definition of Done. Full risk profile is required for security/schema/destructive/migration/MIXED/other high-risk triggers. `FAIL` blocks. A waiver never bypasses a hard gate: source authorization, exact scope, protected source, secrets, required CI, standing production policy, rollback and runtime acceptance remain mandatory.
 
-## 17. Deployment transaction audit
+## 18. Deployment transaction audit
 
 Linked significant work requires the eight-stage Deployment Transaction Audit when `deploy/**`, `scripts/release/**`, deployment workflows, runtime deployment requirements, or `PRODUCTION_LEARNING` apply. Stages are exactly `ADMISSION`, `PRE-MUTATION`, `MUTATION`, `VERIFICATION`, `STATE-COMMIT`, `HOUSEKEEPING`, `EVIDENCE`, `ROLLBACK`.
 
-## 18. Tool Routing Allowlist
+## 19. Tool Routing Allowlist
 
 Sea Speed is DENY BY DEFAULT.
 
@@ -145,9 +169,10 @@ Sea Speed is DENY BY DEFAULT.
 | External technical documentation | Read-only web, primary/official sources | NONE |
 | User-provided logs/screenshots/config/files | Direct read | NONE |
 | Standing delegation administration | Independently controlled GitHub `production` environment settings by human administrator | NONE |
+| Branch/ruleset administration | Independently controlled GitHub repository settings by human administrator | NONE |
 | Production policy evaluation | Repository-owned evaluator in protected GitHub Actions | NONE |
 | VPS deployment | GitHub Actions -> `.github/workflows/deploy-vps.yml` | Repository-owned VPS action exposed by canonical path only |
-| Ubuntu deployment | GitHub Actions -> `.github/workflows/deploy-ubuntu-worker.yml` -> `deploy/worker/ubuntu/deploy-authorized.sh` | Repository-owned sudo/root bootstrap emitted by canonical path only |
+| Ubuntu deployment | GitHub Actions -> VPS ProxyJump -> restricted `sea-speed-deploy` forced command -> `deploy/worker/ubuntu/deploy-authorized.sh` | NONE after zero-touch activation |
 | VPS/Ubuntu runtime diagnostics | Repository-owned tooling | One bounded read-only host command to operator |
 | Password/sudo/TOTP/SSH trust/credentials/tokens | Operator-local intended prompt/secret store | NONE |
 
