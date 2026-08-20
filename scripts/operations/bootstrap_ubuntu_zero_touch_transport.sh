@@ -37,7 +37,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-for command_name in install ssh-keygen visudo getent useradd usermod passwd; do
+for command_name in install ssh-keygen visudo getent useradd usermod; do
   command -v "$command_name" >/dev/null 2>&1 || { echo "ERROR required command missing: $command_name" >&2; exit 4; }
 done
 
@@ -69,7 +69,15 @@ fi
 if ! getent passwd "$DEPLOY_USER" >/dev/null; then
   useradd --system --create-home --home-dir "$DEPLOY_HOME" --shell /bin/bash "$DEPLOY_USER"
 fi
-passwd -l "$DEPLOY_USER" >/dev/null 2>&1 || true
+# A leading '!' in the Linux shadow password field locks the account at sshd's
+# account-access gate and therefore blocks public-key authentication too. Keep
+# password authentication impossible with OpenSSH's documented non-locking
+# invalid-password marker while allowing this account to reach authorized_keys.
+usermod --password '*NP*' "$DEPLOY_USER"
+shadow_line="$(getent shadow "$DEPLOY_USER")"
+IFS=: read -r _ password_field _ <<< "$shadow_line"
+[[ "$password_field" == '*NP*' ]] || { echo "ERROR deploy account password-auth boundary mismatch" >&2; exit 6; }
+
 install -d -o "$DEPLOY_USER" -g "$DEPLOY_USER" -m 0700 "$DEPLOY_HOME/.ssh"
 install -o root -g root -m 0755 "$SOURCE_GATE" "$GATE_PATH"
 
@@ -103,5 +111,6 @@ printf 'ZERO_TOUCH_TRANSPORT_BOOTSTRAP=PASS\n'
 printf 'DEPLOY_USER=%s\n' "$DEPLOY_USER"
 printf 'DEPLOY_KEY_FINGERPRINT=%s\n' "$fingerprint"
 printf 'WORKER_ED25519_HOST_FINGERPRINT=%s\n' "$host_fingerprint"
+printf 'PASSWORD_AUTH=DISABLED_PUBLICKEY_ACCOUNT=ACCESSIBLE\n'
 printf 'AUTHORIZED_KEY_RESTRICTION=restrict+forced-command\n'
 printf 'SUDO_BOUNDARY=%s --execute <sha> <issue> <artifact-sha256>\n' "$GATE_PATH"
