@@ -55,9 +55,13 @@ The script:
 - writes one `authorized_keys` record using OpenSSH `restrict` and a forced command;
 - writes one sudoers rule allowing only the same gate in `--execute` mode;
 - validates the sudoers file with `visudo`;
+- if the commissioned Worker uses the canonical global `AllowUsers` hardening line in `/etc/ssh/sshd_config.d/00-sea-speed-hardening.conf`, preserves every existing principal and adds only `sea-speed-deploy`;
+- validates the resulting SSH configuration with `sshd -t`, reloads the active SSH service, verifies the effective `AllowUsers` policy, and restores the original hardening file if validation/reload/effective-policy verification fails;
 - reports only public key/host fingerprints and non-secret boundary state.
 
 The deploy account MUST NOT be password-locked during active zero-touch service. On Linux a leading `!` in the shadow password field causes sshd to reject the account before public-key authentication. Password login remains impossible because the active bootstrap uses the non-locking invalid password marker `*NP*`; the deploy key is still constrained by `restrict` plus the forced command.
+
+The commissioned Worker also has a global SSH allowlist. A valid deploy key is still rejected before `authorized_keys` when `AllowUsers` contains only `seaspeedadmin`. Bootstrap therefore treats allowlist membership as part of the same bounded transport boundary. It does not replace the allowlist with a deploy-only list and does not remove operator access; it adds exactly `sea-speed-deploy` alongside the existing principals. If an effective allowlist is configured somewhere other than the canonical hardening file, bootstrap fails closed instead of editing an unknown SSH policy source.
 
 It never creates or prints a private key.
 
@@ -67,7 +71,7 @@ Rollback of the transport boundary uses:
 scripts/operations/bootstrap_ubuntu_zero_touch_transport.sh --remove
 ```
 
-Removal deletes the dedicated authorized key and sudo rule and then locks the account. It does not change application runtime state.
+Removal deletes the dedicated authorized key and sudo rule, removes only `sea-speed-deploy` from the canonical `AllowUsers` line when present, validates/reloads sshd, and then locks the account. Existing operator principals remain unchanged. It does not change application runtime state.
 
 ## Forced-command protocol
 
@@ -84,7 +88,7 @@ Root execution then:
 1. fetches public `origin/main` into a root-only temporary directory;
 2. proves the requested SHA is on current main first-parent history;
 3. checks out that exact SHA;
-4. rebuilds the deterministic Ubuntu exact-artifact digest and requires it to equal the workflow-provided digest;
+4. rebuilds the deterministic exact Ubuntu artifact digest and requires it to equal the workflow-provided digest;
 5. invokes only `deploy/worker/ubuntu/deploy-authorized.sh` with exact SHA, canonical Issue and artifact digest;
 6. validates the resulting deployment manifest and returns only that JSON on stdout.
 
@@ -123,6 +127,7 @@ Zero-touch is active only when:
 - GitHub reports public protected main with required checks;
 - the production environment standing delegation remains valid;
 - the deploy account is SSH-accessible by the dedicated public key while password authentication remains impossible;
+- effective sshd policy admits both the existing operator principal(s) and `sea-speed-deploy` when `AllowUsers` is configured;
 - the restricted Worker key cannot open a shell/PTY or forwarding channel;
 - malformed SHA/Issue/hash and arbitrary commands are rejected;
 - an exact policy-allowed Ubuntu release traverses VPS ProxyJump, reaches `runtime_verified`, and creates a typed execution audit;
