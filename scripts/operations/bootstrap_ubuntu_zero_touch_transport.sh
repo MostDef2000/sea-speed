@@ -53,6 +53,13 @@ allowusers_contains() {
   return 1
 }
 
+restore_sshd_hardening() {
+  local backup_file="$1"
+  cat "$backup_file" > "$SSHD_HARDENING_PATH"
+  sshd -t >/dev/null 2>&1 || true
+  reload_sshd || true
+}
+
 set_allowusers_membership() {
   local mode="$1"
   local effective line_count current_line backup_file temp_file replacement
@@ -95,12 +102,6 @@ set_allowusers_membership() {
 
   if [[ "$mode" == "add" ]]; then
     new_users=("${users[@]}")
-    for principal in "${users[@]}"; do
-      if [[ "$principal" == "$DEPLOY_USER" ]]; then
-        changed=false
-        break
-      fi
-    done
     if ! printf '%s\n' "${users[@]}" | grep -Fxq "$DEPLOY_USER"; then
       new_users+=("$DEPLOY_USER")
       changed=true
@@ -128,6 +129,9 @@ set_allowusers_membership() {
     else
       ! allowusers_contains "$DEPLOY_USER" || { echo "ERROR deploy principal still present in effective AllowUsers" >&2; return 7; }
     fi
+    for principal in "${new_users[@]}"; do
+      allowusers_contains "$principal" || { echo "ERROR existing AllowUsers principal missing from effective policy: $principal" >&2; return 7; }
+    done
     return 0
   fi
 
@@ -148,15 +152,13 @@ set_allowusers_membership() {
   rm -f "$temp_file"
 
   if ! sshd -t >/dev/null 2>&1; then
-    cat "$backup_file" > "$SSHD_HARDENING_PATH"
+    restore_sshd_hardening "$backup_file"
     rm -f "$backup_file"
-    echo "ERROR sshd configuration invalid after AllowUsers update" >&2
+    echo "ERROR sshd configuration invalid after AllowUsers update; original config restored" >&2
     return 7
   fi
   if ! reload_sshd; then
-    cat "$backup_file" > "$SSHD_HARDENING_PATH"
-    sshd -t >/dev/null 2>&1 || true
-    reload_sshd || true
+    restore_sshd_hardening "$backup_file"
     rm -f "$backup_file"
     echo "ERROR failed to reload sshd after AllowUsers update; original config restored" >&2
     return 7
@@ -164,23 +166,28 @@ set_allowusers_membership() {
 
   if [[ "$mode" == "add" ]]; then
     if ! allowusers_contains "$DEPLOY_USER"; then
-      cat "$backup_file" > "$SSHD_HARDENING_PATH"
-      sshd -t >/dev/null 2>&1 || true
-      reload_sshd || true
+      restore_sshd_hardening "$backup_file"
       rm -f "$backup_file"
       echo "ERROR deploy principal missing from effective AllowUsers after reload; original config restored" >&2
       return 7
     fi
   else
     if allowusers_contains "$DEPLOY_USER"; then
-      cat "$backup_file" > "$SSHD_HARDENING_PATH"
-      sshd -t >/dev/null 2>&1 || true
-      reload_sshd || true
+      restore_sshd_hardening "$backup_file"
       rm -f "$backup_file"
       echo "ERROR deploy principal still present in effective AllowUsers after reload; original config restored" >&2
       return 7
     fi
   fi
+
+  for principal in "${new_users[@]}"; do
+    if ! allowusers_contains "$principal"; then
+      restore_sshd_hardening "$backup_file"
+      rm -f "$backup_file"
+      echo "ERROR existing AllowUsers principal missing after reload: $principal; original config restored" >&2
+      return 7
+    fi
+  done
 
   rm -f "$backup_file"
 }
