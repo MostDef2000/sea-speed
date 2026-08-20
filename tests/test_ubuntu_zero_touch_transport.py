@@ -56,6 +56,7 @@ class UbuntuZeroTouchTransportTests(unittest.TestCase):
     def test_bootstrap_disables_password_without_locking_public_key_account(self):
         bootstrap = self.read("scripts/operations/bootstrap_ubuntu_zero_touch_transport.sh")
         self.assertIn("usermod --password '*NP*' \"$DEPLOY_USER\"", bootstrap)
+        self.assertIn('getent shadow "$DEPLOY_USER"', bootstrap)
         self.assertIn("PASSWORD_AUTH=DISABLED_PUBLICKEY_ACCOUNT=ACCESSIBLE", bootstrap)
         self.assertIn("deploy account password-auth boundary mismatch", bootstrap)
         self.assertNotIn('passwd -l "$DEPLOY_USER"', bootstrap)
