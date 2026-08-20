@@ -62,6 +62,22 @@ class UbuntuZeroTouchTransportTests(unittest.TestCase):
         self.assertNotIn('passwd -l "$DEPLOY_USER"', bootstrap)
         self.assertIn('usermod -L "$DEPLOY_USER"', bootstrap)
 
+    def test_bootstrap_transactionally_admits_deploy_user_to_existing_sshd_allowlist(self):
+        bootstrap = self.read("scripts/operations/bootstrap_ubuntu_zero_touch_transport.sh")
+        self.assertIn('/etc/ssh/sshd_config.d/00-sea-speed-hardening.conf', bootstrap)
+        self.assertIn("set_allowusers_membership add", bootstrap)
+        self.assertIn("set_allowusers_membership remove", bootstrap)
+        self.assertIn("AllowUsers", bootstrap)
+        self.assertIn("sshd -t", bootstrap)
+        self.assertIn("systemctl reload ssh", bootstrap)
+        self.assertIn("systemctl reload sshd", bootstrap)
+        self.assertIn("original config restored", bootstrap)
+        self.assertIn("deploy principal missing from effective AllowUsers", bootstrap)
+        self.assertIn("SSHD_ALLOWUSERS=", bootstrap)
+        self.assertIn('new_users+=("$DEPLOY_USER")', bootstrap)
+        self.assertIn('new_users+=("$principal")', bootstrap)
+        self.assertNotIn("AllowUsers sea-speed-deploy\n", bootstrap)
+
     def test_source_protection_is_checked_before_transport(self):
         for path in (
             ".github/workflows/deploy-runtime-autonomous.yml",
