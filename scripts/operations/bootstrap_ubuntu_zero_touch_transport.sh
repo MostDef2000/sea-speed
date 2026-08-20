@@ -34,12 +34,17 @@ reload_sshd() {
 
 effective_allowusers() {
   sshd -T 2>/dev/null | awk '
+    BEGIN { emitted = 0 }
     $1 == "allowusers" {
       for (i = 2; i <= NF; i++) {
-        printf "%s%s", (i == 2 ? "" : " "), $i
+        printf "%s%s", (emitted ? " " : ""), $i
+        emitted = 1
       }
-      printf "\n"
-      exit
+    }
+    END {
+      if (emitted) {
+        printf "\n"
+      }
     }
   '
 }
