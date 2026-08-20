@@ -60,10 +60,11 @@ Source completion requires T008-T009 with exact-scope PR evidence and exact-main
 - [x] Issue/spec/plan/tasks current for canonical Issue #234 and `specs/030-ubuntu-zero-touch-transport/spec.md`.
 - [x] Exact changed-file scope verified against the approved Issue #234 Scope for the integrated source phase; bounded remediation remains inside the same authorized paths.
 - [ ] Required tests and evidence complete, including corrected account-auth runtime evidence after independent activation.
-- [x] Required source CI green on one exact PR head and exact-main push for the original zero-touch source integration.
-- [x] Exact-green-head source merge complete with expected-head protection.
+- [x] Required CI green on one exact PR head and exact-main push for the original zero-touch source integration; remediation PR CI remains pending.
+- [x] Exact-green-head merge complete for the original source integration with expected-head protection; remediation merge remains pending.
 - [ ] Deployment state resolved: corrected zero-touch transport installed or explicitly rolled back/removed.
 - [ ] Runtime acceptance resolved: #231 retry is `runtime_verified` with typed execution audit.
+- [x] Deferred work recorded: T014-T018 remain explicit post-merge activation/runtime acceptance work and are not silently treated as complete.
 - [ ] Risks resolved or explicitly accepted; no unresolved FAIL finding.
 - [x] Waivers resolved or current: no waiver is used for source authorization, CI, standing production policy, source protection or runtime acceptance.
 - [x] Security risk profile is REQUIRED and full Deployment Transaction Audit contains all eight canonical stages.
