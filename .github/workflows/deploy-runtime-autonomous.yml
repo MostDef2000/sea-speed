@@ -68,6 +68,17 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Verify public protected production source
+        if: ${{ steps.freshness.outputs.fresh == 'true' }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python scripts/release/verify_source_protection.py \
+            --repository "$GITHUB_REPOSITORY" \
+            --branch main \
+            --require-context "Repository validation" \
+            --require-context "quality-integration"
+
       - name: Evaluate trusted standing delegation and repository policy
         id: policy
         if: ${{ steps.freshness.outputs.fresh == 'true' }}
@@ -102,6 +113,7 @@ jobs:
             echo "- Current main: \`$CURRENT_MAIN\`"
             echo "- Current-tip eligible: \`$FRESH\`"
             if [[ "$FRESH" == "true" ]]; then
+              echo "- Source protection: public protected main with required checks"
               echo "- Allowed: \`$ALLOWED\`"
               echo "- Reason: \`$REASON\`"
               echo "- Decision ID: \`$DECISION_ID\`"
