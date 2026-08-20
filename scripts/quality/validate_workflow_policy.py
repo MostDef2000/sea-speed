@@ -112,11 +112,14 @@ def main() -> int:
             "github.event.workflow_run.conclusion == 'success'", "github.event.workflow_run.event == 'push'",
             "github.event.workflow_run.head_branch == 'main'", "environment: production",
             "Require quality commit is current main tip", "refs/remotes/origin/main", "Ignoring stale successful Quality run",
-            "steps.freshness.outputs.fresh == 'true'", "vars.SEA_SPEED_PRODUCTION_DELEGATION_V1",
-            "evaluate_production_policy.py", "uses: ./.github/workflows/deploy-vps.yml",
-            "uses: ./.github/workflows/deploy-ubuntu-worker.yml",
+            "steps.freshness.outputs.fresh == 'true'", "Verify public protected production source",
+            "verify_source_protection.py", '--require-context "Repository validation"', '--require-context "quality-integration"',
+            "vars.SEA_SPEED_PRODUCTION_DELEGATION_V1", "evaluate_production_policy.py",
+            "uses: ./.github/workflows/deploy-vps.yml", "uses: ./.github/workflows/deploy-ubuntu-worker.yml",
         ),
     )
+    if autonomous.index("verify_source_protection.py") > autonomous.index("evaluate_production_policy.py"):
+        fail("autonomous router must verify source protection before production policy evaluation")
     for forbidden in ("issue_comment:", "PRODUCTION APPROVED", "Authorization-Fingerprint", "Execution-Intent: EXECUTE", "DEPLOY VPS "):
         if forbidden in autonomous:
             fail(f"autonomous runtime router must not use legacy comment authority: {forbidden}")
@@ -140,20 +143,37 @@ def main() -> int:
             file,
             (
                 "environment: production", "refs/heads/main", "--first-parent", "verify_quality_status.py",
+                "Verify public protected production source", "verify_source_protection.py",
+                '--require-context "Repository validation"', '--require-context "quality-integration"',
                 "evaluate_production_policy.py", "--require-allow", "vars.SEA_SPEED_PRODUCTION_DELEGATION_V1",
                 "production-policy-decision.json", "Build release provenance v3" if file == "deploy-vps.yml" else "Build exact artifacts and Ubuntu release provenance",
                 "--policy-decision-evidence", contour_marker, "build_execution_audit.py",
             ),
         )
+        if source.index("verify_source_protection.py") > source.index("evaluate_production_policy.py"):
+            fail(f"{file} must verify source protection before production policy evaluation")
         for forbidden in ("verify_production_authorization.py", "PRODUCTION APPROVED", "Authorization-Fingerprint", "Execution-Intent: EXECUTE"):
             if forbidden in source:
                 fail(f"{file} must not consume legacy production approval authority: {forbidden}")
-        transport_marker = "Configure SSH" if file == "deploy-vps.yml" else "Configure restricted Ubuntu SSH transport"
+        transport_marker = "Configure SSH" if file == "deploy-vps.yml" else "Configure restricted VPS ProxyJump to Ubuntu Worker"
         if source.index("evaluate_production_policy.py") > source.index(transport_marker):
             fail(f"{file} must evaluate production policy before runtime transport")
 
-    if "deploy/worker/ubuntu/deploy-authorized.sh" not in deploy_ubuntu:
-        fail("Ubuntu deployment must preserve deploy-authorized.sh target transaction")
+    _require_markers(
+        deploy_ubuntu,
+        "deploy-ubuntu-worker.yml",
+        (
+            "UBUNTU_DEPLOY_SSH_PRIVATE_KEY", "UBUNTU_DEPLOY_SSH_KNOWN_HOSTS", "VPS_SSH_PRIVATE_KEY",
+            "VPS_SSH_KNOWN_HOSTS", "ProxyJump sea-speed-vps-jump", "HostName 10.123.239.102",
+            "User sea-speed-deploy", "StrictHostKeyChecking yes", "ClearAllForwardings yes",
+            "sea-speed-ubuntu-deploy-v1", "Operator actions expected: 0",
+            "deploy/worker/ubuntu/deploy-authorized.sh",
+        ),
+    )
+    for forbidden in ("ubuntu-worker-one-command.sh", "Build one-command fallback", "one-command-fallback evidence", "StrictHostKeyChecking=no"):
+        if forbidden in deploy_ubuntu:
+            fail(f"Ubuntu zero-touch workflow must not retain manual fallback execution: {forbidden}")
+
     for marker in (
         'SEA_SPEED_REQUIRE_AUTH_BOUNDARY: "1"',
         'SEA_SPEED_AUTHENTIK_UPSTREAM: "http://10.123.239.102:19000"',
@@ -170,7 +190,7 @@ def main() -> int:
         except ValueError as exc:
             fail(str(exc))
 
-    print("Workflow policy valid: current-tip exact-main quality -> standing delegation policy -> protected VPS/Ubuntu execution; legacy comment authority absent")
+    print("Workflow policy valid: protected public main -> exact quality -> standing policy -> restricted VPS/Ubuntu zero-touch execution")
     return 0
 
 
