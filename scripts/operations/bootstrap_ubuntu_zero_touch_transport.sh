@@ -77,9 +77,9 @@ printf 'restrict,command="%s" %s\n' "$GATE_PATH" "$public_key" > "$DEPLOY_HOME/.
 chown "$DEPLOY_USER:$DEPLOY_USER" "$DEPLOY_HOME/.ssh/authorized_keys"
 chmod 0600 "$DEPLOY_HOME/.ssh/authorized_keys"
 
-cat > "$SUDOERS_PATH" <<EOF_SUDOERS
-Defaults:$DEPLOY_USER env_reset
-$DEPLOY_USER ALL=(root) NOPASSWD: $GATE_PATH --execute *
+cat > "$SUDOERS_PATH" <<'EOF_SUDOERS'
+Defaults:sea-speed-deploy env_reset
+sea-speed-deploy ALL=(root) NOPASSWD: /usr/local/sbin/sea-speed-ubuntu-zero-touch-gate --execute *
 EOF_SUDOERS
 chmod 0440 "$SUDOERS_PATH"
 visudo -cf "$SUDOERS_PATH" >/dev/null
@@ -90,6 +90,9 @@ visudo -cf "$SUDOERS_PATH" >/dev/null
 }
 grep -Fq "restrict,command=\"$GATE_PATH\"" "$DEPLOY_HOME/.ssh/authorized_keys" || {
   echo "ERROR restricted authorized_keys command missing" >&2; exit 6
+}
+grep -Fq 'sea-speed-ubuntu-zero-touch-gate --execute *' "$SUDOERS_PATH" || {
+  echo "ERROR exact sudo gate boundary missing" >&2; exit 6
 }
 
 host_fingerprint="UNKNOWN"
