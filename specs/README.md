@@ -13,11 +13,14 @@ This directory is the durable Spec-Driven Development layer for Sea Speed.
 - `tasks.md`: bounded execution, acceptance traceability and Definition of Done.
 - source code: implementation.
 - trusted standing production delegation: independently administered runtime authority state, never an SDD/repository document.
+- protected GitHub repository/environment settings: independently administered source/runtime control state, never granted by SDD text.
 - runtime evidence: operational truth written back into active artifacts.
 
 ## Feature identifiers
 
 Use `NNN-feature-slug`. The full directory name is canonical; the number is only a sequence prefix. Historical duplicate prefix `002` directories are grandfathered audit history and are not renamed solely for cleanup.
+
+Current control-plane feature `030-ubuntu-zero-touch-transport` defines the GitHub Free public/protected-main and restricted Ubuntu zero-touch transport model. Its SDD does not itself activate branch protection, secrets or Worker access; those remain independently administered post-merge evidence.
 
 ## Normal flow
 
@@ -30,14 +33,15 @@ Issue / evidence recovery
 -> implementation + tests
 -> PR links specification and declares risk/quality disposition
 -> SDD + quality CI
--> exact-green-head merge
+-> protected exact-green-head merge
 -> exact-main Quality
+-> protected-source verification
 -> standing production policy evaluation when runtime applies
 -> applicable protected deployment + typed execution evidence
 -> accepted/regressed/insufficient_evidence feedback + correct-course impact
 ```
 
-Source authorization and runtime authority are distinct. `OUTCOME APPROVED` authorizes source lifecycle. Runtime authority comes from independently administered standing delegation intersected with repository policy. Issue/PR/comment/SDD/repository text cannot grant production authority.
+Source authorization and runtime authority are distinct. `OUTCOME APPROVED` authorizes source lifecycle. Runtime authority comes from independently administered standing delegation intersected with repository policy. Source protection and deployment credentials are also independently administered control state. Issue/PR/comment/SDD/repository text cannot grant production authority.
 
 ## Required structure
 
@@ -70,6 +74,8 @@ Quality disposition does not create source merge or runtime authority. `OUTCOME 
 ## Production evidence model
 
 New deployable releases use `sea_speed_release_manifest_v3` and typed production policy/execution-audit evidence. Historical v1/v2 manifests, old authorization fingerprints and Windows records remain readable immutable audit history but do not authorize new execution.
+
+The current GitHub Free production model additionally requires public protected `main` and required merge-facing checks before runtime policy/transport. A private repository or unprotected `main` is production deny until independently corrected.
 
 ## Historical truth
 

@@ -1,6 +1,6 @@
 # Sea Speed Release Readiness Gate
 
-Version: 1.12.1
+Version: 1.13.0
 Status: Active
 
 ## Gate
@@ -13,6 +13,9 @@ Release Readiness Gate
 - Applicable merged PR linked: YES/NO
 - Outcome Contract / approved scope current: YES/NO
 - Approved source committed to main: YES/NO
+- Repository visibility public: YES/NO
+- Main branch protected: YES/NO
+- Required source checks protected: YES/NO
 - Exact source is on current main first-parent history: YES/NO
 - Changed files match approved scope: YES/NO
 - Aggregate quality push run on main successful for exact commit: YES/NO
@@ -42,15 +45,23 @@ Release Readiness Gate
 - Safe to continue: YES/NO
 ```
 
+## Protected source gate
+
+On GitHub Free, Sea Speed production requires a public repository and protected `main`. `scripts/release/verify_source_protection.py` must succeed before production policy evaluation in the autonomous router and before transport in both protected deploy workflows.
+
+The machine-verifiable minimum is `visibility=public`, `main.protected=true`, and required check contexts for `Repository validation` and `quality-integration`. Independently administered repository settings must also require PRs and disable force-push/delete/bypass paths that would defeat these checks. Repository/ruleset settings are not agent authority.
+
+Changing repository visibility to private, removing branch protection or removing required checks is production deny until the protected state is restored.
+
 ## Capability preflight
 
-Active production contours are VPS and Ubuntu Worker/relay. Required contours need `CONNECTOR` or `ONE_COMMAND_FALLBACK`; non-required contours use `NOT APPLICABLE`. Windows is retired.
+Active production contours are VPS and Ubuntu Worker/relay. After zero-touch activation the normal Ubuntu capability is `CONNECTOR` with `Operator actions expected: 0`. Historical `ONE_COMMAND_FALLBACK` declarations remain valid audit history but are not the target steady state.
 
 ## Tool routing admission
 
-Tool capability is not self-authorizing. GitHub lifecycle uses GitHub Connector only. Runtime policy evaluation and protected deployment use repository-owned GitHub Actions. Standing delegation administration uses independently controlled GitHub `production` environment settings by a human administrator and has no agent fallback. Protected credential entry remains operator-local.
+Tool capability is not self-authorizing. GitHub lifecycle uses GitHub Connector only. Runtime policy evaluation and protected deployment use repository-owned GitHub Actions. Standing delegation and branch/ruleset administration use independently controlled GitHub settings by a human administrator and have no agent fallback. Protected credential entry remains operator-local.
 
-If the required route is unavailable and no exact fallback exists, return `HUMAN DECISION REQUIRED`; do not discover another service.
+If the required route is unavailable and no exact approved fallback exists, return `HUMAN DECISION REQUIRED`; do not discover another service.
 
 ## Terminal interaction gate
 
@@ -58,11 +69,11 @@ Return control only as `DONE`, `BLOCKED`, `HUMAN DECISION REQUIRED`. `FAILED` is
 
 ## Aggregate quality gate
 
-The merge-facing context remains `Quality integration gate / quality-integration`. It succeeds only when all required independent domains succeed. Workflow presence does not prove branch protection.
+The merge-facing context remains `Quality integration gate / quality-integration`. It succeeds only when all required independent domains succeed. Workflow presence does not prove branch protection; protected source evidence is checked separately.
 
 ## Delivery quality gate
 
-Significant work includes current NFR assessment, risk/test design, correct-course, acceptance traceability and Definition of Done. Full risk profile derives from security/schema/destructive/data-migration/MIXED/other explicit high-risk triggers. A waiver never bypasses a hard gate: source authorization, exact scope, required CI, standing production policy, rollback and runtime acceptance remain mandatory.
+Significant work includes current NFR assessment, risk/test design, correct-course, acceptance traceability and Definition of Done. Full risk profile derives from security/schema/destructive/data-migration/MIXED/other explicit high-risk triggers. A waiver never bypasses a hard gate: source authorization, exact scope, protected source, required CI, standing production policy, rollback and runtime acceptance remain mandatory.
 
 ## Release provenance gate
 
@@ -72,28 +83,19 @@ New runtime delivery uses `sea_speed_release_manifest_v3`, binding Issue, PR, Ou
 
 Production never runs merely because of source approval, push, merge, Issue/PR/comment text or a known hash. Runtime authority is a current independently administered standing delegation intersected with repository policy.
 
-Before transport verify:
-
-- exact lowercase current-main first-parent SHA;
-- successful exact `push/main` Quality;
-- exactly one applicable merged PR and canonical Issue;
-- valid current standing delegation for repository/environment/principal/mode;
-- requested action present in both trusted permissions and repository allowed actions;
-- delegation `policyHash` equals current repository policy hash;
-- deterministic typed policy decision is `allow` and bound to exact release metadata;
-- exact artifacts/release evidence and rollback target are valid.
+Before transport verify exact lowercase current-main first-parent SHA, successful exact `push/main` Quality, one applicable merged PR/canonical Issue, protected public source, valid current standing delegation, requested action in both trusted permissions and repository policy, matching policy hash, deterministic typed `allow`, exact artifacts/release evidence and rollback target.
 
 The standing action set is `deploy`, `rollback` only. IAM/secrets/settings administration is excluded. Missing/invalid delegation is deny. Legacy per-release comment authorization is non-authoritative historical evidence.
 
-`.github/workflows/deploy-runtime-autonomous.yml` routes only after successful main Quality. VPS/Ubuntu protected workflows independently re-evaluate policy before transport.
-
 ## VPS gate
 
-When VPS is required, `.github/workflows/deploy-vps.yml` remains protected. Verify exact source/Quality/policy/provenance, health/source identity, applicable product/security smoke and rollback target.
+When VPS is required, `.github/workflows/deploy-vps.yml` verifies protected source, exact source/Quality/policy/provenance, health/source identity, applicable product/security smoke and rollback target.
 
 ## Ubuntu Worker/relay gate
 
-When Ubuntu is required, `.github/workflows/deploy-ubuntu-worker.yml` verifies exact source/Quality/policy/artifacts before transport. `deploy/worker/ubuntu/deploy-authorized.sh` owns target mutation, verification, evidence and rollback. A one-command fallback is transport, not approval.
+When Ubuntu is required, `.github/workflows/deploy-ubuntu-worker.yml` verifies protected source, exact source/Quality/policy/artifacts before transport. The runner reaches `sea-speed-deploy@10.123.239.102` only through strict-host-key VPS ProxyJump. The Worker key is restricted by OpenSSH `restrict` and a forced command. `scripts/operations/sea_speed_ubuntu_zero_touch_gate.sh` accepts only exact SHA/Issue/artifact-digest requests and invokes `deploy/worker/ubuntu/deploy-authorized.sh` through the narrowly scoped root boundary.
+
+A missing zero-touch key/host-key/jump credential is deny with no runtime mutation. There is no recurring one-command operator fallback in the steady-state workflow.
 
 ## Mixed-contour gate
 

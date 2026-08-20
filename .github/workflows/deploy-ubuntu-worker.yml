@@ -46,7 +46,7 @@ jobs:
           set -euo pipefail
           [[ "$GITHUB_REF" == "refs/heads/main" ]] || { echo "Deploy Ubuntu Worker must execute from the main workflow definition" >&2; exit 1; }
 
-      - name: Check out repository
+      - name: Check out current protected workflow source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           fetch-depth: 0
@@ -56,6 +56,16 @@ jobs:
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: "3.12"
+
+      - name: Verify public protected production source
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python scripts/release/verify_source_protection.py \
+            --repository "$GITHUB_REPOSITORY" \
+            --branch main \
+            --require-context "Repository validation" \
+            --require-context "quality-integration"
 
       - name: Resolve exact main deployment commit
         id: release
@@ -152,90 +162,83 @@ jobs:
             --output dist/release-manifest-ubuntu-worker.json
           python scripts/release/validate_release_manifest.py dist/release-manifest-ubuntu-worker.json
 
-      - name: Resolve zero-touch execution capability
-        id: capability
+      - name: Require provisioned zero-touch Ubuntu transport
         env:
-          DEPLOY_KEY: ${{ secrets.UBUNTU_DEPLOY_SSH_PRIVATE_KEY }}
-          KNOWN_HOSTS: ${{ secrets.UBUNTU_DEPLOY_SSH_KNOWN_HOSTS }}
-          DEPLOY_HOST: ${{ vars.UBUNTU_DEPLOY_HOST }}
-          DEPLOY_USER: ${{ vars.UBUNTU_DEPLOY_USER }}
+          UBUNTU_DEPLOY_KEY: ${{ secrets.UBUNTU_DEPLOY_SSH_PRIVATE_KEY }}
+          UBUNTU_KNOWN_HOSTS: ${{ secrets.UBUNTU_DEPLOY_SSH_KNOWN_HOSTS }}
+          VPS_DEPLOY_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          VPS_KNOWN_HOSTS: ${{ secrets.VPS_SSH_KNOWN_HOSTS }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
         run: |
           set -euo pipefail
-          if [[ -n "$DEPLOY_KEY" && -n "$KNOWN_HOSTS" && -n "$DEPLOY_HOST" && -n "$DEPLOY_USER" ]]; then
-            echo "mode=connector" >> "$GITHUB_OUTPUT"
-          else
-            echo "mode=one-command-fallback" >> "$GITHUB_OUTPUT"
-          fi
+          [[ -n "$UBUNTU_DEPLOY_KEY" ]] || { echo "Missing UBUNTU_DEPLOY_SSH_PRIVATE_KEY" >&2; exit 42; }
+          [[ -n "$UBUNTU_KNOWN_HOSTS" ]] || { echo "Missing UBUNTU_DEPLOY_SSH_KNOWN_HOSTS" >&2; exit 42; }
+          [[ -n "$VPS_DEPLOY_KEY" ]] || { echo "Missing VPS_SSH_PRIVATE_KEY for ProxyJump" >&2; exit 42; }
+          [[ -n "$VPS_KNOWN_HOSTS" ]] || { echo "Missing VPS_SSH_KNOWN_HOSTS for ProxyJump" >&2; exit 42; }
+          [[ -n "$VPS_HOST" ]] || { echo "Missing VPS_HOST for ProxyJump" >&2; exit 42; }
+          [[ -n "$VPS_USER" ]] || { echo "Missing VPS_USER for ProxyJump" >&2; exit 42; }
+          echo "Ubuntu zero-touch transport capability: CONNECTOR"
 
-      - name: Configure restricted Ubuntu SSH transport
-        if: ${{ steps.capability.outputs.mode == 'connector' }}
+      - name: Configure restricted VPS ProxyJump to Ubuntu Worker
         env:
-          DEPLOY_KEY: ${{ secrets.UBUNTU_DEPLOY_SSH_PRIVATE_KEY }}
-          KNOWN_HOSTS: ${{ secrets.UBUNTU_DEPLOY_SSH_KNOWN_HOSTS }}
+          UBUNTU_DEPLOY_KEY: ${{ secrets.UBUNTU_DEPLOY_SSH_PRIVATE_KEY }}
+          UBUNTU_KNOWN_HOSTS: ${{ secrets.UBUNTU_DEPLOY_SSH_KNOWN_HOSTS }}
+          VPS_DEPLOY_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          VPS_KNOWN_HOSTS: ${{ secrets.VPS_SSH_KNOWN_HOSTS }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_PORT: ${{ vars.VPS_SSH_PORT || '22' }}
         run: |
           set -euo pipefail
           install -d -m 0700 "$HOME/.ssh"
-          printf '%s\n' "$DEPLOY_KEY" > "$HOME/.ssh/sea-speed-ubuntu-deploy"
-          printf '%s\n' "$KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
-          chmod 0600 "$HOME/.ssh/sea-speed-ubuntu-deploy" "$HOME/.ssh/known_hosts"
+          printf '%s\n' "$UBUNTU_DEPLOY_KEY" > "$HOME/.ssh/sea-speed-ubuntu-deploy"
+          printf '%s\n' "$VPS_DEPLOY_KEY" > "$HOME/.ssh/sea-speed-vps-jump"
+          printf '%s\n' "$UBUNTU_KNOWN_HOSTS" > "$HOME/.ssh/ubuntu_known_hosts"
+          printf '%s\n' "$VPS_KNOWN_HOSTS" > "$HOME/.ssh/vps_known_hosts"
+          chmod 0600 "$HOME/.ssh/sea-speed-ubuntu-deploy" "$HOME/.ssh/sea-speed-vps-jump" "$HOME/.ssh/ubuntu_known_hosts" "$HOME/.ssh/vps_known_hosts"
+          cat > "$HOME/.ssh/sea-speed-production-config" <<EOF_CONFIG
+          Host sea-speed-vps-jump
+              HostName $VPS_HOST
+              User $VPS_USER
+              Port $VPS_PORT
+              IdentityFile $HOME/.ssh/sea-speed-vps-jump
+              IdentitiesOnly yes
+              BatchMode yes
+              StrictHostKeyChecking yes
+              UserKnownHostsFile $HOME/.ssh/vps_known_hosts
+              ForwardAgent no
+
+          Host sea-speed-ubuntu-worker
+              HostName 10.123.239.102
+              User sea-speed-deploy
+              Port 22
+              IdentityFile $HOME/.ssh/sea-speed-ubuntu-deploy
+              IdentitiesOnly yes
+              BatchMode yes
+              StrictHostKeyChecking yes
+              UserKnownHostsFile $HOME/.ssh/ubuntu_known_hosts
+              ProxyJump sea-speed-vps-jump
+              RequestTTY no
+              ForwardAgent no
+              ClearAllForwardings yes
+          EOF_CONFIG
+          sed -i 's/^          //' "$HOME/.ssh/sea-speed-production-config"
+          chmod 0600 "$HOME/.ssh/sea-speed-production-config"
 
       - name: Execute restricted Ubuntu deployment protocol
-        if: ${{ steps.capability.outputs.mode == 'connector' }}
         env:
           DEPLOY_SHA: ${{ steps.release.outputs.sha }}
           CANONICAL_ISSUE: ${{ inputs.canonical_issue }}
           ARTIFACT_SHA: ${{ steps.exact.outputs.artifact_sha256 }}
-          DEPLOY_HOST: ${{ vars.UBUNTU_DEPLOY_HOST }}
-          DEPLOY_USER: ${{ vars.UBUNTU_DEPLOY_USER }}
-          DEPLOY_PORT: ${{ vars.UBUNTU_DEPLOY_PORT || '22' }}
         run: |
           set -euo pipefail
-          ssh -i "$HOME/.ssh/sea-speed-ubuntu-deploy" -p "$DEPLOY_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes \
-            "$DEPLOY_USER@$DEPLOY_HOST" \
-            "sea-speed-ubuntu-deploy-v1 '$DEPLOY_SHA' '$CANONICAL_ISSUE' '$ARTIFACT_SHA'" > dist/deployment-manifest-ubuntu-worker.json
+          ssh -F "$HOME/.ssh/sea-speed-production-config" sea-speed-ubuntu-worker \
+            "sea-speed-ubuntu-deploy-v1 $DEPLOY_SHA $CANONICAL_ISSUE $ARTIFACT_SHA" \
+            > dist/deployment-manifest-ubuntu-worker.json
           python scripts/release/validate_deployment_manifest.py dist/deployment-manifest-ubuntu-worker.json
 
-      - name: Build one-command fallback
-        if: ${{ steps.capability.outputs.mode == 'one-command-fallback' }}
-        env:
-          DEPLOY_SHA: ${{ steps.release.outputs.sha }}
-          CANONICAL_ISSUE: ${{ inputs.canonical_issue }}
-          ARTIFACT_SHA: ${{ steps.exact.outputs.artifact_sha256 }}
-        run: |
-          set -euo pipefail
-          cat > dist/ubuntu-worker-one-command.sh <<EOF
-          #!/usr/bin/env bash
-          set -euo pipefail
-          TARGET='$DEPLOY_SHA'
-          ISSUE='$CANONICAL_ISSUE'
-          ARTIFACT_SHA='$ARTIFACT_SHA'
-          ROOT=/opt/sea-speed-worker
-          [[ "\$EUID" -eq 0 ]] || { echo "ERROR run with sudo/root" >&2; exit 1; }
-          install -d -o root -g root -m 0700 "\$ROOT/updater"
-          STAGE="\$(mktemp -d "\$ROOT/updater/bootstrap.XXXXXX")"
-          cleanup() { status=\$?; rm -rf "\$STAGE" || true; return "\$status"; }
-          trap cleanup EXIT
-          git -C "\$STAGE" init -q
-          git -C "\$STAGE" remote add origin https://github.com/MostDef2000/sea-speed.git
-          git -C "\$STAGE" fetch --quiet --no-tags origin main:refs/remotes/origin/main
-          git -C "\$STAGE" cat-file -e "\$TARGET^{commit}"
-          MATCH=0
-          while IFS= read -r commit; do [[ "\$commit" == "\$TARGET" ]] && MATCH=1; done < <(git -C "\$STAGE" rev-list --first-parent refs/remotes/origin/main)
-          [[ "\$MATCH" == 1 ]]
-          git -C "\$STAGE" -c advice.detachedHead=false checkout --quiet --detach "\$TARGET"
-          bash "\$STAGE/deploy/worker/ubuntu/deploy-authorized.sh" "\$TARGET" --issue "\$ISSUE" --artifact-sha256 "\$ARTIFACT_SHA"
-          EOF
-          sed -i 's/^          //' dist/ubuntu-worker-one-command.sh
-          chmod 0755 dist/ubuntu-worker-one-command.sh
-          {
-            echo "### Ubuntu Worker execution fallback"
-            echo "The repository has not observed a provisioned restricted zero-touch Ubuntu transport."
-            echo "Run the uploaded exact one-command bootstrap on the canonical Ubuntu worker as root/sudo."
-            echo "This fallback is repository-owned runtime transport, not a production approval step."
-          } >> "$GITHUB_STEP_SUMMARY"
-
       - name: Build typed execution audit
-        if: ${{ steps.capability.outputs.mode == 'connector' }}
         run: |
           python scripts/release/build_execution_audit.py \
             --policy-decision dist/production-policy-decision.json \
@@ -255,18 +258,10 @@ jobs:
             dist/exact/exact-artifacts.json
             dist/deployment-manifest-ubuntu-worker.json
             dist/execution-audit-ubuntu-worker.json
-            dist/ubuntu-worker-one-command.sh
           retention-days: 30
           if-no-files-found: warn
 
-      - name: Require completed runtime mutation
-        if: ${{ steps.capability.outputs.mode == 'one-command-fallback' }}
-        run: |
-          echo "Ubuntu zero-touch transport is not provisioned; one-command fallback evidence was produced." >&2
-          exit 42
-
       - name: Deployment summary
-        if: ${{ steps.capability.outputs.mode == 'connector' }}
         env:
           DEPLOY_SHA: ${{ steps.release.outputs.sha }}
           CANONICAL_ISSUE: ${{ inputs.canonical_issue }}
@@ -276,5 +271,6 @@ jobs:
           echo "- Commit: \`$DEPLOY_SHA\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Canonical Issue: #$CANONICAL_ISSUE" >> "$GITHUB_STEP_SUMMARY"
           echo "- Standing delegation policy decision: \`$DECISION_ID\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Execution: restricted Connector-addressable SSH protocol" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Execution: GitHub-hosted runner -> VPS ProxyJump -> ZeroTier -> restricted Ubuntu forced command" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Operator actions expected: 0" >> "$GITHUB_STEP_SUMMARY"
           echo "- Runtime state: verified by deployment manifest" >> "$GITHUB_STEP_SUMMARY"

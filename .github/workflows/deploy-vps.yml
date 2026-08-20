@@ -51,7 +51,7 @@ jobs:
           set -euo pipefail
           [[ "$GITHUB_REF" == "refs/heads/main" ]] || { echo "Deploy VPS must execute from the main workflow definition" >&2; exit 1; }
 
-      - name: Check out repository
+      - name: Check out current protected workflow source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           fetch-depth: 0
@@ -61,6 +61,16 @@ jobs:
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: "3.12"
+
+      - name: Verify public protected production source
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python scripts/release/verify_source_protection.py \
+            --repository "$GITHUB_REPOSITORY" \
+            --branch main \
+            --require-context "Repository validation" \
+            --require-context "quality-integration"
 
       - name: Resolve exact main deployment commit
         id: release
@@ -241,5 +251,6 @@ jobs:
           echo "- Canonical Issue: #$CANONICAL_ISSUE" >> "$GITHUB_STEP_SUMMARY"
           echo "- Merged PR: #$PR_NUMBER" >> "$GITHUB_STEP_SUMMARY"
           echo "- Aggregate quality gate: exact main push run verified" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Source protection: public protected main with required checks" >> "$GITHUB_STEP_SUMMARY"
           echo "- Standing delegation policy decision: \`$DECISION_ID\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Runtime state: verified by deployment manifest" >> "$GITHUB_STEP_SUMMARY"
