@@ -118,9 +118,9 @@ cp -p "$runtime_blueprint" "$backup"
 chmod 0600 "$backup"
 
 # The blueprint is public repository configuration, not a secret. Keep the
-# bind-mounted runtime file container-readable. The first production attempt
-# forced mode 0600 and Authentik discovery failed with EACCES across the Docker
-# user-namespace boundary. The private temporary backup remains mode 0600.
+# bind-mounted runtime file container-readable. Issue #231's first production
+# attempt forced mode 0600 and Authentik discovery failed with EACCES across the
+# Docker user-namespace boundary. The private temporary backup remains mode 0600.
 cat "$source_blueprint" > "$runtime_blueprint"
 chmod "$runtime_blueprint_mode" "$runtime_blueprint"
 
