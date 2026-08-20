@@ -53,6 +53,14 @@ class UbuntuZeroTouchTransportTests(unittest.TestCase):
         self.assertNotIn("ssh-keygen -t", bootstrap)
         self.assertIn("--remove", bootstrap)
 
+    def test_bootstrap_disables_password_without_locking_public_key_account(self):
+        bootstrap = self.read("scripts/operations/bootstrap_ubuntu_zero_touch_transport.sh")
+        self.assertIn("usermod --password '*NP*' \"$DEPLOY_USER\"", bootstrap)
+        self.assertIn("PASSWORD_AUTH=DISABLED_PUBLICKEY_ACCOUNT=ACCESSIBLE", bootstrap)
+        self.assertIn("deploy account password-auth boundary mismatch", bootstrap)
+        self.assertNotIn('passwd -l "$DEPLOY_USER"', bootstrap)
+        self.assertIn('usermod -L "$DEPLOY_USER"', bootstrap)
+
     def test_source_protection_is_checked_before_transport(self):
         for path in (
             ".github/workflows/deploy-runtime-autonomous.yml",
