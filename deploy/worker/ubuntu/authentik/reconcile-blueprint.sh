@@ -18,6 +18,7 @@ runtime_root="/opt/sea-speed-auth"
 test_mode="${SEA_SPEED_AUTHENTIK_RECONCILE_TEST_MODE:-0}"
 attempts="${SEA_SPEED_AUTHENTIK_RECONCILE_ATTEMPTS:-30}"
 sleep_seconds="${SEA_SPEED_AUTHENTIK_RECONCILE_SLEEP_SECONDS:-2}"
+runtime_blueprint_mode="0644"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -37,7 +38,7 @@ else
   [[ "$EUID" -eq 0 ]] || { echo "ERROR run as root" >&2; exit 1; }
   [[ "$runtime_root" == "/opt/sea-speed-auth" ]] || { echo "ERROR production runtime root is fixed" >&2; exit 1; }
 fi
-for command_name in python3 sha256sum awk cp chmod mktemp docker grep sort sleep seq cat rm; do
+for command_name in python3 sha256sum awk cp chmod mktemp docker grep sort sleep seq cat rm stat; do
   command -v "$command_name" >/dev/null 2>&1 || { echo "ERROR required command missing: $command_name" >&2; exit 4; }
 done
 [[ -f "$source_blueprint" && ! -L "$source_blueprint" ]] || { echo "ERROR source blueprint missing or invalid" >&2; exit 5; }
@@ -97,12 +98,14 @@ runtime_matches_expected() {
 before_runtime="$(query_runtime)" || { echo "ERROR cannot read current Authentik login-stage state" >&2; exit 6; }
 source_sha="$(sha256sum "$source_blueprint" | awk '{print $1}')"
 target_sha="$(sha256sum "$runtime_blueprint" | awk '{print $1}')"
+target_mode="$(stat -c '%a' "$runtime_blueprint")"
 
-if [[ "$source_sha" == "$target_sha" ]] && runtime_matches_expected; then
+if [[ "$source_sha" == "$target_sha" && "$target_mode" == "644" ]] && runtime_matches_expected; then
   printf 'AUTHENTIK_BLUEPRINT_RECONCILE=PASS\n'
   printf 'AUTHENTIK_SESSION_DURATION=days=30\n'
   printf 'AUTHENTIK_LOGIN_STAGES_VERIFIED=2\n'
   printf 'AUTHENTIK_BLUEPRINT_CHANGED=NO\n'
+  printf 'AUTHENTIK_BLUEPRINT_MODE=0644\n'
   printf 'AUTHENTIK_WORKER_RESTARTED=NO\n'
   printf 'WATER_ROAD_SERVICES_MUTATED=NO\n'
   exit 0
@@ -114,11 +117,12 @@ trap cleanup EXIT
 cp -p "$runtime_blueprint" "$backup"
 chmod 0600 "$backup"
 
-# Write through the existing bind-mounted inode. Authentik's worker watches this
-# file and applies blueprint modifications; no container or database restart is
-# needed for this configuration-only change.
+# The blueprint is public repository configuration, not a secret. Keep the
+# bind-mounted runtime file container-readable. Issue #231's first production
+# attempt forced mode 0600 and Authentik discovery failed with EACCES across the
+# Docker user-namespace boundary. The private temporary backup remains mode 0600.
 cat "$source_blueprint" > "$runtime_blueprint"
-chmod 0600 "$runtime_blueprint"
+chmod "$runtime_blueprint_mode" "$runtime_blueprint"
 
 verified=false
 for _ in $(seq 1 "$attempts"); do
@@ -132,7 +136,9 @@ done
 if [[ "$verified" != true ]]; then
   echo "ERROR Authentik did not apply the exact 30-day login-stage blueprint; restoring previous blueprint" >&2
   cat "$backup" > "$runtime_blueprint"
-  chmod 0600 "$runtime_blueprint"
+  # Restore old bytes but keep the mounted blueprint readable by Authentik so
+  # discovery and any future repository-owned reconciliation remain functional.
+  chmod "$runtime_blueprint_mode" "$runtime_blueprint"
   rollback_verified=false
   for _ in $(seq 1 "$attempts"); do
     current="$(query_runtime || true)"
@@ -144,6 +150,7 @@ if [[ "$verified" != true ]]; then
   done
   if [[ "$rollback_verified" == true ]]; then
     echo "AUTHENTIK_BLUEPRINT_ROLLBACK=PASS" >&2
+    echo "AUTHENTIK_BLUEPRINT_MODE=0644" >&2
     exit 20
   fi
   echo "CRITICAL Authentik blueprint reconciliation failed and runtime rollback could not be verified" >&2
@@ -154,5 +161,6 @@ printf 'AUTHENTIK_BLUEPRINT_RECONCILE=PASS\n'
 printf 'AUTHENTIK_SESSION_DURATION=days=30\n'
 printf 'AUTHENTIK_LOGIN_STAGES_VERIFIED=2\n'
 printf 'AUTHENTIK_BLUEPRINT_CHANGED=YES\n'
+printf 'AUTHENTIK_BLUEPRINT_MODE=0644\n'
 printf 'AUTHENTIK_WORKER_RESTARTED=NO\n'
 printf 'WATER_ROAD_SERVICES_MUTATED=NO\n'

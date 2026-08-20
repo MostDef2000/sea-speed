@@ -46,7 +46,7 @@ OLD_BLUEPRINT = NEW_BLUEPRINT.replace("session_duration: days=30", "session_dura
 
 
 class UbuntuAuthentikBlueprintReconcileTests(unittest.TestCase):
-    def _sandbox(self, old: str = OLD_BLUEPRINT):
+    def _sandbox(self, old: str = OLD_BLUEPRINT, *, active_mode: int = 0o644):
         temp = tempfile.TemporaryDirectory()
         root = Path(temp.name)
         runtime = root / "runtime"
@@ -54,6 +54,7 @@ class UbuntuAuthentikBlueprintReconcileTests(unittest.TestCase):
         (runtime / "compose.yml").write_text("name: fake-authentik\n", encoding="utf-8")
         active = runtime / "blueprints/sea-speed-auth-v1.yaml"
         active.write_text(old, encoding="utf-8")
+        active.chmod(active_mode)
         source = root / "source.yaml"
         source.write_text(NEW_BLUEPRINT, encoding="utf-8")
         bindir = root / "bin"
@@ -63,7 +64,13 @@ class UbuntuAuthentikBlueprintReconcileTests(unittest.TestCase):
             """#!/usr/bin/env bash
 set -euo pipefail
 blueprint=\"${SEA_SPEED_AUTHENTIK_FAKE_BLUEPRINT:?}\"
+mode=\"$(stat -c '%a' \"$blueprint\")\"
 if [[ \"${SEA_SPEED_AUTHENTIK_FAKE_STUCK:-0}\" == 1 ]] || grep -q 'session_duration: hours=12' \"$blueprint\"; then
+  duration=hours=12
+elif [[ \"$mode\" != 644 ]]; then
+  # Reproduce the production failure mode where the bind-mounted file was
+  # chmod 0600 and Authentik discovery could not read it across Docker's
+  # user-namespace boundary. ORM state therefore never advanced to days=30.
   duration=hours=12
 else
   duration=days=30
@@ -92,6 +99,7 @@ printf 'SEA_SPEED_SESSION_STAGE=sea-speed-enrollment-login|%s|seconds=0|seconds=
         self.assertIn('/blueprints/sea-speed-auth-v1.yaml', text)
         self.assertIn('docker compose exec -T worker ak shell -c', text)
         self.assertIn('AUTHENTIK_SESSION_DURATION=days=30', text)
+        self.assertIn('AUTHENTIK_BLUEPRINT_MODE=0644', text)
         self.assertIn('WATER_ROAD_SERVICES_MUTATED=NO', text)
         self.assertNotIn('docker compose pull', text)
         self.assertNotIn('systemctl restart sea-speed-worker', text)
@@ -109,10 +117,27 @@ printf 'SEA_SPEED_SESSION_STAGE=sea-speed-enrollment-login|%s|seconds=0|seconds=
                 check=True,
             )
             self.assertEqual(active.read_text(encoding="utf-8"), NEW_BLUEPRINT)
+            self.assertEqual(active.stat().st_mode & 0o777, 0o644)
             self.assertIn("AUTHENTIK_BLUEPRINT_RECONCILE=PASS", result.stdout)
             self.assertIn("AUTHENTIK_LOGIN_STAGES_VERIFIED=2", result.stdout)
             self.assertIn("AUTHENTIK_BLUEPRINT_CHANGED=YES", result.stdout)
+            self.assertIn("AUTHENTIK_BLUEPRINT_MODE=0644", result.stdout)
             self.assertIn("AUTHENTIK_WORKER_RESTARTED=NO", result.stdout)
+
+    def test_reconcile_repairs_unreadable_bind_mount_mode(self) -> None:
+        temp, runtime, active, source, env = self._sandbox(active_mode=0o600)
+        with temp:
+            result = subprocess.run(
+                ["bash", str(SCRIPT), "--source", str(source), "--runtime-root", str(runtime)],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            self.assertEqual(active.read_text(encoding="utf-8"), NEW_BLUEPRINT)
+            self.assertEqual(active.stat().st_mode & 0o777, 0o644)
+            self.assertIn("AUTHENTIK_BLUEPRINT_RECONCILE=PASS", result.stdout)
+            self.assertIn("AUTHENTIK_SESSION_DURATION=days=30", result.stdout)
 
     def test_idempotent_runtime_does_not_rewrite_or_restart(self) -> None:
         temp, runtime, active, source, env = self._sandbox(NEW_BLUEPRINT)
@@ -126,11 +151,12 @@ printf 'SEA_SPEED_SESSION_STAGE=sea-speed-enrollment-login|%s|seconds=0|seconds=
                 check=True,
             )
             self.assertEqual(active.stat().st_ino, before)
+            self.assertEqual(active.stat().st_mode & 0o777, 0o644)
             self.assertIn("AUTHENTIK_BLUEPRINT_CHANGED=NO", result.stdout)
             self.assertIn("AUTHENTIK_WORKER_RESTARTED=NO", result.stdout)
 
     def test_failed_runtime_apply_restores_previous_blueprint_and_fails_closed(self) -> None:
-        temp, runtime, active, source, env = self._sandbox()
+        temp, runtime, active, source, env = self._sandbox(active_mode=0o600)
         with temp:
             env["SEA_SPEED_AUTHENTIK_FAKE_STUCK"] = "1"
             result = subprocess.run(
@@ -141,7 +167,9 @@ printf 'SEA_SPEED_SESSION_STAGE=sea-speed-enrollment-login|%s|seconds=0|seconds=
             )
             self.assertEqual(result.returncode, 20)
             self.assertEqual(active.read_text(encoding="utf-8"), OLD_BLUEPRINT)
+            self.assertEqual(active.stat().st_mode & 0o777, 0o644)
             self.assertIn("AUTHENTIK_BLUEPRINT_ROLLBACK=PASS", result.stderr)
+            self.assertIn("AUTHENTIK_BLUEPRINT_MODE=0644", result.stderr)
 
     def test_source_guard_rejects_legacy_session_duration(self) -> None:
         temp, runtime, _active, source, env = self._sandbox()

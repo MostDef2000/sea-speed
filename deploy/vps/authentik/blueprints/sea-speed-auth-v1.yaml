@@ -4,6 +4,8 @@ metadata:
   labels:
     blueprints.goauthentik.io/instantiate: "true"
 
+# Runtime reconciliation marker: this public blueprint remains the exact source
+# applied by the bounded Ubuntu Authentik transaction after permission repair.
 entries:
   # Roles. Only Owner is an Authentik superuser group.
   - id: group-owner
