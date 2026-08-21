@@ -178,6 +178,7 @@ class SeaSpeedAuthV1Tests(unittest.TestCase):
         expected = (
             ("/api/cam1/state", "POST"),
             ("/api/cam1/events", "POST"),
+            ("/api/cam1/passages", "POST"),
             ("/api/cam1/roi", "GET"),
             ("/api/cam1/speed-config", "GET"),
             ("/api/cam1/speed-lines", "GET"),

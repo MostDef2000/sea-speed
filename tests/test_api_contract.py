@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "api" / "app" / "main.py"
+FRONTEND = ROOT / "frontend" / "sea-speed" / "index.html"
 
 
 class HTTPExceptionStub(Exception):
@@ -220,6 +221,18 @@ class ApiContractTests(unittest.TestCase):
             self.assertIn(marker, source)
         self.assertNotIn('/api/worker/control/{', source)
         self.assertNotIn('/v1/{', source)
+
+    def test_operator_water_state_counters_are_freshness_aware(self) -> None:
+        source = FRONTEND.read_text(encoding="utf-8")
+        for marker in (
+            "function renderAnalyticsState(s)",
+            "const fresh=s.worker_online!==false",
+            'fresh&&s.ai_active?"active":fresh?"idle":"offline"',
+            "detectionsStatus.textContent=fresh?(s.detections??0):0",
+            "tracksStatus.textContent=fresh?(s.tracks??0):0",
+            "renderAnalyticsState(s)",
+        ):
+            self.assertIn(marker, source)
 
 
 if __name__ == "__main__":

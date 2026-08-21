@@ -35,6 +35,7 @@ WORKER_BROWSER_CONTROL_PATHS = (
 WORKER_PRIVATE_ENDPOINTS = (
     ("/api/cam1/state", "POST"),
     ("/api/cam1/events", "POST"),
+    ("/api/cam1/passages", "POST"),
     ("/api/cam1/roi", "GET"),
     ("/api/cam1/speed-config", "GET"),
     ("/api/cam1/speed-lines", "GET"),
