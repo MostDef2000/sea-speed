@@ -1,19 +1,20 @@
 # Sea Speed Governance
 
-Version: 1.16.1
+Version: 1.17.0
 Status: Active
 Source of truth: GitHub `main`
 
 ## 1. Core rules
 
-- `main` is the only long-term source of truth.
-- GitHub Issues are the canonical persistent backlog, source-authorization record and task history.
+- `main` is the only long-term source of truth for repository/product state.
+- GitHub Issues are the canonical persistent backlog, source-authorization record, delivery-control checkpoint and task history.
 - Feature specifications under `specs/**` are durable product-intent artifacts and complement Issues.
 - All GitHub repository lifecycle writes use the connected GitHub Connector. Local `gh`, local GitHub authentication, `git push` and direct manual publication are not part of Sea Speed delivery.
 - VPS and Worker hosts are runtime environments, not editable source stores.
-- Task Intake is read-only.
+- Task Intake is read-only and is for new/materially invalidated work, not the default resume path for an existing valid checkpoint.
 - Before asking for `OUTCOME APPROVED`, the Delivery Orchestrator presents the complete six-field visible Scope as the last substantive assistant content; approval must be the immediately following user decision.
 - Source admission is fail closed: before first repository write require `VISIBLE_SCOPE_PRESENTED=YES`, `SCOPE_IMMEDIATELY_PRECEDES_APPROVAL=YES`, `SOURCE_AUTHORIZATION_ADMISSION=OPEN`.
+- After valid admission, persist a durable source-authorization receipt plus `Sea Speed Delivery Checkpoint v1` in the canonical Issue.
 - `skills/**` additionally requires `SKILL UPDATE APPROVED`.
 - Every task uses a fresh branch from current `main`.
 - Material scope expansion, destructive action, security-boundary/secret redesign, protected behavior change, incompatible schema change, data migration or behavior redesign requires fresh source authorization.
@@ -24,7 +25,7 @@ Source of truth: GitHub `main`
 
 The single active role is **Sea Speed Delivery Orchestrator**. It owns one task context across Task Intake, visible Scope, source admission, branch, implementation, integrity, PR/CI, exact-green-head merge, standing-policy runtime continuation when applicable, acceptance and terminal Issue evidence.
 
-`contracts/branches/project-manager.md` and `docs/agents/PM_BOOTSTRAP.md` are compatibility paths. Other files under `contracts/branches/` are review lenses.
+For an existing task, that context is durably resumable from the canonical Issue checkpoint. `contracts/branches/project-manager.md` and `docs/agents/PM_BOOTSTRAP.md` are compatibility paths. Other files under `contracts/branches/` are review lenses.
 
 ## 3. Outcome Contract and source authorization
 
@@ -44,7 +45,33 @@ Scope
 
 Ordinary implementation defects inside approved scope continue automatically. A material outcome/path/protected-boundary change requires a new Scope and fresh immediately-following approval.
 
-## 4. Active runtime topology
+Initial visible-Scope adjacency is the source-authority **admission condition**. Once that valid admission is durably receipted, the authorization receipt may continue only the **same exact admitted scope** after context/session loss. The receipt cannot create, widen, or replace source authority and never grants production authority.
+
+## 4. Resumable delivery control
+
+Sea Speed separates three truth classes:
+
+- **Repository/product truth**: current `main`, committed contracts/specs/source and accepted runtime evidence.
+- **Delivery-control truth**: canonical Issue Outcome, source-authorization receipt, `Sea Speed Delivery Checkpoint v1`, exact branch/PR/head, completed gates and evidence cursors.
+- **Transient interaction state**: live conversation used to present a new Scope and receive the immediately-following `OUTCOME APPROVED`.
+
+A known task with a valid checkpoint uses a bounded **Resume Probe** before any full project recovery. The probe reads current `main`, the canonical Issue checkpoint, exact referenced PR/head/status or other evidence whose cursor may have changed, and `Next admissible action`.
+
+Full project recovery / repeated Task Intake is allowed only when no checkpoint exists, task identity cannot be resolved, the checkpoint is invalid, or durable evidence materially contradicts it. Context compaction, session restart, response truncation, Connector truncation, or model-memory loss does not by itself invalidate source authorization, return an admitted task to `DISCUSSION`, or require another `OUTCOME APPROVED`.
+
+Lifecycle state is monotonic. Backward/source-reauthorization transitions require a recorded material reason such as `MATERIAL_SCOPE_CHANGE`, `PROTECTED_BOUNDARY_CHANGE`, `USER_CHANGED_OUTCOME`, `MATERIAL_MAIN_DIVERGENCE`, or `EVIDENCE_CONTRADICTION`. `CONTEXT_LOSS` is not an invalidation reason.
+
+Checkpoint updates are event-driven at meaningful phase/evidence transitions, not after every tool call, and include an explicit `Next admissible action`.
+
+Connector retrieval after task resolution follows:
+
+```text
+known object -> metadata -> targeted detail -> failure fragment
+```
+
+A read is admissible only when it advances delivery, validates a mandatory gate, or resolves an explicit evidence gap. Repeating an equivalent read for the same question with the same evidence identity is forbidden unless a canonical gate requires a fresh read.
+
+## 5. Active runtime topology
 
 Sea Speed has exactly two active production runtime contours:
 
@@ -55,7 +82,7 @@ Shared executable `worker/**` belongs to Ubuntu Worker/relay unless a more-speci
 
 Windows Worker is retired. Existing Windows scripts/docs are non-production archive/local tooling. Historical Windows Issue/PR/release/deployment evidence remains immutable/readable and never creates new production authority or routing.
 
-## 5. Runtime applicability and Change Contract
+## 6. Runtime applicability and Change Contract
 
 Canonical classification:
 
@@ -77,7 +104,7 @@ Operator actions expected: <count of required ONE_COMMAND_FALLBACK contours>
 
 A required contour cannot be `MISSING` or `NOT APPLICABLE`; a non-applicable contour must be `NOT APPLICABLE`.
 
-## 6. Standing production delegation and policy
+## 7. Standing production delegation and policy
 
 Source authorization is not runtime authority. Every runtime execution must be allowed by standing production delegation plus exact release policy.
 
@@ -93,13 +120,15 @@ Missing, disabled, malformed, stale, policy-hash-mismatched, wrong-repository/en
 
 Standing-delegation administration is a protected settings operation outside Delivery Orchestrator repository authority. It is rare, not per release. Autonomous operation requires no per-run environment reviewer gate.
 
-## 7. Branch, integrity and merge gates
+## 8. Branch, integrity and merge gates
 
 Before implementation record current `main`, branch and freshness. After writes and before PR validate complete files, syntax/structure, exact diff/scope, secret/runtime-artifact absence and SDD linkage. Before merge re-read `main`, compare exact base/head, verify required exact-head CI, zero unresolved review threads and expected-head protection when available.
 
-Successful CI does not replace source authorization. A still-current `OUTCOME APPROVED` is sufficient merge authority.
+Successful CI does not replace source authorization. A still-current `OUTCOME APPROVED` or its valid same-scope durable receipt is sufficient continuation/merge authority.
 
-## 8. Provenance and historical compatibility
+Mandatory fresh reads at explicit merge/release gates are not Connector-loop violations because the evidence identity is intentionally being revalidated.
+
+## 9. Provenance and historical compatibility
 
 New deployable provenance uses `sea_speed_release_manifest_v3`. It binds canonical Issue/PR, exact source/base commits, Outcome/Change Contract hashes, approved and actual files, scope hash, exact artifacts, quality evidence, delegation ID, policy version/hash and policy decision ID.
 
@@ -107,13 +136,13 @@ Successful runtime execution also produces typed execution audit binding the pol
 
 Persisted v1/v2 release/deployment evidence, including historical Windows records and old authorization fingerprints, remains readable for audit/rollback. Readability grants no new authority.
 
-## 9. Interaction budget and terminal states
+## 10. Interaction budget and terminal states
 
 Normal delivery after standing delegation activation uses one source authorization and zero per-release production approvals. Runtime fallback operator commands remain zero target and at most one per required active fallback contour.
 
-Return control only as `DONE`, `BLOCKED`, or `HUMAN DECISION REQUIRED`. A settings-administration step for standing delegation is `HUMAN DECISION REQUIRED` because the Orchestrator must not self-administer its authority. Deterministic PR/CI/merge/release/deploy stages are never terminal while a safe next action exists.
+Return control only as `DONE`, `BLOCKED`, or `HUMAN DECISION REQUIRED`. `FAILED` is not a terminal interaction state; it is an internal event. `BLOCKED` requires a concrete external blocker, blocker evidence, unblock condition and next admissible action. A settings-administration step for standing delegation is `HUMAN DECISION REQUIRED` because the Orchestrator must not self-administer its authority. Deterministic PR/CI/merge/release/deploy/checkpoint stages are never terminal while a safe next action exists.
 
-## 10. SDD and delivery quality
+## 11. SDD and delivery quality
 
 Significant PRs link one active specification with NFR assessment, risk/test design, correct-course check, requirements traceability and Definition of Done.
 
@@ -123,7 +152,7 @@ Quality verdicts are `PASS`, `CONCERNS`, `FAIL`, `WAIVED`; `FAIL` blocks. A waiv
 
 For historical audit vocabulary, the former per-release production hard gate used text beginning `PRODUCTION APPROVED`. That string is retained here only so old evidence remains intelligible; it is not active authority.
 
-## 11. Tool Routing Allowlist — closed admission
+## 12. Tool Routing Allowlist — closed admission
 
 | Task class | Primary route | Allowed fallback |
 |---|---|---|
@@ -137,7 +166,7 @@ For historical audit vocabulary, the former per-release production hard gate use
 | Production policy evaluation | Repository-owned evaluator in protected GitHub Actions | NONE |
 | VPS deployment | GitHub Actions -> `.github/workflows/deploy-vps.yml` | Repository-owned VPS action explicitly exposed by canonical path only |
 | Ubuntu deployment | GitHub Actions -> `.github/workflows/deploy-ubuntu-worker.yml` -> `deploy/worker/ubuntu/deploy-authorized.sh` | Repository-owned sudo/root bootstrap emitted by canonical path only |
-| VPS/Ubuntu runtime diagnostics | Repository-owned diagnostic/deployment tooling | One bounded read-only command to operator on corresponding host |
+| VPS/Ubuntu runtime diagnostics | Repository-owned tooling | One bounded read-only command to operator on corresponding host |
 | Password/sudo/TOTP/SSH trust/credentials/tokens | Operator-local intended prompt/secret store | NONE |
 
 Gmail, Calendar, Drive, Notion, `gh`, local GitHub auth, assistant-side `git push`, manual GitHub web publication, ad-hoc SSH/shell exploration, direct DB mutation, cloud-console mutation and every other unlisted connector/plugin/service are forbidden implicit fallbacks.
