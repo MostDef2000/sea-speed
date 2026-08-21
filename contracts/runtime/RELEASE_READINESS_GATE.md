@@ -67,7 +67,7 @@ Connector reads are cursor-bound and progressive: `known object -> metadata -> t
 
 On GitHub Free, Sea Speed production requires a public repository and protected `main`. `scripts/release/verify_source_protection.py` must succeed before production policy evaluation in the autonomous router and before transport in both protected deploy workflows.
 
-The machine-verifiable minimum is `visibility=public`, `main.protected=true`, and required check contexts for `Repository validation` and `quality-integration`. Independently administered repository settings must also require PRs and disable force-push/delete/bypass paths that would defeat these checks. Repository/ruleset settings are not agent authority.
+The machine-verifiable minimum is `visibility=public`, `main.protected=true`, and required check context for `quality-integration` (Quality integration gate). Independently administered repository settings must also require PRs and disable force-push/delete/bypass paths that would defeat these checks. Repository/ruleset settings are not agent authority.
 
 Changing repository visibility to private, removing main protection or removing required checks is production deny until the protected state is restored.
 

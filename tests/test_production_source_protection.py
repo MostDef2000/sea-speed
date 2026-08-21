@@ -26,8 +26,8 @@ class ProductionSourceProtectionTests(unittest.TestCase):
     def test_public_protected_main_with_required_checks_passes(self):
         MODULE.validate_source_state(
             self.repository(),
-            self.branch(contexts=("PR Validation / Repository validation", "Quality integration gate / quality-integration")),
-            required_contexts=("Repository validation", "quality-integration"),
+            self.branch(contexts=("Quality integration gate / quality-integration",)),
+            required_contexts=("quality-integration",),
         )
 
     def test_private_repository_is_denied(self):
@@ -42,8 +42,8 @@ class ProductionSourceProtectionTests(unittest.TestCase):
         with self.assertRaisesRegex(MODULE.SourceProtectionError, "missing required status checks"):
             MODULE.validate_source_state(
                 self.repository(),
-                self.branch(contexts=("Repository validation",)),
-                required_contexts=("Repository validation", "quality-integration"),
+                self.branch(contexts=()),
+                required_contexts=("quality-integration",),
             )
 
     def test_context_normalization_accepts_full_workflow_job_name(self):

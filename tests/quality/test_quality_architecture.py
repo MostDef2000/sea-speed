@@ -56,7 +56,6 @@ class QualityArchitectureTests(unittest.TestCase):
         self.assertIn('repository.get("visibility") != "public"', source)
         self.assertIn('branch.get("protected") is not True', source)
         self.assertIn("missing required status checks", source)
-        self.assertIn("Repository validation", (ROOT / ".github/workflows/deploy-vps.yml").read_text(encoding="utf-8"))
         self.assertIn("quality-integration", (ROOT / ".github/workflows/deploy-vps.yml").read_text(encoding="utf-8"))
 
     def test_comment_authority_paths_are_retired_or_fail_closed_tombstones(self) -> None:

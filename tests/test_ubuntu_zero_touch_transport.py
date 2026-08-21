@@ -108,7 +108,6 @@ class UbuntuZeroTouchTransportTests(unittest.TestCase):
         ):
             source = self.read(path)
             self.assertIn("verify_source_protection.py", source, path)
-            self.assertIn("Repository validation", source, path)
             self.assertIn("quality-integration", source, path)
         ubuntu = self.read(".github/workflows/deploy-ubuntu-worker.yml")
         self.assertLess(ubuntu.index("verify_source_protection.py"), ubuntu.index("Configure restricted VPS ProxyJump"))

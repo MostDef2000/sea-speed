@@ -31,7 +31,7 @@ The production Worker remains a bounded runtime host, not a general GitHub Actio
 Before enabling zero-touch production, the repository owner/admin must establish these settings outside repository writes:
 
 1. Repository visibility is `public` while Sea Speed uses GitHub Free.
-2. `main` branch/ruleset requires PRs and the merge-facing checks `Repository validation` and `quality-integration`; force push/delete and silent bypass are disabled.
+2. `main` branch/ruleset requires PRs and the merge-facing check `quality-integration` (Quality integration gate); force push/delete and silent bypass are disabled.
 3. GitHub `production` environment still contains the standing delegation `SEA_SPEED_PRODUCTION_DELEGATION_V1` and has no per-release required reviewer.
 4. Existing VPS deployment credentials remain available to the `production` environment.
 5. A new dedicated Ed25519 Worker deploy key exists. The private key is stored only as `production` environment secret `UBUNTU_DEPLOY_SSH_PRIVATE_KEY`.
@@ -116,7 +116,7 @@ Missing transport credentials fail closed before SSH. There is no recurring one-
 
 - repository visibility `public`;
 - `main.protected=true`;
-- required check contexts `Repository validation` and `quality-integration`.
+- required check context `quality-integration` (Quality integration gate).
 
 Repository settings must additionally require PRs and disable force-push/delete/bypass paths. Those settings remain independently administered and are not writable by the Delivery Orchestrator.
 

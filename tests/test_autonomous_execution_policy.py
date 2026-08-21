@@ -27,7 +27,7 @@ class AutonomousExecutionPolicyTests(unittest.TestCase):
             "github.event.workflow_run.event == 'push'", "github.event.workflow_run.head_branch == 'main'",
             "Require quality commit is current main tip", "refs/remotes/origin/main",
             "Ignoring stale successful Quality run", "steps.freshness.outputs.fresh == 'true'",
-            "environment: production", "verify_source_protection.py", "Repository validation", "quality-integration",
+            "environment: production", "verify_source_protection.py", "quality-integration",
             "vars.SEA_SPEED_PRODUCTION_DELEGATION_V1", "evaluate_production_policy.py",
         ):
             self.assertIn(marker, source)

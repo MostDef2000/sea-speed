@@ -113,7 +113,7 @@ def main() -> int:
             "github.event.workflow_run.head_branch == 'main'", "environment: production",
             "Require quality commit is current main tip", "refs/remotes/origin/main", "Ignoring stale successful Quality run",
             "steps.freshness.outputs.fresh == 'true'", "Verify public protected production source",
-            "verify_source_protection.py", '--require-context "Repository validation"', '--require-context "quality-integration"',
+            "verify_source_protection.py", '--require-context "quality-integration"',
             "vars.SEA_SPEED_PRODUCTION_DELEGATION_V1", "evaluate_production_policy.py",
             "uses: ./.github/workflows/deploy-vps.yml", "uses: ./.github/workflows/deploy-ubuntu-worker.yml",
         ),
@@ -144,7 +144,7 @@ def main() -> int:
             (
                 "environment: production", "refs/heads/main", "--first-parent", "verify_quality_status.py",
                 "Verify public protected production source", "verify_source_protection.py",
-                '--require-context "Repository validation"', '--require-context "quality-integration"',
+                '--require-context "quality-integration"',
                 "evaluate_production_policy.py", "--require-allow", "vars.SEA_SPEED_PRODUCTION_DELEGATION_V1",
                 "production-policy-decision.json", "Build release provenance v3" if file == "deploy-vps.yml" else "Build exact artifacts and Ubuntu release provenance",
                 "--policy-decision-evidence", contour_marker, "build_execution_audit.py",

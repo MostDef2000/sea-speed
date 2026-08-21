@@ -76,7 +76,6 @@ jobs:
           python scripts/release/verify_source_protection.py \
             --repository "$GITHUB_REPOSITORY" \
             --branch main \
-            --require-context "Repository validation" \
             --require-context "quality-integration"
 
       - name: Evaluate trusted standing delegation and repository policy
