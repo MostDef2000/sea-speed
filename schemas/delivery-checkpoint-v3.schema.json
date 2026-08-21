@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/MostDef2000/sea-speed/schemas/delivery-checkpoint-v3.schema.json",
+  "title": "Sea Speed Delivery Checkpoint v3",
+  "description": "Simplified canonical checkpoint: derived state is reconstructed from GitHub, not persisted. v2 remains readable.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "task", "scope_hash", "authorized", "lane", "phase", "pr", "head", "next", "waiting_on"
+  ],
+  "properties": {
+    "schema": {"const": "sea_speed_delivery_checkpoint_v3"},
+    "task": {"type": "string", "pattern": "^#[1-9][0-9]*$"},
+    "scope_hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "authorized": {"type": "boolean"},
+    "lane": {"enum": ["FAST", "STANDARD", "PRODUCTION"]},
+    "phase": {"enum": ["PLANNING", "IMPLEMENTING", "PR", "MERGED", "DEPLOYING", "VERIFYING", "DONE"]},
+    "pr": {"type": ["string", "null"], "pattern": "^#[1-9][0-9]*$"},
+    "head": {"type": ["string", "null"], "pattern": "^[0-9a-f]{40}$"},
+    "next": {"type": "string", "pattern": ".*\\S.*"},
+    "waiting_on": {"type": ["string", "null"], "pattern": ".*\\S.*"}
+  }
+}

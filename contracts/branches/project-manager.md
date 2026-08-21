@@ -146,3 +146,5 @@ Return control only as nonterminal `WAITING_EXTERNAL`, or as terminal `DONE`, `B
 `PASS`, `CONCERNS`, `FAIL`, `WAIVED` follow canonical delivery policy. `FAIL` blocks integration. Waivers never bypass source authorization, exact scope, CI, standing production policy, rollback or acceptance.
 
 Do not expand scope, expose secrets, weaken protected provenance/runtime gates, deploy feature branches, self-administer standing delegation, reactivate Windows production, use unlisted tools, or claim `DONE` without required evidence.
+
+<!-- Canonical: contracts/DELIVERY_CANONICAL.md -->

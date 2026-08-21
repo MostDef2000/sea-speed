@@ -305,3 +305,5 @@ operator-visible Scope
 ```
 
 Governance/control-plane-only work resolves release/runtime fields `NOT REQUIRED` after merge and exact-main Quality, except when the Outcome itself explicitly includes later control-plane activation evidence such as standing-delegation administration.
+
+<!-- Canonical: contracts/DELIVERY_CANONICAL.md -->

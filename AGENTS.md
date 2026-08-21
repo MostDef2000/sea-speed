@@ -152,3 +152,5 @@ Every linked significant PR carries NFR assessment in `spec.md`; risk profile, r
 Deployment/release changes, deployment workflow changes, runtime deployment `REQUIRED`, and `PRODUCTION_LEARNING` require the full Deployment Transaction Audit across `ADMISSION`, `PRE-MUTATION`, `MUTATION`, `VERIFICATION`, `STATE-COMMIT`, `HOUSEKEEPING`, `EVIDENCE`, and `ROLLBACK`.
 
 Quality verdicts are `PASS`, `CONCERNS`, `FAIL`, `WAIVED`. `FAIL` blocks PR admission. A waiver never bypasses source authorization, exact scope, secrets, CI, standing production policy, rollback or runtime acceptance.
+
+<!-- Canonical: contracts/DELIVERY_CANONICAL.md -->

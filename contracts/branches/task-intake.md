@@ -75,3 +75,5 @@ A durable authorization receipt can continue only the same exact admitted scope.
 ## Handoff
 
 Return the brief to the same **Sea Speed Delivery Orchestrator** context. This is an internal read-only lens, not an autonomous-agent ownership transfer.
+
+<!-- Canonical: contracts/DELIVERY_CANONICAL.md -->

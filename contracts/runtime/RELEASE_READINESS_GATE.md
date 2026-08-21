@@ -130,3 +130,5 @@ Deployment/release-affecting significant work covers `ADMISSION`, `PRE-MUTATION`
 ## Evidence rule
 
 Green PR is not deployment evidence. Merge is not release. Release is not deployment. Deployment is not acceptance. A successful runtime execution must retain typed policy-decision, release-manifest-v3, deployment and execution-audit evidence before terminal acceptance.
+
+<!-- Canonical: contracts/DELIVERY_CANONICAL.md -->

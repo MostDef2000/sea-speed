@@ -144,3 +144,5 @@ Shared Worker runtime, Ubuntu service/deployment, private relay, Linux-hosted op
 ## Evidence and compatibility
 
 Merge is not release; release is not deployment; deployment is not acceptance. New release evidence uses `sea_speed_release_manifest_v3` and typed execution audit. Historical v1/v2 and Windows records remain readable but cannot authorize new execution.
+
+<!-- Canonical: contracts/DELIVERY_CANONICAL.md -->

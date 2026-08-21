@@ -49,3 +49,5 @@ Persist new state as machine-readable `Sea Speed Delivery Checkpoint v2`. Persis
 ## Synchronous wait behavior
 
 `ACTIVE` means safe work is executable now and the invocation must continue. `WAITING_EXTERNAL` means no safe work is executable now, the checkpoint names one external condition/resume trigger/evidence cursor, and control returns without background polling. `TERMINAL` requires exactly one of `DONE`, `BLOCKED`, or `HUMAN DECISION REQUIRED`.
+
+<!-- Canonical: contracts/DELIVERY_CANONICAL.md -->

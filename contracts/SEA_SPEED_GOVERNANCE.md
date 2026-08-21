@@ -178,3 +178,5 @@ For historical audit vocabulary, the former per-release production hard gate use
 | Password/sudo/TOTP/SSH trust/credentials/tokens | Operator-local intended prompt/secret store | NONE |
 
 Gmail, Calendar, Drive, Notion, `gh`, local GitHub auth, assistant-side `git push`, manual GitHub web publication, ad-hoc SSH/shell exploration, direct DB mutation, cloud-console mutation and every other unlisted connector/plugin/service are forbidden implicit fallbacks.
+
+<!-- Canonical: contracts/DELIVERY_CANONICAL.md -->

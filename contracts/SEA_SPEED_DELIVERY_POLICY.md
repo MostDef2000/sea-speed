@@ -209,3 +209,5 @@ Sea Speed is DENY BY DEFAULT.
 | Password/sudo/TOTP/SSH trust/credentials/tokens | Operator-local intended prompt/secret store | NONE |
 
 All unlisted connectors/plugins/services and ad-hoc mutation paths are forbidden implicit fallbacks.
+
+<!-- Canonical: contracts/DELIVERY_CANONICAL.md -->

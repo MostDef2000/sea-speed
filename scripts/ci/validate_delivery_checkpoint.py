@@ -10,11 +10,14 @@ from pathlib import Path
 from typing import Any
 
 SCHEMA_ID = "sea_speed_delivery_checkpoint_v2"
+SCHEMA_ID_V3 = "sea_speed_delivery_checkpoint_v3"
 ACTIVE_PHASES = {
     "DISCUSSION", "READY_FOR_IMPLEMENTATION", "IMPLEMENTING", "SOURCE_INTEGRATED",
     "POLICY_PENDING", "ACTIONS_REQUIRED", "ACTIONS_RUNNING", "ACTIONS_COMPLETED",
     "RUNTIME_ACCEPTANCE",
 }
+V3_PHASES = {"PLANNING", "IMPLEMENTING", "PR", "MERGED", "DEPLOYING", "VERIFYING", "DONE"}
+V3_LANES = {"FAST", "STANDARD", "PRODUCTION"}
 SESSION_DISPOSITIONS = {"ACTIVE", "WAITING_EXTERNAL", "TERMINAL"}
 TERMINAL_INTERACTION_STATES = {"DONE", "BLOCKED", "HUMAN DECISION REQUIRED"}
 INVALIDATION_REASONS = {
@@ -27,6 +30,9 @@ REQUIRED_KEYS = {
     "authorization_base_main", "current_phase", "branch", "pr", "exact_working_head",
     "completed_gates", "evidence_cursors", "next_admissible_action", "session_disposition",
     "external_wait", "state_invalidation_reason", "terminal_interaction_state",
+}
+REQUIRED_KEYS_V3 = {
+    "schema", "task", "scope_hash", "authorized", "lane", "phase", "pr", "head", "next", "waiting_on",
 }
 V1_FIELDS = {
     "Task", "Checkpoint generation", "Approved scope identity", "Authorization receipt",
@@ -117,8 +123,37 @@ def upgrade_v1_checkpoint(
     return checkpoint
 
 
+def validate_checkpoint_v3(checkpoint: dict[str, Any]) -> None:
+    if set(checkpoint) != REQUIRED_KEYS_V3:
+        missing = sorted(REQUIRED_KEYS_V3 - set(checkpoint))
+        extra = sorted(set(checkpoint) - REQUIRED_KEYS_V3)
+        raise CheckpointValidationError(f"v3 checkpoint keys mismatch: missing={missing}, extra={extra}")
+    if checkpoint["schema"] != SCHEMA_ID_V3:
+        raise CheckpointValidationError(f"schema must be {SCHEMA_ID_V3}")
+    if not isinstance(checkpoint["task"], str) or not re.fullmatch(r"#[1-9][0-9]*", checkpoint["task"]):
+        raise CheckpointValidationError("task must be a canonical #<issue> reference")
+    if not isinstance(checkpoint["scope_hash"], str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", checkpoint["scope_hash"]):
+        raise CheckpointValidationError("scope_hash must be sha256:64 hex")
+    if not isinstance(checkpoint["authorized"], bool):
+        raise CheckpointValidationError("authorized must be boolean")
+    if checkpoint["lane"] not in V3_LANES:
+        raise CheckpointValidationError("lane must be FAST/STANDARD/PRODUCTION")
+    if checkpoint["phase"] not in V3_PHASES:
+        raise CheckpointValidationError("phase is not a valid v3 phase")
+    if checkpoint["pr"] is not None and not re.fullmatch(r"#[1-9][0-9]*", checkpoint["pr"]):
+        raise CheckpointValidationError("pr must be null or #<number>")
+    if checkpoint["head"] is not None and not re.fullmatch(r"[0-9a-f]{40}", checkpoint["head"]):
+        raise CheckpointValidationError("head must be null or 40-char SHA")
+    _require_non_empty_string(checkpoint["next"], "next")
+    if checkpoint["waiting_on"] is not None and not isinstance(checkpoint["waiting_on"], str):
+        raise CheckpointValidationError("waiting_on must be string or null")
+
+
 def validate_checkpoint(checkpoint: dict[str, Any]) -> None:
-    """Validate structural and cross-field v2 checkpoint invariants."""
+    """Validate structural and cross-field v2/v3 checkpoint invariants. v2 readable, v3 canonical."""
+    schema = checkpoint.get("schema")
+    if schema == SCHEMA_ID_V3:
+        return validate_checkpoint_v3(checkpoint)
     if set(checkpoint) != REQUIRED_KEYS:
         missing = sorted(REQUIRED_KEYS - set(checkpoint))
         extra = sorted(set(checkpoint) - REQUIRED_KEYS)
@@ -235,11 +270,11 @@ def replay_external_observation(checkpoint: dict[str, Any], observed_cursor: str
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("checkpoint", type=Path, help="Path to a Delivery Checkpoint v2 JSON document")
+    parser.add_argument("checkpoint", type=Path, help="Path to a Delivery Checkpoint v2/v3 JSON document")
     args = parser.parse_args()
     checkpoint = json.loads(args.checkpoint.read_text(encoding="utf-8"))
     validate_checkpoint(checkpoint)
-    print("Sea Speed Delivery Checkpoint v2 is valid")
+    print(f"Sea Speed Delivery Checkpoint {checkpoint.get('schema')} is valid")
     return 0
 
 

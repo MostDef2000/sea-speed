@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[2]
 CANONICAL_FILES = (
     "AGENTS.md",
     "README.md",
+    "contracts/DELIVERY_CANONICAL.md",
     "contracts/SEA_SPEED_GOVERNANCE.md",
     "contracts/SEA_SPEED_DELIVERY_POLICY.md",
     "contracts/runtime/SEA_SPEED_TASK_RUNTIME.md",
@@ -45,6 +46,7 @@ CANONICAL_FILES = (
     "schemas/telemetry.schema.json",
     "schemas/quality-evidence.schema.json",
     "schemas/delivery-checkpoint-v2.schema.json",
+    "schemas/delivery-checkpoint-v3.schema.json",
     "scripts/release/build_release_manifest.py",
     "scripts/release/validate_release_manifest.py",
     "scripts/release/validate_deployment_manifest.py",
@@ -53,6 +55,7 @@ CANONICAL_FILES = (
     "scripts/ci/validate_telemetry.py",
     "scripts/ci/validate_sdd.py",
     "scripts/ci/validate_delivery_checkpoint.py",
+    "scripts/ci/classify_change.py",
     "scripts/quality/validate_quality_contracts.py",
     "scripts/quality/validate_workflow_policy.py",
     "scripts/quality/build_exact_artifacts.py",
@@ -94,7 +97,13 @@ REFERENCE_FILES = (
     "docs/evidence/POST_RELEASE_REVIEW.md",
 )
 
+CANONICAL_DELIVERY_CONTRACT = "contracts/DELIVERY_CANONICAL.md"
+
 RESUME_CONTRACT_FILES = (
+    CANONICAL_DELIVERY_CONTRACT,
+)
+
+ADAPTER_FILES = (
     "AGENTS.md",
     "contracts/SEA_SPEED_GOVERNANCE.md",
     "contracts/SEA_SPEED_DELIVERY_POLICY.md",
@@ -148,6 +157,11 @@ def main() -> int:
         missing_markers = [marker for marker in RESUME_MARKERS if marker.lower() not in text.lower()]
         if missing_markers:
             fail(f"resumable delivery markers missing from {source_name}: {', '.join(missing_markers)}")
+
+    for adapter in ADAPTER_FILES:
+        text = (ROOT / adapter).read_text(encoding="utf-8-sig")
+        if "DELIVERY_CANONICAL" not in text and "delivery-checkpoint-v3" not in text.lower():
+            fail(f"adapter {adapter} must reference canonical contracts/DELIVERY_CANONICAL.md")
 
     runtime = (ROOT / "contracts/runtime/SEA_SPEED_TASK_RUNTIME.md").read_text(encoding="utf-8-sig")
     for reason in (
