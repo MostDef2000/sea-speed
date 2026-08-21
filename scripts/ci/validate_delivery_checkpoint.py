@@ -16,8 +16,9 @@ ACTIVE_PHASES = {
     "POLICY_PENDING", "ACTIONS_REQUIRED", "ACTIONS_RUNNING", "ACTIONS_COMPLETED",
     "RUNTIME_ACCEPTANCE",
 }
-V3_PHASES = {"PLANNING", "IMPLEMENTING", "PR", "MERGED", "DEPLOYING", "VERIFYING", "DONE"}
+V3_PHASES = {"PLANNING", "IMPLEMENTING", "PR", "MERGED", "DEPLOYING", "VERIFYING", "DONE", "BLOCKED", "HUMAN_DECISION_REQUIRED"}
 V3_LANES = {"FAST", "STANDARD", "PRODUCTION"}
+V3_WAITING_ON = {None, "ci", "human", "external"}
 SESSION_DISPOSITIONS = {"ACTIVE", "WAITING_EXTERNAL", "TERMINAL"}
 TERMINAL_INTERACTION_STATES = {"DONE", "BLOCKED", "HUMAN DECISION REQUIRED"}
 INVALIDATION_REASONS = {
@@ -145,8 +146,14 @@ def validate_checkpoint_v3(checkpoint: dict[str, Any]) -> None:
     if checkpoint["head"] is not None and not re.fullmatch(r"[0-9a-f]{40}", checkpoint["head"]):
         raise CheckpointValidationError("head must be null or 40-char SHA")
     _require_non_empty_string(checkpoint["next"], "next")
-    if checkpoint["waiting_on"] is not None and not isinstance(checkpoint["waiting_on"], str):
-        raise CheckpointValidationError("waiting_on must be string or null")
+    if checkpoint["waiting_on"] not in V3_WAITING_ON:
+        raise CheckpointValidationError("waiting_on must be null, ci, human or external")
+    if checkpoint["phase"] == "BLOCKED" and checkpoint["waiting_on"] != "external":
+        raise CheckpointValidationError("BLOCKED phase requires waiting_on=external")
+    if checkpoint["phase"] == "HUMAN_DECISION_REQUIRED" and checkpoint["waiting_on"] != "human":
+        raise CheckpointValidationError("HUMAN_DECISION_REQUIRED phase requires waiting_on=human")
+    if checkpoint["phase"] == "DONE" and checkpoint["waiting_on"] is not None:
+        raise CheckpointValidationError("DONE phase requires waiting_on=null")
 
 
 def validate_checkpoint(checkpoint: dict[str, Any]) -> None:

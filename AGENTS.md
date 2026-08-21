@@ -103,7 +103,7 @@ Standing delegation administration is a protected settings operation outside the
 
 | Task class | Allowed primary route | Allowed fallback |
 |---|---|---|
-| GitHub repository lifecycle: repo/Issue/PR/comments/branches/source publication/merge | GitHub Connector | Ephemeral local `git push` via opencode (assistant-side) when explicitly authorized by user instruction (e.g. `OUTCOME APPROVED` + `allow push`) per `contracts/DELIVERY_CANONICAL.md` |
+| GitHub repository lifecycle: repo/Issue/PR/comments/branches/source publication/merge | GitHub Connector | NONE |
 | CI status/jobs/logs/artifacts | GitHub Connector | One bounded read-only GitHub API/PowerShell command to the operator only when the exact Connector endpoint is unavailable |
 | Patch/build/test/hash/static analysis | Ephemeral local tooling/container | User checkout when required for preparation/validation; never publication or production mutation |
 | Public `mostdef.ru` / Sea Speed HTTP verification | Read-only HTTP/web | One bounded read-only `curl`/PowerShell command to the operator |
@@ -116,9 +116,9 @@ Standing delegation administration is a protected settings operation outside the
 | VPS/Ubuntu runtime diagnostics | Repository-owned diagnostic/deployment tooling | One bounded read-only command to the operator on the corresponding host |
 | Password/sudo/TOTP/SSH trust/credentials/tokens | Operator enters locally into intended prompt/secret store | NONE; protected values never enter chat or Git |
 
-Explicit forbidden implicit fallbacks include Gmail, Calendar, Drive, Notion, `gh`, manual GitHub web publication, ad-hoc SSH/shell exploration, direct database mutation, cloud-console mutation and every other unlisted connector/plugin/service. `assistant-side git push` and local GitHub authentication are forbidden by default and only admissible as the explicit fallback above when the user has separately authorized push for the current task.
+Explicit forbidden implicit fallbacks include Gmail, Calendar, Drive, Notion, `gh`, local GitHub authentication, assistant-side `git push`, manual GitHub web publication, ad-hoc SSH/shell exploration, direct database mutation, cloud-console mutation and every other unlisted connector/plugin/service.
 
-Local ephemeral tooling is computation only, except for the explicitly authorized `git push` publication path above. It may otherwise prepare or validate bytes but never becomes repository publication authority, production authority or runtime mutation evidence by itself.
+Local ephemeral tooling is computation only. It may prepare or validate bytes but never becomes repository publication authority, production authority or runtime mutation evidence by itself.
 
 ## Interaction budget
 

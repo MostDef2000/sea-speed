@@ -1,0 +1,38 @@
+name: PR Validation
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-validation-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Repository validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+      - name: Transition shim - repository validation
+        run: |
+          set -euo pipefail
+          echo "PR Validation shim: full validation is now in Quality integration gate / quality-integration"
+          echo "This workflow exists only for branch protection transition."
+          echo "It will be removed after required contexts migrate to single quality-integration."
+          python scripts/ci/validate_repo.py

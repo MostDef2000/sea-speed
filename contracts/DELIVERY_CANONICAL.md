@@ -25,10 +25,10 @@ Connector reads: `known object -> metadata -> targeted detail -> failure fragmen
 Persisted v1/v2 checkpoints remain readable; validator upgrades v1→v2 compat at next transition without re-authorization.
 
 ## Delivery Checkpoint
-- **v3** canonical (7 required fields in `schemas/delivery-checkpoint-v3.schema.json`): `schema`, `task`, `scope_hash`, `authorized`, `lane`, `phase`, `pr`, `head`, `next`, `waiting_on`
+- **v3** canonical (10 required fields in `schemas/delivery-checkpoint-v3.schema.json`): `schema`, `task`, `scope_hash`, `authorized`, `lane`, `phase`, `pr`, `head`, `next`, `waiting_on`
   - `lane` = `FAST` (docs/control-plane, no runtime), `STANDARD` (product code, single contour), `PRODUCTION` (deploy/security/MIXED)
-  - `phase` = `PLANNING`, `IMPLEMENTING`, `PR`, `MERGED`, `DEPLOYING`, `VERIFYING`, `DONE`
-  - `waiting_on` = `null` | `ci` | `human` | `external` (GitHub Actions, etc.)
+  - `phase` = `PLANNING`, `IMPLEMENTING`, `PR`, `MERGED`, `DEPLOYING`, `VERIFYING`, `DONE`, `BLOCKED`, `HUMAN_DECISION_REQUIRED`
+  - `waiting_on` = `null` | `ci` | `human` | `external` (GitHub Actions, etc.) — `BLOCKED` phase requires `waiting_on=external` with blocker evidence, `HUMAN_DECISION_REQUIRED` requires `waiting_on=human`
   - Derived state (branch resolved from PR, gates from CI, generation from Git history) is **not** persisted; reconstruct from GitHub.
 - **v2** readable compat — Delivery Checkpoint v2: `schemas/delivery-checkpoint-v2.schema.json` (15 fields) with `generation`, `approved_scope_identity`, `authorization_receipt`, `authorization_base_main`, `current_phase` (9 values), `branch`, `pr`, `exact_working_head`, `completed_gates`, `evidence_cursors[5]`, `next_admissible_action{kind,description,executable_now}`, `session_disposition`, `external_wait`, `state_invalidation_reason`, `terminal_interaction_state`.
 

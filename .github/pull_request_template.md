@@ -42,9 +42,9 @@
 - VPS execution capability: CONNECTOR / ONE_COMMAND_FALLBACK / MISSING / NOT APPLICABLE
 - Ubuntu worker execution capability: CONNECTOR / ONE_COMMAND_FALLBACK / MISSING / NOT APPLICABLE
 - Operator actions expected: 0
-- Rollout order:
-- Release manifest:
-- Rollback target:
+- Rollout order: [required only if VPS/UBUNTU_WORKER/MIXED, else omit]
+- Release manifest: [required only if runtime, else omit]
+- Rollback target: [required only if runtime, else omit]
 
 ## Validation
 

@@ -45,17 +45,24 @@ def classify(changed: list[str]) -> tuple[str, bool, str]:
     policy = load_policy()
     contours = derive_runtime_contours(changed, policy)
     if contours:
-        lane = "PRODUCTION" if len(contours) > 1 else "STANDARD"
-        # Runtime artifacts required for VPS/UBUNTU changes
         runtime_required = True
         impact = "MIXED" if len(contours) > 1 else next(iter(contours))
+        # DELIVERY_CANONICAL: PRODUCTION = deploy/security/MIXED
+        if len(contours) > 1 or any(p.startswith("deploy/") for p in changed):
+            lane = "PRODUCTION"
+        else:
+            lane = "STANDARD"
     else:
         # Use policy impact for CONTROL_PLANE vs NONE
         from scripts.ci.validate_change_contract import derive_impact
         impact = derive_impact(changed, policy)
         if impact in {"VPS", "UBUNTU_WORKER", "MIXED"}:
             runtime_required = True
-            lane = "STANDARD"
+            # deploy/** is production per canonical
+            if any(p.startswith("deploy/") for p in changed):
+                lane = "PRODUCTION"
+            else:
+                lane = "STANDARD"
         elif impact == "CONTROL_PLANE":
             runtime_required = False
             lane = "FAST"

@@ -233,7 +233,7 @@ def validate_contract(body: str, changed_files: Iterable[str], policy: dict | No
     if not re.fullmatch(r"#\d+", issue):
         raise ContractError("Issue must be a canonical GitHub issue reference such as #176")
     validate_authorization(fields)
-    for name in ("Approved scope", "Acceptance criteria", "Intended behavior", "Out of scope", "Production-impact rationale", "Security impact", "API/event/state/storage schema impact", "Detection/tracking/calibration/speed formula impact", "Backward compatibility", "Destructive/data migration impact", "Other high-risk trigger", "Rollout order", "Release manifest", "Rollback target", "Local checks", "PR checks", "Runtime acceptance plan", "Telemetry/evidence plan", "Risk profile", "Quality verdict", "Quality finding"):
+    for name in ("Approved scope", "Acceptance criteria", "Intended behavior", "Out of scope", "Production-impact rationale", "Security impact", "API/event/state/storage schema impact", "Detection/tracking/calibration/speed formula impact", "Backward compatibility", "Destructive/data migration impact", "Other high-risk trigger", "Local checks", "PR checks", "Runtime acceptance plan", "Telemetry/evidence plan", "Risk profile", "Quality verdict", "Quality finding"):
         require_value(fields, name)
     actual = set(changed_files)
     declared = declared_changed_files(body)
@@ -246,6 +246,9 @@ def validate_contract(body: str, changed_files: Iterable[str], policy: dict | No
         raise ContractError("Production impact must use a policy impact class")
     if declared_impact != impact:
         raise ContractError(f"declared Production impact {declared_impact} does not match derived {impact}")
+    if impact in ("VPS", "UBUNTU_WORKER", "MIXED"):
+        for name in ("Rollout order", "Release manifest", "Rollback target"):
+            require_value(fields, name)
     validate_deployment_fields(contours, fields)
     validate_execution_capabilities(contours, fields)
     validate_quality_fields(fields, impact)

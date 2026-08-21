@@ -14,10 +14,10 @@
     "scope_hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
     "authorized": {"type": "boolean"},
     "lane": {"enum": ["FAST", "STANDARD", "PRODUCTION"]},
-    "phase": {"enum": ["PLANNING", "IMPLEMENTING", "PR", "MERGED", "DEPLOYING", "VERIFYING", "DONE"]},
+    "phase": {"enum": ["PLANNING", "IMPLEMENTING", "PR", "MERGED", "DEPLOYING", "VERIFYING", "DONE", "BLOCKED", "HUMAN_DECISION_REQUIRED"]},
     "pr": {"type": ["string", "null"], "pattern": "^#[1-9][0-9]*$"},
     "head": {"type": ["string", "null"], "pattern": "^[0-9a-f]{40}$"},
     "next": {"type": "string", "pattern": ".*\\S.*"},
-    "waiting_on": {"type": ["string", "null"], "pattern": ".*\\S.*"}
+    "waiting_on": {"enum": [null, "ci", "human", "external"]}
   }
 }
