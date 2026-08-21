@@ -15,6 +15,34 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  classify:
+    name: classify-change
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      lane: ${{ steps.classify.outputs.lane }}
+      runtime_required: ${{ steps.classify.outputs.runtime_required }}
+      impact: ${{ steps.classify.outputs.impact }}
+    steps:
+      - name: Check out exact source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+      - name: Classify change lane and runtime need
+        id: classify
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            python scripts/ci/classify_change.py --event "$GITHUB_EVENT_PATH" --github-output "$GITHUB_OUTPUT"
+          else
+            python scripts/ci/classify_change.py --github-output "$GITHUB_OUTPUT"
+          fi
+
   static-contract-security:
     name: static-contract-security
     runs-on: ubuntu-latest
@@ -81,6 +109,8 @@ jobs:
 
   exact-artifact-e2e:
     name: exact-artifact-e2e
+    needs: classify
+    if: needs.classify.outputs.runtime_required == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -114,6 +144,8 @@ jobs:
 
   release-deployment-evidence:
     name: release-deployment-evidence
+    needs: classify
+    if: needs.classify.outputs.runtime_required == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -157,6 +189,7 @@ jobs:
     name: quality-integration
     if: always()
     needs:
+      - classify
       - static-contract-security
       - property-fuzz-reliability
       - exact-artifact-e2e
@@ -169,13 +202,22 @@ jobs:
           RELIABILITY_RESULT: ${{ needs.property-fuzz-reliability.result }}
           ARTIFACT_RESULT: ${{ needs.exact-artifact-e2e.result }}
           EVIDENCE_RESULT: ${{ needs.release-deployment-evidence.result }}
+          RUNTIME_REQUIRED: ${{ needs.classify.outputs.runtime_required }}
+          LANE: ${{ needs.classify.outputs.lane }}
+          IMPACT: ${{ needs.classify.outputs.impact }}
         run: |
           set -euo pipefail
+          printf 'lane=%s impact=%s runtime_required=%s\n' "$LANE" "$IMPACT" "$RUNTIME_REQUIRED"
           printf 'static-contract-security=%s\n' "$STATIC_RESULT"
           printf 'property-fuzz-reliability=%s\n' "$RELIABILITY_RESULT"
           printf 'exact-artifact-e2e=%s\n' "$ARTIFACT_RESULT"
           printf 'release-deployment-evidence=%s\n' "$EVIDENCE_RESULT"
           [[ "$STATIC_RESULT" == success ]]
           [[ "$RELIABILITY_RESULT" == success ]]
-          [[ "$ARTIFACT_RESULT" == success ]]
-          [[ "$EVIDENCE_RESULT" == success ]]
+          if [[ "$RUNTIME_REQUIRED" == "true" ]]; then
+            [[ "$ARTIFACT_RESULT" == success ]]
+            [[ "$EVIDENCE_RESULT" == success ]]
+          else
+            [[ "$ARTIFACT_RESULT" == success || "$ARTIFACT_RESULT" == skipped ]]
+            [[ "$EVIDENCE_RESULT" == success || "$EVIDENCE_RESULT" == skipped ]]
+          fi

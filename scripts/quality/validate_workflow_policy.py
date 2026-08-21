@@ -97,6 +97,7 @@ def main() -> int:
         "quality-integration.yml",
         (
             "name: Quality integration gate", "pull_request:", "push:", "workflow_dispatch:", "contents: read",
+            "classify:", "classify_change.py", "runtime_required",
             "static-contract-security:", "property-fuzz-reliability:", "exact-artifact-e2e:",
             "release-deployment-evidence:", "quality-integration:", "if: always()", "validate_sdd.py --event",
         ),
