@@ -93,6 +93,8 @@ if payload.get("runtimeVerified") is not True or payload.get("state") != "runtim
     raise SystemExit("deployment manifest is not runtime_verified")
 PY
   cat "$manifest"
+  cleanup
+  trap - EXIT
 }
 
 if [[ "${1:-}" == "--execute" ]]; then
