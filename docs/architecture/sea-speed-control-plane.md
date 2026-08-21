@@ -19,7 +19,7 @@ Windows Worker is retired from production. Historical Windows evidence remains i
 2. **Delivery-control truth** — canonical Issue, admitted scope/authorization receipt, Delivery Checkpoint, exact branch/PR/head and evidence cursors.
 3. **Transient interaction state** — current chat used to present a new Scope and receive its immediately-following `OUTCOME APPROVED`.
 
-These layers are complementary. Delivery-control evidence can resume the same already-admitted scope but cannot create or widen source authority and never grants production authority.
+These layers are complementary. Delivery-control evidence can resume the **same exact admitted scope** but cannot create or widen source authority and never grants production authority.
 
 ## Control layers
 
@@ -49,7 +49,7 @@ User request
 -> exact-main Quality
 ```
 
-`OUTCOME APPROVED` remains source authority only. Initial admission requires the complete visible Scope immediately followed by that decision. Once durably receipted, the receipt may continue only the same exact scope after context/session loss. Branch/ruleset settings are independent administrative state and cannot be self-issued by repository text or the Delivery Orchestrator.
+`OUTCOME APPROVED` remains source authority only. Initial admission requires the complete visible Scope immediately followed by that decision. Once durably receipted, the receipt may continue only the same exact admitted scope after context/session loss. Branch/ruleset settings are independent administrative state and cannot be self-issued by repository text or the Delivery Orchestrator.
 
 ## Resume flow
 
