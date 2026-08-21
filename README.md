@@ -53,6 +53,14 @@ Canonical project rules:
 - `docs/architecture/sea-speed-control-plane.md`
 - `specs/README.md`
 
+## Resumable delivery
+
+Sea Speed distinguishes **Repository/product truth**, **Delivery-control truth**, and **Transient interaction state**. `main` remains repository/product truth; the canonical Issue stores the admitted Outcome, source-authorization receipt, and compact `Sea Speed Delivery Checkpoint v1`; the live chat is only where a new visible Scope and immediately-following `OUTCOME APPROVED` are initially admitted.
+
+For an existing task with a valid checkpoint, recovery uses a bounded **Resume Probe** rather than full project recovery. Context compaction, session restart, or Connector truncation do not by themselves return an admitted task to `DISCUSSION` or require another `OUTCOME APPROVED`. Material scope/protected-boundary changes still require fresh source authorization.
+
+Connector recovery is progressive: `known object -> metadata -> targeted detail -> failure fragment`. Equivalent repeated reads with the same evidence identity and question are not admissible unless a canonical gate requires a fresh read.
+
 ## Production authority
 
 Production uses an independently administered standing delegation in trusted GitHub `production` environment state. Repository policy can narrow that delegation but cannot widen it. Missing or mismatched delegation denies before runtime transport.
