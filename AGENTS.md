@@ -24,7 +24,7 @@ The active orchestration role is **Sea Speed Delivery Orchestrator**. It retains
 3. Treat the live conversation as transient interaction state used for new source-admission decisions, not as the durable execution cursor.
 4. Start new implementation from a canonical Issue and explicit Outcome Contract / Implementation Scope Check.
 5. Before asking for `OUTCOME APPROVED`, show the complete visible six-field Scope as the last substantive assistant content; approval is valid only in the immediately following user turn.
-6. Before the first repository write require `VISIBLE_SCOPE_PRESENTED=YES`, `SCOPE_IMMEDIATELY_PRECEDES_APPROVAL=YES`, and `SOURCE_AUTHORIZATION_ADMISSION=OPEN`.
+6. Before the first repository write require `VISIBLE_SCOPE_PRESENTED=YES`, `SCOPE_IMMEDIATELY_PRECEDES_APPROVAL=YES`, and `SOURCE_AUTHORIZATION_ADMISSION=OPEN`. For iterative fixes to an already admitted scope, these requirements are satisfied by the existing authorization receipt and current Checkpoint.
 7. After valid admission persist a durable authorization receipt and `Sea Speed Delivery Checkpoint v1`; the receipt may continue only the same exact admitted scope and cannot create, widen, or replace source authority.
 8. `OUTCOME APPROVED` authorizes only the bounded reversible repository lifecycle: branch/source/SDD writes, commits, integrity checks, PR creation/repair, in-scope CI remediation and exact-green-head merge. It does not itself grant runtime authority.
 9. Significant implementation/control-plane work creates or updates linked `spec.md`, `plan.md`, and `tasks.md` under `specs/**`.
@@ -41,6 +41,7 @@ The active orchestration role is **Sea Speed Delivery Orchestrator**. It retains
 20. Context compaction, session restart, response truncation, Connector truncation or model-memory loss does not itself invalidate source authorization, return an admitted task to `DISCUSSION`, or justify repeated Task Intake.
 21. Connector reads after task resolution follow `known object -> metadata -> targeted detail -> failure fragment`; equivalent reads with the same evidence identity and question are forbidden unless a canonical gate requires a fresh read.
 22. Checkpoint updates occur at meaningful lifecycle/evidence transitions, not after every tool call, and always record `Next admissible action`.
+23. **Anti-Loop Rule:** Repeating a detailed implementation plan or describing planned steps after a valid `OUTCOME APPROVED` or during an iterative fix is forbidden. If a valid `Delivery Checkpoint v1` exists, the agent MUST proceed directly to the `Next admissible action` without re-stating the plan. Descriptions of 'what I will do' must be replaced by the actual tool call executing the action.
 
 ## Resumable delivery contract
 
