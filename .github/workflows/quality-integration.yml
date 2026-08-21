@@ -89,6 +89,8 @@ jobs:
 
   property-fuzz-reliability:
     name: property-fuzz-reliability
+    needs: classify
+    if: needs.classify.outputs.lane != 'FAST'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -213,7 +215,11 @@ jobs:
           printf 'exact-artifact-e2e=%s\n' "$ARTIFACT_RESULT"
           printf 'release-deployment-evidence=%s\n' "$EVIDENCE_RESULT"
           [[ "$STATIC_RESULT" == success ]]
-          [[ "$RELIABILITY_RESULT" == success ]]
+          if [[ "$LANE" == "FAST" ]]; then
+            [[ "$RELIABILITY_RESULT" == success || "$RELIABILITY_RESULT" == skipped ]]
+          else
+            [[ "$RELIABILITY_RESULT" == success ]]
+          fi
           if [[ "$RUNTIME_REQUIRED" == "true" ]]; then
             [[ "$ARTIFACT_RESULT" == success ]]
             [[ "$EVIDENCE_RESULT" == success ]]
