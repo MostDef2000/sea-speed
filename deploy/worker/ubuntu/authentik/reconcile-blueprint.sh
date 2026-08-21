@@ -7,9 +7,10 @@ Usage: reconcile-blueprint.sh --source PATH [--runtime-root PATH]
 
 Apply the exact Sea Speed Authentik blueprint to the already-running Ubuntu
 Authentik runtime without pulling images, restarting PostgreSQL, or mutating
-Sea Speed Water/Road services. The Authentik worker watches the mounted
-blueprint file and applies modifications automatically. Runtime acceptance is
-proved by querying the two managed User Login stages from the worker container.
+Sea Speed Water/Road services. The runtime file is updated in place and then
+applied explicitly through Authentik's repository-pinned worker management
+command; runtime acceptance is proved by querying the two managed User Login
+stages from the worker container.
 USAGE
 }
 
@@ -19,6 +20,7 @@ test_mode="${SEA_SPEED_AUTHENTIK_RECONCILE_TEST_MODE:-0}"
 attempts="${SEA_SPEED_AUTHENTIK_RECONCILE_ATTEMPTS:-30}"
 sleep_seconds="${SEA_SPEED_AUTHENTIK_RECONCILE_SLEEP_SECONDS:-2}"
 runtime_blueprint_mode="0644"
+container_blueprint="/blueprints/sea-speed-auth-v1.yaml"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -73,6 +75,13 @@ for marker in (
         raise SystemExit(f"ERROR protected Authentik marker missing: {marker}")
 PY
 
+apply_runtime_blueprint() {
+  (
+    cd "$runtime_root"
+    docker compose exec -T worker ak apply_blueprint "$container_blueprint" >&2
+  )
+}
+
 query_runtime() {
   local output
   output="$(
@@ -106,6 +115,7 @@ if [[ "$source_sha" == "$target_sha" && "$target_mode" == "644" ]] && runtime_ma
   printf 'AUTHENTIK_LOGIN_STAGES_VERIFIED=2\n'
   printf 'AUTHENTIK_BLUEPRINT_CHANGED=NO\n'
   printf 'AUTHENTIK_BLUEPRINT_MODE=0644\n'
+  printf 'AUTHENTIK_BLUEPRINT_APPLY=NOT_REQUIRED\n'
   printf 'AUTHENTIK_WORKER_RESTARTED=NO\n'
   printf 'WATER_ROAD_SERVICES_MUTATED=NO\n'
   exit 0
@@ -117,12 +127,39 @@ trap cleanup EXIT
 cp -p "$runtime_blueprint" "$backup"
 chmod 0600 "$backup"
 
+restore_previous_runtime() {
+  local current
+  cat "$backup" > "$runtime_blueprint"
+  chmod "$runtime_blueprint_mode" "$runtime_blueprint"
+  apply_runtime_blueprint || return 1
+  for _ in $(seq 1 "$attempts"); do
+    current="$(query_runtime || true)"
+    if [[ -n "$before_runtime" && "$current" == "$before_runtime" ]]; then
+      return 0
+    fi
+    sleep "$sleep_seconds"
+  done
+  return 1
+}
+
 # The blueprint is public repository configuration, not a secret. Keep the
-# bind-mounted runtime file container-readable. Issue #231's first production
-# attempt forced mode 0600 and Authentik discovery failed with EACCES across the
-# Docker user-namespace boundary. The private temporary backup remains mode 0600.
+# bind-mounted runtime file container-readable. Production learning showed that
+# relying on the filesystem watcher alone is not a bounded apply mechanism for
+# this bind mount, so explicitly invoke Authentik's apply_blueprint management
+# command after writing the exact source. The private backup remains mode 0600.
 cat "$source_blueprint" > "$runtime_blueprint"
 chmod "$runtime_blueprint_mode" "$runtime_blueprint"
+
+if ! apply_runtime_blueprint; then
+  echo "ERROR Authentik explicit blueprint apply failed; restoring previous blueprint" >&2
+  if restore_previous_runtime; then
+    echo "AUTHENTIK_BLUEPRINT_ROLLBACK=PASS" >&2
+    echo "AUTHENTIK_BLUEPRINT_MODE=0644" >&2
+    exit 20
+  fi
+  echo "CRITICAL Authentik explicit blueprint apply failed and runtime rollback could not be verified" >&2
+  exit 21
+fi
 
 verified=false
 for _ in $(seq 1 "$attempts"); do
@@ -135,20 +172,7 @@ done
 
 if [[ "$verified" != true ]]; then
   echo "ERROR Authentik did not apply the exact 30-day login-stage blueprint; restoring previous blueprint" >&2
-  cat "$backup" > "$runtime_blueprint"
-  # Restore old bytes but keep the mounted blueprint readable by Authentik so
-  # discovery and any future repository-owned reconciliation remain functional.
-  chmod "$runtime_blueprint_mode" "$runtime_blueprint"
-  rollback_verified=false
-  for _ in $(seq 1 "$attempts"); do
-    current="$(query_runtime || true)"
-    if [[ -n "$before_runtime" && "$current" == "$before_runtime" ]]; then
-      rollback_verified=true
-      break
-    fi
-    sleep "$sleep_seconds"
-  done
-  if [[ "$rollback_verified" == true ]]; then
+  if restore_previous_runtime; then
     echo "AUTHENTIK_BLUEPRINT_ROLLBACK=PASS" >&2
     echo "AUTHENTIK_BLUEPRINT_MODE=0644" >&2
     exit 20
@@ -162,5 +186,6 @@ printf 'AUTHENTIK_SESSION_DURATION=days=30\n'
 printf 'AUTHENTIK_LOGIN_STAGES_VERIFIED=2\n'
 printf 'AUTHENTIK_BLUEPRINT_CHANGED=YES\n'
 printf 'AUTHENTIK_BLUEPRINT_MODE=0644\n'
+printf 'AUTHENTIK_BLUEPRINT_APPLY=EXPLICIT\n'
 printf 'AUTHENTIK_WORKER_RESTARTED=NO\n'
 printf 'WATER_ROAD_SERVICES_MUTATED=NO\n'
