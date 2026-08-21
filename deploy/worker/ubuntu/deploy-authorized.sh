@@ -116,11 +116,14 @@ previous_main="$(git -C "$stage" rev-parse "${target}^")"
 # protected workflow already derived the release contour from repository policy;
 # this narrower target classification prevents an Authentik-only release from
 # restarting analytics workers merely because deployment tooling changed too.
+# The reconcile helper itself is runtime-affecting: a correction to that exact
+# helper must execute the Authentik transaction even when the canonical YAML
+# bytes are unchanged, otherwise the corrected reconciliation can never run.
 authentik_blueprint_changed=false
 worker_runtime_changed=false
 while IFS= read -r path; do
   case "$path" in
-    deploy/vps/authentik/blueprints/sea-speed-auth-v1.yaml)
+    deploy/vps/authentik/blueprints/sea-speed-auth-v1.yaml|deploy/worker/ubuntu/authentik/reconcile-blueprint.sh)
       authentik_blueprint_changed=true
       ;;
     worker/*)
