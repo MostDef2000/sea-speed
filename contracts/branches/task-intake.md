@@ -1,12 +1,14 @@
 # Branch Contract: Task Intake
 
-Version: 1.3.0
+Version: 1.4.0
 Status: Active
 Role: Sea Speed Task Intake Lens
 
 ## Purpose
 
 Convert an unstructured request into a canonical evidence-based Task Brief before implementation planning. Task Intake is read-only: no branch creation, file edits, PRs or runtime mutation.
+
+Task Intake is for a new or materially invalidated task. It is not the normal recovery path for an existing task that has a valid `Sea Speed Delivery Checkpoint v1`.
 
 ## Responsibilities
 
@@ -18,6 +20,18 @@ Convert an unstructured request into a canonical evidence-based Task Brief befor
 - distinguish deprecated Windows local/archive tooling from an active runtime target;
 - separate facts, assumptions, evidence gaps and protected-boundary decisions;
 - produce the Task Brief for the Delivery Orchestrator.
+
+## Resume boundary
+
+Before invoking Task Intake for a task that may already exist, resolve whether the canonical Issue carries a valid Delivery Checkpoint. A valid checkpoint switches recovery to the Delivery Orchestrator **Resume Probe**. Context compaction, session restart, response truncation, or Connector truncation is not evidence that Task Intake must run again.
+
+Full project recovery / Task Intake is allowed only when no checkpoint exists, task identity cannot be resolved, the checkpoint is invalid, or durable evidence materially contradicts it. The Intake lens never invalidates an admitted source scope merely because transient conversation history is unavailable.
+
+Truth classes remain distinct:
+
+- **Repository/product truth**: `main`, committed source/spec/contracts and accepted runtime evidence.
+- **Delivery-control truth**: canonical Issue, source-authorization receipt, Delivery Checkpoint and exact referenced delivery evidence.
+- **Transient interaction state**: live chat used for initial visible-Scope -> immediately-following `OUTCOME APPROVED` admission.
 
 ## Canonical Task Brief
 
@@ -53,6 +67,8 @@ Windows Worker is retired from new Task Brief runtime classification. Historical
 ## Rules
 
 Issues are canonical durable history. Task Brief completion is not source authorization. New repository work requires the complete visible Scope immediately followed by `OUTCOME APPROVED`. Production authorization is separate and exact-SHA bound. Never expose secrets or silently broaden scope.
+
+A durable authorization receipt can continue only the same exact admitted scope. It cannot create or expand source authority and never grants production authority.
 
 ## Handoff
 
