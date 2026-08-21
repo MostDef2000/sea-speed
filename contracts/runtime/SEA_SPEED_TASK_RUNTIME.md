@@ -1,6 +1,6 @@
 # Sea Speed Task Runtime
 
-Version: 1.13.0
+Version: 1.14.0
 Status: Active
 
 ## Active phases
@@ -19,7 +19,19 @@ RUNTIME_ACCEPTANCE
 
 These are internal lifecycle phases, not permission to return control.
 
-## Terminal interaction states
+## Session dispositions and terminal interaction states
+
+Every synchronous invocation has one session disposition:
+
+```text
+ACTIVE
+WAITING_EXTERNAL
+TERMINAL
+```
+
+- `ACTIVE`: at least one safe authorized action is executable now, so execution continues in the current invocation.
+- `WAITING_EXTERNAL`: no safe authorized action is executable now and continuation depends only on a named machine-observable external transition. This returns control without ending the task or promising background work.
+- `TERMINAL`: exactly one terminal interaction state below is justified.
 
 The only valid terminal interaction states are:
 
@@ -33,7 +45,7 @@ HUMAN DECISION REQUIRED
 - `BLOCKED`: continuation objectively impossible because of a concrete external blocker; record blocker evidence, unblock condition and next admissible action.
 - `HUMAN DECISION REQUIRED`: genuine human decision, source authorization, protected input, standing-delegation/settings administration, configured-environment review or irreversible/high-risk choice is required.
 
-`FAILED` is not a terminal interaction state; it is an internal event. PR creation, CI running, merge/release/deploy preparation, or checkpoint update is not terminal while a safe next action exists.
+`WAITING_EXTERNAL` is not a lifecycle phase, terminal interaction state, blocker, or human decision. `FAILED` is not a terminal interaction state; it is an internal event. Progress is not terminal while a safe next action is executable now.
 
 ## Phase semantics
 
@@ -49,38 +61,63 @@ HUMAN DECISION REQUIRED
 ## Truth classes
 
 - **Repository/product truth**: current `main`, committed contracts/specs/source and accepted runtime evidence.
-- **Delivery-control truth**: canonical Issue Outcome, source-authorization receipt, `Sea Speed Delivery Checkpoint v1`, branch/PR/head, completed gates and evidence cursors.
+- **Delivery-control truth**: canonical Issue Outcome, source-authorization receipt, `Sea Speed Delivery Checkpoint v2`, branch/PR/head, completed gates and evidence cursors.
 - **Transient interaction state**: live conversation used for new visible-Scope -> immediately-following `OUTCOME APPROVED` admission.
 
 The initial adjacent Scope/approval creates source authority. A durable authorization receipt may continue only the **same exact admitted scope**. It cannot create, widen or replace source authority and never grants production authority.
 
-## Sea Speed Delivery Checkpoint v1
+## Sea Speed Delivery Checkpoint v2
 
-Persist the compact checkpoint in the canonical Issue after valid source admission and update it only at meaningful lifecycle/evidence transitions, not after every tool call.
+Persist the compact machine-readable checkpoint in the canonical Issue after valid source admission and update it only at meaningful lifecycle/evidence transitions, not after every tool call. The JSON object conforms to `schemas/delivery-checkpoint-v2.schema.json`; cross-field invariants and v1 upgrade are implemented by `scripts/ci/validate_delivery_checkpoint.py`.
 
-```text
-Sea Speed Delivery Checkpoint v1
-- Task: #<canonical-issue>
-- Checkpoint generation: <monotonic integer>
-- Approved scope identity: <stable scope hash/id>
-- Authorization receipt: OUTCOME APPROVED
-- Authorization base main: <40-char-sha>
-- Current phase: <active phase>
-- Branch: <branch/PENDING/NOT APPLICABLE>
-- PR: <#N/PENDING/NOT APPLICABLE>
-- Exact working head: <40-char-sha/PENDING/NOT APPLICABLE>
-- Completed gates: <ordered compact set>
-- Evidence cursor / Issue: <issue identity/update identity>
-- Evidence cursor / PR: <pr/head/update identity/NONE>
-- Evidence cursor / CI: <head/status/run identity/NONE>
-- Evidence cursor / Policy: <decision identity/NONE>
-- Evidence cursor / Runtime: <deployment/evidence identity/NONE>
-- Next admissible action: <single bounded action>
-- State invalidation reason: NONE/<explicit reason>
-- Terminal interaction state: PENDING/DONE/BLOCKED/HUMAN DECISION REQUIRED
+```json
+{
+  "schema": "sea_speed_delivery_checkpoint_v2",
+  "task": "#<canonical-issue>",
+  "generation": 1,
+  "approved_scope_identity": "<stable-scope-hash-or-id>",
+  "authorization_receipt": "OUTCOME APPROVED",
+  "authorization_base_main": "<40-char-lowercase-sha>",
+  "current_phase": "<active-phase>",
+  "branch": null,
+  "pr": null,
+  "exact_working_head": null,
+  "completed_gates": [],
+  "evidence_cursors": {"issue": null, "pr": null, "ci": null, "policy": null, "runtime": null},
+  "next_admissible_action": {"kind": "<kind>", "description": "<action>", "executable_now": true},
+  "session_disposition": "ACTIVE",
+  "external_wait": null,
+  "state_invalidation_reason": null,
+  "terminal_interaction_state": null
+}
 ```
 
-Checkpoint generation is monotonic. It does not increment for every read/tool call; it advances when phase, exact source identity, completed gate, evidence cursor, invalidation state, or next admissible action materially changes.
+Checkpoint generation is monotonic. It does not increment for every read/tool call; it advances when phase, exact source identity, completed gate, evidence cursor, invalidation state, next action, session disposition, or wait predicate materially changes.
+
+Persisted `Sea Speed Delivery Checkpoint v1` records remain readable continuation evidence for the same exact admitted scope. The repository validator parses and upgrades active v1 evidence to v2 at its next meaningful transition. Conversion does not recreate source authority and does not require another `OUTCOME APPROVED`.
+
+## WAITING_EXTERNAL contract
+
+`WAITING_EXTERNAL` is valid only when:
+
+```text
+safe authorized action executable now = NO
+machine-observable external condition named = YES
+exact evidence cursor recorded = YES
+resume trigger recorded = YES
+terminal interaction state = NONE
+```
+
+The `external_wait` object records `condition`, `resume_trigger`, and an `evidence_cursor` that identifies exactly one checkpoint evidence cursor. `next_admissible_action.executable_now` is `false` until that cursor changes. Waiting for authorization, protected input or settings administration is `HUMAN DECISION REQUIRED`; an objective external blocker is `BLOCKED`.
+
+Sea Speed sessions are synchronous. After persisting `WAITING_EXTERNAL`, return control and perform no background polling. On a later invocation, observe the exact wait cursor once:
+
+```text
+cursor unchanged -> preserve WAITING_EXTERNAL and generation; do not replan or reread
+cursor changed   -> increment generation; update cursor; produce valid ACTIVE state; execute next action
+```
+
+If another safe authorized action is executable now, `ACTIVE` takes precedence. A terminal condition cannot coexist with executable work.
 
 ## Resume Probe
 
@@ -93,6 +130,8 @@ For a known task with a valid checkpoint, recovery begins with the bounded Resum
 4. validate checkpoint against durable evidence;
 5. execute `Next admissible action`.
 ```
+
+For `WAITING_EXTERNAL`, step 3 is one exact cursor observation. An unchanged cursor ends the invocation in the same nonterminal disposition without full recovery or repeated planning.
 
 Do not repeat Task Intake, broad Issue/PR searches, full project recovery, or source authorization merely because of context compaction, session restart, response truncation, Connector truncation, or model-memory loss.
 
@@ -172,7 +211,12 @@ Sea Speed Task Runtime
 - Evidence cursor / Issue:
 - Evidence cursor / PR:
 - Evidence cursor / CI:
+- Session disposition: ACTIVE/WAITING_EXTERNAL/TERMINAL
+- External wait condition: NONE/<machine-observable predicate>
+- External wait resume trigger: NONE/<bounded trigger>
+- External wait evidence cursor: NONE/<identity>
 - Next admissible action:
+- Next action executable now: YES/NO
 - State invalidation reason: NONE/<reason>
 - Approved outcome/scope:
 - Changed files:
@@ -194,7 +238,7 @@ Sea Speed Task Runtime
 - Runtime telemetry: NOT REQUIRED/PENDING/VALID/INVALID
 - Evidence verdict: NOT REQUIRED/PENDING/accepted/regressed/insufficient_evidence
 - User action:
-- Terminal interaction state: PENDING/DONE/BLOCKED/HUMAN DECISION REQUIRED
+- Terminal interaction state: NONE/DONE/BLOCKED/HUMAN DECISION REQUIRED
 ```
 
 ## Runtime contour rule
@@ -214,6 +258,8 @@ Missing/stale/mismatched delegation produces `DENY` before transport. Protected 
 ## Continuation rule
 
 After valid `OUTCOME APPROVED`, continue automatically through implementation, integrity, PR, metadata repair, CI, in-scope remediation and exact-green-head merge. Material source scope/protected-boundary changes require fresh source authorization.
+
+Automatic continuation means execute every safe action available now. It does not mean busy-wait, repeatedly poll unchanged evidence, or claim background execution. When the only prerequisite is a machine-observable external transition, persist `WAITING_EXTERNAL`; a later synchronous invocation resumes through the bounded wait replay rule.
 
 After exact-main Quality, runtime-impacting releases continue automatically through standing-policy evaluation. An `ALLOW` routes applicable protected runtime contours without another per-release user prompt. A `DENY` caused by missing/invalid independently controlled delegation becomes `HUMAN DECISION REQUIRED` only when correcting that trusted settings state requires the administrator. A runtime transport fallback may expose one repository-owned action after machine-observable gates.
 

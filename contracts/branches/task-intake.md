@@ -1,6 +1,6 @@
 # Branch Contract: Task Intake
 
-Version: 1.4.0
+Version: 1.5.0
 Status: Active
 Role: Sea Speed Task Intake Lens
 
@@ -8,7 +8,7 @@ Role: Sea Speed Task Intake Lens
 
 Convert an unstructured request into a canonical evidence-based Task Brief before implementation planning. Task Intake is read-only: no branch creation, file edits, PRs or runtime mutation.
 
-Task Intake is for a new or materially invalidated task. It is not the normal recovery path for an existing task that has a valid `Sea Speed Delivery Checkpoint v1`.
+Task Intake is for a new or materially invalidated task. It is not the normal recovery path for an existing task that has a valid `Sea Speed Delivery Checkpoint v2` or a persisted readable v1 checkpoint.
 
 ## Responsibilities
 
@@ -23,9 +23,11 @@ Task Intake is for a new or materially invalidated task. It is not the normal re
 
 ## Resume boundary
 
-Before invoking Task Intake for a task that may already exist, resolve whether the canonical Issue carries a valid Delivery Checkpoint. A valid checkpoint switches recovery to the Delivery Orchestrator **Resume Probe**. Context compaction, session restart, response truncation, or Connector truncation is not evidence that Task Intake must run again.
+Before invoking Task Intake for a task that may already exist, resolve whether the canonical Issue carries a valid Delivery Checkpoint. A valid checkpoint switches recovery to the Delivery Orchestrator **Resume Probe** and its recorded `Next admissible action`. Context compaction, session restart, response truncation, or Connector truncation is not evidence that Task Intake must run again.
 
 Full project recovery / Task Intake is allowed only when no checkpoint exists, task identity cannot be resolved, the checkpoint is invalid, or durable evidence materially contradicts it. The Intake lens never invalidates an admitted source scope merely because transient conversation history is unavailable.
+
+`WAITING_EXTERNAL` is a nonterminal synchronous-session disposition and never returns a valid task to Task Intake. A later invocation observes the exact wait cursor once. Unchanged evidence preserves the wait without repeated planning or checkpoint-generation change; changed evidence resumes `ACTIVE` execution. No background polling is implied. Persisted v1 evidence is upgraded by `scripts/ci/validate_delivery_checkpoint.py` at a meaningful transition for the same exact admitted scope.
 
 Truth classes remain distinct:
 

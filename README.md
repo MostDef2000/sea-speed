@@ -37,7 +37,8 @@ request / Issue recovery
 -> standing production policy evaluation when runtime applies
 -> protected VPS/Ubuntu execution when allowed
 -> runtime acceptance
--> DONE / BLOCKED / HUMAN DECISION REQUIRED
+-> WAITING_EXTERNAL when only external evidence is pending
+   OR DONE / BLOCKED / HUMAN DECISION REQUIRED
 ```
 
 `OUTCOME APPROVED` authorizes bounded source lifecycle only. It does not itself grant production execution.
@@ -55,11 +56,13 @@ Canonical project rules:
 
 ## Resumable delivery
 
-Sea Speed distinguishes **Repository/product truth**, **Delivery-control truth**, and **Transient interaction state**. `main` remains repository/product truth; the canonical Issue stores the admitted Outcome, source-authorization receipt, and compact `Sea Speed Delivery Checkpoint v1`; the live chat is only where a new visible Scope and immediately-following `OUTCOME APPROVED` are initially admitted.
+Sea Speed distinguishes **Repository/product truth**, **Delivery-control truth**, and **Transient interaction state**. `main` remains repository/product truth; the canonical Issue stores the admitted Outcome, source-authorization receipt, and machine-readable `Sea Speed Delivery Checkpoint v2`; the live chat is only where a new visible Scope and immediately-following `OUTCOME APPROVED` are initially admitted.
 
 For an existing task with a valid checkpoint, recovery uses a bounded **Resume Probe** rather than full project recovery. Context compaction, session restart, or Connector truncation do not by themselves return an admitted task to `DISCUSSION` or require another `OUTCOME APPROVED`. Material scope/protected-boundary changes still require fresh source authorization.
 
 Connector recovery is progressive: `known object -> metadata -> targeted detail -> failure fragment`. Equivalent repeated reads with the same evidence identity and question are not admissible unless a canonical gate requires a fresh read.
+
+The Orchestrator runs synchronously. When no safe action is executable now and continuation depends only on one machine-observable external transition, it persists nonterminal `WAITING_EXTERNAL` and returns without background polling. A later invocation observes the exact cursor once: unchanged evidence preserves the wait without replanning; changed evidence produces valid `ACTIVE` state and resumes the recorded action. The only terminal interaction states remain `DONE`, `BLOCKED`, and `HUMAN DECISION REQUIRED`.
 
 ## Production authority
 

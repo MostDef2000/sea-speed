@@ -1,13 +1,13 @@
 # Sea Speed Control Plane
 
-Version: 2.4.0
+Version: 2.5.0
 Status: Active
 
 ## Overview
 
 GitHub `main` is the source of truth for repository/product state. Sea Speed has exactly two active production runtime contours: VPS and Ubuntu Worker/relay. The Delivery Orchestrator owns one task context from source intake through acceptance, while production execution authority is a separately administered standing delegation.
 
-The canonical Issue is the durable delivery-control record for an existing task: Outcome Contract, source-authorization receipt, `Sea Speed Delivery Checkpoint v1`, exact branch/PR/head identities, completed gates and evidence cursors. The live conversation is transient interaction state used for new authorization decisions; it is not the durable execution cursor.
+The canonical Issue is the durable delivery-control record for an existing task: Outcome Contract, source-authorization receipt, machine-readable `Sea Speed Delivery Checkpoint v2`, exact branch/PR/head identities, completed gates and evidence cursors. The live conversation is transient interaction state used for new authorization decisions; it is not the durable execution cursor.
 
 On the GitHub Free plan the production repository remains public so branch protection, required checks and the `production` environment can form the control plane. Public source is not a secret boundary; credentials, private keys, populated environment values and runtime secrets remain outside Git.
 
@@ -67,6 +67,23 @@ A valid checkpoint prevents repeated Task Intake/full project recovery. Context 
 Lifecycle state is monotonic. Material reauthorization/backward transitions require an explicit reason such as `MATERIAL_SCOPE_CHANGE`, `PROTECTED_BOUNDARY_CHANGE`, `USER_CHANGED_OUTCOME`, `MATERIAL_MAIN_DIVERGENCE`, or `EVIDENCE_CONTRADICTION`.
 
 Connector reads after task resolution follow `known object -> metadata -> targeted detail -> failure fragment`. An equivalent read for the same question at the same evidence identity is forbidden unless a mandatory gate requires a fresh read.
+
+## Synchronous session flow
+
+Lifecycle phase and session disposition are separate dimensions:
+
+```text
+safe action executable now -> ACTIVE -> execute it
+no safe action executable now + exact external condition pending
+-> persist WAITING_EXTERNAL -> return control -> no background work
+later invocation -> observe exact cursor once
+-> unchanged: WAITING_EXTERNAL without generation change or replanning
+-> changed: valid ACTIVE checkpoint -> execute recorded next action
+outcome/blocker/protected human decision
+-> TERMINAL -> DONE / BLOCKED / HUMAN DECISION REQUIRED
+```
+
+This boundary prevents false background-work claims and same-evidence polling/planning loops. `WAITING_EXTERNAL` is a nonterminal disposition, not a terminal task state, lifecycle phase or substitute for a human decision. Persisted v1 checkpoints remain readable and are upgraded by the repository validator at the next meaningful transition for the same admitted scope.
 
 ## Runtime flow
 

@@ -1,13 +1,13 @@
 # Branch Contract: Delivery Orchestrator
 
-Version: 3.0.0
+Version: 3.1.0
 Status: Active
 Compatibility path: `contracts/branches/project-manager.md`
 Role: Sea Speed Delivery Orchestrator
 
 ## Purpose
 
-Retain one delivery context from current-main recovery and Task Intake through scope lock, source implementation, PR/CI, exact-green-head merge, standing-policy runtime execution when applicable, acceptance and terminal Issue evidence. For an existing admitted task, retain that context durably through `Sea Speed Delivery Checkpoint v1` so context compaction or session restart does not restart delivery.
+Retain one delivery context from current-main recovery and Task Intake through scope lock, source implementation, PR/CI, exact-green-head merge, standing-policy runtime execution when applicable, acceptance and terminal Issue evidence. For an existing admitted task, retain that context durably through machine-readable `Sea Speed Delivery Checkpoint v2` so context compaction or session restart does not restart delivery.
 
 This path does not define a second Project Manager or Release Orchestrator.
 
@@ -38,6 +38,8 @@ Windows Worker is retired. Historical Windows evidence remains readable audit hi
 17. After runtime failure resolve actual state, audit adjacent transaction stages and remediate under current authorized scope where possible.
 18. Persist accepted evidence or blocker detail in canonical Issue and continue until a terminal interaction state is justified.
 19. Before every tool call classify against closed Tool Routing Allowlist. Never improvise an unlisted route.
+20. If no safe action is executable now and progress depends only on a machine-observable external transition, persist `WAITING_EXTERNAL` and return without background-work claims or polling.
+21. Resume `WAITING_EXTERNAL` with one exact cursor observation. Preserve the wait when evidence is unchanged; produce valid `ACTIVE` state and continue when it changed.
 
 ## Truth classes and authorization continuity
 
@@ -54,6 +56,10 @@ A valid checkpoint resumes delivery; it does not trigger Task Intake again. Full
 Lifecycle state is monotonic. Backward/source-reauthorization transitions require a recorded material reason such as `MATERIAL_SCOPE_CHANGE`, `PROTECTED_BOUNDARY_CHANGE`, `USER_CHANGED_OUTCOME`, `MATERIAL_MAIN_DIVERGENCE`, or `EVIDENCE_CONTRADICTION`. `CONTEXT_LOSS` is not an invalidation reason.
 
 Checkpoint updates occur at meaningful lifecycle/evidence transitions, not after every tool call. Each checkpoint records an explicit `Next admissible action`.
+
+`WAITING_EXTERNAL` is a nonterminal synchronous-session disposition, not a phase, blocker, human decision or task completion. It requires a v2 checkpoint with a named condition, resume trigger, exact evidence cursor and `executable_now=false`. If work is executable now, the session remains `ACTIVE`. If the exact cursor is unchanged on a later bounded Resume Probe, return the same wait without generation increment, broad recovery or replanning. The Orchestrator never claims to continue in the background.
+
+Persisted v1 checkpoints remain readable for their exact admitted scopes and are upgraded by the repository validator to v2 at the next meaningful transition without another source authorization.
 
 ## Connector retrieval contract
 
@@ -127,9 +133,9 @@ manual runtime action: 0 target; <=1 fallback per required active contour
 intermediate confirmations: 0
 ```
 
-## Terminal interaction contract
+## Session disposition and terminal interaction contract
 
-Return control only as `DONE`, `BLOCKED`, `HUMAN DECISION REQUIRED`. `FAILED` is not a terminal interaction state. `BLOCKED` requires a concrete external blocker, blocker evidence, an explicit unblock condition, and the next admissible action. A remediable in-scope source/test/CI/metadata failure is not a blocker and must be remediated automatically. PR creation, PR/CI/merge/package/deploy preparation, or checkpoint update is not terminal while a safe authorized next action remains.
+Return control only as nonterminal `WAITING_EXTERNAL`, or as terminal `DONE`, `BLOCKED`, `HUMAN DECISION REQUIRED`. `FAILED` is not a terminal interaction state. `BLOCKED` requires a concrete external blocker, blocker evidence, an explicit unblock condition, and the next admissible action. A remediable in-scope failure is not a blocker. Progress is not terminal while a safe authorized next action is executable now; an exclusively external pending transition uses `WAITING_EXTERNAL`.
 
 ## Review lenses
 

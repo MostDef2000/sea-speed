@@ -1,6 +1,6 @@
 # Sea Speed Release Readiness Gate
 
-Version: 1.14.0
+Version: 1.15.0
 Status: Active
 
 ## Gate
@@ -59,6 +59,8 @@ If a task must be recovered before this gate, use the bounded **Resume Probe**: 
 
 Lifecycle state is monotonic unless a concrete material invalidation is recorded: `MATERIAL_SCOPE_CHANGE`, `PROTECTED_BOUNDARY_CHANGE`, `USER_CHANGED_OUTCOME`, `MATERIAL_MAIN_DIVERGENCE`, or `EVIDENCE_CONTRADICTION`. `CONTEXT_LOSS` is not an invalidation reason.
 
+`WAITING_EXTERNAL` is a nonterminal synchronous-session disposition, not a lifecycle phase or release verdict. It is valid only when no safe authorized action is executable now and one named machine-observable external transition is the sole prerequisite. Delivery Checkpoint v2 records the condition, resume trigger, exact evidence cursor and non-executable next action. A later Resume Probe observes that cursor once: unchanged evidence preserves the wait and generation; changed evidence produces valid `ACTIVE` state. No background polling is implied.
+
 Connector reads are cursor-bound and progressive: `known object -> metadata -> targeted detail -> failure fragment`. Equivalent re-reads with the same evidence identity and question are forbidden unless this or another canonical gate explicitly requires fresh evidence. Required fresh base/head/Quality/protection reads are therefore permitted and must be scoped to the exact gate.
 
 ## Protected source gate
@@ -79,9 +81,9 @@ Tool capability is not self-authorizing. GitHub lifecycle uses GitHub Connector 
 
 If the required route is unavailable and no exact approved fallback exists, return `HUMAN DECISION REQUIRED`; do not discover another service.
 
-## Terminal interaction gate
+## Session disposition and terminal interaction gate
 
-Return control only as `DONE`, `BLOCKED`, `HUMAN DECISION REQUIRED`. `FAILED` is not a terminal interaction state; it is an internal observation. `BLOCKED` requires a concrete external blocker, evidence, unblock condition and next admissible action. A remediable in-scope source/test/CI/metadata failure is not a blocker and must be remediated automatically before this gate can justify returning control. PR created, CI running, checkpoint updated, merge ready, release built and deployment prepared are not terminal while a safe authorized next action exists.
+Return control only as nonterminal `WAITING_EXTERNAL`, or as terminal `DONE`, `BLOCKED`, `HUMAN DECISION REQUIRED`. `FAILED` is not a terminal interaction state; it is an internal observation. `BLOCKED` requires a concrete external blocker, evidence, unblock condition and next admissible action. A remediable in-scope failure is not a blocker. Progress is not terminal while a safe authorized next action is executable now; exact pending external evidence uses `WAITING_EXTERNAL` instead of repeated polling.
 
 ## Aggregate quality gate
 
