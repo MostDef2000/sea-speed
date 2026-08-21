@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/MostDef2000/sea-speed/schemas/delivery-checkpoint-v2.schema.json",
+  "title": "Sea Speed Delivery Checkpoint v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "task", "generation", "approved_scope_identity", "authorization_receipt",
+    "authorization_base_main", "current_phase", "branch", "pr", "exact_working_head",
+    "completed_gates", "evidence_cursors", "next_admissible_action", "session_disposition",
+    "external_wait", "state_invalidation_reason", "terminal_interaction_state"
+  ],
+  "properties": {
+    "schema": {"const": "sea_speed_delivery_checkpoint_v2"},
+    "task": {"type": "string", "pattern": "^#[1-9][0-9]*$"},
+    "generation": {"type": "integer", "minimum": 1},
+    "approved_scope_identity": {"type": "string", "pattern": ".*\\S.*"},
+    "authorization_receipt": {"const": "OUTCOME APPROVED"},
+    "authorization_base_main": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "current_phase": {
+      "enum": [
+        "DISCUSSION", "READY_FOR_IMPLEMENTATION", "IMPLEMENTING", "SOURCE_INTEGRATED",
+        "POLICY_PENDING", "ACTIONS_REQUIRED", "ACTIONS_RUNNING", "ACTIONS_COMPLETED",
+        "RUNTIME_ACCEPTANCE"
+      ]
+    },
+    "branch": {"type": ["string", "null"]},
+    "pr": {"type": ["string", "null"], "pattern": "^#[1-9][0-9]*$"},
+    "exact_working_head": {"type": ["string", "null"], "pattern": "^[0-9a-f]{40}$"},
+    "completed_gates": {
+      "type": "array",
+      "items": {"type": "string", "pattern": ".*\\S.*"},
+      "uniqueItems": true
+    },
+    "evidence_cursors": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["issue", "pr", "ci", "policy", "runtime"],
+      "properties": {
+        "issue": {"type": ["string", "null"]},
+        "pr": {"type": ["string", "null"]},
+        "ci": {"type": ["string", "null"]},
+        "policy": {"type": ["string", "null"]},
+        "runtime": {"type": ["string", "null"]}
+      }
+    },
+    "next_admissible_action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "description", "executable_now"],
+      "properties": {
+        "kind": {"type": "string", "pattern": ".*\\S.*"},
+        "description": {"type": "string", "pattern": ".*\\S.*"},
+        "executable_now": {"type": "boolean"}
+      }
+    },
+    "session_disposition": {"enum": ["ACTIVE", "WAITING_EXTERNAL", "TERMINAL"]},
+    "external_wait": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["condition", "resume_trigger", "evidence_cursor"],
+          "properties": {
+            "condition": {"type": "string", "pattern": ".*\\S.*"},
+            "resume_trigger": {"type": "string", "pattern": ".*\\S.*"},
+            "evidence_cursor": {"type": "string", "pattern": ".*\\S.*"}
+          }
+        }
+      ]
+    },
+    "state_invalidation_reason": {
+      "enum": [
+        null, "MATERIAL_SCOPE_CHANGE", "PROTECTED_BOUNDARY_CHANGE", "USER_CHANGED_OUTCOME",
+        "MATERIAL_MAIN_DIVERGENCE", "EVIDENCE_CONTRADICTION"
+      ]
+    },
+    "terminal_interaction_state": {
+      "enum": [null, "DONE", "BLOCKED", "HUMAN DECISION REQUIRED"]
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"session_disposition": {"const": "ACTIVE"}}, "required": ["session_disposition"]},
+      "then": {
+        "properties": {
+          "next_admissible_action": {
+            "properties": {"executable_now": {"const": true}},
+            "required": ["executable_now"]
+          },
+          "external_wait": {"type": "null"},
+          "terminal_interaction_state": {"type": "null"}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"session_disposition": {"const": "WAITING_EXTERNAL"}}, "required": ["session_disposition"]},
+      "then": {
+        "properties": {
+          "next_admissible_action": {
+            "properties": {"executable_now": {"const": false}},
+            "required": ["executable_now"]
+          },
+          "external_wait": {"type": "object"},
+          "terminal_interaction_state": {"type": "null"}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"session_disposition": {"const": "TERMINAL"}}, "required": ["session_disposition"]},
+      "then": {
+        "properties": {
+          "next_admissible_action": {
+            "properties": {"executable_now": {"const": false}},
+            "required": ["executable_now"]
+          },
+          "external_wait": {"type": "null"},
+          "terminal_interaction_state": {"enum": ["DONE", "BLOCKED", "HUMAN DECISION REQUIRED"]}
+        }
+      }
+    }
+  ]
+}

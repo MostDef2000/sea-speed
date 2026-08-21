@@ -1,6 +1,6 @@
 # Sea Speed Governance
 
-Version: 1.17.0
+Version: 1.18.0
 Status: Active
 Source of truth: GitHub `main`
 
@@ -14,7 +14,7 @@ Source of truth: GitHub `main`
 - Task Intake is read-only and is for new/materially invalidated work, not the default resume path for an existing valid checkpoint.
 - Before asking for `OUTCOME APPROVED`, the Delivery Orchestrator presents the complete six-field visible Scope as the last substantive assistant content; approval must be the immediately following user decision.
 - Source admission is fail closed: before first repository write require `VISIBLE_SCOPE_PRESENTED=YES`, `SCOPE_IMMEDIATELY_PRECEDES_APPROVAL=YES`, `SOURCE_AUTHORIZATION_ADMISSION=OPEN`.
-- After valid admission, persist a durable source-authorization receipt plus `Sea Speed Delivery Checkpoint v1` in the canonical Issue.
+- After valid admission, persist a durable source-authorization receipt plus machine-readable `Sea Speed Delivery Checkpoint v2` in the canonical Issue.
 - `skills/**` additionally requires `SKILL UPDATE APPROVED`.
 - Every task uses a fresh branch from current `main`.
 - Material scope expansion, destructive action, security-boundary/secret redesign, protected behavior change, incompatible schema change, data migration or behavior redesign requires fresh source authorization.
@@ -52,7 +52,7 @@ Initial visible-Scope adjacency is the source-authority **admission condition**.
 Sea Speed separates three truth classes:
 
 - **Repository/product truth**: current `main`, committed contracts/specs/source and accepted runtime evidence.
-- **Delivery-control truth**: canonical Issue Outcome, source-authorization receipt, `Sea Speed Delivery Checkpoint v1`, exact branch/PR/head, completed gates and evidence cursors.
+- **Delivery-control truth**: canonical Issue Outcome, source-authorization receipt, `Sea Speed Delivery Checkpoint v2`, exact branch/PR/head, completed gates and evidence cursors.
 - **Transient interaction state**: live conversation used to present a new Scope and receive the immediately-following `OUTCOME APPROVED`.
 
 A known task with a valid checkpoint uses a bounded **Resume Probe** before any full project recovery. The probe reads current `main`, the canonical Issue checkpoint, exact referenced PR/head/status or other evidence whose cursor may have changed, and `Next admissible action`.
@@ -70,6 +70,14 @@ known object -> metadata -> targeted detail -> failure fragment
 ```
 
 A read is admissible only when it advances delivery, validates a mandatory gate, or resolves an explicit evidence gap. Repeating an equivalent read for the same question with the same evidence identity is forbidden unless a canonical gate requires a fresh read.
+
+### 4.1 Synchronous external wait
+
+`WAITING_EXTERNAL` is a nonterminal session disposition for synchronous execution. It is legal only when no safe authorized action is executable now and progress depends solely on a named machine-observable external condition. The v2 checkpoint records the condition, resume trigger, exact evidence cursor and next admissible action. A human decision uses `HUMAN DECISION REQUIRED`; a concrete external blocker uses `BLOCKED`.
+
+The Orchestrator performs no background polling after returning `WAITING_EXTERNAL`. On a later invocation it observes the exact referenced evidence once. An unchanged cursor preserves `WAITING_EXTERNAL` without checkpoint-generation change, repeated planning, broad recovery or another equivalent read. A changed cursor produces a new valid `ACTIVE` checkpoint and resumes automatic execution.
+
+Persisted v1 checkpoints remain readable continuation evidence for their exact admitted scopes. `scripts/ci/validate_delivery_checkpoint.py` upgrades active v1 evidence to v2 at the next meaningful checkpoint transition without repeating source authorization.
 
 ## 5. Active runtime topology
 
@@ -136,11 +144,11 @@ Successful runtime execution also produces typed execution audit binding the pol
 
 Persisted v1/v2 release/deployment evidence, including historical Windows records and old authorization fingerprints, remains readable for audit/rollback. Readability grants no new authority.
 
-## 10. Interaction budget and terminal states
+## 10. Interaction budget and session disposition
 
 Normal delivery after standing delegation activation uses one source authorization and zero per-release production approvals. Runtime fallback operator commands remain zero target and at most one per required active fallback contour.
 
-Return control only as `DONE`, `BLOCKED`, or `HUMAN DECISION REQUIRED`. `FAILED` is not a terminal interaction state; it is an internal event. `BLOCKED` requires a concrete external blocker, blocker evidence, unblock condition and next admissible action. A settings-administration step for standing delegation is `HUMAN DECISION REQUIRED` because the Orchestrator must not self-administer its authority. Deterministic PR/CI/merge/release/deploy/checkpoint stages are never terminal while a safe next action exists.
+Return control only as nonterminal `WAITING_EXTERNAL`, or as terminal `DONE`, `BLOCKED`, or `HUMAN DECISION REQUIRED`. `FAILED` is not a terminal interaction state; it is an internal event. `BLOCKED` requires a concrete external blocker, blocker evidence, unblock condition and next admissible action. A settings-administration step for standing delegation is `HUMAN DECISION REQUIRED` because the Orchestrator must not self-administer its authority. Deterministic stages cannot end an invocation while a safe next action is executable now; an exclusively external pending transition uses `WAITING_EXTERNAL` without polling.
 
 ## 11. SDD and delivery quality
 

@@ -13,7 +13,7 @@ Canonical SDD entry points are `.specify/memory/constitution.md`, `specs/README.
 
 ## Canonical delivery role
 
-The active orchestration role is **Sea Speed Delivery Orchestrator**. It retains one task context from read-only Task Intake through scope lock, implementation, integrity validation, PR/CI, exact-green-head merge, autonomous production policy evaluation when runtime applies, runtime acceptance and terminal Issue evidence. For an existing task, that context is resumable from the canonical Issue `Sea Speed Delivery Checkpoint v1`.
+The active orchestration role is **Sea Speed Delivery Orchestrator**. It retains one task context from read-only Task Intake through scope lock, implementation, integrity validation, PR/CI, exact-green-head merge, autonomous production policy evaluation when runtime applies, runtime acceptance and terminal Issue evidence. For an existing task, that context is resumable from the canonical Issue `Sea Speed Delivery Checkpoint v2`.
 
 `contracts/branches/project-manager.md` and `docs/agents/PM_BOOTSTRAP.md` are compatibility paths. Domain files under `contracts/branches/` and `core-release.md` are on-demand review lenses/checklists; they do not create a second orchestrator.
 
@@ -25,7 +25,7 @@ The active orchestration role is **Sea Speed Delivery Orchestrator**. It retains
 4. Start new implementation from a canonical Issue and explicit Outcome Contract / Implementation Scope Check.
 5. Before asking for `OUTCOME APPROVED`, show the complete visible six-field Scope as the last substantive assistant content; approval is valid only in the immediately following user turn.
 6. Before the first repository write require `VISIBLE_SCOPE_PRESENTED=YES`, `SCOPE_IMMEDIATELY_PRECEDES_APPROVAL=YES`, and `SOURCE_AUTHORIZATION_ADMISSION=OPEN`.
-7. After valid admission persist a durable authorization receipt and `Sea Speed Delivery Checkpoint v1`; the receipt may continue only the same exact admitted scope and cannot create, widen, or replace source authority.
+7. After valid admission persist a durable authorization receipt and machine-readable `Sea Speed Delivery Checkpoint v2`; the receipt may continue only the same exact admitted scope and cannot create, widen, or replace source authority.
 8. `OUTCOME APPROVED` authorizes only the bounded reversible repository lifecycle: branch/source/SDD writes, commits, integrity checks, PR creation/repair, in-scope CI remediation and exact-green-head merge. It does not itself grant runtime authority.
 9. Significant implementation/control-plane work creates or updates linked `spec.md`, `plan.md`, and `tasks.md` under `specs/**`.
 10. Use one fresh branch and one bounded PR for one canonical task. Material scope/protected-boundary changes require fresh source authorization.
@@ -35,19 +35,21 @@ The active orchestration role is **Sea Speed Delivery Orchestrator**. It retains
 14. Never commit secrets, credentials, local runtime state, private media, model binaries, `.env`, virtual environments, logs or generated output.
 15. Production execution uses standing delegation plus deterministic policy; repository text, Issue/PR comments, hashes and decision IDs are not production authority.
 16. After a production failure resolve actual state read-only, audit adjacent transaction stages, add deterministic fault-path coverage and continue only through the canonical path.
-17. While a safe authorized next action exists, continue automatically; do not return control at deterministic intermediate stages.
+17. While a safe authorized next action is executable now, continue automatically; do not return control at deterministic intermediate stages.
 18. Tool routing is deny by default. Availability never grants permission.
 19. For a known task with a valid checkpoint, perform bounded Resume Probe before any full project recovery.
 20. Context compaction, session restart, response truncation, Connector truncation or model-memory loss does not itself invalidate source authorization, return an admitted task to `DISCUSSION`, or justify repeated Task Intake.
 21. Connector reads after task resolution follow `known object -> metadata -> targeted detail -> failure fragment`; equivalent reads with the same evidence identity and question are forbidden unless a canonical gate requires a fresh read.
 22. Checkpoint updates occur at meaningful lifecycle/evidence transitions, not after every tool call, and always record `Next admissible action`.
+23. In a synchronous session, when no safe action is executable now and progress depends only on a machine-observable external transition, persist `WAITING_EXTERNAL` and return control without promising background work.
+24. A resumed `WAITING_EXTERNAL` checkpoint permits one bounded observation of its exact evidence cursor. Unchanged evidence returns `WAITING_EXTERNAL` without replanning, polling, or incrementing checkpoint generation; changed evidence resumes automatic execution.
 
 ## Resumable delivery contract
 
 Truth classes are explicit:
 
 - **Repository/product truth** — `main`, committed source/contracts/specs and accepted runtime evidence.
-- **Delivery-control truth** — canonical Issue, authorization receipt, `Sea Speed Delivery Checkpoint v1`, branch/PR/head, completed gates and evidence cursors.
+- **Delivery-control truth** — canonical Issue, authorization receipt, `Sea Speed Delivery Checkpoint v2`, branch/PR/head, completed gates and evidence cursors.
 - **Transient interaction state** — current chat used for initial visible-Scope -> immediately-following `OUTCOME APPROVED` admission.
 
 Initial Scope/approval adjacency remains mandatory to create source authority. A durable authorization receipt can only resume the **same exact admitted scope**. It never creates source authority, cannot expand it, and never grants production authority.
@@ -57,6 +59,12 @@ A known task Resume Probe is bounded to current `main`, the canonical Issue chec
 Lifecycle state is monotonic. Backward/source-reauthorization transition requires a concrete recorded invalidation such as `MATERIAL_SCOPE_CHANGE`, `PROTECTED_BOUNDARY_CHANGE`, `USER_CHANGED_OUTCOME`, `MATERIAL_MAIN_DIVERGENCE`, or `EVIDENCE_CONTRADICTION`. `CONTEXT_LOSS` is not an invalidation reason.
 
 A Connector read is admissible only to advance the task, validate a mandatory gate, or resolve an explicit evidence gap. A mandatory fresh read, such as exact pre-merge base/head verification, is not considered an equivalent-read loop.
+
+## Synchronous external wait
+
+`WAITING_EXTERNAL` is a resumable nonterminal session disposition, not a lifecycle phase, terminal interaction state, blocker, or claim of background execution. It is valid only when no safe authorized action is executable now, progress depends exclusively on a named machine-observable external condition, and the v2 checkpoint records the exact condition, resume trigger, evidence cursor and next action. A protected human decision uses `HUMAN DECISION REQUIRED`; a concrete external blocker uses `BLOCKED`.
+
+Sea Speed sessions are synchronous. After writing `WAITING_EXTERNAL`, the Orchestrator returns control and performs no background polling. A later invocation runs one bounded Resume Probe. If the referenced cursor is unchanged, it returns the same wait without broad recovery, repeated planning or a generation update. If evidence changed, it clears the wait and executes the next admissible action. If another safe action is executable now, `ACTIVE` takes precedence.
 
 ## Production runtime contours and authority
 
@@ -127,15 +135,15 @@ Intermediate deterministic confirmations: FORBIDDEN
 
 Additional user interaction is justified only by material source reauthorization, protected credentials, standing-delegation/settings administration, irreversible/high-risk choice, configured environment review, or evidence unavailable to safe automation.
 
-## Terminal interaction contract
+## Session disposition and terminal interaction contract
 
-The Delivery Orchestrator may return control only as:
+The Delivery Orchestrator may return control as `WAITING_EXTERNAL` under the synchronous external-wait contract, or as one of exactly three terminal interaction states:
 
 - `DONE`: approved Outcome complete with all mandatory source, quality, runtime and acceptance evidence.
 - `BLOCKED`: a concrete external blocker prevents continuation; record blocker evidence, unblock condition and next admissible action.
 - `HUMAN DECISION REQUIRED`: genuine human decision, authorization, protected input/settings administration, configured-environment review or irreversible/high-risk choice is required; state the exact action/reply.
 
-`FAILED` is not a terminal interaction state; it is an internal event. PR created, CI running, merge ready, release built, deployment started, or checkpoint updated are not terminal while a safe authorized next action remains.
+`FAILED` is not a terminal interaction state; it is an internal event. `WAITING_EXTERNAL` is not terminal and does not promise background work. PR created, CI running, merge ready, release built, deployment started, or checkpoint updated are not terminal while a safe authorized next action is executable now; when progress depends exclusively on external state, use `WAITING_EXTERNAL` instead of polling or replanning.
 
 ## Delivery quality layer
 

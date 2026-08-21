@@ -1,6 +1,6 @@
 # Sea Speed Delivery Policy
 
-Version: 1.20.0
+Version: 1.21.0
 Status: Active
 
 ## 1. Purpose
@@ -26,7 +26,7 @@ Windows Worker is retired. The historical name **Windows AI Worker** may still a
 
 New tasks use `OUTCOME APPROVED` only after complete visible Scope immediately precedes the approval. Before first repository write require `VISIBLE_SCOPE_PRESENTED=YES`, `SCOPE_IMMEDIATELY_PRECEDES_APPROVAL=YES`, `SOURCE_AUTHORIZATION_ADMISSION=OPEN`.
 
-After valid admission, the canonical Issue records a durable source-authorization receipt and `Sea Speed Delivery Checkpoint v1`. The receipt is continuation evidence for the **same exact admitted scope** only. It cannot create, widen, or replace source authority and never grants production authority.
+After valid admission, the canonical Issue records a durable source-authorization receipt and machine-readable `Sea Speed Delivery Checkpoint v2`. The receipt is continuation evidence for the **same exact admitted scope** only. It cannot create, widen, or replace source authority and never grants production authority.
 
 PR admission requires exact Change Contract, exact changed-file match, valid SDD for significant work, required CI and unchanged protected boundaries. Merge requires fresh base/head comparison, zero unresolved review threads and expected-head protection when supported.
 
@@ -47,6 +47,12 @@ A known task with a valid checkpoint resumes through a bounded **Resume Probe**:
 Lifecycle state is monotonic. Backward/source-reauthorization transition requires one concrete material reason such as `MATERIAL_SCOPE_CHANGE`, `PROTECTED_BOUNDARY_CHANGE`, `USER_CHANGED_OUTCOME`, `MATERIAL_MAIN_DIVERGENCE`, or `EVIDENCE_CONTRADICTION`. `CONTEXT_LOSS` is not an invalidation reason.
 
 Checkpoint updates occur at meaningful lifecycle/evidence transitions, not after every tool call.
+
+`WAITING_EXTERNAL` is a nonterminal synchronous-session disposition. It is admissible only after all safe work executable now is exhausted and one machine-observable external condition is the sole prerequisite for continuation. The checkpoint records that condition, its resume trigger, exact evidence cursor and next action. No background execution or polling is implied.
+
+On a later invocation the Resume Probe observes that exact cursor once. Unchanged evidence preserves the wait without repeated planning, equivalent reads or checkpoint-generation change. Changed evidence produces valid `ACTIVE` state and resumes execution. Human/protected input is `HUMAN DECISION REQUIRED`, and a concrete external blocker is `BLOCKED`; neither may be represented as `WAITING_EXTERNAL`.
+
+Persisted v1 checkpoints remain readable for their exact admitted scopes and are upgraded by the repository validator at the next meaningful transition without source reauthorization.
 
 Connector reads after task resolution follow:
 
@@ -168,11 +174,11 @@ A successful protected runtime execution produces `sea_speed_production_executio
 
 Windows has no active runtime gate. Historical Windows manifests remain readable. Active media mode remains `mvp_v1`; `edge_v2` is a separate protected migration. Runtime authority changes do not alter detection/tracking/calibration/speed/event formulas.
 
-## 17. Completion and terminal interaction
+## 17. Completion and session disposition
 
 Merge is not release. Release is not deployment. Deployment is not acceptance.
 
-Return control only as `DONE`, `BLOCKED`, `HUMAN DECISION REQUIRED`. `FAILED` is not a terminal interaction state; it is an internal observation that must be remediated or classified at the actual boundary. `BLOCKED` requires a concrete external blocker, evidence, unblock condition and next admissible action. PR creation, CI running, checkpoint update, merge readiness, release build or deployment preparation is not terminal while a safe authorized next action remains.
+Return control only as nonterminal `WAITING_EXTERNAL`, or as terminal `DONE`, `BLOCKED`, `HUMAN DECISION REQUIRED`. `FAILED` is not a terminal interaction state; it is an internal observation that must be remediated or classified at the actual boundary. `BLOCKED` requires a concrete external blocker, evidence, unblock condition and next admissible action. Progress is not terminal while a safe authorized next action is executable now. If progress depends only on an external pending transition, persist `WAITING_EXTERNAL` instead of polling or replanning.
 
 ## 18. Delivery quality admission
 

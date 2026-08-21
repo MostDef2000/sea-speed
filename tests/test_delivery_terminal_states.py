@@ -1,3 +1,4 @@
+import unittest
 from pathlib import Path
 
 
@@ -39,9 +40,10 @@ def test_all_active_orchestration_contracts_define_only_three_terminal_interacti
         assert legacy not in combined
 
 
-def test_task_runtime_status_block_uses_terminal_interaction_states() -> None:
+def test_task_runtime_status_block_separates_session_and_terminal_states() -> None:
     runtime = _read("contracts/runtime/SEA_SPEED_TASK_RUNTIME.md")
-    assert "Terminal interaction state: PENDING/DONE/BLOCKED/HUMAN DECISION REQUIRED" in runtime
+    assert "Session disposition: ACTIVE/WAITING_EXTERNAL/TERMINAL" in runtime
+    assert "Terminal interaction state: NONE/DONE/BLOCKED/HUMAN DECISION REQUIRED" in runtime
     assert "Final state: PENDING/COMPLETE/BLOCKED/FAILED" not in runtime
 
 
@@ -89,7 +91,25 @@ def test_progress_only_statuses_are_not_terminal_handoffs() -> None:
     combined = "\n".join(_read(path).lower() for path in CONTRACT_PATHS)
     assert "pr created" in combined or "pr creation" in combined
     assert "ci running" in combined or "ci is running" in combined or "queued/running ci" in combined or "queued/running" in combined
-    assert "while a safe authorized next action" in combined or "while an authorized safe next step" in combined
+    assert "while a safe authorized next action is executable now" in combined
+
+
+def test_waiting_external_is_nonterminal_and_requires_no_executable_work() -> None:
+    for path in CONTRACT_PATHS:
+        text = _read(path)
+        assert "WAITING_EXTERNAL" in text, path
+        assert "nonterminal" in text.lower(), path
+        assert "executable now" in text.lower(), path
+    runtime = _read("contracts/runtime/SEA_SPEED_TASK_RUNTIME.md")
+    assert "safe authorized action executable now = NO" in runtime
+    assert "terminal interaction state = NONE" in runtime
+
+
+def test_waiting_external_does_not_claim_background_polling() -> None:
+    combined = "\n".join(_read(path).lower() for path in CONTRACT_PATHS)
+    assert "no background" in combined
+    assert "unchanged" in combined
+    assert "generation" in combined
 
 
 def test_checkpoint_update_is_not_a_terminal_handoff() -> None:
@@ -105,3 +125,38 @@ def test_context_loss_is_not_a_blocker_or_human_decision() -> None:
         assert marker in combined
     assert "does not" in combined
     assert "next admissible action" in combined
+
+
+class DeliveryTerminalStateTests(unittest.TestCase):
+    def test_three_states(self) -> None:
+        test_all_active_orchestration_contracts_define_only_three_terminal_interaction_states()
+
+    def test_status_block(self) -> None:
+        test_task_runtime_status_block_separates_session_and_terminal_states()
+
+    def test_failed(self) -> None:
+        test_failed_is_an_event_not_a_terminal_interaction_state()
+
+    def test_blocked(self) -> None:
+        test_blocked_requires_external_blocker_evidence_and_unblock_condition()
+
+    def test_remediation(self) -> None:
+        test_remediable_internal_failures_cannot_be_terminal_blockers()
+
+    def test_human(self) -> None:
+        test_human_decision_required_is_structured_and_resumable()
+
+    def test_progress(self) -> None:
+        test_progress_only_statuses_are_not_terminal_handoffs()
+
+    def test_wait(self) -> None:
+        test_waiting_external_is_nonterminal_and_requires_no_executable_work()
+
+    def test_no_background(self) -> None:
+        test_waiting_external_does_not_claim_background_polling()
+
+    def test_checkpoint(self) -> None:
+        test_checkpoint_update_is_not_a_terminal_handoff()
+
+    def test_context_loss(self) -> None:
+        test_context_loss_is_not_a_blocker_or_human_decision()

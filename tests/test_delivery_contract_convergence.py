@@ -121,6 +121,23 @@ class DeliveryContractConvergenceTests(unittest.TestCase):
         self.assertIn("outcome approved", combined)
         self.assertIn("cannot create", combined)
 
+    def test_synchronous_wait_converges_across_active_entrypoints(self) -> None:
+        paths = (
+            "AGENTS.md", "contracts/SEA_SPEED_GOVERNANCE.md", "contracts/SEA_SPEED_DELIVERY_POLICY.md",
+            "contracts/runtime/SEA_SPEED_TASK_RUNTIME.md", "contracts/runtime/RELEASE_READINESS_GATE.md",
+            "contracts/branches/project-manager.md", "contracts/branches/task-intake.md",
+            "docs/agents/PM_BOOTSTRAP.md",
+            "docs/architecture/sea-speed-control-plane.md",
+        )
+        for path in paths:
+            text = self.read(path)
+            lowered = text.lower()
+            self.assertIn("Delivery Checkpoint v2", text, path)
+            self.assertIn("WAITING_EXTERNAL", text, path)
+            self.assertIn("nonterminal", lowered, path)
+            self.assertIn("background", lowered, path)
+            self.assertIn("unchanged", lowered, path)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -16,7 +16,9 @@ This directory is the durable Spec-Driven Development layer for Sea Speed.
 - protected GitHub repository/environment settings: independently administered source/runtime control state, never granted by SDD text.
 - runtime evidence: operational truth written back into active artifacts.
 
-For recovery semantics, distinguish **Repository/product truth**, **Delivery-control truth**, and **Transient interaction state**. `main` supplies repository/product truth. The canonical Issue supplies durable delivery-control truth, including `Sea Speed Delivery Checkpoint v1`. Initial source admission still requires the complete visible Scope immediately followed by `OUTCOME APPROVED`; a durable receipt can only resume the same exact admitted scope and cannot create new authority.
+For recovery semantics, distinguish **Repository/product truth**, **Delivery-control truth**, and **Transient interaction state**. `main` supplies repository/product truth. The canonical Issue supplies durable delivery-control truth, including machine-readable `Sea Speed Delivery Checkpoint v2`. Initial source admission still requires the complete visible Scope immediately followed by `OUTCOME APPROVED`; a durable receipt can only resume the same exact admitted scope and cannot create new authority.
+
+Synchronous orchestration uses `ACTIVE`, nonterminal `WAITING_EXTERNAL`, or `TERMINAL` as session disposition. `WAITING_EXTERNAL` is valid only when no action is executable now and an exact external evidence transition is pending; it never implies background polling. Persisted v1 checkpoints remain readable and are upgraded by the repository validator at the next meaningful transition.
 
 ## Feature identifiers
 

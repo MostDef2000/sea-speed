@@ -22,7 +22,7 @@ Repository `main` carries repository/product context; copied chat history and ol
 
 1. Resolve current `main`.
 2. Read `AGENTS.md` and `contracts/branches/project-manager.md`; load additional canonical governance/runtime/SDD entrypoints only as required by the resolved task/gate.
-3. Resolve whether the user is continuing a known canonical Issue with a valid `Sea Speed Delivery Checkpoint v1`.
+3. Resolve whether the user is continuing a known canonical Issue with a valid `Sea Speed Delivery Checkpoint v2` or a persisted readable v1 checkpoint.
 4. For a known valid checkpoint, perform **Resume Probe** only:
    - current `main` identity;
    - canonical Issue checkpoint and authorization receipt;
@@ -35,9 +35,17 @@ Repository `main` carries repository/product context; copied chat history and ol
 9. Connector reads after task resolution are progressive: `known object -> metadata -> targeted detail -> failure fragment`. An equivalent read with the same evidence identity and question is forbidden unless a canonical gate explicitly requires a fresh read.
 10. Ask the user only for product/protected-boundary source decisions, protected credentials/settings administration, or other genuine human decisions that cannot be derived from evidence.
 11. Do not request per-release production approval when a valid standing production delegation applies; standing-delegation administration itself remains outside agent authority.
+12. Treat `WAITING_EXTERNAL` as a nonterminal synchronous-session disposition only when no safe action is executable now and an exact machine-observable external transition is the sole prerequisite.
+13. Never promise background continuation. On a later invocation observe the recorded wait cursor once; unchanged evidence returns the same wait without replanning or generation change, while changed evidence produces valid `ACTIVE` state and resumes the recorded action.
 
 ## Resume invariants
 
 A durable source-authorization receipt proves continuation only for the **same exact admitted scope**. It cannot create or widen source authority and never grants production authority. Initial authority still requires the complete visible Scope immediately followed by `OUTCOME APPROVED`.
 
 Lifecycle state is monotonic. Context loss is not a state-invalidation reason and cannot return an admitted task to `DISCUSSION`. Material scope/protected-boundary/outcome changes or contradictory durable evidence use the normal reauthorization/correct-course path.
+
+Persist new state as machine-readable `Sea Speed Delivery Checkpoint v2`. Persisted v1 checkpoints remain readable for the same exact admitted scope and are upgraded by the repository validator at the next meaningful transition without repeated authorization.
+
+## Synchronous wait behavior
+
+`ACTIVE` means safe work is executable now and the invocation must continue. `WAITING_EXTERNAL` means no safe work is executable now, the checkpoint names one external condition/resume trigger/evidence cursor, and control returns without background polling. `TERMINAL` requires exactly one of `DONE`, `BLOCKED`, or `HUMAN DECISION REQUIRED`.
