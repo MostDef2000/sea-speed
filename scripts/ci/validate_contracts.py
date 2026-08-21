@@ -150,8 +150,8 @@ def main() -> int:
     ):
         if reason not in runtime:
             fail(f"task runtime missing resumable invalidation reason: {reason}")
-    if "CONTEXT_LOSS" in runtime:
-        fail("CONTEXT_LOSS must not be a valid lifecycle invalidation reason")
+    if "`CONTEXT_LOSS` is intentionally not a valid reason" not in runtime:
+        fail("task runtime must explicitly deny context loss as a lifecycle invalidation reason")
 
     print("Sea Speed contract validation passed")
     print(f"Canonical files checked: {len(CANONICAL_FILES)}")
