@@ -92,7 +92,7 @@ def test_lifecycle_is_monotonic_with_explicit_material_invalidation() -> None:
         "EVIDENCE_CONTRADICTION",
     ):
         assert reason in runtime
-    assert "CONTEXT_LOSS" not in runtime
+    assert "`CONTEXT_LOSS` is intentionally not a valid reason" in runtime
 
 
 def test_connector_reads_are_progressive_and_cursor_bound() -> None:
