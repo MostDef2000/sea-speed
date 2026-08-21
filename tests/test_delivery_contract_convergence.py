@@ -81,10 +81,45 @@ class DeliveryContractConvergenceTests(unittest.TestCase):
         self.assertEqual(target["status"], "closed")
         self.assertTrue(target["resolution_evidence"])
 
-    def test_historical_decisions_are_retained_and_dr005_exists(self) -> None:
-        for number in (1, 2, 3, 4, 5):
+    def test_historical_decisions_are_retained_and_dr006_exists(self) -> None:
+        for number in (1, 2, 3, 4, 5, 6):
             matches = list((ROOT / "docs/decision_records").glob(f"DR-{number:03d}-*.md"))
             self.assertTrue(matches, number)
+
+    def test_resumable_delivery_converges_across_active_entrypoints(self) -> None:
+        paths = (
+            "AGENTS.md",
+            "contracts/SEA_SPEED_GOVERNANCE.md",
+            "contracts/SEA_SPEED_DELIVERY_POLICY.md",
+            "contracts/runtime/SEA_SPEED_TASK_RUNTIME.md",
+            "contracts/runtime/RELEASE_READINESS_GATE.md",
+            "contracts/branches/project-manager.md",
+            "docs/agents/PM_BOOTSTRAP.md",
+            "docs/architecture/sea-speed-control-plane.md",
+        )
+        for path in paths:
+            text = self.read(path)
+            self.assertIn("Resume Probe", text, path)
+            self.assertIn("Delivery Checkpoint", text, path)
+            self.assertIn("Next admissible action", text, path)
+            self.assertIn("same exact admitted scope", text.lower(), path)
+
+    def test_context_loss_does_not_reopen_source_admission(self) -> None:
+        combined = "\n".join(
+            self.read(path).lower()
+            for path in (
+                "AGENTS.md",
+                "contracts/SEA_SPEED_GOVERNANCE.md",
+                "contracts/SEA_SPEED_DELIVERY_POLICY.md",
+                "contracts/runtime/SEA_SPEED_TASK_RUNTIME.md",
+                "contracts/branches/project-manager.md",
+            )
+        )
+        for marker in ("context compaction", "session restart", "connector truncation"):
+            self.assertIn(marker, combined)
+        self.assertIn("discussion", combined)
+        self.assertIn("outcome approved", combined)
+        self.assertIn("cannot create", combined)
 
 
 if __name__ == "__main__":
