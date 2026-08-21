@@ -23,18 +23,20 @@
 - AC-004 | Task: T004 | Evidence: replay transition tests | Coverage: COVERED
 - AC-005 | Task: T004 | Evidence: terminal-condition tests | Coverage: COVERED
 - AC-006 | Task: T003,T004 | Evidence: realistic v1 upgrade test | Coverage: COVERED
-- AC-007 | Task: T006,T007,T008 | Evidence: local validation and CI | Coverage: PENDING
+- AC-007 | Task: T006,T007,T008 | Evidence: local validation and CI | Coverage: COVERED
 
 ## Definition of Done
 
 - [x] Issue/spec/plan/tasks current
 - [x] Exact changed-file scope verified
-- [x] Required tests and local evidence complete
+- [ ] Required tests and evidence complete
 - [ ] Required CI green
 - [ ] Exact-green-head merge complete
 - [x] Deployment state resolved: NOT REQUIRED
 - [x] Runtime acceptance resolved: NOT REQUIRED
+- [x] Deferred work recorded: NONE
 - [x] Risks resolved or explicitly accepted
+- [x] Waivers resolved or current: NOT REQUIRED
 
 ## Completion gate
 

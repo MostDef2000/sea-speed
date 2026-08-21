@@ -52,15 +52,15 @@ Keep lifecycle phases and three terminal interaction states. Add an orthogonal s
 
 ## Test design
 
-- TEST-001 | Covers: AC-001 | Level: contract | Priority: P0 | Evidence: resume, terminal, convergence tests
+- TEST-001 | Covers: AC-001 | Level: unit | Priority: P0 | Evidence: resume, terminal, convergence tests
 - TEST-002 | Covers: AC-002,AC-003 | Level: unit | Priority: P0 | Evidence: invalid combination and precedence tests
-- TEST-003 | Covers: AC-004 | Level: behavioral | Priority: P0 | Evidence: unchanged/changed replay tests
-- TEST-004 | Covers: AC-005,AC-006 | Level: behavioral | Priority: P0 | Evidence: terminal and v1 migration tests
+- TEST-003 | Covers: AC-004 | Level: unit | Priority: P0 | Evidence: unchanged/changed replay tests
+- TEST-004 | Covers: AC-005,AC-006 | Level: unit | Priority: P0 | Evidence: terminal and v1 migration tests
 - TEST-005 | Covers: AC-007 | Level: integration | Priority: P1 | Evidence: local suite and GitHub CI
 
 ## Correct-course check
 
-- Trigger: CODE_REVIEW
+- Trigger: NONE
 - Issue impact: NONE
 - Specification impact: Added behavioral v1 upgrade and valid changed-cursor transition requirements.
 - Plan impact: Schema cross-field rules and terminal/action conflict validation strengthened.
