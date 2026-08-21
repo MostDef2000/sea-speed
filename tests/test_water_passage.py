@@ -76,17 +76,71 @@ class PassageEngineTests(unittest.TestCase):
         self.assertEqual(second["track_fragments"], [11, 22])
         self.assertEqual(engine.active_count, 1)
 
-    def test_new_track_after_stitch_window_creates_new_passage(self) -> None:
+    def test_new_track_after_configured_reacquire_window_creates_new_passage(self) -> None:
         ids = iter(["P-TEST-0001", "P-TEST-0002"])
         engine = WaterPassageEngine(
             self.make_estimator,
             id_factory=lambda _ts: next(ids),
             stitch_window_sec=2,
+            reacquire_window_sec=2,
             stitch_distance_px=50,
             passage_end_gap_sec=8,
         )
         first = engine.update([det(1, 30)], 1.0)[-1]["passage"]
         second = engine.update([det(2, 32)], 4.0)[-1]["passage"]
+        self.assertNotEqual(first["passage_id"], second["passage_id"])
+        self.assertEqual(engine.active_count, 2)
+
+    def test_established_passage_reacquires_after_eight_second_dropout(self) -> None:
+        ids = iter(["P-TEST-0001", "P-TEST-0002"])
+        engine = WaterPassageEngine(
+            self.make_estimator,
+            id_factory=lambda _ts: next(ids),
+            stitch_window_sec=2.5,
+            reacquire_window_sec=10.0,
+            stitch_distance_px=120,
+            passage_end_gap_sec=5.0,
+        )
+        engine.update([det(11, 10)], 0.0)
+        before_dropout = engine.update([det(11, 30)], 1.0)[-1]["passage"]
+        reacquired = engine.update([det(22, 70)], 9.0)[-1]["passage"]
+        self.assertEqual(before_dropout["passage_id"], reacquired["passage_id"])
+        self.assertEqual(reacquired["track_fragments"], [11, 22])
+        self.assertEqual(engine.active_count, 1)
+        self.assertGreaterEqual(engine.passage_end_gap_sec, 12.0)
+
+    def test_reacquisition_preserves_two_gate_measurement_state(self) -> None:
+        engine = WaterPassageEngine(
+            self.make_estimator,
+            id_factory=lambda _ts: "P-TEST-GATES",
+            stitch_window_sec=2.5,
+            reacquire_window_sec=10.0,
+            stitch_distance_px=120,
+            passage_end_gap_sec=5.0,
+        )
+        engine.update([det(11, 10)], 0.0)
+        crossed_a = engine.update([det(11, 30)], 1.0)[-1]["passage"]
+        self.assertEqual(crossed_a["speed_status"], "measuring")
+        engine.update([det(22, 70)], 9.0)
+        measured = engine.update([det(22, 90)], 10.0)[-1]["passage"]
+        self.assertEqual(measured["passage_id"], "P-TEST-GATES")
+        self.assertEqual(measured["track_fragments"], [11, 22])
+        self.assertEqual(measured["speed_status"], "measured")
+        self.assertEqual(measured["direction"], "A->B")
+        self.assertGreater(measured["speed_kmh"] or 0, 0)
+
+    def test_distant_vessel_is_not_reacquired_into_existing_passage(self) -> None:
+        ids = iter(["P-TEST-0001", "P-TEST-0002"])
+        engine = WaterPassageEngine(
+            self.make_estimator,
+            id_factory=lambda _ts: next(ids),
+            stitch_window_sec=2.5,
+            reacquire_window_sec=10.0,
+            stitch_distance_px=120,
+        )
+        engine.update([det(11, 10, x=50)], 0.0)
+        first = engine.update([det(11, 30, x=50)], 1.0)[-1]["passage"]
+        second = engine.update([det(22, 30, x=300)], 9.0)[-1]["passage"]
         self.assertNotEqual(first["passage_id"], second["passage_id"])
         self.assertEqual(engine.active_count, 2)
 
@@ -149,12 +203,17 @@ class PassageEngineTests(unittest.TestCase):
             id_factory=lambda _ts: "P-TEST-SNAP",
             snapshot_improvement_ratio=1.15,
         )
-        first = engine.update([det(1, 30, confidence=0.80)], 1.0)[-1]
+        first_det = det(1, 30, confidence=0.80)
+        first = engine.update([first_det], 1.0)[-1]
         second = engine.update([det(1, 31, confidence=0.84)], 2.0)[-1]
         third = engine.update([det(1, 32, confidence=0.98)], 3.0)[-1]
         self.assertTrue(first["snapshot_candidate"])
         self.assertFalse(second["snapshot_candidate"])
         self.assertTrue(third["snapshot_candidate"])
+        self.assertEqual(first_det["bbox_xyxy"], [40.0, 20, 60.0, 30])
+        snapshot_box = first["snapshot_detection"]["bbox_xyxy"]
+        self.assertGreater(snapshot_box[2] - snapshot_box[0], 20)
+        self.assertGreater(snapshot_box[3] - snapshot_box[1], 10)
 
     @staticmethod
     def _obs(ts: float, y: float):
