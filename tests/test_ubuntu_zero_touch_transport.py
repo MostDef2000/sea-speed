@@ -42,6 +42,15 @@ class UbuntuZeroTouchTransportTests(unittest.TestCase):
         self.assertNotIn("eval ", gate)
         self.assertNotIn("bash -c \"$SSH_ORIGINAL_COMMAND\"", gate)
 
+    def test_gate_cleans_local_stage_before_execute_root_returns(self):
+        gate = self.read("scripts/operations/sea_speed_ubuntu_zero_touch_gate.sh")
+        start = gate.index("execute_root() {")
+        end = gate.index('\n}\n\nif [[ "${1:-}" == "--execute" ]]', start)
+        execute_root = gate[start:end]
+        self.assertIn("trap cleanup EXIT", execute_root)
+        self.assertIn('cat "$manifest"\n  cleanup\n  trap - EXIT', execute_root)
+        self.assertLess(execute_root.index('cat "$manifest"'), execute_root.index("trap - EXIT"))
+
     def test_bootstrap_installs_only_dedicated_restricted_boundary(self):
         bootstrap = self.read("scripts/operations/bootstrap_ubuntu_zero_touch_transport.sh")
         self.assertIn('readonly DEPLOY_USER="sea-speed-deploy"', bootstrap)
