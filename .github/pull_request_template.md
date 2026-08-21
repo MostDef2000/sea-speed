@@ -36,12 +36,12 @@
 
 ## Delivery
 
-- VPS deployment: REQUIRED / NOT REQUIRED
-- Ubuntu worker/relay update: REQUIRED / NOT REQUIRED
-- Production safety envelope: REQUIRED / NOT REQUIRED
-- VPS execution capability: CONNECTOR / ONE_COMMAND_FALLBACK / MISSING / NOT APPLICABLE
-- Ubuntu worker execution capability: CONNECTOR / ONE_COMMAND_FALLBACK / MISSING / NOT APPLICABLE
-- Operator actions expected: 0
+- VPS deployment: [required only if runtime VPS/UBUNTU_WORKER/MIXED, else omit or NOT REQUIRED]
+- Ubuntu worker/relay update: [required only if runtime, else omit or NOT REQUIRED]
+- Production safety envelope: [required only if runtime, else omit or NOT REQUIRED]
+- VPS execution capability: [required only if runtime, else omit or NOT APPLICABLE]
+- Ubuntu worker execution capability: [required only if runtime, else omit or NOT APPLICABLE]
+- Operator actions expected: [required only if runtime, else omit or 0]
 - Rollout order: [required only if VPS/UBUNTU_WORKER/MIXED, else omit]
 - Release manifest: [required only if runtime, else omit]
 - Rollback target: [required only if runtime, else omit]

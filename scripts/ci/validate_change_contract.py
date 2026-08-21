@@ -249,8 +249,21 @@ def validate_contract(body: str, changed_files: Iterable[str], policy: dict | No
     if impact in ("VPS", "UBUNTU_WORKER", "MIXED"):
         for name in ("Rollout order", "Release manifest", "Rollback target"):
             require_value(fields, name)
-    validate_deployment_fields(contours, fields)
-    validate_execution_capabilities(contours, fields)
+        validate_deployment_fields(contours, fields)
+        validate_execution_capabilities(contours, fields)
+    else:
+        # FAST/CONTROL_PLANE/NONE: deployment fields are optional; if present, must be NOT REQUIRED/NOT APPLICABLE
+        # Windows fields are retired and must be rejected even for FAST
+        if "Windows worker update" in fields:
+            raise ContractError("Windows worker update is retired and must not appear in new Change Contracts")
+        if "Windows worker execution capability" in fields:
+            raise ContractError("Windows worker execution capability is retired and must not appear in new Change Contracts")
+        for name in ("VPS deployment", "Ubuntu worker/relay update", "Production safety envelope"):
+            if name in fields and fields[name] not in {"REQUIRED", "NOT REQUIRED"}:
+                raise ContractError(f"{name} must be REQUIRED or NOT REQUIRED")
+        for name in ("VPS execution capability", "Ubuntu worker execution capability"):
+            if name in fields and fields[name].upper() not in {"CONNECTOR", "ONE_COMMAND_FALLBACK", "MISSING", "NOT APPLICABLE"}:
+                raise ContractError(f"{name} must be one of CONNECTOR/NOT APPLICABLE")
     validate_quality_fields(fields, impact)
     return impact
 
