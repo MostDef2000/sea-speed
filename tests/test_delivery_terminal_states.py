@@ -88,5 +88,20 @@ def test_human_decision_required_is_structured_and_resumable() -> None:
 def test_progress_only_statuses_are_not_terminal_handoffs() -> None:
     combined = "\n".join(_read(path).lower() for path in CONTRACT_PATHS)
     assert "pr created" in combined or "pr creation" in combined
-    assert "ci is running" in combined or "queued/running ci" in combined or "queued/running" in combined
+    assert "ci running" in combined or "ci is running" in combined or "queued/running ci" in combined or "queued/running" in combined
     assert "while a safe authorized next action" in combined or "while an authorized safe next step" in combined
+
+
+def test_checkpoint_update_is_not_a_terminal_handoff() -> None:
+    combined = "\n".join(_read(path).lower() for path in CONTRACT_PATHS)
+    assert "checkpoint" in combined
+    assert "checkpoint update" in combined or "checkpoint updated" in combined
+    assert "not terminal" in combined
+
+
+def test_context_loss_is_not_a_blocker_or_human_decision() -> None:
+    combined = "\n".join(_read(path).lower() for path in CONTRACT_PATHS)
+    for marker in ("context compaction", "session restart", "connector truncation"):
+        assert marker in combined
+    assert "does not" in combined
+    assert "next admissible action" in combined

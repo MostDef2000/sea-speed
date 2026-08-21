@@ -1,25 +1,35 @@
 # Sea Speed Control Plane
 
-Version: 2.3.0
+Version: 2.4.0
 Status: Active
 
 ## Overview
 
-GitHub `main` is the source of truth. Sea Speed has exactly two active production runtime contours: VPS and Ubuntu Worker/relay. The Delivery Orchestrator owns one task context from source intake through acceptance, while production execution authority is a separately administered standing delegation.
+GitHub `main` is the source of truth for repository/product state. Sea Speed has exactly two active production runtime contours: VPS and Ubuntu Worker/relay. The Delivery Orchestrator owns one task context from source intake through acceptance, while production execution authority is a separately administered standing delegation.
+
+The canonical Issue is the durable delivery-control record for an existing task: Outcome Contract, source-authorization receipt, `Sea Speed Delivery Checkpoint v1`, exact branch/PR/head identities, completed gates and evidence cursors. The live conversation is transient interaction state used for new authorization decisions; it is not the durable execution cursor.
 
 On the GitHub Free plan the production repository remains public so branch protection, required checks and the `production` environment can form the control plane. Public source is not a secret boundary; credentials, private keys, populated environment values and runtime secrets remain outside Git.
 
 Windows Worker is retired from production. Historical Windows evidence remains immutable/readable audit history.
 
+## Truth classes
+
+1. **Repository/product truth** — current `main`, committed contracts/specs/source and accepted runtime evidence.
+2. **Delivery-control truth** — canonical Issue, admitted scope/authorization receipt, Delivery Checkpoint, exact branch/PR/head and evidence cursors.
+3. **Transient interaction state** — current chat used to present a new Scope and receive its immediately-following `OUTCOME APPROVED`.
+
+These layers are complementary. Delivery-control evidence can resume the **same exact admitted scope** but cannot create or widen source authority and never grants production authority.
+
 ## Control layers
 
-1. GitHub Issues: canonical backlog, source authorization and task history.
-2. Task Intake and Implementation Scope Check.
+1. GitHub Issues: canonical backlog, source authorization, task history and durable Delivery Checkpoint.
+2. Task Intake and Implementation Scope Check for new/materially invalidated work.
 3. SDD: product intent, architecture, bounded tasks and runtime feedback.
 4. Canonical governance/runtime contracts.
 5. Public GitHub `main` protected by PR and required merge-facing checks.
 6. Sea Speed Delivery Orchestrator: scope lock, source implementation, PR/CI, merge, policy-driven runtime continuation and terminal evidence.
-7. GitHub Connector: repository lifecycle transport.
+7. GitHub Connector: repository lifecycle transport with cursor-bound progressive retrieval.
 8. Trusted GitHub `production` environment state: independently administered standing production delegation and runtime credentials.
 9. Repository production policy: deterministic constraint/evaluation layer that can narrow but not widen trusted delegation.
 10. Protected VPS/Ubuntu workflows and bounded target transactions.
@@ -28,16 +38,35 @@ Windows Worker is retired from production. Historical Windows evidence remains i
 
 ```text
 User request
--> current-main recovery
--> Outcome Contract + visible Scope
+-> new task: current-main recovery + Task Intake
+   OR existing task: bounded Resume Probe
+-> Outcome Contract + visible Scope when new/fresh authorization is required
 -> OUTCOME APPROVED
+-> durable authorization receipt + Delivery Checkpoint
 -> fresh branch + SDD/source
 -> PR + validation + aggregate Quality
 -> protected exact-green merge
 -> exact-main Quality
 ```
 
-`OUTCOME APPROVED` remains source authority only. Branch/ruleset settings are independent administrative state and cannot be self-issued by repository text or the Delivery Orchestrator.
+`OUTCOME APPROVED` remains source authority only. Initial admission requires the complete visible Scope immediately followed by that decision. Once durably receipted, the receipt may continue only the same exact admitted scope after context/session loss. Branch/ruleset settings are independent administrative state and cannot be self-issued by repository text or the Delivery Orchestrator.
+
+## Resume flow
+
+```text
+known canonical task
+-> current main identity
+-> canonical Issue Delivery Checkpoint
+-> exact referenced PR/head/status evidence whose cursor may have changed
+-> validate checkpoint against durable evidence
+-> execute Next admissible action
+```
+
+A valid checkpoint prevents repeated Task Intake/full project recovery. Context compaction, session restart, response truncation and Connector truncation are not source-authority or phase invalidation. Full project recovery is reserved for an absent/unresolved/invalid checkpoint or material evidence contradiction.
+
+Lifecycle state is monotonic. Material reauthorization/backward transitions require an explicit reason such as `MATERIAL_SCOPE_CHANGE`, `PROTECTED_BOUNDARY_CHANGE`, `USER_CHANGED_OUTCOME`, `MATERIAL_MAIN_DIVERGENCE`, or `EVIDENCE_CONTRADICTION`.
+
+Connector reads after task resolution follow `known object -> metadata -> targeted detail -> failure fragment`. An equivalent read for the same question at the same evidence identity is forbidden unless a mandatory gate requires a fresh read.
 
 ## Runtime flow
 

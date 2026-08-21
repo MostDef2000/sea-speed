@@ -1,6 +1,6 @@
 # Sea Speed Release Readiness Gate
 
-Version: 1.13.0
+Version: 1.14.0
 Status: Active
 
 ## Gate
@@ -10,6 +10,10 @@ Before release execution verify:
 ```text
 Release Readiness Gate
 - Canonical Issue linked: YES/NO
+- Delivery Checkpoint valid: YES/NO
+- Approved scope identity current: YES/NO
+- Source authorization receipt valid for same exact admitted scope: YES/NO
+- State invalidation reason: NONE/<reason>
 - Applicable merged PR linked: YES/NO
 - Outcome Contract / approved scope current: YES/NO
 - Approved source committed to main: YES/NO
@@ -45,13 +49,25 @@ Release Readiness Gate
 - Safe to continue: YES/NO
 ```
 
+## Resume/readiness boundary
+
+Release readiness consumes durable delivery-control truth; it does not recreate source authority. **Repository/product truth** remains current `main`; **Delivery-control truth** is the canonical Issue/authorization receipt/Delivery Checkpoint and exact referenced evidence; **Transient interaction state** is the live conversation used for initial visible-Scope -> immediately-following `OUTCOME APPROVED` admission.
+
+A durable authorization receipt is valid only for the **same exact admitted scope**. It cannot create, widen or replace source authority and never grants production authority. Context compaction, session restart, response truncation or Connector truncation does not by itself invalidate the receipt, return an admitted task to `DISCUSSION`, or require another `OUTCOME APPROVED`.
+
+If a task must be recovered before this gate, use the bounded **Resume Probe**: current `main`, canonical Issue checkpoint, exact referenced PR/head/status/evidence whose cursor may have changed, then `Next admissible action`. Full project recovery is allowed only when the checkpoint is absent/unresolved/invalid or durable evidence materially contradicts it.
+
+Lifecycle state is monotonic unless a concrete material invalidation is recorded: `MATERIAL_SCOPE_CHANGE`, `PROTECTED_BOUNDARY_CHANGE`, `USER_CHANGED_OUTCOME`, `MATERIAL_MAIN_DIVERGENCE`, or `EVIDENCE_CONTRADICTION`. `CONTEXT_LOSS` is not an invalidation reason.
+
+Connector reads are cursor-bound and progressive: `known object -> metadata -> targeted detail -> failure fragment`. Equivalent re-reads with the same evidence identity and question are forbidden unless this or another canonical gate explicitly requires fresh evidence. Required fresh base/head/Quality/protection reads are therefore permitted and must be scoped to the exact gate.
+
 ## Protected source gate
 
 On GitHub Free, Sea Speed production requires a public repository and protected `main`. `scripts/release/verify_source_protection.py` must succeed before production policy evaluation in the autonomous router and before transport in both protected deploy workflows.
 
 The machine-verifiable minimum is `visibility=public`, `main.protected=true`, and required check contexts for `Repository validation` and `quality-integration`. Independently administered repository settings must also require PRs and disable force-push/delete/bypass paths that would defeat these checks. Repository/ruleset settings are not agent authority.
 
-Changing repository visibility to private, removing branch protection or removing required checks is production deny until the protected state is restored.
+Changing repository visibility to private, removing main protection or removing required checks is production deny until the protected state is restored.
 
 ## Capability preflight
 
@@ -65,7 +81,7 @@ If the required route is unavailable and no exact approved fallback exists, retu
 
 ## Terminal interaction gate
 
-Return control only as `DONE`, `BLOCKED`, `HUMAN DECISION REQUIRED`. `FAILED` is an internal observation. PR created, CI running, merge ready, release built and deployment prepared are not terminal.
+Return control only as `DONE`, `BLOCKED`, `HUMAN DECISION REQUIRED`. `FAILED` is not a terminal interaction state; it is an internal observation. `BLOCKED` requires a concrete external blocker, evidence, unblock condition and next admissible action. A remediable in-scope source/test/CI/metadata failure is not a blocker and must be remediated automatically before this gate can justify returning control. PR created, CI running, checkpoint updated, merge ready, release built and deployment prepared are not terminal while a safe authorized next action exists.
 
 ## Aggregate quality gate
 
