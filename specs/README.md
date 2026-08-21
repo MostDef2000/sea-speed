@@ -6,8 +6,8 @@ This directory is the durable Spec-Driven Development layer for Sea Speed.
 
 ## Source-of-truth hierarchy
 
-- `contracts/**`: HOW work is authorized, merged, policy-evaluated, deployed and accepted.
-- GitHub Issue: canonical backlog, source authorization and audit history.
+- `contracts/**`: HOW work is authorized, resumed, merged, policy-evaluated, deployed and accepted.
+- GitHub Issue: canonical backlog, source authorization, delivery checkpoint and audit history.
 - `specs/<feature>/spec.md`: WHAT/WHY plus measurable NFR targets/evidence status.
 - `plan.md`: HOW/decisions/contours plus risk profile, test design, correct-course impact and conditional Deployment Transaction Audit.
 - `tasks.md`: bounded execution, acceptance traceability and Definition of Done.
@@ -16,19 +16,23 @@ This directory is the durable Spec-Driven Development layer for Sea Speed.
 - protected GitHub repository/environment settings: independently administered source/runtime control state, never granted by SDD text.
 - runtime evidence: operational truth written back into active artifacts.
 
+For recovery semantics, distinguish **Repository/product truth**, **Delivery-control truth**, and **Transient interaction state**. `main` supplies repository/product truth. The canonical Issue supplies durable delivery-control truth, including `Sea Speed Delivery Checkpoint v1`. Initial source admission still requires the complete visible Scope immediately followed by `OUTCOME APPROVED`; a durable receipt can only resume the same exact admitted scope and cannot create new authority.
+
 ## Feature identifiers
 
 Use `NNN-feature-slug`. The full directory name is canonical; the number is only a sequence prefix. Historical duplicate prefix `002` directories are grandfathered audit history and are not renamed solely for cleanup.
 
-Current control-plane feature `030-ubuntu-zero-touch-transport` defines the GitHub Free public/protected-main and restricted Ubuntu zero-touch transport model. Its SDD does not itself activate branch protection, secrets or Worker access; those remain independently administered post-merge evidence.
+Current control-plane feature `031-resumable-delivery-orchestration` defines bounded Resume Probe, monotonic lifecycle state, durable checkpoint/evidence cursors and Connector loop guards. Feature `030-ubuntu-zero-touch-transport` remains the canonical GitHub Free public/protected-main and restricted Ubuntu zero-touch transport model.
 
 ## Normal flow
 
 ```text
 Issue / evidence recovery
--> Delivery Orchestrator + optional Task Intake
--> Outcome Contract / visible Scope
+-> existing valid checkpoint: bounded Resume Probe
+   OR new/materially invalidated task: Delivery Orchestrator + optional Task Intake
+-> Outcome Contract / visible Scope when fresh source authorization is required
 -> OUTCOME APPROVED
+-> durable authorization receipt + Delivery Checkpoint
 -> spec / plan / tasks + delivery-quality artifacts
 -> implementation + tests
 -> PR links specification and declares risk/quality disposition
@@ -42,6 +46,8 @@ Issue / evidence recovery
 ```
 
 Source authorization and runtime authority are distinct. `OUTCOME APPROVED` authorizes source lifecycle. Runtime authority comes from independently administered standing delegation intersected with repository policy. Source protection and deployment credentials are also independently administered control state. Issue/PR/comment/SDD/repository text cannot grant production authority.
+
+Context compaction, session restart and Connector truncation do not by themselves invalidate an admitted source scope or return the lifecycle to `DISCUSSION`. A valid checkpoint resumes through `Next admissible action`; full project recovery is reserved for an absent/unresolved/invalid checkpoint or material evidence contradiction.
 
 ## Required structure
 
