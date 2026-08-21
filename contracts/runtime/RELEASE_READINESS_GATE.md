@@ -81,7 +81,7 @@ If the required route is unavailable and no exact approved fallback exists, retu
 
 ## Terminal interaction gate
 
-Return control only as `DONE`, `BLOCKED`, `HUMAN DECISION REQUIRED`. `FAILED` is not a terminal interaction state; it is an internal observation. `BLOCKED` requires a concrete external blocker, evidence, unblock condition and next admissible action. PR created, CI running, checkpoint updated, merge ready, release built and deployment prepared are not terminal while a safe authorized next action exists.
+Return control only as `DONE`, `BLOCKED`, `HUMAN DECISION REQUIRED`. `FAILED` is not a terminal interaction state; it is an internal observation. `BLOCKED` requires a concrete external blocker, evidence, unblock condition and next admissible action. A remediable in-scope source/test/CI/metadata failure is not a blocker and must be remediated automatically before this gate can justify returning control. PR created, CI running, checkpoint updated, merge ready, release built and deployment prepared are not terminal while a safe authorized next action exists.
 
 ## Aggregate quality gate
 
