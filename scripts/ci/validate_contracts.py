@@ -33,6 +33,9 @@ CANONICAL_FILES = (
     "docs/decision_records/DR-002-task-intake-and-delivery-controls.md",
     "docs/decision_records/DR-003-release-provenance-and-evidence-loop.md",
     "docs/decision_records/DR-004-delivery-orchestrator-convergence.md",
+    "docs/decision_records/DR-005-standing-production-delegation.md",
+    "docs/decision_records/DR-006-resumable-delivery-orchestration.md",
+    "docs/agents/PM_BOOTSTRAP.md",
     "docs/operations/PRODUCTION_BASELINE.md",
     "docs/operations/RELEASE_PROVENANCE.md",
     "docs/evidence/POST_RELEASE_REVIEW.md",
@@ -61,6 +64,10 @@ CANONICAL_FILES = (
     "specs/013-delivery-orchestrator-convergence/spec.md",
     "specs/013-delivery-orchestrator-convergence/plan.md",
     "specs/013-delivery-orchestrator-convergence/tasks.md",
+    "specs/031-resumable-delivery-orchestration/spec.md",
+    "specs/031-resumable-delivery-orchestration/plan.md",
+    "specs/031-resumable-delivery-orchestration/tasks.md",
+    "tests/test_delivery_resume_contract.py",
 )
 
 REFERENCE_FILES = (
@@ -74,9 +81,28 @@ REFERENCE_FILES = (
     "contracts/branches/project-manager.md",
     "contracts/branches/core-release.md",
     "docs/architecture/sea-speed-control-plane.md",
+    "docs/agents/PM_BOOTSTRAP.md",
     "docs/operations/PRODUCTION_BASELINE.md",
     "docs/operations/RELEASE_PROVENANCE.md",
     "docs/evidence/POST_RELEASE_REVIEW.md",
+)
+
+RESUME_CONTRACT_FILES = (
+    "AGENTS.md",
+    "contracts/SEA_SPEED_GOVERNANCE.md",
+    "contracts/SEA_SPEED_DELIVERY_POLICY.md",
+    "contracts/runtime/SEA_SPEED_TASK_RUNTIME.md",
+    "contracts/runtime/RELEASE_READINESS_GATE.md",
+    "contracts/branches/project-manager.md",
+    "docs/agents/PM_BOOTSTRAP.md",
+    "docs/architecture/sea-speed-control-plane.md",
+)
+
+RESUME_MARKERS = (
+    "Resume Probe",
+    "Delivery Checkpoint",
+    "Next admissible action",
+    "same exact admitted scope",
 )
 
 REPO_PATH_PATTERN = re.compile(r"`((?:contracts|data|docs|scripts|deploy|api|frontend|worker|tests|schemas|specs|\.github)/[^`\n]+)`")
@@ -108,8 +134,28 @@ def main() -> int:
     if broken:
         fail("broken repository references: " + "; ".join(sorted(set(broken))))
 
+    for source_name in RESUME_CONTRACT_FILES:
+        text = (ROOT / source_name).read_text(encoding="utf-8-sig")
+        missing_markers = [marker for marker in RESUME_MARKERS if marker.lower() not in text.lower()]
+        if missing_markers:
+            fail(f"resumable delivery markers missing from {source_name}: {', '.join(missing_markers)}")
+
+    runtime = (ROOT / "contracts/runtime/SEA_SPEED_TASK_RUNTIME.md").read_text(encoding="utf-8-sig")
+    for reason in (
+        "MATERIAL_SCOPE_CHANGE",
+        "PROTECTED_BOUNDARY_CHANGE",
+        "USER_CHANGED_OUTCOME",
+        "MATERIAL_MAIN_DIVERGENCE",
+        "EVIDENCE_CONTRADICTION",
+    ):
+        if reason not in runtime:
+            fail(f"task runtime missing resumable invalidation reason: {reason}")
+    if "CONTEXT_LOSS" in runtime:
+        fail("CONTEXT_LOSS must not be a valid lifecycle invalidation reason")
+
     print("Sea Speed contract validation passed")
     print(f"Canonical files checked: {len(CANONICAL_FILES)}")
+    print(f"Resumable delivery entrypoints checked: {len(RESUME_CONTRACT_FILES)}")
     return 0
 
 
