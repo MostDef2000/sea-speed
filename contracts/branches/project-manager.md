@@ -129,7 +129,7 @@ intermediate confirmations: 0
 
 ## Terminal interaction contract
 
-Return control only as `DONE`, `BLOCKED`, `HUMAN DECISION REQUIRED`. `FAILED` is not a terminal interaction state. PR creation, PR/CI/merge/package/deploy preparation is not terminal while a safe authorized next action remains. A checkpoint/status update is never itself a terminal interaction.
+Return control only as `DONE`, `BLOCKED`, `HUMAN DECISION REQUIRED`. `FAILED` is not a terminal interaction state. `BLOCKED` requires a concrete external blocker, blocker evidence, an explicit unblock condition, and the next admissible action. A remediable in-scope source/test/CI/metadata failure is not a blocker and must be remediated automatically. PR creation, PR/CI/merge/package/deploy preparation, or checkpoint update is not terminal while a safe authorized next action remains.
 
 ## Review lenses
 
