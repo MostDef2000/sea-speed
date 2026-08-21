@@ -1,6 +1,4 @@
 """Bounded Water passage tracking and pluggable speed-measurement strategies."""
-# Keep this module in the remediation diff so the final production envelope binds the
-# VPS Auth recovery and the still-pending Ubuntu Water Passage rollout to one exact SHA.
 from __future__ import annotations
 
 import math
@@ -68,6 +66,28 @@ def _crossing_ts(previous: "Observation", current: "Observation", line: Line) ->
     ratio = 0.5 if denom <= 1e-9 else s0 / denom
     ratio = max(0.0, min(1.0, ratio))
     return previous.ts + (current.ts - previous.ts) * ratio
+
+
+def _contextual_snapshot_detection(det: Dict[str, object], scale: float) -> Dict[str, object]:
+    """Return a copy whose crop box preserves useful scene context around a vessel."""
+    expanded = dict(det)
+    try:
+        x1, y1, x2, y2 = [float(value) for value in det["bbox_xyxy"]]
+    except (TypeError, ValueError, KeyError):
+        return expanded
+    box_w = max(1.0, x2 - x1)
+    box_h = max(1.0, y2 - y1)
+    cx = (x1 + x2) / 2.0
+    cy = (y1 + y2) / 2.0
+    target_w = box_w * max(1.0, float(scale))
+    target_h = max(box_h * max(1.0, float(scale)), box_w * 2.0)
+    expanded["bbox_xyxy"] = [
+        cx - target_w / 2.0,
+        cy - target_h / 2.0,
+        cx + target_w / 2.0,
+        cy + target_h / 2.0,
+    ]
+    return expanded
 
 
 @dataclass(frozen=True)
@@ -239,15 +259,19 @@ class WaterPassageEngine:
         max_observations: int = 256,
         max_active_passages: int = 32,
         snapshot_improvement_ratio: float = 1.15,
+        reacquire_window_sec: float = 10.0,
+        snapshot_context_scale: float = 5.0,
     ):
         self.estimator_factory = estimator_factory
         self.id_factory = id_factory
         self.stitch_window_sec = max(0.1, float(stitch_window_sec))
+        self.reacquire_window_sec = max(self.stitch_window_sec, float(reacquire_window_sec))
         self.stitch_distance_px = max(1.0, float(stitch_distance_px))
-        self.passage_end_gap_sec = max(self.stitch_window_sec, float(passage_end_gap_sec))
+        self.passage_end_gap_sec = max(self.reacquire_window_sec + 2.0, float(passage_end_gap_sec))
         self.max_observations = max(8, int(max_observations))
         self.max_active_passages = max(1, int(max_active_passages))
         self.snapshot_improvement_ratio = max(1.0, float(snapshot_improvement_ratio))
+        self.snapshot_context_scale = max(1.0, float(snapshot_context_scale))
         self._active: Dict[str, _PassageState] = {}
         self._track_to_passage: Dict[int, str] = {}
 
@@ -314,7 +338,9 @@ class WaterPassageEngine:
             if state.passage_id in claimed or state.last_anchor is None:
                 continue
             gap = ts - state.last_seen_at
-            if gap < 0 or gap > self.stitch_window_sec:
+            if gap < 0 or gap > self.reacquire_window_sec:
+                continue
+            if gap > self.stitch_window_sec and len(state.observations) < 2:
                 continue
             distance = math.dist(anchor, state.last_anchor)
             if distance <= self.stitch_distance_px:
@@ -378,13 +404,14 @@ class WaterPassageEngine:
             area = max(1.0, (x2 - x1) * (y2 - y1))
             snapshot_score = confidence * area
             is_better = state.best_snapshot_score < 0 or snapshot_score >= state.best_snapshot_score * self.snapshot_improvement_ratio
+            contextual_det = _contextual_snapshot_detection(det, self.snapshot_context_scale)
             if is_better:
                 state.best_snapshot_score = snapshot_score
                 snapshot_candidates[state.passage_id] = True
-                det_by_passage[state.passage_id] = det
+                det_by_passage[state.passage_id] = contextual_det
             else:
                 snapshot_candidates.setdefault(state.passage_id, False)
-                det_by_passage.setdefault(state.passage_id, det)
+                det_by_passage.setdefault(state.passage_id, contextual_det)
         for passage_id in sorted(observed_by_passage):
             state = self._active.get(passage_id)
             if state is None:
