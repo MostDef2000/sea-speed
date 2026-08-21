@@ -1,4 +1,4 @@
-# Branch Contract: Task Intake
+﻿# Branch Contract: Task Intake
 
 Version: 1.5.0
 Status: Active
@@ -21,21 +21,11 @@ Task Intake is for a new or materially invalidated task. It is not the normal re
 - separate facts, assumptions, evidence gaps and protected-boundary decisions;
 - produce the Task Brief for the Delivery Orchestrator.
 
-## Resume boundary
+## Resume
 
-Before invoking Task Intake for a task that may already exist, resolve whether the canonical Issue carries a valid Delivery Checkpoint. A valid checkpoint switches recovery to the Delivery Orchestrator **Resume Probe** and its recorded `Next admissible action`. Context compaction, session restart, response truncation, or Connector truncation is not evidence that Task Intake must run again.
+Thin adapter: see `contracts/DELIVERY_CANONICAL.md`.
 
-Full project recovery / Task Intake is allowed only when no checkpoint exists, task identity cannot be resolved, the checkpoint is invalid, or durable evidence materially contradicts it. The Intake lens never invalidates an admitted source scope merely because transient conversation history is unavailable.
-
-`WAITING_EXTERNAL` is a nonterminal synchronous-session disposition and never returns a valid task to Task Intake. A later invocation observes the exact wait cursor once. Unchanged evidence preserves the wait without repeated planning or checkpoint-generation change; changed evidence resumes `ACTIVE` execution. No background polling is implied. Persisted v1 evidence is upgraded by `scripts/ci/validate_delivery_checkpoint.py` at a meaningful transition for the same exact admitted scope.
-
-Truth classes remain distinct:
-
-- **Repository/product truth**: `main`, committed source/spec/contracts and accepted runtime evidence.
-- **Delivery-control truth**: canonical Issue, source-authorization receipt, Delivery Checkpoint and exact referenced delivery evidence.
-- **Transient interaction state**: live chat used for initial visible-Scope -> immediately-following `OUTCOME APPROVED` admission.
-
-## Canonical Task Brief
+## ## Canonical Task Brief
 
 ```text
 Sea Speed Task Brief

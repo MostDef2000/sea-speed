@@ -1,4 +1,4 @@
-# Sea Speed Delivery Policy
+﻿# Sea Speed Delivery Policy
 
 Version: 1.21.0
 Status: Active
@@ -36,31 +36,7 @@ Context compaction, session restart, response truncation, Connector truncation, 
 
 ## 4. Resumable delivery and Connector discipline
 
-Truth classes are distinct:
-
-- **Repository/product truth**: current `main`, committed source/contracts/specs and accepted runtime evidence.
-- **Delivery-control truth**: canonical Issue Outcome, authorization receipt, Delivery Checkpoint, exact branch/PR/head, completed gates and evidence cursors.
-- **Transient interaction state**: live conversation used for initial source-admission decisions.
-
-A known task with a valid checkpoint resumes through a bounded **Resume Probe**: current `main`, canonical Issue checkpoint, exact referenced PR/head/status or other evidence whose cursor may have changed, then `Next admissible action`. Full project recovery is allowed only if the checkpoint is absent, task identity cannot be resolved, the checkpoint is invalid, or durable evidence materially contradicts it.
-
-Lifecycle state is monotonic. Backward/source-reauthorization transition requires one concrete material reason such as `MATERIAL_SCOPE_CHANGE`, `PROTECTED_BOUNDARY_CHANGE`, `USER_CHANGED_OUTCOME`, `MATERIAL_MAIN_DIVERGENCE`, or `EVIDENCE_CONTRADICTION`. `CONTEXT_LOSS` is not an invalidation reason.
-
-Checkpoint updates occur at meaningful lifecycle/evidence transitions, not after every tool call.
-
-`WAITING_EXTERNAL` is a nonterminal synchronous-session disposition. It is admissible only after all safe work executable now is exhausted and one machine-observable external condition is the sole prerequisite for continuation. The checkpoint records that condition, its resume trigger, exact evidence cursor and next action. No background execution or polling is implied.
-
-On a later invocation the Resume Probe observes that exact cursor once. Unchanged evidence preserves the wait without repeated planning, equivalent reads or checkpoint-generation change. Changed evidence produces valid `ACTIVE` state and resumes execution. Human/protected input is `HUMAN DECISION REQUIRED`, and a concrete external blocker is `BLOCKED`; neither may be represented as `WAITING_EXTERNAL`.
-
-Persisted v1 checkpoints remain readable for their exact admitted scopes and are upgraded by the repository validator at the next meaningful transition without source reauthorization.
-
-Connector reads after task resolution follow:
-
-```text
-known object -> metadata -> targeted detail -> failure fragment
-```
-
-A read must advance the task, validate a mandatory gate, or resolve an explicit evidence gap. Repeating an equivalent read for the same question with the same evidence identity is forbidden unless a canonical gate explicitly requires a fresh read.
+Thin adapter: see `contracts/DELIVERY_CANONICAL.md`.
 
 ## 5. Release identity
 

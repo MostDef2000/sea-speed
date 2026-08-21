@@ -4,6 +4,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
+CANONICAL = "contracts/DELIVERY_CANONICAL.md"
+
 ACTIVE_CONTRACTS = (
     "AGENTS.md",
     "contracts/SEA_SPEED_GOVERNANCE.md",
@@ -19,13 +21,15 @@ RESUME_ENTRYPOINTS = ACTIVE_CONTRACTS + (
     "docs/architecture/sea-speed-control-plane.md",
 )
 
+CANONICAL_ENTRYPOINTS = (CANONICAL,) + RESUME_ENTRYPOINTS
+
 
 def _read(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8-sig")
 
 
 def test_truth_classes_are_explicit_and_do_not_replace_main() -> None:
-    combined = "\n".join(_read(path) for path in RESUME_ENTRYPOINTS)
+    combined = "\n".join(_read(path) for path in CANONICAL_ENTRYPOINTS)
     for marker in ("Repository/product truth", "Delivery-control truth", "Transient interaction state"):
         assert marker in combined
     assert "main" in combined
@@ -33,7 +37,7 @@ def test_truth_classes_are_explicit_and_do_not_replace_main() -> None:
 
 
 def test_initial_admission_remains_adjacent_but_receipt_can_resume_same_scope() -> None:
-    combined = "\n".join(_read(path) for path in ACTIVE_CONTRACTS)
+    combined = "\n".join(_read(path) for path in CANONICAL_ENTRYPOINTS)
     assert "immediately-following `OUTCOME APPROVED`" in combined
     assert "authorization receipt" in combined.lower()
     assert "same exact admitted scope" in combined.lower()
@@ -42,7 +46,7 @@ def test_initial_admission_remains_adjacent_but_receipt_can_resume_same_scope() 
 
 
 def test_delivery_checkpoint_v2_has_machine_readable_resumable_fields() -> None:
-    runtime = _read("contracts/runtime/SEA_SPEED_TASK_RUNTIME.md")
+    runtime = _read(CANONICAL)
     assert "Sea Speed Delivery Checkpoint v2" in runtime
     for marker in (
         '"generation"', '"approved_scope_identity"', '"authorization_base_main"',
@@ -54,24 +58,26 @@ def test_delivery_checkpoint_v2_has_machine_readable_resumable_fields() -> None:
 
 
 def test_persisted_v1_checkpoint_has_executable_upgrade_path() -> None:
-    combined = "\n".join(_read(path) for path in ACTIVE_CONTRACTS)
+    combined = "\n".join(_read(path) for path in CANONICAL_ENTRYPOINTS)
     assert "v1 checkpoints remain readable" in combined
     assert "scripts/ci/validate_delivery_checkpoint.py" in combined
 
 
 def test_known_task_recovery_uses_bounded_resume_probe() -> None:
+    canonical_text = _read(CANONICAL)
+    assert "Resume Probe" in canonical_text
+    assert "full project recovery" in canonical_text.lower()
     for path in ("AGENTS.md", "contracts/branches/project-manager.md", "docs/agents/PM_BOOTSTRAP.md"):
         text = _read(path)
-        assert "Resume Probe" in text, path
-        assert "full project recovery" in text.lower(), path
-    bootstrap = _read("docs/agents/PM_BOOTSTRAP.md").lower()
+        assert "DELIVERY_CANONICAL" in text, path
+    bootstrap = _read(CANONICAL).lower()
     assert "valid checkpoint" in bootstrap
     assert "current `main`" in bootstrap
     assert "canonical issue" in bootstrap
 
 
 def test_context_loss_is_not_authorization_or_phase_invalidation() -> None:
-    combined = "\n".join(_read(path) for path in ACTIVE_CONTRACTS).lower()
+    combined = "\n".join(_read(path) for path in CANONICAL_ENTRYPOINTS).lower()
     for marker in ("context compaction", "session restart", "connector truncation"):
         assert marker in combined
     assert "does not" in combined
@@ -80,7 +86,7 @@ def test_context_loss_is_not_authorization_or_phase_invalidation() -> None:
 
 
 def test_lifecycle_is_monotonic_with_explicit_material_invalidation() -> None:
-    runtime = _read("contracts/runtime/SEA_SPEED_TASK_RUNTIME.md")
+    runtime = _read(CANONICAL)
     assert "monotonic" in runtime.lower()
     for reason in (
         "MATERIAL_SCOPE_CHANGE",
@@ -94,7 +100,7 @@ def test_lifecycle_is_monotonic_with_explicit_material_invalidation() -> None:
 
 
 def test_connector_reads_are_progressive_and_cursor_bound() -> None:
-    combined = "\n".join(_read(path) for path in ACTIVE_CONTRACTS + ("docs/architecture/sea-speed-control-plane.md",))
+    combined = "\n".join(_read(path) for path in (CANONICAL, "docs/architecture/sea-speed-control-plane.md"))
     assert "known object -> metadata -> targeted detail -> failure fragment" in combined
     lowered = combined.lower()
     assert "equivalent" in lowered
@@ -103,14 +109,14 @@ def test_connector_reads_are_progressive_and_cursor_bound() -> None:
 
 
 def test_checkpoint_updates_are_event_driven_not_per_tool_call() -> None:
-    combined = "\n".join(_read(path) for path in ACTIVE_CONTRACTS)
+    combined = "\n".join(_read(path) for path in CANONICAL_ENTRYPOINTS)
     lowered = combined.lower()
     assert "meaningful" in lowered
     assert "not after every tool call" in lowered
 
 
 def test_synchronous_external_wait_has_bounded_replay_semantics() -> None:
-    combined = "\n".join(_read(path) for path in RESUME_ENTRYPOINTS)
+    combined = "\n".join(_read(path) for path in CANONICAL_ENTRYPOINTS)
     lowered = combined.lower()
     assert "WAITING_EXTERNAL" in combined
     assert "nonterminal" in lowered
@@ -122,7 +128,7 @@ def test_synchronous_external_wait_has_bounded_replay_semantics() -> None:
 
 
 def test_resume_model_preserves_terminal_interaction_contract() -> None:
-    combined = "\n".join(_read(path) for path in ACTIVE_CONTRACTS)
+    combined = "\n".join(_read(path) for path in (CANONICAL,))+ "\n".join(_read(path) for path in ACTIVE_CONTRACTS)
     for state in ("DONE", "BLOCKED", "HUMAN DECISION REQUIRED"):
         assert state in combined
     assert "`WAITING_EXTERNAL` is not a lifecycle phase, terminal interaction state" in combined

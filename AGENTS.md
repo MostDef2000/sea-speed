@@ -1,4 +1,4 @@
-# Sea Speed Agent Entry Point
+﻿# Sea Speed Agent Entry Point
 
 Status: Active
 
@@ -46,25 +46,11 @@ The active orchestration role is **Sea Speed Delivery Orchestrator**. It retains
 
 ## Resumable delivery contract
 
-Truth classes are explicit:
-
-- **Repository/product truth** — `main`, committed source/contracts/specs and accepted runtime evidence.
-- **Delivery-control truth** — canonical Issue, authorization receipt, `Sea Speed Delivery Checkpoint v2`, branch/PR/head, completed gates and evidence cursors.
-- **Transient interaction state** — current chat used for initial visible-Scope -> immediately-following `OUTCOME APPROVED` admission.
-
-Initial Scope/approval adjacency remains mandatory to create source authority. A durable authorization receipt can only resume the **same exact admitted scope**. It never creates source authority, cannot expand it, and never grants production authority.
-
-A known task Resume Probe is bounded to current `main`, the canonical Issue checkpoint, exact referenced PR/head/status or evidence whose cursor may have changed, and the recorded `Next admissible action`. Full project recovery is allowed only when no valid checkpoint exists, task identity cannot be resolved, the checkpoint is invalid, or durable evidence materially contradicts it.
-
-Lifecycle state is monotonic. Backward/source-reauthorization transition requires a concrete recorded invalidation such as `MATERIAL_SCOPE_CHANGE`, `PROTECTED_BOUNDARY_CHANGE`, `USER_CHANGED_OUTCOME`, `MATERIAL_MAIN_DIVERGENCE`, or `EVIDENCE_CONTRADICTION`. `CONTEXT_LOSS` is not an invalidation reason.
-
-A Connector read is admissible only to advance the task, validate a mandatory gate, or resolve an explicit evidence gap. A mandatory fresh read, such as exact pre-merge base/head verification, is not considered an equivalent-read loop.
+Thin adapter: see `contracts/DELIVERY_CANONICAL.md` for Resume Probe, Delivery Checkpoint v2/v3, Next admissible action, same exact admitted scope, WAITING_EXTERNAL, lifecycle monotonicity and Connector discipline.
 
 ## Synchronous external wait
 
-`WAITING_EXTERNAL` is a resumable nonterminal session disposition, not a lifecycle phase, terminal interaction state, blocker, or claim of background execution. It is valid only when no safe authorized action is executable now, progress depends exclusively on a named machine-observable external condition, and the v2 checkpoint records the exact condition, resume trigger, evidence cursor and next action. A protected human decision uses `HUMAN DECISION REQUIRED`; a concrete external blocker uses `BLOCKED`.
-
-Sea Speed sessions are synchronous. After writing `WAITING_EXTERNAL`, the Orchestrator returns control and performs no background polling. A later invocation runs one bounded Resume Probe. If the referenced cursor is unchanged, it returns the same wait without broad recovery, repeated planning or a generation update. If evidence changed, it clears the wait and executes the next admissible action. If another safe action is executable now, `ACTIVE` takes precedence.
+Thin adapter: see `contracts/DELIVERY_CANONICAL.md` for synchronous WAITING_EXTERNAL semantics (no polling, one bounded observe).
 
 ## Production runtime contours and authority
 

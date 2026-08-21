@@ -87,7 +87,12 @@ class DeliveryContractConvergenceTests(unittest.TestCase):
             self.assertTrue(matches, number)
 
     def test_resumable_delivery_converges_across_active_entrypoints(self) -> None:
-        paths = (
+        canonical = self.read("contracts/DELIVERY_CANONICAL.md")
+        self.assertIn("Resume Probe", canonical)
+        self.assertIn("Delivery Checkpoint", canonical)
+        self.assertIn("Next admissible action", canonical)
+        self.assertIn("same exact admitted scope", canonical.lower())
+        for path in (
             "AGENTS.md",
             "contracts/SEA_SPEED_GOVERNANCE.md",
             "contracts/SEA_SPEED_DELIVERY_POLICY.md",
@@ -96,13 +101,9 @@ class DeliveryContractConvergenceTests(unittest.TestCase):
             "contracts/branches/project-manager.md",
             "docs/agents/PM_BOOTSTRAP.md",
             "docs/architecture/sea-speed-control-plane.md",
-        )
-        for path in paths:
+        ):
             text = self.read(path)
-            self.assertIn("Resume Probe", text, path)
-            self.assertIn("Delivery Checkpoint", text, path)
-            self.assertIn("Next admissible action", text, path)
-            self.assertIn("same exact admitted scope", text.lower(), path)
+            self.assertIn("DELIVERY_CANONICAL", text, path)
 
     def test_context_loss_does_not_reopen_source_admission(self) -> None:
         combined = "\n".join(
@@ -122,21 +123,21 @@ class DeliveryContractConvergenceTests(unittest.TestCase):
         self.assertIn("cannot create", combined)
 
     def test_synchronous_wait_converges_across_active_entrypoints(self) -> None:
-        paths = (
+        canonical = self.read("contracts/DELIVERY_CANONICAL.md")
+        self.assertIn("Delivery Checkpoint v2", canonical)
+        self.assertIn("WAITING_EXTERNAL", canonical)
+        self.assertIn("nonterminal", canonical.lower())
+        self.assertIn("background", canonical.lower())
+        self.assertIn("unchanged", canonical.lower())
+        for path in (
             "AGENTS.md", "contracts/SEA_SPEED_GOVERNANCE.md", "contracts/SEA_SPEED_DELIVERY_POLICY.md",
             "contracts/runtime/SEA_SPEED_TASK_RUNTIME.md", "contracts/runtime/RELEASE_READINESS_GATE.md",
             "contracts/branches/project-manager.md", "contracts/branches/task-intake.md",
             "docs/agents/PM_BOOTSTRAP.md",
             "docs/architecture/sea-speed-control-plane.md",
-        )
-        for path in paths:
+        ):
             text = self.read(path)
-            lowered = text.lower()
-            self.assertIn("Delivery Checkpoint v2", text, path)
-            self.assertIn("WAITING_EXTERNAL", text, path)
-            self.assertIn("nonterminal", lowered, path)
-            self.assertIn("background", lowered, path)
-            self.assertIn("unchanged", lowered, path)
+            self.assertIn("DELIVERY_CANONICAL", text, path)
 
 
 if __name__ == "__main__":

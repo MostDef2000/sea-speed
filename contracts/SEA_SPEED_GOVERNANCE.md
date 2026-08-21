@@ -1,4 +1,4 @@
-# Sea Speed Governance
+﻿# Sea Speed Governance
 
 Version: 1.18.0
 Status: Active
@@ -49,35 +49,7 @@ Initial visible-Scope adjacency is the source-authority **admission condition**.
 
 ## 4. Resumable delivery control
 
-Sea Speed separates three truth classes:
-
-- **Repository/product truth**: current `main`, committed contracts/specs/source and accepted runtime evidence.
-- **Delivery-control truth**: canonical Issue Outcome, source-authorization receipt, `Sea Speed Delivery Checkpoint v2`, exact branch/PR/head, completed gates and evidence cursors.
-- **Transient interaction state**: live conversation used to present a new Scope and receive the immediately-following `OUTCOME APPROVED`.
-
-A known task with a valid checkpoint uses a bounded **Resume Probe** before any full project recovery. The probe reads current `main`, the canonical Issue checkpoint, exact referenced PR/head/status or other evidence whose cursor may have changed, and `Next admissible action`.
-
-Full project recovery / repeated Task Intake is allowed only when no checkpoint exists, task identity cannot be resolved, the checkpoint is invalid, or durable evidence materially contradicts it. Context compaction, session restart, response truncation, Connector truncation, or model-memory loss does not by itself invalidate source authorization, return an admitted task to `DISCUSSION`, or require another `OUTCOME APPROVED`.
-
-Lifecycle state is monotonic. Backward/source-reauthorization transitions require a recorded material reason such as `MATERIAL_SCOPE_CHANGE`, `PROTECTED_BOUNDARY_CHANGE`, `USER_CHANGED_OUTCOME`, `MATERIAL_MAIN_DIVERGENCE`, or `EVIDENCE_CONTRADICTION`. `CONTEXT_LOSS` is not an invalidation reason.
-
-Checkpoint updates are event-driven at meaningful phase/evidence transitions, not after every tool call, and include an explicit `Next admissible action`.
-
-Connector retrieval after task resolution follows:
-
-```text
-known object -> metadata -> targeted detail -> failure fragment
-```
-
-A read is admissible only when it advances delivery, validates a mandatory gate, or resolves an explicit evidence gap. Repeating an equivalent read for the same question with the same evidence identity is forbidden unless a canonical gate requires a fresh read.
-
-### 4.1 Synchronous external wait
-
-`WAITING_EXTERNAL` is a nonterminal session disposition for synchronous execution. It is legal only when no safe authorized action is executable now and progress depends solely on a named machine-observable external condition. The v2 checkpoint records the condition, resume trigger, exact evidence cursor and next admissible action. A human decision uses `HUMAN DECISION REQUIRED`; a concrete external blocker uses `BLOCKED`.
-
-The Orchestrator performs no background polling after returning `WAITING_EXTERNAL`. On a later invocation it observes the exact referenced evidence once. An unchanged cursor preserves `WAITING_EXTERNAL` without checkpoint-generation change, repeated planning, broad recovery or another equivalent read. A changed cursor produces a new valid `ACTIVE` checkpoint and resumes automatic execution.
-
-Persisted v1 checkpoints remain readable continuation evidence for their exact admitted scopes. `scripts/ci/validate_delivery_checkpoint.py` upgrades active v1 evidence to v2 at the next meaningful checkpoint transition without repeating source authorization.
+Thin adapter: see `contracts/DELIVERY_CANONICAL.md`.
 
 ## 5. Active runtime topology
 

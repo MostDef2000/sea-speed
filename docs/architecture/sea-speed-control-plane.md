@@ -1,4 +1,4 @@
-# Sea Speed Control Plane
+﻿# Sea Speed Control Plane
 
 Version: 2.5.0
 Status: Active
@@ -53,37 +53,11 @@ User request
 
 ## Resume flow
 
-```text
-known canonical task
--> current main identity
--> canonical Issue Delivery Checkpoint
--> exact referenced PR/head/status evidence whose cursor may have changed
--> validate checkpoint against durable evidence
--> execute Next admissible action
-```
-
-A valid checkpoint prevents repeated Task Intake/full project recovery. Context compaction, session restart, response truncation and Connector truncation are not source-authority or phase invalidation. Full project recovery is reserved for an absent/unresolved/invalid checkpoint or material evidence contradiction.
-
-Lifecycle state is monotonic. Material reauthorization/backward transitions require an explicit reason such as `MATERIAL_SCOPE_CHANGE`, `PROTECTED_BOUNDARY_CHANGE`, `USER_CHANGED_OUTCOME`, `MATERIAL_MAIN_DIVERGENCE`, or `EVIDENCE_CONTRADICTION`.
-
-Connector reads after task resolution follow `known object -> metadata -> targeted detail -> failure fragment`. An equivalent read for the same question at the same evidence identity is forbidden unless a mandatory gate requires a fresh read.
+Thin adapter: see `contracts/DELIVERY_CANONICAL.md`.
 
 ## Synchronous session flow
 
-Lifecycle phase and session disposition are separate dimensions:
-
-```text
-safe action executable now -> ACTIVE -> execute it
-no safe action executable now + exact external condition pending
--> persist WAITING_EXTERNAL -> return control -> no background work
-later invocation -> observe exact cursor once
--> unchanged: WAITING_EXTERNAL without generation change or replanning
--> changed: valid ACTIVE checkpoint -> execute recorded next action
-outcome/blocker/protected human decision
--> TERMINAL -> DONE / BLOCKED / HUMAN DECISION REQUIRED
-```
-
-This boundary prevents false background-work claims and same-evidence polling/planning loops. `WAITING_EXTERNAL` is a nonterminal disposition, not a terminal task state, lifecycle phase or substitute for a human decision. Persisted v1 checkpoints remain readable and are upgraded by the repository validator at the next meaningful transition for the same admitted scope.
+Thin adapter: see `contracts/DELIVERY_CANONICAL.md`.
 
 ## Runtime flow
 

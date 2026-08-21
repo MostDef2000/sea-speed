@@ -1,4 +1,4 @@
-# Sea Speed Release Readiness Gate
+﻿# Sea Speed Release Readiness Gate
 
 Version: 1.15.0
 Status: Active
@@ -51,17 +51,7 @@ Release Readiness Gate
 
 ## Resume/readiness boundary
 
-Release readiness consumes durable delivery-control truth; it does not recreate source authority. **Repository/product truth** remains current `main`; **Delivery-control truth** is the canonical Issue/authorization receipt/Delivery Checkpoint and exact referenced evidence; **Transient interaction state** is the live conversation used for initial visible-Scope -> immediately-following `OUTCOME APPROVED` admission.
-
-A durable authorization receipt is valid only for the **same exact admitted scope**. It cannot create, widen or replace source authority and never grants production authority. Context compaction, session restart, response truncation or Connector truncation does not by itself invalidate the receipt, return an admitted task to `DISCUSSION`, or require another `OUTCOME APPROVED`.
-
-If a task must be recovered before this gate, use the bounded **Resume Probe**: current `main`, canonical Issue checkpoint, exact referenced PR/head/status/evidence whose cursor may have changed, then `Next admissible action`. Full project recovery is allowed only when the checkpoint is absent/unresolved/invalid or durable evidence materially contradicts it.
-
-Lifecycle state is monotonic unless a concrete material invalidation is recorded: `MATERIAL_SCOPE_CHANGE`, `PROTECTED_BOUNDARY_CHANGE`, `USER_CHANGED_OUTCOME`, `MATERIAL_MAIN_DIVERGENCE`, or `EVIDENCE_CONTRADICTION`. `CONTEXT_LOSS` is not an invalidation reason.
-
-`WAITING_EXTERNAL` is a nonterminal synchronous-session disposition, not a lifecycle phase or release verdict. It is valid only when no safe authorized action is executable now and one named machine-observable external transition is the sole prerequisite. Delivery Checkpoint v2 records the condition, resume trigger, exact evidence cursor and non-executable next action. A later Resume Probe observes that cursor once: unchanged evidence preserves the wait and generation; changed evidence produces valid `ACTIVE` state. No background polling is implied.
-
-Connector reads are cursor-bound and progressive: `known object -> metadata -> targeted detail -> failure fragment`. Equivalent re-reads with the same evidence identity and question are forbidden unless this or another canonical gate explicitly requires fresh evidence. Required fresh base/head/Quality/protection reads are therefore permitted and must be scoped to the exact gate.
+Thin adapter: see `contracts/DELIVERY_CANONICAL.md`.
 
 ## Protected source gate
 
