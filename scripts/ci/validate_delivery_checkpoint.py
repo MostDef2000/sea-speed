@@ -154,6 +154,9 @@ def validate_checkpoint_v3(checkpoint: dict[str, Any]) -> None:
         raise CheckpointValidationError("HUMAN_DECISION_REQUIRED phase requires waiting_on=human")
     if checkpoint["phase"] == "DONE" and checkpoint["waiting_on"] is not None:
         raise CheckpointValidationError("DONE phase requires waiting_on=null")
+    # authorized must be true for post-admission phases
+    if checkpoint["phase"] in {"PR", "MERGED", "DEPLOYING", "VERIFYING", "DONE", "BLOCKED", "HUMAN_DECISION_REQUIRED"} and not checkpoint["authorized"]:
+        raise CheckpointValidationError("post-admission v3 phase requires authorized=true")
 
 
 def validate_checkpoint(checkpoint: dict[str, Any]) -> None:
@@ -258,10 +261,25 @@ def decide_session_disposition(
 def replay_external_observation(checkpoint: dict[str, Any], observed_cursor: str) -> dict[str, Any]:
     """Apply one bounded resume observation and return the resulting valid checkpoint."""
     validate_checkpoint(checkpoint)
-    if checkpoint["session_disposition"] != "WAITING_EXTERNAL":
-        raise CheckpointValidationError("external observation requires WAITING_EXTERNAL")
     _require_non_empty_string(observed_cursor, "observed_cursor")
     result = deepcopy(checkpoint)
+    if checkpoint.get("schema") == SCHEMA_ID_V3:
+        # v3: waiting_on is the cursor; phase encodes disposition
+        waiting = checkpoint.get("waiting_on")
+        if waiting is None:
+            raise CheckpointValidationError("v3 external observation requires waiting_on != null")
+        if observed_cursor == waiting:
+            return result
+        result["waiting_on"] = None
+        # if phase was BLOCKED/HUMAN, keep it (terminal) else stay in same phase but now runnable
+        # For non-terminal waiting (ci/external), clearing waiting_on makes it runnable
+        if result["phase"] in {"BLOCKED", "HUMAN_DECISION_REQUIRED"}:
+            pass
+        validate_checkpoint(result)
+        return result
+    # v2 path
+    if checkpoint["session_disposition"] != "WAITING_EXTERNAL":
+        raise CheckpointValidationError("external observation requires WAITING_EXTERNAL")
     wait_cursor = checkpoint["external_wait"]["evidence_cursor"]
     if observed_cursor == wait_cursor:
         return result

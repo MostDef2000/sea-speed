@@ -41,14 +41,34 @@ def changed_files_from_event(event_path: Path) -> list[str]:
         pass
     return []
 
+PROTECTED_CONTROL_PATTERNS = (
+    ".github/workflows/deploy-*.yml",
+    ".github/workflows/deploy-*.yaml",
+    "scripts/release/**",
+    "scripts/operations/**",
+    "scripts/ci/validate_*.py",
+    "scripts/ci/classify_change.py",
+    "data/contracts/**",
+    "schemas/delivery-checkpoint-*.json",
+    "contracts/DELIVERY_CANONICAL.md",
+    "contracts/SEA_SPEED_GOVERNANCE.md",
+    "contracts/SEA_SPEED_DELIVERY_POLICY.md",
+)
+
+def _is_protected_control(path: str) -> bool:
+    import fnmatch
+    return any(fnmatch.fnmatchcase(path, pat) for pat in PROTECTED_CONTROL_PATTERNS)
+
 def classify(changed: list[str]) -> tuple[str, bool, str]:
     policy = load_policy()
     contours = derive_runtime_contours(changed, policy)
+    # protected control-plane security files escalate to PRODUCTION even if CONTROL_PLANE
+    is_protected = any(_is_protected_control(p) for p in changed)
     if contours:
         runtime_required = True
         impact = "MIXED" if len(contours) > 1 else next(iter(contours))
         # DELIVERY_CANONICAL: PRODUCTION = deploy/security/MIXED
-        if len(contours) > 1 or any(p.startswith("deploy/") for p in changed):
+        if len(contours) > 1 or any(p.startswith("deploy/") for p in changed) or is_protected:
             lane = "PRODUCTION"
         else:
             lane = "STANDARD"
@@ -59,13 +79,18 @@ def classify(changed: list[str]) -> tuple[str, bool, str]:
         if impact in {"VPS", "UBUNTU_WORKER", "MIXED"}:
             runtime_required = True
             # deploy/** is production per canonical
-            if any(p.startswith("deploy/") for p in changed):
+            if any(p.startswith("deploy/") for p in changed) or is_protected:
                 lane = "PRODUCTION"
             else:
                 lane = "STANDARD"
         elif impact == "CONTROL_PLANE":
-            runtime_required = False
-            lane = "FAST"
+            if is_protected:
+                # security-sensitive control-plane must not be FAST
+                runtime_required = False
+                lane = "PRODUCTION"
+            else:
+                runtime_required = False
+                lane = "FAST"
         else:
             runtime_required = False
             lane = "FAST"

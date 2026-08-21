@@ -166,5 +166,62 @@ class DeliveryCheckpointStateMachineTests(unittest.TestCase):
             decide_session_disposition()
 
 
+def checkpoint_v3(*, phase: str = "PR", waiting_on: str | None = "ci", authorized: bool = True) -> dict[str, object]:
+    return {
+        "schema": "sea_speed_delivery_checkpoint_v3",
+        "task": "#248",
+        "scope_hash": "sha256:" + "a" * 64,
+        "authorized": authorized,
+        "lane": "FAST" if phase in {"PLANNING", "IMPLEMENTING"} else "STANDARD",
+        "phase": phase,
+        "pr": "#249",
+        "head": "b" * 40,
+        "next": "CHECK_CI" if waiting_on else "MERGE",
+        "waiting_on": waiting_on,
+    }
+
+
+class DeliveryCheckpointV3Tests(unittest.TestCase):
+    def test_v3_schema_valid(self) -> None:
+        validate_checkpoint(checkpoint_v3(phase="PR", waiting_on="ci"))
+
+    def test_v3_blocked_requires_external(self) -> None:
+        with self.assertRaisesRegex(CheckpointValidationError, "BLOCKED.*external"):
+            validate_checkpoint(checkpoint_v3(phase="BLOCKED", waiting_on="ci"))
+        validate_checkpoint(checkpoint_v3(phase="BLOCKED", waiting_on="external"))
+
+    def test_v3_human_requires_human(self) -> None:
+        with self.assertRaisesRegex(CheckpointValidationError, "HUMAN.*human"):
+            validate_checkpoint(checkpoint_v3(phase="HUMAN_DECISION_REQUIRED", waiting_on="external"))
+        validate_checkpoint(checkpoint_v3(phase="HUMAN_DECISION_REQUIRED", waiting_on="human"))
+
+    def test_v3_done_requires_null(self) -> None:
+        with self.assertRaisesRegex(CheckpointValidationError, "DONE.*null"):
+            validate_checkpoint(checkpoint_v3(phase="DONE", waiting_on="ci"))
+        validate_checkpoint(checkpoint_v3(phase="DONE", waiting_on=None))
+
+    def test_v3_authorized_required_for_post_admission(self) -> None:
+        with self.assertRaisesRegex(CheckpointValidationError, "authorized.*true"):
+            validate_checkpoint(checkpoint_v3(phase="PR", waiting_on="ci", authorized=False))
+        validate_checkpoint(checkpoint_v3(phase="PLANNING", waiting_on=None, authorized=False))
+
+    def test_v3_waiting_on_enum(self) -> None:
+        with self.assertRaisesRegex(CheckpointValidationError, "waiting_on"):
+            validate_checkpoint(checkpoint_v3(phase="PR", waiting_on="invalid"))
+
+    def test_v3_replay_unchanged(self) -> None:
+        cp = checkpoint_v3(phase="PR", waiting_on="ci")
+        before = deepcopy(cp)
+        result = replay_external_observation(cp, "ci")
+        self.assertEqual(result, before)
+
+    def test_v3_replay_changed_clears_waiting(self) -> None:
+        cp = checkpoint_v3(phase="PR", waiting_on="ci")
+        result = replay_external_observation(cp, "success")
+        validate_checkpoint(result)
+        self.assertIsNone(result["waiting_on"])
+        self.assertEqual(result["phase"], "PR")
+
+
 if __name__ == "__main__":
     unittest.main()
