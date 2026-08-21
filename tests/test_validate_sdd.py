@@ -87,11 +87,11 @@ class ValidateSddTests(unittest.TestCase):
 
     def test_required_risk_profile_needs_complete_risk_row(self) -> None:
         root = self.make_repo(risk="REQUIRED")
-        sdd.validate_pr_link("- Specification: `specs/001-example/spec.md`\n- Risk profile: REQUIRED\n", ["contracts/example.md"], root)
+        sdd.validate_pr_link("- Specification: `specs/001-example/spec.md`\n- Risk profile: REQUIRED\n", ["api/app/main.py"], root)
         plan = root / "specs/001-example/plan.md"
         plan.write_text(plan.read_text().replace("- RISK-001 |", "- BROKEN-001 |"), encoding="utf-8")
         with self.assertRaisesRegex(sdd.SddError, "requires at least one complete risk row"):
-            sdd.validate_pr_link("- Specification: `specs/001-example/spec.md`\n- Risk profile: REQUIRED\n", ["contracts/example.md"], root)
+            sdd.validate_pr_link("- Specification: `specs/001-example/spec.md`\n- Risk profile: REQUIRED\n", ["api/app/main.py"], root)
 
     def test_nfr_unknown_target_cannot_pass(self) -> None:
         root = self.make_repo()

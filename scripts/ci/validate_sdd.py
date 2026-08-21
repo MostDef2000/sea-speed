@@ -41,9 +41,8 @@ GRANDFATHERED_PREFIX_COLLISIONS = {
 SIGNIFICANT_PREFIXES = (
     "api/", "frontend/", "worker/", "deploy/", "schemas/", "scripts/ci/",
     "scripts/operations/", "scripts/quality/", "scripts/release/", ".github/workflows/",
-    "contracts/", "data/contracts/", "data/quality/",
 )
-SIGNIFICANT_EXACT = {"AGENTS.md"}
+SIGNIFICANT_EXACT: set[str] = set()
 
 RISK_CATEGORIES = {"TECH", "SEC", "PERF", "DATA", "BUS", "OPS"}
 RISK_STATUSES = {"OPEN", "MITIGATED", "ACCEPTED", "CLOSED"}

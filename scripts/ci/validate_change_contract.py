@@ -210,9 +210,9 @@ def validate_quality_fields(fields: dict[str, str], impact: str) -> None:
         "Waiver compensating controls",
         "Waiver follow-up/remediation target",
     )
-    waiver_values = {name: require_value(fields, name) for name in waiver_fields}
     if verdict != "WAIVED":
         return
+    waiver_values = {name: require_value(fields, name) for name in waiver_fields}
     for name, value in waiver_values.items():
         if _none_like(value):
             raise ContractError(f"Quality verdict WAIVED requires {name}")
@@ -233,7 +233,7 @@ def validate_contract(body: str, changed_files: Iterable[str], policy: dict | No
     if not re.fullmatch(r"#\d+", issue):
         raise ContractError("Issue must be a canonical GitHub issue reference such as #176")
     validate_authorization(fields)
-    for name in ("Approved scope", "Acceptance criteria", "Intended behavior", "Out of scope", "Production-impact rationale", "Security impact", "API/event/state/storage schema impact", "Detection/tracking/calibration/speed formula impact", "Backward compatibility", "Destructive/data migration impact", "Other high-risk trigger", "Rollout order", "Release manifest", "Rollback target", "Local checks", "PR checks", "Runtime acceptance plan", "Telemetry/evidence plan", "Risk profile", "Quality verdict", "Quality finding", "Waiver reason", "Waiver approved by", "Waiver review/expiry date", "Waiver compensating controls", "Waiver follow-up/remediation target"):
+    for name in ("Approved scope", "Acceptance criteria", "Intended behavior", "Out of scope", "Production-impact rationale", "Security impact", "API/event/state/storage schema impact", "Detection/tracking/calibration/speed formula impact", "Backward compatibility", "Destructive/data migration impact", "Other high-risk trigger", "Rollout order", "Release manifest", "Rollback target", "Local checks", "PR checks", "Runtime acceptance plan", "Telemetry/evidence plan", "Risk profile", "Quality verdict", "Quality finding"):
         require_value(fields, name)
     actual = set(changed_files)
     declared = declared_changed_files(body)

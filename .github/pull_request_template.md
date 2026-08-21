@@ -10,11 +10,11 @@
 - Risk profile: REQUIRED / NOT REQUIRED
 - Quality verdict: PASS / CONCERNS / FAIL / WAIVED
 - Quality finding: NONE / [finding]
-- Waiver reason: NOT REQUIRED / [reason]
-- Waiver approved by: NOT REQUIRED / [owner]
-- Waiver review/expiry date: NOT REQUIRED / YYYY-MM-DD
-- Waiver compensating controls: NOT REQUIRED / [controls]
-- Waiver follow-up/remediation target: NOT REQUIRED / [Issue/target]
+- Waiver reason: [required only if WAIVED, else omit or NOT REQUIRED]
+- Waiver approved by: [required only if WAIVED]
+- Waiver review/expiry date: [YYYY-MM-DD, required only if WAIVED]
+- Waiver compensating controls: [required only if WAIVED]
+- Waiver follow-up/remediation target: [Issue/target, required only if WAIVED]
 
 ## Change
 
