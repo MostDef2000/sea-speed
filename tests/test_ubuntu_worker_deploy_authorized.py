@@ -49,6 +49,13 @@ class UbuntuAuthorizedDeploymentTests(unittest.TestCase):
         self.assertNotIn("rollback-exact.sh", auth_block)
         self.assertNotIn("systemctl restart", auth_block)
 
+    def test_reconcile_helper_change_routes_through_authentik_transaction(self) -> None:
+        self.assertIn(
+            "deploy/vps/authentik/blueprints/sea-speed-auth-v1.yaml|deploy/worker/ubuntu/authentik/reconcile-blueprint.sh)",
+            self.source,
+        )
+        self.assertIn("The reconcile helper itself is runtime-affecting", self.source)
+
     def test_worker_authorization_config_reconciliation_activation_and_verification_order(self) -> None:
         first_parent = self.source.index("rev-list --first-parent refs/remotes/origin/main")
         backup = self.source.index("if ! backup_protected_config")
