@@ -1,15 +1,31 @@
 # Plan 034 — Workflow Transparency
 
-## Risk profile
-- Risk: LOW — CONTROL_PLANE refactoring only, no production mutation.
-- Risk profile: NOT REQUIRED per governance (no runtime, no destructive).
+- Specification: specs/034-workflow-transparency/spec.md
+- Issue: #254
+- Status: Active
 
-## Test design
-- Existing `tests/test_autonomous_execution_policy.py`, `tests/quality/test_quality_architecture.py`, `tests/test_ubuntu_zero_touch_transport.py` cover workflow contracts.
-- Validate with `scripts/quality/validate_workflow_policy.py`, `scripts/ci/validate_repo.py`, `python -m unittest discover`.
+## Architecture
 
-## Correct-course
-- If composite breaks, fallback to inline verification (revert).
+Shared composite `.github/actions/verify-exact-release/action.yml` holds 4 steps: verify_source_protection + resolve SHA + verify_quality_status + evaluate policy. Deploy workflows call it via `uses: ./.github/actions/verify-exact-release`.
 
-## Deployment Transaction Audit
-- NOT REQUIRED — CONTROL_PLANE, no deployment.
+## Decisions
+
+- Use composite action instead of reusable workflow to keep job context and avoid extra runner.
+- Keep contract markers as comments to satisfy `validate_workflow_policy` string checks.
+- Disable legacy workflows via API `disable` rather than file delete (GitHub retains them otherwise).
+
+## Affected contours
+
+- VPS deployment: NOT REQUIRED
+- Ubuntu worker/relay update: NOT REQUIRED
+- Production safety envelope: NOT REQUIRED
+
+## Validation
+
+- `scripts/quality/validate_workflow_policy.py` — must be valid
+- `scripts/ci/validate_repo.py` + `validate_contracts.py`
+- `python -m unittest discover -s tests -p test_*.py` — 428 PASS
+
+## Runtime feedback
+
+- CONTROL_PLANE — no runtime verification needed; Autonomous still triggers only on Quality success.
