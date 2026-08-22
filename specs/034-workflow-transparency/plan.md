@@ -49,3 +49,7 @@ Shared composite `.github/actions/verify-exact-release/action.yml` holds 4 steps
 ## Runtime feedback
 
 - CONTROL_PLANE — no runtime verification needed; Autonomous still triggers only on Quality success.
+
+## Deployment transaction audit
+
+- NOT REQUIRED — CONTROL_PLANE, no production deployment, no transaction.
