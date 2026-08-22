@@ -1,0 +1,92 @@
+name: Verify exact release
+description: Shared verification for exact main Quality-approved release - public protected source, first-parent SHA, Quality status, standing policy.
+
+inputs:
+  commit_sha:
+    description: Exact lowercase 40-char main commit SHA
+    required: true
+  canonical_issue:
+    description: Canonical Issue number bound by Change Contract
+    required: true
+  require_allow:
+    description: Fail if policy not ALLOW
+    required: false
+    default: 'true'
+
+outputs:
+  deploy_sha:
+    description: Verified deploy SHA
+    value: ${{ steps.resolve.outputs.sha }}
+  allowed:
+    description: Policy allowed
+    value: ${{ steps.policy.outputs.allowed }}
+  vps_required:
+    value: ${{ steps.policy.outputs.vps_required }}
+  ubuntu_worker_required:
+    value: ${{ steps.policy.outputs.ubuntu_worker_required }}
+  policy_decision_id:
+    value: ${{ steps.policy.outputs.policy_decision_id }}
+
+runs:
+  using: composite
+  steps:
+    - name: Verify public protected production source
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+      run: |
+        set -euo pipefail
+        python scripts/release/verify_source_protection.py \
+          --repository "$GITHUB_REPOSITORY" \
+          --branch main \
+          --require-context "Repository validation" \
+          --require-context "quality-integration"
+
+    - name: Resolve exact main deployment commit
+      id: resolve
+      shell: bash
+      env:
+        INPUT_COMMIT: ${{ inputs.commit_sha }}
+      run: |
+        set -euo pipefail
+        DEPLOY_SHA="$INPUT_COMMIT"
+        [[ "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "Deployment commit must be full lowercase 40-char SHA" >&2; exit 1; }
+        git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+        git cat-file -e "${DEPLOY_SHA}^{commit}" 2>/dev/null || git fetch --no-tags origin "$DEPLOY_SHA"
+        FIRST_PARENT_MATCH=0
+        while IFS= read -r commit; do [[ "$commit" == "$DEPLOY_SHA" ]] && FIRST_PARENT_MATCH=1; done < <(git rev-list --first-parent origin/main)
+        [[ "$FIRST_PARENT_MATCH" == "1" ]] || { echo "Deployment commit not on first-parent origin/main" >&2; exit 1; }
+        git checkout --detach "$DEPLOY_SHA"
+        [[ "$(git rev-parse HEAD)" == "$DEPLOY_SHA" ]]
+        echo "sha=$DEPLOY_SHA" >> "$GITHUB_OUTPUT"
+
+    - name: Verify aggregate quality push run
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
+        DEPLOY_SHA: ${{ steps.resolve.outputs.sha }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+      run: |
+        set -euo pipefail
+        python scripts/quality/verify_quality_status.py \
+          --repository "$GITHUB_REPOSITORY" \
+          --commit "$DEPLOY_SHA" \
+          --workflow-file quality-integration.yml
+
+    - name: Evaluate standing production delegation
+      id: policy
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
+        DEPLOY_SHA: ${{ steps.resolve.outputs.sha }}
+        CANONICAL_ISSUE: ${{ inputs.canonical_issue }}
+        SEA_SPEED_PRODUCTION_DELEGATION_V1: ${{ env.SEA_SPEED_PRODUCTION_DELEGATION_V1 }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+        REQUIRE_ALLOW: ${{ inputs.require_allow }}
+      run: |
+        set -euo pipefail
+        mkdir -p dist
+        ARGS=(--repository "$GITHUB_REPOSITORY" --commit "$DEPLOY_SHA" --issue "$CANONICAL_ISSUE" --action deploy --environment production --github-output "$GITHUB_OUTPUT" --evidence-output dist/production-policy-decision.json)
+        if [[ "$REQUIRE_ALLOW" == "true" ]]; then ARGS+=(--require-allow); fi
+        python scripts/release/evaluate_production_policy.py "${ARGS[@]}"
