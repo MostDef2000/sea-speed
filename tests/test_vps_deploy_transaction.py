@@ -108,6 +108,7 @@ class VpsDeployTransactionTests(unittest.TestCase):
         self.cameras = self.live / "frontend/sea-speed/cameras/index.html"
         self.road = self.live / "frontend/sea-speed/road/index.html"
         self.root_frontend = self.live / "frontend/root/index.html"
+        self.fallback = self.live / "frontend/sea-speed-unavailable.html"
         for sha in (OLD, CANDIDATE, OLDER):
             self.write_release(sha)
         self.install_live(OLD)
@@ -124,6 +125,7 @@ class VpsDeployTransactionTests(unittest.TestCase):
             "frontend/sea-speed/cameras/index.html": f"cameras {sha}\n",
             "frontend/sea-speed/road/index.html": f"road {sha}\n",
             "frontend/root/index.html": f"root {sha}\n",
+            "frontend/sea-speed/unavailable.html": f"fallback {sha}\n",
             "deploy/vps/sea-speed-auth-cutover.sh": "#!/usr/bin/env bash\nexit 0\n",
             "deploy/vps/install-auth-privilege-boundary.sh": "#!/usr/bin/env bash\nexit 0\n",
             "deploy/vps/sea-speed-auth-privileged-helper.py": "# helper source fixture\n",
@@ -141,6 +143,7 @@ class VpsDeployTransactionTests(unittest.TestCase):
 
     def install_live(self, sha: str) -> None:
         release = self.releases / sha
+        self.fallback = self.live / "frontend/sea-speed-unavailable.html"
         mapping = {
             self.api: release / "api/app/main.py",
             self.operator: release / "frontend/sea-speed/index.html",
@@ -148,6 +151,7 @@ class VpsDeployTransactionTests(unittest.TestCase):
             self.cameras: release / "frontend/sea-speed/cameras/index.html",
             self.road: release / "frontend/sea-speed/road/index.html",
             self.root_frontend: release / "frontend/root/index.html",
+            self.fallback: release / "frontend/sea-speed/unavailable.html",
         }
         for target, source in mapping.items():
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -273,6 +277,7 @@ if action == 'reconcile':
                 "SEA_SPEED_CAMERAS_FRONTEND_TARGET": str(self.cameras),
                 "SEA_SPEED_ROAD_FRONTEND_TARGET": str(self.road),
                 "SEA_SPEED_ROOT_FRONTEND_TARGET": str(self.root_frontend),
+                "SEA_SPEED_FALLBACK_FRONTEND_TARGET": str(self.fallback),
                 "SEA_SPEED_SYSTEMCTL_BIN": str(self.systemctl),
                 "SEA_SPEED_ORIGIN_HEALTH_URL": "http://127.0.0.1:8010/api/health",
                 "SEA_SPEED_HEALTH_URL": "https://example.invalid/sea-speed/api/health",
