@@ -36,15 +36,19 @@
 
 ## Definition of Done
 
-- [x] Issue/spec/plan/tasks current with NFR, risk, test design, correct-course, transaction audit, traceability
-- [ ] Renderer carries fail-closed 503 fallback for every protected `/sea-speed/**` location without weakening `auth_request`
-- [ ] VPS-local outage asset shipped, staged, and installed with bounded deployment transaction evidence
-- [ ] Degraded `500 + private Authentik unreachable` baseline can safely transition to `503` fallback without Worker recovery
-- [ ] Protected content never exposed anonymous; public `/` unaffected; real app 500 distinguishable
-- [ ] Privileged helper stays exact-source/fixed-action/no-shell and restores nginx on failed transaction
-- [ ] Deterministic tests prove all acceptance gates; SDD/repo/contract validators pass
-- [ ] Exact-head PR Validation + Quality integration green; exact-green-head merge; exact-main Quality green
-- [ ] Protected VPS deployment manifest and execution evidence present; production acceptance recorded
+- [x] Issue/spec/plan/tasks current
+- [x] Exact changed-file scope verified
+- [ ] Required tests and evidence complete
+- [ ] Required CI green
+- [ ] Exact-green-head merge complete
+- [ ] Deployment state resolved: VPS REQUIRED pending protected deployment
+- [ ] Runtime acceptance resolved: PENDING production acceptance for 503 fallback
+- [x] Deferred work recorded: NONE
+- [x] Risks resolved or explicitly accepted
+- [x] Waivers resolved or current: NOT REQUIRED
+- [x] Renderer carries fail-closed 503 fallback for every protected `/sea-speed/**` location without weakening `auth_request`
+- [x] VPS-local outage asset shipped, staged, and installed with bounded deployment transaction evidence
+- [x] Degraded `500 + private Authentik unreachable` baseline can safely transition to `503` fallback without Worker recovery
 
 ## Completion gate
 
