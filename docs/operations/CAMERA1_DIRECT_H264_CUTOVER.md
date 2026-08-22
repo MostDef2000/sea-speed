@@ -23,12 +23,14 @@ The retired `/cams/hls/cam1/index.m3u8` route is not a compatibility requirement
 - `deploy/vps/sea-speed-auth-cutover.sh` is the only production activation path for this route after Auth v1.
 - `deploy/vps/camera1-direct-h264-cutover.sh` is retained as a read-only compatibility status helper. Its standalone `activate` mode is deliberately retired.
 - `deploy/vps/sea-speed-auth-privileged-helper.py` owns the fixed no-argument privileged recovery boundary used by the canonical VPS deployment transaction. After Auth v1 reconcile succeeds, it also verifies that the local Camera 1 HLS media sequence advances. If the playlist is valid but static, it first decodes one frame from the fixed credential-free Ubuntu relay `rtsp://10.123.239.102:8554/cam1`, then restarts only `sea-speed-camera1-h264.service`, and requires a newly advancing local HLS sequence before returning success.
+- `deploy/vps/camera1-h264-freshness-watchdog.py` is the continuous runtime supervisor added by Issue #255. It uses the same fixed freshness predicate and relay-before-restart ordering between deployments, with a five-minute restart-attempt cooldown and no caller-selectable topology.
+- `deploy/vps/sea-speed-camera1-h264-freshness.service` and `.timer` run that watchdog as a root oneshot on a bounded recurring cadence.
 
 ## H264 freshness recovery
 
-Issue #226 adds a bounded recovery path for the observed failure mode where the Ubuntu private relay is live but the VPS H264 compatibility producer remains stuck on an old HLS playlist. The recovery is part of the existing exact-source-bound privileged `reconcile` transaction, so the ordinary VPS deployment cannot reach accepted `runtime_verified` state if Camera 1 HLS freshness fails.
+Issue #226 adds a bounded recovery path for the observed failure mode where the Ubuntu private relay is live but the VPS H264 compatibility producer remains stuck on an old HLS playlist. That recovery is part of the existing exact-source-bound privileged `reconcile` transaction, so an ordinary VPS deployment cannot reach accepted `runtime_verified` state if Camera 1 HLS freshness fails.
 
-The fixed recovery contract is:
+The fixed deployment-time recovery contract is:
 
 ```text
 local http://127.0.0.1:18889/cam1/index.m3u8 advances
@@ -45,12 +47,31 @@ Fail-closed rules:
 - an unavailable or malformed local HLS playlist is not treated as proof of a stale H264 producer and causes failure without a restart;
 - an unreadable Ubuntu private relay causes failure before any restart;
 - failure to restart or activate `sea-speed-camera1-h264.service` causes failure;
-- a still-static HLS playlist after the fixed restart causes deployment failure;
-- the helper does not restart nginx, `sea-speed-camera1-hls-http.service`, MediaMTX, `sea-speed-worker.service`, or `sea-speed-road-worker.service`;
+- a still-static HLS playlist after the fixed restart causes failure;
+- neither recovery path restarts nginx, `sea-speed-camera1-hls-http.service`, MediaMTX, `sea-speed-worker.service`, or `sea-speed-road-worker.service`;
 - no caller-provided service name, media URL, shell command, or root argument is accepted;
 - the browser URL remains `/sea-speed/media/cam1/index.m3u8` and the camera/relay/Auth topology is unchanged.
 
-Because the privileged helper bundle is exact-source-bound, any release that changes this helper requires the repository-owned `install-auth-privilege-boundary.sh` bootstrap for that exact approved source before the canonical VPS deployment can use the new recovery logic.
+## Continuous runtime freshness supervision
+
+The 2026-08-22 incident demonstrated the remaining lifetime gap: `sea-speed-camera1-h264.service` stayed `active` while `#EXT-X-MEDIA-SEQUENCE` remained frozen for hours. The local HLS HTTP server continued returning `200` and old fMP4 segments, so browsers could loop old video even though systemd saw a live FFmpeg process. A simultaneous private-relay frame probe passed, proving the current upstream relay was healthy.
+
+Issue #255 closes that gap with a persistent supervisor independent of deployment. The timer activates the fixed watchdog, which samples local HLS twice across three seconds. Advancing HLS is a no-op. Static HLS outside cooldown triggers one fixed private-relay frame probe; only a successful probe permits exactly one restart of `sea-speed-camera1-h264.service`. The watchdog then requires post-restart HLS progression.
+
+The supervisor records each restart attempt before the restart and suppresses another attempt for 300 seconds. This prevents a persistent codec/upstream fault from creating a restart storm. An unreadable relay is never treated as a reason to restart the VPS producer. A root-private non-blocking lock prevents overlapping watchdog transactions.
+
+Runtime entry point and topology are deliberately non-parameterized:
+
+```text
+HLS:     http://127.0.0.1:18889/cam1/index.m3u8
+relay:   rtsp://10.123.239.102:8554/cam1
+restart: sea-speed-camera1-h264.service only
+state:   /var/lib/sea-speed-camera1-freshness
+```
+
+`install-auth-privilege-boundary.sh` remains the exact-source root bootstrap. In addition to the existing helper bundle it installs the watchdog executable and service/timer units, reloads systemd and enables/starts only `sea-speed-camera1-h264-freshness.timer`. The installer captures prior watchdog files and prior timer enabled/active state; a failed bootstrap restores those values before reporting rollback.
+
+Issue #226 deployment-time recovery remains intentionally present. It is the release acceptance gate; Issue #255 is the 24/7 runtime liveness control.
 
 ## Safety rule
 
@@ -60,16 +81,19 @@ This ordering guarantees that `/sea-speed/media/cam1/` is not introduced as an u
 
 ## Acceptance
 
-After the separately authorized Auth v1 / Issue #226 production deployment:
+After the canonical exact-main production transaction:
 
 - anonymous `/cams/hls/cam1/index.m3u8` exposes no camera content;
 - anonymous `/sea-speed/media/cam1/index.m3u8` is denied/redirected through Authentik;
-- an authenticated Sea Speed user sees advancing H264 Camera 1 video;
+- an authenticated Sea Speed user sees current advancing H264 Camera 1 video;
 - the browser upstream remains `127.0.0.1:18889/cam1/`;
 - VPS MediaMTX is not reintroduced into the accepted Camera 1 browser path;
 - live viewing remains independent of the AI worker;
-- stale HLS recovery is a no-op when the playlist already advances;
-- stale HLS recovery restarts only `sea-speed-camera1-h264.service` after a successful fixed private-relay frame probe;
+- healthy HLS watchdog runs are no-op;
+- static HLS with a healthy fixed relay causes exactly one bounded H264 producer restart and post-restart progression;
+- static HLS with an unavailable relay causes no restart;
+- cooldown prevents restart storms;
+- production evidence demonstrates autonomous recovery to advancing authenticated video within 90 seconds;
 - no camera credential is exposed in browser URLs or repository content.
 
-Production mutation still requires an exact merged `main` SHA and separate `PRODUCTION APPROVED` authorization.
+Production execution requires the exact merged current-main release, exact push/main Quality, trusted standing production delegation and repository production-policy allow. Issue/PR comments are evidence only and are not runtime authority.
