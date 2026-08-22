@@ -32,8 +32,10 @@ Shared composite `.github/actions/verify-exact-release/action.yml` holds 4 steps
 
 ## Test design
 
-- No new tests — EXISTING tests `tests/test_autonomous_execution_policy.py`, `tests/quality/test_quality_architecture.py`, `tests/test_ubuntu_zero_touch_transport.py` cover workflow contracts.
-- Validate with `scripts/quality/validate_workflow_policy.py`, `scripts/ci/validate_repo.py`, `python -m unittest discover`.
+- TEST-034-001 | Covers: AC-001, FR-001, FR-002 | Level: unit | Priority: P0 | Evidence: `scripts/quality/validate_workflow_policy.py` — shared composite contains verify_source_protection, first-parent, verify_quality_status, evaluate_production_policy
+- TEST-034-002 | Covers: AC-002, AC-003 | Level: integration | Priority: P0 | Evidence: `python -m unittest discover -s tests -p test_*.py` — 428 PASS, PR Validation + quality-integration success
+- TEST-034-003 | Covers: AC-004 | Level: unit | Priority: P0 | Evidence: Actions shows 6 active workflows + 3 disabled, docs/WORKFLOW_OVERVIEW.md present
+
 
 ## Correct-course check
 
