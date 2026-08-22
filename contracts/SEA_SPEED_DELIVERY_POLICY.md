@@ -160,6 +160,17 @@ One-time bootstrap of branch protection, environment secret material and the ded
 
 `.github/workflows/deploy-vps.yml` remains the single protected VPS implementation. It verifies public protected main, exact main/Quality, standing policy, artifacts/release provenance and rollback before SSH. VPS completion requires exact deployed source, health/smoke/product/security evidence and known rollback target.
 
+### 13.1 Operator terminal command handoff format
+
+When a bounded operator command (ONE_COMMAND_FALLBACK or read-only host diagnostic) is handed to the operator, the paste block MUST satisfy all of the following so SSH-terminal wrapping cannot corrupt it:
+
+- one command per line, every line at most 72 characters;
+- long literals (40-character SHAs, URLs, paths) assigned to a short variable on their own line inside the same block, referenced only by that variable afterwards;
+- real values only — placeholders such as `<DEPLOY_USER>` are forbidden inside paste blocks;
+- no comment lines inside a paste block; explanations belong outside it;
+- the block executes top-to-bottom exactly as pasted without depending on variables from earlier messages or blocks;
+- several short lines are preferred over one long line; backslash continuations inside paste blocks are forbidden.
+
 ## 14. Ubuntu Worker/relay execution and evidence
 
 `.github/workflows/deploy-ubuntu-worker.yml` remains the protected reusable Ubuntu orchestrator. It verifies protected source, exact main/Quality/policy/artifacts, configures strict host-key VPS ProxyJump transport and sends only the restricted three-argument deployment request.
