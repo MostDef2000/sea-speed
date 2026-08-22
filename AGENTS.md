@@ -120,6 +120,17 @@ Explicit forbidden implicit fallbacks include Gmail, Calendar, Drive, Notion, `g
 
 Local ephemeral tooling is computation only. It may prepare or validate bytes but never becomes repository publication authority, production authority or runtime mutation evidence by itself.
 
+### Operator terminal command handoff format
+
+Every handoff of executable commands to the operator (ONE_COMMAND_FALLBACK, bounded read-only host command) MUST follow these rules so pasted blocks survive SSH-terminal wrapping:
+
+1. One command per line; every line at most 72 characters so terminal line-wrapping cannot split it.
+2. Long literals (40-character SHAs, URLs, paths) are assigned to a short variable on their own line inside the same block; later lines reference only that variable.
+3. Real values only. Placeholders such as `<DEPLOY_USER>` or `LIKE_THIS` are forbidden inside paste blocks; substitute the actual value before presenting the block.
+4. No comment lines inside a paste block; explanations belong outside it.
+5. The block must execute top-to-bottom exactly as pasted, without depending on variables assigned in earlier messages or earlier blocks.
+6. Prefer several short lines over one long line; do not use backslash continuations inside paste blocks.
+
 ## Interaction budget
 
 For a normal task after standing delegation activation:
