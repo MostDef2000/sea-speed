@@ -26,6 +26,19 @@ Shared composite `.github/actions/verify-exact-release/action.yml` holds 4 steps
 - `scripts/ci/validate_repo.py` + `validate_contracts.py`
 - `python -m unittest discover -s tests -p test_*.py` — 428 PASS
 
+## Risk profile
+
+- Risk profile: NOT REQUIRED
+
+## Test design
+
+- No new tests — EXISTING tests `tests/test_autonomous_execution_policy.py`, `tests/quality/test_quality_architecture.py`, `tests/test_ubuntu_zero_touch_transport.py` cover workflow contracts.
+- Validate with `scripts/quality/validate_workflow_policy.py`, `scripts/ci/validate_repo.py`, `python -m unittest discover`.
+
+## Correct-course check
+
+- If composite breaks, fallback to inline verification (revert to previous inline 4 steps). No data loss, CONTROL_PLANE only.
+
 ## Runtime feedback
 
 - CONTROL_PLANE — no runtime verification needed; Autonomous still triggers only on Quality success.
