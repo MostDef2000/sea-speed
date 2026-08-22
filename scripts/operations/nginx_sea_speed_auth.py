@@ -19,6 +19,10 @@ SEA_SPEED_PREFIX = "/sea-speed"
 LEGACY_CAMS_PREFIX = "/cams"
 DEFAULT_AUTHENTIK_UPSTREAM = "http://127.0.0.1:9000"
 DEFAULT_SEA_SPEED_INCLUDE_ROOT = Path("/etc/nginx/snippets")
+FALLBACK_URI = "/sea-speed-unavailable.html"
+FALLBACK_ROOT = "/var/www/mostdef.ru"
+FALLBACK_BEGIN = "# SEA-SPEED-FALLBACK-V1-BEGIN"
+FALLBACK_END = "# SEA-SPEED-FALLBACK-V1-END"
 MATERIALIZED_INCLUDE_BEGIN = "# SEA-SPEED-INCLUDE-MATERIALIZED-BEGIN"
 MATERIALIZED_INCLUDE_END = "# SEA-SPEED-INCLUDE-MATERIALIZED-END"
 WORKER_BEGIN = "# SEA-SPEED-WORKER-PRIVATE-V1-BEGIN"
@@ -230,8 +234,14 @@ def _strip_basic_auth(body: str) -> str:
 
 def _auth_location_snippet(indent: str) -> str:
     inner = indent + "    "
-    lines = [inner + LOCATION_BEGIN, inner + f"auth_request {AUTH_URI};", inner + "error_page 401 = @goauthentik_proxy_signin;", inner + "auth_request_set $auth_cookie $upstream_http_set_cookie;", inner + "add_header Set-Cookie $auth_cookie;", inner + "auth_request_set $authentik_username $upstream_http_x_authentik_username;", inner + "auth_request_set $authentik_groups $upstream_http_x_authentik_groups;", inner + "auth_request_set $authentik_entitlements $upstream_http_x_authentik_entitlements;", inner + "auth_request_set $authentik_email $upstream_http_x_authentik_email;", inner + "auth_request_set $authentik_name $upstream_http_x_authentik_name;", inner + "auth_request_set $authentik_uid $upstream_http_x_authentik_uid;", inner + "proxy_set_header X-authentik-username $authentik_username;", inner + "proxy_set_header X-authentik-groups $authentik_groups;", inner + "proxy_set_header X-authentik-entitlements $authentik_entitlements;", inner + "proxy_set_header X-authentik-email $authentik_email;", inner + "proxy_set_header X-authentik-name $authentik_name;", inner + "proxy_set_header X-authentik-uid $authentik_uid;", inner + LOCATION_END]
+    lines = [inner + LOCATION_BEGIN, inner + f"auth_request {AUTH_URI};", inner + "error_page 401 = @goauthentik_proxy_signin;", inner + f"error_page 500 =503 {FALLBACK_URI};", inner + "auth_request_set $auth_cookie $upstream_http_set_cookie;", inner + "add_header Set-Cookie $auth_cookie;", inner + "auth_request_set $authentik_username $upstream_http_x_authentik_username;", inner + "auth_request_set $authentik_groups $upstream_http_x_authentik_groups;", inner + "auth_request_set $authentik_entitlements $upstream_http_x_authentik_entitlements;", inner + "auth_request_set $authentik_email $upstream_http_x_authentik_email;", inner + "auth_request_set $authentik_name $upstream_http_x_authentik_name;", inner + "auth_request_set $authentik_uid $upstream_http_x_authentik_uid;", inner + "proxy_set_header X-authentik-username $authentik_username;", inner + "proxy_set_header X-authentik-groups $authentik_groups;", inner + "proxy_set_header X-authentik-entitlements $authentik_entitlements;", inner + "proxy_set_header X-authentik-email $authentik_email;", inner + "proxy_set_header X-authentik-name $authentik_name;", inner + "proxy_set_header X-authentik-uid $authentik_uid;", inner + LOCATION_END]
     return "\n" + "\n".join(lines) + "\n"
+
+
+def _fallback_block(indent: str) -> str:
+    inner = indent + "    "
+    lines = [indent + FALLBACK_BEGIN, indent + f"location = {FALLBACK_URI} {{", inner + "internal;", inner + f"root {FALLBACK_ROOT};", inner + 'add_header Cache-Control "no-store" always;', inner + 'add_header Retry-After "30" always;', indent + "}", indent + FALLBACK_END, ""]
+    return "\n".join(lines)
 
 
 def _inject_location_auth(text: str, host: str) -> str:
@@ -322,7 +332,7 @@ def render(text: str, host: str = "mostdef.ru", worker_private_listen: str | Non
     if (worker_private_listen is None) != (worker_private_peer is None): raise ConfigError("worker private listen and peer must be supplied together")
     want_worker = worker_private_listen is not None
     has_worker = WORKER_BEGIN in text or WORKER_END in text
-    if GLOBAL_BEGIN in text and GLOBAL_END in text and has_worker == want_worker:
+    if GLOBAL_BEGIN in text and GLOBAL_END in text and has_worker == want_worker and FALLBACK_BEGIN in text and FALLBACK_END in text:
         try:
             verify(text, host, worker_private_listen=worker_private_listen, worker_private_peer=worker_private_peer, authentik_upstream=origin)
             return text
@@ -330,6 +340,7 @@ def render(text: str, host: str = "mostdef.ru", worker_private_listen: str | Non
     text = _strip_marked_sections(text, GLOBAL_BEGIN, GLOBAL_END)
     text = _strip_marked_sections(text, WORKER_BEGIN, WORKER_END)
     text = _strip_marked_sections(text, LOCATION_BEGIN, LOCATION_END)
+    text = _strip_marked_sections(text, FALLBACK_BEGIN, FALLBACK_END)
     if OLD_CAM1_BEGIN in text or OLD_CAM1_END in text: text = _strip_marked_sections(text, OLD_CAM1_BEGIN, OLD_CAM1_END)
     text = _strip_legacy_locations(text, host)
     text = _inject_location_auth(text, host)
@@ -339,7 +350,7 @@ def render(text: str, host: str = "mostdef.ru", worker_private_listen: str | Non
     if not sea_locations: raise ConfigError("no /sea-speed location after auth injection")
     insert_at = server_start + min(start for start, _spec in sea_locations)
     indent = _indent_at(text, insert_at)
-    text = text[:insert_at] + _global_block(indent, origin, host) + text[insert_at:]
+    text = text[:insert_at] + _global_block(indent, origin, host) + _fallback_block(indent) + text[insert_at:]
     if worker_private_listen and worker_private_peer:
         server_start, _, server_close = _server_for_host(text, host)
         server_text = text[server_start : server_close + 1]
@@ -355,13 +366,22 @@ def verify(text: str, host: str = "mostdef.ru", worker_private_listen: str | Non
     server_start, _, server_close = _server_for_host(text, host)
     server_text = text[server_start : server_close + 1]
     if server_text.count(GLOBAL_BEGIN) != 1 or server_text.count(GLOBAL_END) != 1: raise ConfigError("global Sea Speed Auth v1 block missing or duplicated")
+    if server_text.count(FALLBACK_BEGIN) != 1 or server_text.count(FALLBACK_END) != 1: raise ConfigError("fallback Sea Speed outage page block missing or duplicated")
     canonical_if = f"if ($host = www.{host}) {{"; canonical_return = f"return 308 https://{host}$request_uri;"
     if server_text.count(canonical_if) != 1 or server_text.count(canonical_return) != 1: raise ConfigError("canonical www host redirect missing or duplicated")
     if f"proxy_pass {origin}{OUTPOST_PREFIX};" not in server_text: raise ConfigError("embedded Authentik outpost proxy missing or wrong private origin")
     if "location @goauthentik_proxy_signin" not in server_text: raise ConfigError("Authentik signin location missing")
+    fallback_expected = f"location = {FALLBACK_URI} {{"
+    if fallback_expected not in server_text: raise ConfigError("fallback Sea Speed outage location missing")
+    if "internal;" not in server_text or f"root {FALLBACK_ROOT};" not in server_text: raise ConfigError("fallback outage location must be internal with VPS-local root")
+    if 'add_header Cache-Control "no-store" always;' not in server_text: raise ConfigError("fallback outage location must use Cache-Control no-store")
+    if 'add_header Retry-After "30" always;' not in server_text: raise ConfigError("fallback outage location must set Retry-After")
     sea_count = cams_count = outpost_count = 0
     for spec, _start, open_index, close_index in _location_blocks(server_text):
         uri = _location_uri(spec); body = server_text[open_index + 1 : close_index]
+        if uri == FALLBACK_URI:
+            if "internal;" not in body: raise ConfigError("fallback outage location must be internal")
+            continue
         if uri == OUTPOST_PREFIX:
             outpost_count += 1
             if f"proxy_pass {origin}{OUTPOST_PREFIX};" not in body: raise ConfigError("root Authentik outpost proxy uses wrong private origin")
@@ -369,7 +389,7 @@ def verify(text: str, host: str = "mostdef.ru", worker_private_listen: str | Non
         if uri.startswith(SEA_SPEED_PREFIX + OUTPOST_PREFIX): raise ConfigError("prefixed Authentik outpost location is not allowed")
         if uri == SEA_SPEED_PREFIX or uri.startswith(SEA_SPEED_PREFIX + "/"):
             sea_count += 1
-            required = (f"auth_request {AUTH_URI};", "error_page 401 = @goauthentik_proxy_signin;", "proxy_set_header X-authentik-username $authentik_username;", "proxy_set_header X-authentik-groups $authentik_groups;", "proxy_set_header X-authentik-email $authentik_email;", "proxy_set_header X-authentik-uid $authentik_uid;")
+            required = (f"auth_request {AUTH_URI};", "error_page 401 = @goauthentik_proxy_signin;", f"error_page 500 =503 {FALLBACK_URI};", "proxy_set_header X-authentik-username $authentik_username;", "proxy_set_header X-authentik-groups $authentik_groups;", "proxy_set_header X-authentik-email $authentik_email;", "proxy_set_header X-authentik-uid $authentik_uid;")
             for marker in required:
                 if marker not in body: raise ConfigError(f"unprotected Sea Speed location {spec}: missing {marker}")
             if "auth_basic " in body or "auth_basic_user_file " in body: raise ConfigError(f"legacy Basic Auth remains in Sea Speed location {spec}")
