@@ -419,6 +419,21 @@ ensure_current_release_has_road_frontend() {
   fi
 }
 
+ensure_current_release_has_fallback_frontend() {
+  local current_name current_release fallback_release_dir
+  current_name="$(cat "$CURRENT_FILE")"
+  current_release="$RELEASES_DIR/$current_name"
+  fallback_release_dir="$current_release/frontend/sea-speed"
+  if [[ -f "$fallback_release_dir/unavailable.html" || -f "$fallback_release_dir/unavailable.html.absent" ]]; then return; fi
+  log "Capturing current fallback frontend state for rollback release ${current_name}"
+  mkdir -p "$fallback_release_dir"
+  if [[ -f "$FALLBACK_FRONTEND_TARGET" ]]; then
+    install -m 0644 "$FALLBACK_FRONTEND_TARGET" "$fallback_release_dir/unavailable.html"
+  else
+    touch "$fallback_release_dir/unavailable.html.absent"
+  fi
+}
+
 install_release() {
   local release_name="$1"
   local release_dir="$RELEASES_DIR/$release_name"
@@ -684,6 +699,7 @@ main() {
   ensure_current_release_has_objects_frontend
   ensure_current_release_has_cameras_frontend
   ensure_current_release_has_road_frontend
+  ensure_current_release_has_fallback_frontend
 
   local old_current previous
   old_current="$(cat "$CURRENT_FILE")"
