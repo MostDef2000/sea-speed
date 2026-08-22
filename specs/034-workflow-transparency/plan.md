@@ -52,4 +52,13 @@ Shared composite `.github/actions/verify-exact-release/action.yml` holds 4 steps
 
 ## Deployment transaction audit
 
-- NOT REQUIRED — CONTROL_PLANE, no production deployment, no transaction.
+- Adjacent-stage review: COMPLETE
+- TX-034-001 | Stage: ADMISSION | Mutation: NO | Failure disposition: FATAL | State after failure: source remains unapproved, no deployment | Retry: retry after exact Issue/scope/hash admission | Rollback: not applicable | Evidence: Issue #254 scope, exact base e3ddda5, workflow-policy valid
+- TX-034-002 | Stage: PRE-MUTATION | Mutation: NO | Failure disposition: FATAL | State after failure: workflows unchanged, no transport | Retry: repair exact source and re-verify policy | Rollback: not applicable | Evidence: verify_source_protection + verify_quality_status + evaluate_production_policy checks
+- TX-034-003 | Stage: MUTATION | Mutation: YES | Failure disposition: FATAL | State after failure: candidate workflows partially written, live workflows on previous commit | Retry: re-apply shared action and re-render | Rollback: restore previous workflow files from backup | Evidence: .github/actions/verify-exact-release staged, deploy workflows reference shared action
+- TX-034-004 | Stage: VERIFICATION | Mutation: NO | Failure disposition: FATAL | State after failure: mutation not committed if verification fails | Retry: re-verify workflow-policy + SDD + tests | Rollback: restore previous workflows | Evidence: validate_workflow_policy PASS, validate_sdd PASS, 428 tests PASS
+- TX-034-005 | Stage: STATE-COMMIT | Mutation: YES | Failure disposition: CONDITIONAL | State after failure: commit not advanced unless verification passes | Retry: commit only after verification | Rollback: keep previous commit as rollback target | Evidence: current branch head f8b8db0 + previous e3ddda5
+- TX-034-006 | Stage: HOUSEKEEPING | Mutation: POSSIBLE | Failure disposition: BEST-EFFORT | State after failure: verified workflows remain while stale branches await pruning | Retry: prune stale branches without touching main | Rollback: no rollback required | Evidence: branch agent/workflow-refactor-transparency pruned after merge
+- TX-034-007 | Stage: EVIDENCE | Mutation: NO | Failure disposition: FATAL | State after failure: acceptance remains incomplete without evidence | Retry: recollect workflow evidence | Rollback: no evidence-only rollback | Evidence: PR #253 Change Contract + SDD 034 + Actions 6 active workflows
+- TX-034-008 | Stage: ROLLBACK | Mutation: YES | Failure disposition: CONDITIONAL | State after failure: previous workflows remain rollback target | Retry: restore previous workflows and re-verify | Rollback: byte-identical restore of deploy workflows | Evidence: rollback via git revert + workflow-policy re-validation
+
