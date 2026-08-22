@@ -36,10 +36,15 @@ Shared composite `.github/actions/verify-exact-release/action.yml` holds 4 steps
 - TEST-034-002 | Covers: AC-002, AC-003 | Level: integration | Priority: P0 | Evidence: `python -m unittest discover -s tests -p test_*.py` — 428 PASS, PR Validation + quality-integration success
 - TEST-034-003 | Covers: AC-004 | Level: unit | Priority: P0 | Evidence: Actions shows 6 active workflows + 3 disabled, docs/WORKFLOW_OVERVIEW.md present
 
-
 ## Correct-course check
 
-- If composite breaks, fallback to inline verification (revert to previous inline 4 steps). No data loss, CONTROL_PLANE only.
+- Trigger: NONE
+- Issue impact: No Issue impact — CONTROL_PLANE refactoring, Issue #254 remains.
+- Specification impact: No spec impact beyond 034.
+- Plan impact: Shared action reduces duplication, no runtime change.
+- Tasks impact: Tasks 034 cover composite creation and docs.
+- Authorization impact: Remains inside OUTCOME APPROVED for 034; no new production authority.
+- Follow-up: None.
 
 ## Runtime feedback
 
