@@ -42,7 +42,7 @@ Given a restart attempt occurred less than five minutes earlier and HLS is stati
 
 Given the watchdog is invoked by its fixed root-owned systemd service, then CLI arguments, environment overrides, alternate URLs, alternate service names and arbitrary commands are not accepted.
 
-## Functional requirements
+## Requirements
 
 - FR-001: The runtime watchdog MUST accept no command-line arguments and MUST expose no environment-variable topology overrides.
 - FR-002: The local playlist MUST be exactly `http://127.0.0.1:18889/cam1/index.m3u8`.
@@ -79,11 +79,18 @@ Given the watchdog is invoked by its fixed root-owned systemd service, then CLI 
 
 ## NFR assessment
 
-- NFR-001 | SECURITY | Target: no caller-controlled privileged topology or arbitrary command | Validation: no-argument entry point, fixed constants, unit/install tests | Status: PASS
-- NFR-002 | FAIL_CLOSED | Target: no restart from malformed HLS or unavailable relay; post-restart freshness mandatory | Validation: focused unit tests | Status: PASS
-- NFR-003 | BLAST_RADIUS | Target: only fixed H264 service restart | Validation: captured argv and forbidden-name assertions | Status: PASS
-- NFR-004 | AVAILABILITY | Target: autonomous recovery between deployments, normally <=90s | Validation: timer cadence + production incident replay/acceptance | Status: CONCERNS pending runtime acceptance
-- NFR-005 | STORM_CONTROL | Target: no repeated restart loop after unsuccessful recovery | Validation: 300-second persisted cooldown test | Status: PASS
-- NFR-006 | CONCURRENCY | Target: one active watchdog transaction | Validation: non-blocking root-private file lock | Status: PASS
-- NFR-007 | PROVENANCE | Target: installed supervisor bytes come from exact authorized checkout and installation rollback is available | Validation: existing exact-source installer identity checks plus watchdog install/rollback coverage | Status: PASS
-- NFR-008 | BACKWARD_COMPATIBILITY | Target: preserve Issue #226 reconcile recovery and all accepted camera/browser topology | Validation: no helper/nginx/MediaMTX/Ubuntu changes required | Status: PASS
+- NFR-001 | Area: SECURITY | Target: no caller-controlled privileged topology or arbitrary command | Validation: no-argument entry point, fixed constants, unit/install tests | Evidence: tests/test_camera1_h264_freshness_watchdog.py | Status: PASS
+- NFR-002 | Area: FAIL_CLOSED | Target: no restart from malformed HLS or unavailable relay; post-restart freshness mandatory | Validation: focused unit tests | Evidence: tests/test_camera1_h264_freshness_watchdog.py | Status: PASS
+- NFR-003 | Area: BLAST_RADIUS | Target: only fixed H264 service restart | Validation: captured argv and forbidden-name assertions | Evidence: tests/test_camera1_h264_freshness_watchdog.py | Status: PASS
+- NFR-004 | Area: AVAILABILITY | Target: autonomous recovery between deployments, normally <=90s | Validation: timer cadence + production incident replay/acceptance | Evidence: deploy/vps/sea-speed-camera1-h264-freshness.timer + production acceptance run | Status: CONCERNS
+- NFR-005 | Area: STORM_CONTROL | Target: no repeated restart loop after unsuccessful recovery | Validation: 300-second persisted cooldown test | Evidence: tests/test_camera1_h264_freshness_watchdog.py | Status: PASS
+- NFR-006 | Area: CONCURRENCY | Target: one active watchdog transaction | Validation: non-blocking root-private file lock | Evidence: tests/test_camera1_h264_freshness_watchdog.py | Status: PASS
+- NFR-007 | Area: PROVENANCE | Target: installed supervisor bytes come from exact authorized checkout and installation rollback is available | Validation: existing exact-source installer identity checks plus watchdog install/rollback coverage | Evidence: deploy/vps/install-auth-privilege-boundary.sh | Status: PASS
+- NFR-008 | Area: BACKWARD_COMPATIBILITY | Target: preserve Issue #226 reconcile recovery and all accepted camera/browser topology | Validation: no helper/nginx/MediaMTX/Ubuntu changes required | Evidence: unchanged deploy/vps/sea-speed-auth-privileged-helper.py | Status: PASS
+
+## Runtime feedback
+
+- Runtime acceptance: REQUIRED — VPS contour; production acceptance must demonstrate autonomous recovery from active-producer/static-HLS to advancing authenticated Camera 1 within 90 seconds (AC-012, AC-013).
+- Accepted production behavior: `sea-speed-camera1-h264.service` remains the only restartable unit; watchdog/timer run root-owned under fixed systemd units installed by the exact-source privilege-boundary installer.
+- Regressions/learning: 2026-08-22 incident (active producer, static media sequence 405, healthy relay) is the recorded lifetime-gap evidence that Issue #226 deploy-time reconcile does not cover.
+- Follow-up work: none inside this feature; relay-side HEVC decoder robustness remains outside the authorized scope.
