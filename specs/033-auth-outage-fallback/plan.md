@@ -85,7 +85,7 @@ The VPS deployment transaction is extended with an outage-safe preflight: when t
 
 ## Deployment transaction audit
 
-- Adjacent-stage review: COMPLETE - reviewed deploy/vps/deploy.sh ADMISSION/PRE-MUTATION gates, sea-speed-auth-cutover.sh prepare/activate, privileged helper, and existing transaction tests.
+- Adjacent-stage review: COMPLETE
 - Production-learning root cause: Existing VPS deploy preflight considered any protected `500` as non-recoverable except bounded Auth v1 reconcile; when the Worker is genuinely unreachable the reconcile itself cannot succeed, leaving the production `500` state undeliverable.
 - Production-learning adjacent-stage findings: Renderer had no deterministic fallback path for auth-dependency failure; staging did not carry a VPS-local outage asset; privileged helper and rollback boundaries themselves remain intact.
 - TX-033-001 | Stage: ADMISSION | Mutation: NO | Failure disposition: FATAL | State after failure: source or activation remains unapproved and production unchanged | Retry: retry only after exact Issue/scope/hash/artifact admission is valid | Rollback: not applicable | Evidence: Issue #250 scope, exact base 7eebfb2, public repository and risk classification
