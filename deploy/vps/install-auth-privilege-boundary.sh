@@ -11,6 +11,8 @@ DEPLOY_USER="$2"
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/../.." && pwd)"
 TEST_ROOT="${SEA_SPEED_PRIVILEGE_BOUNDARY_TEST_ROOT:-}"
+WATCHDOG_SERVICE="sea-speed-camera1-h264-freshness.service"
+WATCHDOG_TIMER="sea-speed-camera1-h264-freshness.timer"
 
 if [[ -n "$TEST_ROOT" ]]; then
   [[ "$TEST_ROOT" == /* && "$TEST_ROOT" != "/" ]] || { echo "ERROR test root must be an absolute non-root path" >&2; exit 2; }
@@ -32,6 +34,9 @@ command -v git >/dev/null 2>&1 || { echo "ERROR git is required" >&2; exit 4; }
 command -v python3 >/dev/null 2>&1 || { echo "ERROR python3 is required" >&2; exit 4; }
 command -v sha256sum >/dev/null 2>&1 || { echo "ERROR sha256sum is required" >&2; exit 4; }
 command -v visudo >/dev/null 2>&1 || { echo "ERROR visudo is required" >&2; exit 4; }
+if [[ -z "$TEST_ROOT" ]]; then
+  command -v systemctl >/dev/null 2>&1 || { echo "ERROR systemctl is required" >&2; exit 4; }
+fi
 
 ACTUAL_SHA="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || true)"
 [[ "$ACTUAL_SHA" == "$SOURCE_SHA" ]] || { echo "ERROR installer source checkout is not the authorized exact SHA" >&2; exit 5; }
@@ -46,7 +51,17 @@ HELPER_SOURCE="$REPO_ROOT/deploy/vps/sea-speed-auth-privileged-helper.py"
 CUTOVER_SOURCE="$REPO_ROOT/deploy/vps/sea-speed-auth-cutover.sh"
 CAM_RENDERER_SOURCE="$REPO_ROOT/scripts/operations/nginx_cam1_direct_h264.py"
 AUTH_RENDERER_SOURCE="$REPO_ROOT/scripts/operations/nginx_sea_speed_auth.py"
-for source in "$HELPER_SOURCE" "$CUTOVER_SOURCE" "$CAM_RENDERER_SOURCE" "$AUTH_RENDERER_SOURCE"; do
+WATCHDOG_SOURCE="$REPO_ROOT/deploy/vps/camera1-h264-freshness-watchdog.py"
+WATCHDOG_SERVICE_SOURCE="$REPO_ROOT/deploy/vps/$WATCHDOG_SERVICE"
+WATCHDOG_TIMER_SOURCE="$REPO_ROOT/deploy/vps/$WATCHDOG_TIMER"
+for source in \
+  "$HELPER_SOURCE" \
+  "$CUTOVER_SOURCE" \
+  "$CAM_RENDERER_SOURCE" \
+  "$AUTH_RENDERER_SOURCE" \
+  "$WATCHDOG_SOURCE" \
+  "$WATCHDOG_SERVICE_SOURCE" \
+  "$WATCHDOG_TIMER_SOURCE"; do
   [[ -f "$source" && ! -L "$source" ]] || { echo "ERROR required exact-source asset missing or unsafe: $source" >&2; exit 5; }
 done
 
@@ -54,12 +69,22 @@ PREFIX="$TEST_ROOT"
 HELPER_PATH="${PREFIX}/usr/local/sbin/sea-speed-auth-privileged-helper"
 BUNDLE_ROOT="${PREFIX}/usr/local/lib/sea-speed-auth-privileged"
 SUDOERS_PATH="${PREFIX}/etc/sudoers.d/sea-speed-auth-privileged"
+WATCHDOG_PATH="${PREFIX}/usr/local/sbin/sea-speed-camera1-h264-freshness-watchdog"
+WATCHDOG_SERVICE_PATH="${PREFIX}/etc/systemd/system/$WATCHDOG_SERVICE"
+WATCHDOG_TIMER_PATH="${PREFIX}/etc/systemd/system/$WATCHDOG_TIMER"
 TMP="$(mktemp -d)"
 BACKUP="$TMP/backup"
 STAGE="$TMP/stage"
 MUTATED=0
 SUCCESS=0
+PREV_TIMER_ENABLED="not-found"
+PREV_TIMER_ACTIVE="inactive"
 mkdir -p "$BACKUP" "$STAGE/repo/deploy/vps" "$STAGE/repo/scripts/operations"
+
+if [[ -z "$TEST_ROOT" ]]; then
+  PREV_TIMER_ENABLED="$(systemctl is-enabled "$WATCHDOG_TIMER" 2>/dev/null || true)"
+  PREV_TIMER_ACTIVE="$(systemctl is-active "$WATCHDOG_TIMER" 2>/dev/null || true)"
+fi
 
 backup_path() {
   local source="$1" name="$2"
@@ -77,12 +102,34 @@ restore_path() {
   fi
 }
 
+restore_timer_runtime() {
+  [[ -z "$TEST_ROOT" ]] || return 0
+  systemctl daemon-reload >/dev/null 2>&1 || true
+  case "$PREV_TIMER_ENABLED" in
+    enabled|enabled-runtime|linked|linked-runtime|alias)
+      systemctl enable "$WATCHDOG_TIMER" >/dev/null 2>&1 || true
+      ;;
+    *)
+      systemctl disable "$WATCHDOG_TIMER" >/dev/null 2>&1 || true
+      ;;
+  esac
+  if [[ "$PREV_TIMER_ACTIVE" == "active" || "$PREV_TIMER_ACTIVE" == "activating" ]]; then
+    systemctl start "$WATCHDOG_TIMER" >/dev/null 2>&1 || true
+  else
+    systemctl stop "$WATCHDOG_TIMER" >/dev/null 2>&1 || true
+  fi
+}
+
 cleanup() {
   local rc=$?
   if [[ "$SUCCESS" -ne 1 && "$MUTATED" -eq 1 ]]; then
     restore_path "$HELPER_PATH" helper
     restore_path "$BUNDLE_ROOT" bundle
     restore_path "$SUDOERS_PATH" sudoers
+    restore_path "$WATCHDOG_PATH" watchdog
+    restore_path "$WATCHDOG_SERVICE_PATH" watchdog-service
+    restore_path "$WATCHDOG_TIMER_PATH" watchdog-timer
+    restore_timer_runtime
     echo "SEA_SPEED_AUTH_PRIVILEGE_INSTALL_ROLLBACK=PASS" >&2
   fi
   rm -rf -- "$TMP"
@@ -94,6 +141,9 @@ install -m 0755 "$HELPER_SOURCE" "$STAGE/helper"
 install -m 0755 "$CUTOVER_SOURCE" "$STAGE/repo/deploy/vps/sea-speed-auth-cutover.sh"
 install -m 0644 "$CAM_RENDERER_SOURCE" "$STAGE/repo/scripts/operations/nginx_cam1_direct_h264.py"
 install -m 0644 "$AUTH_RENDERER_SOURCE" "$STAGE/repo/scripts/operations/nginx_sea_speed_auth.py"
+install -m 0755 "$WATCHDOG_SOURCE" "$STAGE/watchdog"
+install -m 0644 "$WATCHDOG_SERVICE_SOURCE" "$STAGE/watchdog.service"
+install -m 0644 "$WATCHDOG_TIMER_SOURCE" "$STAGE/watchdog.timer"
 
 python3 - "$STAGE/manifest.json" "$SOURCE_SHA" "$STAGE/helper" "$STAGE/repo" <<'PY'
 import hashlib
@@ -133,9 +183,17 @@ visudo -cf "$STAGE/sudoers" >/dev/null
 backup_path "$HELPER_PATH" helper
 backup_path "$BUNDLE_ROOT" bundle
 backup_path "$SUDOERS_PATH" sudoers
+backup_path "$WATCHDOG_PATH" watchdog
+backup_path "$WATCHDOG_SERVICE_PATH" watchdog-service
+backup_path "$WATCHDOG_TIMER_PATH" watchdog-timer
 MUTATED=1
 
-mkdir -p "$(dirname "$HELPER_PATH")" "$(dirname "$BUNDLE_ROOT")" "$(dirname "$SUDOERS_PATH")"
+mkdir -p \
+  "$(dirname "$HELPER_PATH")" \
+  "$(dirname "$BUNDLE_ROOT")" \
+  "$(dirname "$SUDOERS_PATH")" \
+  "$(dirname "$WATCHDOG_PATH")" \
+  "$(dirname "$WATCHDOG_SERVICE_PATH")"
 rm -rf -- "${BUNDLE_ROOT}.next"
 mkdir -p "${BUNDLE_ROOT}.next"
 cp -a "$STAGE/repo" "${BUNDLE_ROOT}.next/repo"
@@ -153,6 +211,12 @@ install -o "$INSTALL_UID" -g "$INSTALL_GID" -m 0440 "$STAGE/sudoers" "${SUDOERS_
 visudo -cf "${SUDOERS_PATH}.next" >/dev/null
 mv -f "${SUDOERS_PATH}.next" "$SUDOERS_PATH"
 visudo -cf "$SUDOERS_PATH" >/dev/null
+install -o "$INSTALL_UID" -g "$INSTALL_GID" -m 0755 "$STAGE/watchdog" "${WATCHDOG_PATH}.next"
+mv -f "${WATCHDOG_PATH}.next" "$WATCHDOG_PATH"
+install -o "$INSTALL_UID" -g "$INSTALL_GID" -m 0644 "$STAGE/watchdog.service" "${WATCHDOG_SERVICE_PATH}.next"
+mv -f "${WATCHDOG_SERVICE_PATH}.next" "$WATCHDOG_SERVICE_PATH"
+install -o "$INSTALL_UID" -g "$INSTALL_GID" -m 0644 "$STAGE/watchdog.timer" "${WATCHDOG_TIMER_PATH}.next"
+mv -f "${WATCHDOG_TIMER_PATH}.next" "$WATCHDOG_TIMER_PATH"
 
 if [[ "${SEA_SPEED_PRIVILEGE_BOUNDARY_TEST_FAIL_AFTER_INSTALL:-0}" == "1" && -n "$TEST_ROOT" ]]; then
   echo "ERROR injected post-install test failure" >&2
@@ -168,6 +232,16 @@ if payload.get("schema") != "sea_speed_auth_privileged_bundle_v1" or payload.get
     raise SystemExit("ERROR installed privileged bundle manifest mismatch")
 PY
 
+if [[ -z "$TEST_ROOT" ]]; then
+  systemctl daemon-reload
+  systemctl enable --now "$WATCHDOG_TIMER"
+  systemctl is-enabled --quiet "$WATCHDOG_TIMER"
+  systemctl is-active --quiet "$WATCHDOG_TIMER"
+  echo "CAMERA1_FRESHNESS_TIMER=ACTIVE"
+else
+  echo "CAMERA1_FRESHNESS_TIMER=TEST_ROOT_NOT_ACTIVATED"
+fi
+
 SUCCESS=1
 echo "SEA_SPEED_AUTH_PRIVILEGE_INSTALL=PASS"
 echo "SOURCE_SHA=$SOURCE_SHA"
@@ -175,3 +249,6 @@ echo "DEPLOY_USER=$DEPLOY_USER"
 echo "SUDO_COMMAND_SCOPE=FIXED_HELPER_NO_ARGS"
 echo "ROOT_SHELL_GRANTED=NO"
 echo "PRIVILEGED_TOPOLOGY=FIXED"
+echo "CAMERA1_FRESHNESS_WATCHDOG=INSTALLED"
+echo "CAMERA1_FRESHNESS_SERVICE=$WATCHDOG_SERVICE"
+echo "CAMERA1_FRESHNESS_TIMER_UNIT=$WATCHDOG_TIMER"

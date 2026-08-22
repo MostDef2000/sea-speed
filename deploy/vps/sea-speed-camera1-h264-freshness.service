@@ -1,0 +1,18 @@
+[Unit]
+Description=Sea Speed Camera 1 H264 freshness watchdog
+After=network-online.target sea-speed-camera1-hls-http.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+UMask=0077
+ExecStart=/usr/local/sbin/sea-speed-camera1-h264-freshness-watchdog
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
