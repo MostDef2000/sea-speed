@@ -38,8 +38,8 @@ Given Actions tab is opened, when workflows are listed, then `agent-hls-*` and `
 
 ## NFR assessment
 
-- NFR-OPS-001 | OPERABILITY | Target: Reduce duplication by ~60 lines each, improve maintainability | Validation: diff stat | Status: PASS
-- NFR-SEC-001 | SECURITY | Target: No change to production authority or secrets handling | Validation: workflow policy | Status: PASS
+- NFR-OPS-001 | Area: OPERABILITY | Target: Reduce duplication by ~60 lines each, improve maintainability | Validation: diff stat | Evidence: .github/actions/verify-exact-release/action.yml | Status: PASS
+- NFR-SEC-001 | Area: SECURITY | Target: No change to production authority or secrets handling | Validation: workflow policy | Evidence: scripts/quality/validate_workflow_policy.py | Status: PASS
 
 ## Compatibility and boundaries
 
