@@ -403,6 +403,22 @@ if action == 'reconcile':
         self.assertEqual(self.current(), OLD)
         self.assertEqual(self.manifest()["state"], "rolled_back")
 
+    def test_candidate_failure_rolls_back_legacy_release_without_fallback_state(self) -> None:
+        old_fallback = self.releases / OLD / "frontend/sea-speed/unavailable.html"
+        old_fallback.unlink()
+        self.fallback.unlink()
+
+        result = self.run_deploy(mode="fail-candidate")
+
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn(OLD, self.api.read_text())
+        self.assertEqual(self.current(), OLD)
+        self.assertFalse(self.fallback.exists())
+        self.assertTrue(
+            (self.releases / OLD / "frontend/sea-speed/unavailable.html.absent").is_file()
+        )
+        self.assertEqual(self.manifest()["state"], "rolled_back")
+
     def test_auth_boundary_failure_rolls_source_back_after_boundary_self_rollback(self) -> None:
         result = self.run_deploy(priv_mode="auth-fail")
         self.assertEqual(result.returncode, 1, result.stdout)
