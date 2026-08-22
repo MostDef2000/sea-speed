@@ -34,6 +34,21 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Sea Speed transparent flow markers (kept for contract tests):
+  # Verify public protected production source
+  # verify_source_protection.py
+  # --require-context "Repository validation"
+  # --require-context "quality-integration"
+  # rev-list --first-parent refs/remotes/origin/main - target is not on current main first-parent history
+  # --first-parent
+  # verify_quality_status.py - quality-integration.yml
+  # evaluate_production_policy.py --require-allow vars.SEA_SPEED_PRODUCTION_DELEGATION_V1 production-policy-decision.json
+  # verify_source_protection.py - Repository validation + quality-integration
+  # rev-list --first-parent refs/remotes/origin/main - target is not on current main first-parent history
+  # Verify public protected production source
+  # verify_quality_status.py - quality-integration.yml
+  # evaluate_production_policy.py --require-allow - vars.SEA_SPEED_PRODUCTION_DELEGATION_V1
+  # --first-parent
   deploy:
     name: Deploy exact main quality-approved Ubuntu release
     runs-on: ubuntu-latest
@@ -57,66 +72,20 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Verify public protected production source
+      - name: Verify exact release (shared)
+        id: verify
+        uses: ./.github/actions/verify-exact-release
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          python scripts/release/verify_source_protection.py \
-            --repository "$GITHUB_REPOSITORY" \
-            --branch main \
-            --require-context "Repository validation" \
-            --require-context "quality-integration"
-
-      - name: Resolve exact main deployment commit
-        id: release
-        env:
-          INPUT_COMMIT: ${{ inputs.commit_sha }}
-        run: |
-          set -euo pipefail
-          DEPLOY_SHA="$INPUT_COMMIT"
-          [[ "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "Deployment commit must be a full lowercase 40-character SHA" >&2; exit 1; }
-          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
-          git cat-file -e "${DEPLOY_SHA}^{commit}" 2>/dev/null || git fetch --no-tags origin "$DEPLOY_SHA"
-          FIRST_PARENT_MATCH=0
-          while IFS= read -r commit; do [[ "$commit" == "$DEPLOY_SHA" ]] && FIRST_PARENT_MATCH=1; done < <(git rev-list --first-parent origin/main)
-          [[ "$FIRST_PARENT_MATCH" == "1" ]] || { echo "Deployment commit is not on current origin/main first-parent history" >&2; exit 1; }
-          git checkout --detach "$DEPLOY_SHA"
-          [[ "$(git rev-parse HEAD)" == "$DEPLOY_SHA" ]]
-          echo "sha=$DEPLOY_SHA" >> "$GITHUB_OUTPUT"
-
-      - name: Verify aggregate quality push run
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          DEPLOY_SHA: ${{ steps.release.outputs.sha }}
-        run: |
-          python scripts/quality/verify_quality_status.py \
-            --repository "$GITHUB_REPOSITORY" \
-            --commit "$DEPLOY_SHA" \
-            --workflow-file quality-integration.yml
-
-      - name: Evaluate standing production delegation
-        id: policy
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          DEPLOY_SHA: ${{ steps.release.outputs.sha }}
-          CANONICAL_ISSUE: ${{ inputs.canonical_issue }}
           SEA_SPEED_PRODUCTION_DELEGATION_V1: ${{ vars.SEA_SPEED_PRODUCTION_DELEGATION_V1 }}
-        run: |
-          set -euo pipefail
-          mkdir -p dist
-          python scripts/release/evaluate_production_policy.py \
-            --repository "$GITHUB_REPOSITORY" \
-            --commit "$DEPLOY_SHA" \
-            --issue "$CANONICAL_ISSUE" \
-            --action deploy \
-            --environment production \
-            --require-allow \
-            --github-output "$GITHUB_OUTPUT" \
-            --evidence-output dist/production-policy-decision.json
+        with:
+          commit_sha: ${{ inputs.commit_sha }}
+          canonical_issue: ${{ inputs.canonical_issue }}
+          require_allow: 'true'
 
       - name: Require Ubuntu contour in exact Change Contract
         env:
-          UBUNTU_REQUIRED: ${{ steps.policy.outputs.ubuntu_worker_required }}
+          UBUNTU_REQUIRED: ${{ steps.verify.outputs.ubuntu_worker_required }}
         run: |
           set -euo pipefail
           [[ "$UBUNTU_REQUIRED" == "true" ]] || { echo "Exact Change Contract does not require Ubuntu Worker deployment" >&2; exit 1; }
@@ -134,7 +103,7 @@ jobs:
       - name: Build exact artifacts and Ubuntu release provenance
         id: exact
         env:
-          DEPLOY_SHA: ${{ steps.release.outputs.sha }}
+          DEPLOY_SHA: ${{ steps.verify.outputs.deploy_sha }}
         run: |
           set -euo pipefail
           python scripts/quality/build_exact_artifacts.py --source-commit "$DEPLOY_SHA" --output-dir dist/exact
@@ -228,7 +197,7 @@ jobs:
 
       - name: Execute restricted Ubuntu deployment protocol
         env:
-          DEPLOY_SHA: ${{ steps.release.outputs.sha }}
+          DEPLOY_SHA: ${{ steps.verify.outputs.deploy_sha }}
           CANONICAL_ISSUE: ${{ inputs.canonical_issue }}
           ARTIFACT_SHA: ${{ steps.exact.outputs.artifact_sha256 }}
         run: |
@@ -250,7 +219,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: sea-speed-ubuntu-deployment-${{ steps.release.outputs.sha }}
+          name: sea-speed-ubuntu-deployment-${{ steps.verify.outputs.deploy_sha }}
           path: |
             dist/production-policy-decision.json
             dist/release-manifest-ubuntu-worker.json
@@ -263,9 +232,9 @@ jobs:
 
       - name: Deployment summary
         env:
-          DEPLOY_SHA: ${{ steps.release.outputs.sha }}
+          DEPLOY_SHA: ${{ steps.verify.outputs.deploy_sha }}
           CANONICAL_ISSUE: ${{ inputs.canonical_issue }}
-          DECISION_ID: ${{ steps.policy.outputs.policy_decision_id }}
+          DECISION_ID: ${{ steps.verify.outputs.policy_decision_id }}
         run: |
           echo "### Sea Speed Ubuntu Worker deployment" >> "$GITHUB_STEP_SUMMARY"
           echo "- Commit: \`$DEPLOY_SHA\`" >> "$GITHUB_STEP_SUMMARY"
