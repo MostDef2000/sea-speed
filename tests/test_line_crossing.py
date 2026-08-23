@@ -134,6 +134,17 @@ class CrossingDetectionTests(unittest.TestCase):
         self.assertEqual(pending[0]["direction"], "left_to_right")
         self.assertEqual(pending[0]["object_type"], "bus")
 
+    def test_crossing_payload_carries_measured_speed(self) -> None:
+        update = self.ns["update_crossing_counts"]
+        d = det(13, 30, 100, 70, 140, object_type="car")
+        d["speed_kmh"] = 42.5
+        update([d], now=10.0)
+        d2 = det(13, 130, 100, 170, 140, object_type="car")
+        d2["speed_kmh"] = 42.5
+        crossings = update([d2], now=11.0)
+        self.assertEqual(len(crossings), 1)
+        self.assertEqual(crossings[0]["speed_kmh"], 42.5)
+
 
 class OverlayLayoutTests(unittest.TestCase):
     def test_stats_block_moved_to_bottom_left(self) -> None:
@@ -263,6 +274,18 @@ class ApiCrossingTests(unittest.TestCase):
         self.assertEqual(row["kind"], "line_crossing")
         store = ns["read_json_file"](ns["crossings_store_path"]("road1"), [])
         self.assertEqual(store[0]["event_id"], result["event_id"])
+        speed_row = ns["post_analytics_crossing"](
+            "road1",
+            {
+                "track_id": 14,
+                "object_type": "car",
+                "direction": "right_to_left",
+                "confidence": 0.9,
+                "speed_kmh": 57.3,
+            },
+        )
+        self.assertTrue(speed_row["ok"])
+        self.assertAlmostEqual(self.persisted[-1]["speed_kmh"], 57.3)
 
     def test_road_person_crossing_skips_registry_but_feeds_store(self) -> None:
         ns = self.ns
