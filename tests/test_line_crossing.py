@@ -293,3 +293,27 @@ class Cam1LegacyKindFallbackTests(unittest.TestCase):
     def test_cam1_unknown_kind_falls_back_to_data_dir(self) -> None:
         text = API.read_text(encoding="utf-8")
         self.assertIn('if camera_id == "cam1" and kind in legacy:', text)
+
+
+class CrossingUrlTests(unittest.TestCase):
+    def test_crossing_line_url_derived_from_state_path(self) -> None:
+        for state_url, expected in [
+            ("http://10.0.0.5:8010/api/cam1/state", "http://10.0.0.5:8010/api/cam1/crossing-line"),
+            ("http://10.0.0.5:8010/api/analytics/road1/state", "http://10.0.0.5:8010/api/analytics/road1/crossing-line"),
+        ]:
+            ns = extract_worker_functions({"get_crossing_line_url"})
+            ns["env_str"] = lambda name, default=None, _u=state_url: _u if name == "SEA_SPEED_API_URL" else default
+            self.assertEqual(ns["get_crossing_line_url"](), expected)
+
+    def test_post_crossing_url_has_no_duplicated_path(self) -> None:
+        text = WORKER.read_text(encoding="utf-8")
+        self.assertIn('url = state_url.rsplit("/", 1)[0] + "/crossings"', text)
+        self.assertNotIn('f"/analytics/{camera_id}/crossings"', text)
+        self.assertNotIn('f"/analytics/{camera_id}/crossing-line"', text)
+
+    def test_overlay_summary_includes_line_points(self) -> None:
+        ns = extract_worker_functions({"crossing_overlay_summary", "reset_crossing_counts"})
+        ns["reset_crossing_counts"]()
+        ns["_crossing_line_cache"].update({"enabled": True, "line": [(10, 20), (30, 40)]})
+        summary = ns["crossing_overlay_summary"]()
+        self.assertEqual(summary["line"], [[10, 20], [30, 40]])

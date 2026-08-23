@@ -562,6 +562,9 @@ def draw_overlay(frame, motion_now, motion_area, ai_active, detections, motion_b
         y += line_height
     summary = crossing_summary or {}
     if summary.get("line_enabled"):
+        line_points = summary.get("line") or []
+        if len(line_points) == 2:
+            cv2.line(out, tuple(line_points[0]), tuple(line_points[1]), (255, 210, 60), 2, cv2.LINE_AA)
         ltr = int(summary.get("left_to_right") or 0)
         rtl = int(summary.get("right_to_left") or 0)
         counter_lines = [f"CROSSINGS -> {ltr}   <- {rtl}"]
@@ -883,10 +886,11 @@ def get_crossing_line_url():
     if url:
         return url
     state_url = env_str("SEA_SPEED_API_URL", "").strip()
-    camera_id = env_str("CAMERA_ID", "cam1").strip() or "cam1"
-    if state_url:
-        return state_url.rsplit("/", 1)[0] + f"/analytics/{camera_id}/crossing-line"
-    return ""
+    if not state_url:
+        return ""
+    # SEA_SPEED_API_URL targets the exact state path (…/api/cam1/state or
+    # …/api/analytics/road1/state); drop the final segment and append the resource.
+    return state_url.rsplit("/", 1)[0] + "/crossing-line"
 
 
 def fetch_crossing_line_config():
@@ -1010,11 +1014,13 @@ def update_crossing_counts(detections, now=None):
 
 
 def crossing_overlay_summary():
+    line = _crossing_line_cache.get("line") or []
     return {
         "left_to_right": _crossing_counts.get("left_to_right", 0),
         "right_to_left": _crossing_counts.get("right_to_left", 0),
         "by_class": dict(_crossings_by_class),
         "line_enabled": bool(_crossing_line_cache.get("enabled")),
+        "line": [list(point) for point in line],
     }
 
 
@@ -1024,7 +1030,7 @@ def post_crossing(crossing):
     if not state_url or not token:
         return False
     camera_id = env_str("CAMERA_ID", "cam1").strip() or "cam1"
-    url = state_url.rsplit("/", 1)[0] + f"/analytics/{camera_id}/crossings"
+    url = state_url.rsplit("/", 1)[0] + "/crossings"
     payload = dict(crossing)
     payload.setdefault("camera_id", camera_id)
     payload.setdefault(
