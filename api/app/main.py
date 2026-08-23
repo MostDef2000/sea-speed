@@ -1905,7 +1905,7 @@ def get_analytics_crossings_summary(
     if date_from or date_to:
         try:
             from_day = date.fromisoformat(date_from) if date_from else None
-            to_day = date.toisoformat(date_to) if date_to else None
+            to_day = date.fromisoformat(date_to) if date_to else None
         except ValueError:
             raise HTTPException(status_code=400, detail="dates must be YYYY-MM-DD")
         if from_day and to_day and from_day > to_day:

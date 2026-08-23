@@ -172,6 +172,7 @@ class _StubHTTPException(Exception):
 
 
 CROSSING_API_FUNCTIONS = {
+    "_vlz_day_bounds",
     "clean_points_list",
     "optional_int",
     "optional_float",
@@ -579,3 +580,30 @@ class CrossingsLayerToggleTests(unittest.TestCase):
         i_btn = text.index('id="cxViewBtn"')
         i_layer = text.index('id="crossingsLayer"')
         self.assertLess(i_btn, i_layer)
+
+
+class SummaryVlzHappyPathTests(unittest.TestCase):
+    def test_valid_date_window_returns_filtered_totals(self) -> None:
+        ApiCrossingTests.setUpClass()
+        ns = dict(ApiCrossingTests.namespace)
+        ns["write_json_file"](ns["crossings_store_path"]("road1"), [])  # isolate store
+        ns["write_json_file"](ns["crossings_store_path"]("road1"), [
+            {"object_type": "car", "direction": "left_to_right",
+             "created_at": "2026-08-23T02:00:00+00:00"},
+            {"object_type": "bus", "direction": "right_to_left",
+             "created_at": "2026-08-22T20:00:00+00:00"},
+        ])
+        r = ns["get_analytics_crossings_summary"](
+            "road1", hours=24, date_from="2026-08-23", date_to="2026-08-23")
+        self.assertEqual(r["window"]["mode"], "vlz_days")
+        # VLZ day 2026-08-23 spans 2026-08-22T14:00Z..2026-08-23T14:00Z,
+        # so both records fall inside the window.
+        self.assertEqual(r["totals"], {"left_to_right": 1, "right_to_left": 1})
+
+    def test_toggle_button_lives_in_filter_actions_row(self) -> None:
+        text = (ROOT / "frontend/sea-speed/objects/index.html").read_text(encoding="utf-8")
+        i_actions = text.index('class="filter-actions"')
+        i_btn = text.index('id="cxViewBtn"')
+        i_close = text.index("</div>", i_actions)
+        self.assertLess(i_actions, i_btn)
+        self.assertLess(i_btn, i_close)
