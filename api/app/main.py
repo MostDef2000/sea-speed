@@ -1871,6 +1871,7 @@ def post_analytics_crossing(camera_id: str, data: Dict[str, Any]) -> Dict[str, A
         "direction": direction,
         "track_id": track_id,
         "confidence": optional_float(data.get("confidence")),
+        "speed_kmh": optional_float(data.get("speed_kmh")),
         "kind": "line_crossing",
         "created_at": created_at,
     }
