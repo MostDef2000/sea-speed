@@ -523,7 +523,7 @@ def overlay_label_opacity():
     return max(0.15, min(0.85, float(configured)))
 
 
-def draw_overlay(frame, motion_now, motion_area, ai_active, detections, motion_boxes):
+def draw_overlay(frame, motion_now, motion_area, ai_active, detections, motion_boxes, crossing_summary=None):
     out = frame.copy()
     for det in detections:
         x1, y1, x2, y2 = det["bbox_xyxy"]
@@ -545,6 +545,7 @@ def draw_overlay(frame, motion_now, motion_area, ai_active, detections, motion_b
         cv2.rectangle(out, (label_x, label_top), (label_right, label_bottom), (0, 210, 140), 1)
         cv2.putText(out, label, (label_x + 4, label_y), font, font_scale, (0, 255, 0), thickness, cv2.LINE_AA)
     active_track_ids = {int(det["track_id"]) for det in detections if det.get("track_id") is not None}
+    height, width = out.shape[:2]
     lines = [
         f"motion_now: {motion_now}",
         f"motion_area: {int(motion_area)}",
@@ -553,10 +554,37 @@ def draw_overlay(frame, motion_now, motion_area, ai_active, detections, motion_b
         f"tracks: {len(active_track_ids)}",
         f"posted_to: mostdef.ru/sea-speed",
     ]
-    y = 24
+    line_height = 25
+    block_height = line_height * len(lines) + 10
+    y = height - block_height + line_height - 4
     for line in lines:
         cv2.putText(out, line, (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.62, (255, 255, 255), 2, cv2.LINE_AA)
-        y += 25
+        y += line_height
+    summary = crossing_summary or {}
+    if summary.get("line_enabled"):
+        ltr = int(summary.get("left_to_right") or 0)
+        rtl = int(summary.get("right_to_left") or 0)
+        counter_lines = [f"CROSSINGS -> {ltr}   <- {rtl}"]
+        by_class = summary.get("by_class") or {}
+        for class_name, counts in sorted(by_class.items(), key=lambda kv: -(kv[1].get("left_to_right", 0) + kv[1].get("right_to_left", 0)))[:3]:
+            total = int(counts.get("left_to_right", 0)) + int(counts.get("right_to_left", 0))
+            counter_lines.append(f"{class_name}: {total}")
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        c_line_height = 24
+        c_block_height = c_line_height * len(counter_lines) + 10
+        max_text_width = max(cv2.getTextSize(line, font, 0.58, 2)[0][0] for line in counter_lines)
+        c_y = height - c_block_height + c_line_height - 4
+        for line in counter_lines:
+            (tw, th), baseline = cv2.getTextSize(line, font, 0.58, 2)
+            layer = out.copy()
+            top = max(0, c_y - th - 6)
+            bottom = min(height - 1, c_y + baseline + 4)
+            right = width - 10
+            left = max(0, right - tw - 12)
+            cv2.rectangle(layer, (left, top), (right, bottom), (0, 18, 18), -1)
+            cv2.addWeighted(layer, 0.45, out, 0.55, 0.0, dst=out)
+            cv2.putText(out, line, (width - 16 - tw, c_y), font, 0.58, (120, 220, 255), 2, cv2.LINE_AA)
+            c_y += c_line_height
     return out
 
 
@@ -841,6 +869,189 @@ def crossed_line(prev_side, current_side):
     if ps == 0 or cs == 0:
         return False
     return ps != cs
+
+
+_crossing_line_cache = {"ts": 0.0, "enabled": False, "line": [], "signature": ""}
+_crossing_track_sides = {}
+_crossing_counts = {"left_to_right": 0, "right_to_left": 0}
+_crossings_by_class = {}
+_crossing_pending_posts = []
+
+
+def get_crossing_line_url():
+    url = env_str("SEA_SPEED_CROSSING_LINE_URL", "").strip()
+    if url:
+        return url
+    state_url = env_str("SEA_SPEED_API_URL", "").strip()
+    camera_id = env_str("CAMERA_ID", "cam1").strip() or "cam1"
+    if state_url:
+        return state_url.rsplit("/", 1)[0] + f"/analytics/{camera_id}/crossing-line"
+    return ""
+
+
+def fetch_crossing_line_config():
+    refresh_sec = env_float("CROSSING_LINE_REFRESH_SEC", 5.0)
+    now = time.time()
+    if now - _crossing_line_cache["ts"] < refresh_sec:
+        return _crossing_line_cache
+    _crossing_line_cache["ts"] = now
+    url = get_crossing_line_url()
+    if not url:
+        _crossing_line_cache["enabled"] = False
+        return _crossing_line_cache
+    headers = {}
+    basic_auth = env_str("HLS_BASIC_AUTH_BASE64", "").strip()
+    if basic_auth:
+        headers["Authorization"] = f"Basic {basic_auth}"
+    try:
+        r = requests.get(url, headers=headers, timeout=5)
+        if r.status_code >= 300:
+            print(f"Crossing line fetch failed: HTTP {r.status_code} {r.text[:160]}")
+            return _crossing_line_cache
+        data = r.json()
+        raw_line = data.get("line") or []
+        line = []
+        for p in raw_line[:2]:
+            if not isinstance(p, dict):
+                continue
+            try:
+                line.append((int(round(float(p.get("x")))), int(round(float(p.get("y"))))))
+            except Exception:
+                continue
+        enabled = bool(data.get("enabled")) and len(line) == 2
+        signature = f"{enabled}:{line}"
+        if signature != _crossing_line_cache.get("signature"):
+            print(f"Crossing line loaded: enabled={enabled} line={line}")
+        _crossing_line_cache.update({"enabled": enabled, "line": line, "signature": signature})
+        return _crossing_line_cache
+    except Exception as e:
+        print(f"Crossing line fetch error: {e}")
+        return _crossing_line_cache
+
+
+def reset_crossing_counts():
+    _crossing_counts.update({"left_to_right": 0, "right_to_left": 0})
+    _crossings_by_class.clear()
+    _crossing_track_sides.clear()
+    _crossing_pending_posts.clear()
+
+
+def prune_crossing_tracks(now=None):
+    if now is None:
+        now = time.time()
+    max_gap_sec = env_float("DETECTION_TRACK_MAX_GAP_SEC", 2.0)
+    for track_id in list(_crossing_track_sides.keys()):
+        state = _crossing_track_sides[track_id]
+        if now - float(state.get("last_seen", 0.0)) > max_gap_sec:
+            _crossing_track_sides.pop(track_id, None)
+
+
+def update_crossing_counts(detections, now=None):
+    """Detect line crossings from tracked centroids.
+
+    Direction is derived from horizontal displacement across the line so that
+    left_to_right always means the object moved rightward in frame coordinates.
+    A per-track cooldown prevents double counting on centroid wobble.
+    """
+    if now is None:
+        now = time.time()
+    cfg = fetch_crossing_line_config()
+    if not cfg.get("enabled") or len(cfg.get("line") or []) != 2:
+        prune_crossing_tracks(now)
+        return []
+    line = cfg["line"]
+    cooldown_sec = env_float("CROSSING_MIN_INTERVAL_SEC", 2.0)
+    crossings = []
+    for det in detections:
+        track_id = det.get("track_id")
+        if track_id is None:
+            continue
+        object_type = str(det.get("object_type") or det.get("class_name") or "object")
+        if object_type == "person":
+            continue
+        x1, y1, x2, y2 = det["bbox_xyxy"]
+        cx = (float(x1) + float(x2)) / 2.0
+        cy = (float(y1) + float(y2)) / 2.0
+        side = sign_with_deadzone(side_of_line((cx, cy), line))
+        state = _crossing_track_sides.get(int(track_id))
+        if state is None:
+            _crossing_track_sides[int(track_id)] = {"side": side, "cx": cx, "last_seen": now, "last_cross": 0.0}
+            continue
+        prev_side = int(state.get("side") or 0)
+        prev_cx = float(state.get("cx") or cx)
+        state["last_seen"] = now
+        if side == 0 or prev_side == 0 or side == prev_side:
+            state["side"] = side if side != 0 else prev_side
+            state["cx"] = cx
+            continue
+        if now - float(state.get("last_cross", 0.0)) < cooldown_sec:
+            state["side"] = side
+            state["cx"] = cx
+            continue
+        direction = "left_to_right" if cx > prev_cx else "right_to_left"
+        state["side"] = side
+        state["cx"] = cx
+        state["last_cross"] = now
+        _crossing_counts[direction] = _crossing_counts.get(direction, 0) + 1
+        class_counts = _crossings_by_class.setdefault(object_type, {"left_to_right": 0, "right_to_left": 0})
+        class_counts[direction] = class_counts.get(direction, 0) + 1
+        crossing = {
+            "track_id": int(track_id),
+            "object_type": object_type,
+            "class_name": object_type,
+            "direction": direction,
+            "confidence": det.get("confidence"),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        _crossing_pending_posts.append(crossing)
+        crossings.append(crossing)
+    prune_crossing_tracks(now)
+    return crossings
+
+
+def crossing_overlay_summary():
+    return {
+        "left_to_right": _crossing_counts.get("left_to_right", 0),
+        "right_to_left": _crossing_counts.get("right_to_left", 0),
+        "by_class": dict(_crossings_by_class),
+        "line_enabled": bool(_crossing_line_cache.get("enabled")),
+    }
+
+
+def post_crossing(crossing):
+    state_url = env_str("SEA_SPEED_API_URL")
+    token = env_str("SEA_SPEED_API_TOKEN")
+    if not state_url or not token:
+        return False
+    camera_id = env_str("CAMERA_ID", "cam1").strip() or "cam1"
+    url = state_url.rsplit("/", 1)[0] + f"/analytics/{camera_id}/crossings"
+    payload = dict(crossing)
+    payload.setdefault("camera_id", camera_id)
+    payload.setdefault(
+        "analytics_profile",
+        env_str("ANALYTICS_PROFILE", "water-v1" if camera_id == "cam1" else "road-v1"),
+    )
+    payload.setdefault("domain", "water" if camera_id == "cam1" else "road")
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        r = requests.post(url, headers=headers, data={"metadata": json.dumps(payload, ensure_ascii=False)}, timeout=10)
+        if r.status_code >= 300:
+            print(f"POST crossing failed: HTTP {r.status_code} {r.text[:200]}")
+            return False
+        return True
+    except Exception as e:
+        print(f"POST crossing error: {e}")
+        return False
+
+
+def flush_crossing_posts(max_per_frame=4):
+    posted = 0
+    while _crossing_pending_posts and posted < max_per_frame:
+        crossing = _crossing_pending_posts.pop(0)
+        if post_crossing(crossing):
+            posted += 1
+        else:
+            break
 
 
 def update_speed_lines_estimate(det):
@@ -1174,6 +1385,7 @@ def main():
             detections = filter_detections_by_roi(detections)
             now = time.time()
             active_track_ids = {int(det["track_id"]) for det in detections if det.get("track_id") is not None}
+            update_crossing_counts(detections, now)
 
             passage_updates = []
             if is_water and passage_engine is not None:
@@ -1218,8 +1430,9 @@ def main():
                     det["_line_speed_info"] = line_speed_info
                 prune_track_states(now)
 
-            overlay = draw_overlay(frame=frame, motion_now=motion_now, motion_area=motion_area, ai_active=ai_active, detections=detections, motion_boxes=motion_boxes)
+            overlay = draw_overlay(frame=frame, motion_now=motion_now, motion_area=motion_area, ai_active=ai_active, detections=detections, motion_boxes=motion_boxes, crossing_summary=crossing_overlay_summary())
             cv2.imwrite(str(latest_overlay_path), overlay, [cv2.IMWRITE_JPEG_QUALITY, 85])
+            flush_crossing_posts()
 
             if profile is not None and profile.domain == "water":
                 for vessel in water_event_candidates(profile, detections):
@@ -1290,6 +1503,7 @@ def main():
                     "detections": len(detections),
                     "tracks": track_count,
                     "active_passages": passage_engine.active_count if passage_engine is not None else None,
+                    "crossings": crossing_overlay_summary(),
                     "frame_no": frame_no,
                     "model_name": model_name,
                     "message": "event-worker running with persistent tracking",
