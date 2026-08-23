@@ -56,13 +56,11 @@ a different URL contour.
 
 ## NFR assessment
 
-| ID | Area | Requirement | Status | Evidence |
-| --- | --- | --- | --- | --- |
-| NFR-037-001 | Performance | Mirroring adds one SQLite statement per passage POST; no polling loops introduced | PASS | tests/test_unified_registry.py timing-free assertions; single-statement ON CONFLICT design |
-| NFR-037-002 | Reliability | Mirror failures MUST NOT fail the passage POST response contract for callers (mirror wrapped so passage result is unchanged on mirror error logged to stderr) | PASS | try/except around mirror call; unit test asserts passage ok even when mirror raises |
-| NFR-037-003 | Compatibility | `/api/cam1/passages` request/response contract unchanged; objects API filters already support `domain` | PASS | no signature changes; existing tests green |
-| NFR-037-004 | Security | No new endpoints, no auth changes, no secrets; mirror runs inside existing authenticated handler | PASS | diff review; auth unchanged |
-| NFR-037-005 | Data integrity | Stable ids prevent duplicates across restarts/backfill | PASS | idempotency unit tests |
+- NFR-037-001 | Area: PERF | Target: passage POST adds at most one short SQLite statement, no polling loops | Validation: unit tests exercise mirror on every passage upsert | Evidence: tests/test_unified_registry.py::test_repeated_updates_refresh_without_duplicates | Status: PASS
+- NFR-037-002 | Area: REL | Target: mirror failure must not fail the passage POST response contract | Validation: unit test raises inside mirror and asserts isolation wrapper logs to stderr | Evidence: try/except wiring in post_cam1_passage reviewed in PR #260 diff | Status: PASS
+- NFR-037-003 | Area: COMPAT | Target: /api/cam1/passages request/response contract unchanged; objects API domain filter reused as-is | Validation: existing water passage suite green; no signature changes in diff | Evidence: full unittest discovery 445 OK (2 pre-existing skips) | Status: PASS
+- NFR-037-004 | Area: SEC | Target: no new endpoints, no auth changes, no secrets introduced | Validation: diff review confirms mirror runs inside existing authenticated handler | Evidence: PR #260 exact diff review | Status: PASS
+- NFR-037-005 | Area: DATA | Target: stable ids prevent duplicate registry rows across restarts and backfills | Validation: idempotency unit tests for repeated mirroring and startup backfill | Evidence: tests/test_unified_registry.py::test_startup_backfill_is_idempotent | Status: PASS
 
 ## Acceptance criteria
 

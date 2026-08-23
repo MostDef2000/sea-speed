@@ -23,20 +23,31 @@
 
 ## Requirements traceability
 
-| AC | Requirement | Task | Evidence |
-| --- | --- | --- | --- |
-| AC-001 | R1 | T2/T4 | test_persists_water_passage_into_objects_registry |
-| AC-002 | R1/R2 | T4 | test_repeated_updates_refresh_without_duplicates |
-| AC-003 | R3 | T4 | test_operator_fields_survive_mirroring |
-| AC-004 | R5 | T4 | test_startup_backfill_is_idempotent |
-| AC-005 | R1 | T4 | test_domain_water_filter_returns_passages |
-| AC-006 | R6 | T3/T4 | static contract test domain selector enabled + switch handler |
-| AC-007 | R7 | T4 | static contract test referrer pre-selection preserved |
-| AC-008 | R8 | T3/T4 | static contract test single registry nav link |
-| AC-009 | all | T5 | local unittest run log |
-| AC-010 | all | T6 | required CI runs on PR head |
-| AC-011 | outcome | T7 | post-deploy evidence comment in Issue 259 |
-| AC-012 | contract | T6 | validate_change_contract.py PASS |
+- AC-001 | Task: T2 | Evidence: tests/test_unified_registry.py::test_persists_water_passage_into_objects_registry | Coverage: COVERED
+- AC-002 | Task: T4 | Evidence: tests/test_unified_registry.py::test_repeated_updates_refresh_without_duplicates | Coverage: COVERED
+- AC-003 | Task: T4 | Evidence: tests/test_unified_registry.py::test_operator_fields_survive_mirroring | Coverage: COVERED
+- AC-004 | Task: T2, T4 | Evidence: tests/test_unified_registry.py::test_startup_backfill_is_idempotent | Coverage: COVERED
+- AC-005 | Task: T4 | Evidence: tests/test_unified_registry.py::test_domain_water_filter_returns_passages | Coverage: COVERED
+- AC-006 | Task: T3, T4 | Evidence: tests/test_unified_registry.py::RegistryPageContractTests::test_domain_selector_enabled_with_switch_handler | Coverage: COVERED
+- AC-007 | Task: T4 | Evidence: tests/test_unified_registry.py::RegistryPageContractTests::test_referrer_pre_selection_preserved | Coverage: COVERED
+- AC-008 | Task: T3, T4 | Evidence: tests/test_unified_registry.py::RegistryPageContractTests::test_single_registry_nav_link | Coverage: COVERED
+- AC-009 | Task: T5 | Evidence: local unittest discovery run log (445 OK, 2 pre-existing skips) | Coverage: COVERED
+- AC-010 | Task: T6 | Evidence: required CI runs on exact PR head in Issue #259 checkpoint | Coverage: COVERED
+- AC-011 | Task: T7 | Evidence: post-deploy verification comment to be recorded in Issue #259 | Coverage: RUNTIME-MANUAL | Reason: physical VPS runtime behavior observable only after protected deployment
+- AC-012 | Task: T6 | Evidence: scripts/ci/validate_change_contract.py PASS on PR #260 body | Coverage: COVERED
+
+## Definition of Done
+
+- [x] Issue/spec/plan/tasks current
+- [x] Exact changed-file scope verified
+- [ ] Required tests and evidence complete
+- [ ] Required CI green
+- [ ] Exact-green-head merge complete
+- [ ] Deployment state resolved
+- [ ] Runtime acceptance resolved
+- [x] Deferred work recorded (none)
+- [x] Risks resolved or explicitly accepted (RISK-037-001..004 MITIGATED)
+- [x] Waivers resolved or current (none)
 
 ## Completion gate
 
