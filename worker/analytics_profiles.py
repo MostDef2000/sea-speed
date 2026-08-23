@@ -20,6 +20,8 @@ class AnalyticsProfile:
     tracker: str
     sample_fps: float
     class_map: Mapping[str, str]
+    frame_width: int = 1920
+    frame_height: int = 1080
 
     @property
     def model_classes(self) -> frozenset[str]:
@@ -37,6 +39,8 @@ PROFILES: dict[str, AnalyticsProfile] = {
         tracker="bytetrack.yaml",
         sample_fps=5.0,
         class_map={"boat": "vessel"},
+        frame_width=1920,
+        frame_height=1080,
     ),
     "road-v1": AnalyticsProfile(
         name="road-v1",
@@ -55,6 +59,8 @@ PROFILES: dict[str, AnalyticsProfile] = {
             "bicycle": "bicycle",
             "person": "person",
         },
+        frame_width=1920,
+        frame_height=1080,
     ),
 }
 DEFAULT_PROFILE = "water-v1"
@@ -99,4 +105,6 @@ def profile_defaults(profile_name: str | None = None) -> dict[str, object]:
         "YOLO_CONFIDENCE": profile.confidence,
         "YOLO_TRACKER": profile.tracker,
         "SAMPLE_FPS": profile.sample_fps,
+        "FRAME_WIDTH": profile.frame_width,
+        "FRAME_HEIGHT": profile.frame_height,
     }

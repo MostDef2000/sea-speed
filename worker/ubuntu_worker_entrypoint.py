@@ -224,9 +224,9 @@ def start_media_reader(av_module=None):
     if _media_scheme(input_url) != "rtsp":
         return _ORIGINAL_START_MEDIA_READER(av_module=av_module)
 
-    width = worker.env_int("FRAME_WIDTH", 704)
-    height = worker.env_int("FRAME_HEIGHT", 576)
     profile = get_profile(worker.env_str("ANALYTICS_PROFILE", "water-v1"))
+    width = worker.env_int("FRAME_WIDTH", int(profile.frame_width))
+    height = worker.env_int("FRAME_HEIGHT", int(profile.frame_height))
     sample_fps = worker.env_float("SAMPLE_FPS", profile.sample_fps)
     return ResilientFFmpegRtspReader(input_url, width, height, sample_fps)
 
@@ -386,8 +386,8 @@ class BoundedYoloSupervisor:
         return detections
 
     def startup_self_test(self) -> None:
-        height = worker.env_int("FRAME_HEIGHT", 576)
-        width = worker.env_int("FRAME_WIDTH", 704)
+        height = worker.env_int("FRAME_HEIGHT", int(self.profile.frame_height))
+        width = worker.env_int("FRAME_WIDTH", int(self.profile.frame_width))
         frames = (
             np.zeros((height, width, 3), dtype=np.uint8),
             np.zeros((height, width, 3), dtype=np.uint8),
