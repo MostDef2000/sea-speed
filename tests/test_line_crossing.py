@@ -428,3 +428,18 @@ class CrossingPanelUiTests(unittest.TestCase):
             block = text[start:text.index("</script>", start)]
             self.assertIn("нет линии для включения", block)
             self.assertIn("линия включена", block)
+
+
+class CrossingPanelDomGuardTests(unittest.TestCase):
+    """Regression pin: the panel script must defer init until the DOM is fully
+    parsed — on pages where the utilities rail renders before the camera stage,
+    an immediate getElementById returns null and the panel silently dies."""
+
+    def test_panel_init_deferred_until_dom_ready(self) -> None:
+        for rel in CrossingPanelUiTests.PANEL_PAGES:
+            text = (ROOT / rel).read_text(encoding="utf-8")
+            start = text.index('id="crossingCard"')
+            block = text[start:text.index("</script>", start)]
+            self.assertIn('document.readyState==="loading"', block)
+            self.assertIn('addEventListener("DOMContentLoaded",init)', block)
+            self.assertIn("function init(){", block)
