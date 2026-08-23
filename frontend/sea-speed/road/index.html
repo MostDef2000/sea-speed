@@ -80,7 +80,89 @@
           <div id="speedConfigStatus" class="roi-status">Speed config: загрузка…</div>
         </div>
       </details>
-      <details class="panel diagnostics-card">
+      <details class="panel utility-card" id="crossingCard"><summary><span class="summary-copy"><span>Линия счёта</span><span class="section-note">пересечения · 24ч</span></span></summary><div class="utility-content"><p class="panel-kicker">Crossing counter</p><h2>Счётная линия</h2><div class="roi-actions"><button id="cxEditBtn" class="mini-btn">Линия счёта</button><button id="cxUndoBtn" class="mini-btn">Отменить точку</button><button id="cxSaveBtn" class="mini-btn primary">Сохранить</button><button id="cxOffBtn" class="mini-btn">Выключить</button></div><div id="cxStatus" class="roi-status">Линия счёта: загрузка…</div><div id="cxSummary" class="roi-status"></div></div></details>
+<script>
+(function(){
+const API="/sea-speed/api/analytics/road1";
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
+const wrap=document.getElementById("roiEditorWrap"),img=document.getElementById("overlayImg");
+const editBtn=document.getElementById("cxEditBtn"),undoBtn=document.getElementById("cxUndoBtn");
+const saveBtn=document.getElementById("cxSaveBtn"),offBtn=document.getElementById("cxOffBtn");
+const statusEl=document.getElementById("cxStatus"),summaryEl=document.getElementById("cxSummary");
+if(!wrap||!img||!editBtn)return;
+const cv=document.createElement("canvas");
+cv.style.cssText="position:absolute;inset:0;width:100%;height:100%;z-index:5;pointer-events:none";
+wrap.appendChild(cv);
+let pts=[],editing=false,cfg={enabled:false,line:[]};
+function setStatus(t){statusEl.textContent=t}
+function draw(){
+  const r=img.getBoundingClientRect();
+  const d=devicePixelRatio||1;
+  cv.width=Math.max(1,Math.round(r.width*d));cv.height=Math.max(1,Math.round(r.height*d));
+  const c=cv.getContext("2d");c.setTransform(d,0,0,d,0,0);c.clearRect(0,0,r.width,r.height);
+  const nw=img.naturalWidth||704,nh=img.naturalHeight||576;
+  const dp=p=>({x:p.x*r.width/nw,y:p.y*r.height/nh});
+  const line=pts.length===2?pts:(cfg.line&&cfg.line.length===2?cfg.line:null);
+  if(line){const ab=line.map(dp);c.strokeStyle="#22d3ee";c.lineWidth=3;c.beginPath();c.moveTo(ab[0].x,ab[0].y);c.lineTo(ab[1].x,ab[1].y);c.stroke()}
+  pts.forEach(p=>{const q=dp(p);c.fillStyle="#22d3ee";c.beginPath();c.arc(q.x,q.y,6,0,7);c.fill()});
+}
+function setEditing(on){
+  editing=on;
+  pts=on?(cfg.line?cfg.line.slice():[]):[];
+  cv.style.pointerEvents=on?"auto":"none";
+  editBtn.classList.toggle("primary",on);
+  setStatus(on?"кликните 2 точки на кадре":(cfg.enabled?"линия активна":"линия выключена"));
+  draw();
+}
+img.addEventListener("load",draw);
+window.addEventListener("resize",draw);
+cv.addEventListener("click",e=>{
+  if(!editing)return;
+  e.preventDefault();e.stopPropagation();
+  const r=img.getBoundingClientRect(),nw=img.naturalWidth||704,nh=img.naturalHeight||576;
+  const x=Math.round((e.clientX-r.left)*nw/r.width),y=Math.round((e.clientY-r.top)*nh/r.height);
+  if(pts.length>=2)pts=[];
+  pts.push({x:x,y:y});
+  setStatus(pts.length===1?"точка 1 из 2 поставлена — кликните вторую":"линия готова — нажмите Сохранить");
+  draw();
+});
+editBtn.onclick=()=>setEditing(!editing);
+undoBtn.onclick=()=>{if(pts.length){pts.pop();setStatus(pts.length?"точка 1 из 2 поставлена — кликните вторую":"кликните 2 точки на кадре");draw()}};
+saveBtn.onclick=async()=>{
+  const line=pts.length===2?pts:cfg.line;
+  if(!line||line.length!==2){setStatus("нужны 2 точки — включите режим и кликните на кадре");return}
+  try{
+    const res=await fetch(API+"/crossing-line",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({enabled:true,line:line})});
+    cfg=await res.json();setEditing(false);draw();
+    setStatus(cfg.enabled?"линия сохранена и активна":"ошибка: линия не активна");
+  }catch(e){setStatus("ошибка сохранения")}
+};
+offBtn.onclick=async()=>{
+  try{
+    const res=await fetch(API+"/crossing-line",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({enabled:false,line:cfg.line||[]})});
+    cfg=await res.json();setEditing(false);draw();setStatus("линия выключена");
+  }catch(e){setStatus("ошибка выключения")}
+};
+async function loadSummary(){
+  try{
+    const res=await fetch(API+"/crossings/summary?hours=24");
+    const s=await res.json();
+    const rows=Object.entries(s.by_class||{}).map(function(kv){
+      const v=kv[1];
+      return "<tr><td>"+esc(kv[0])+"</td><td align=center>"+v.left_to_right+"</td><td align=center>"+v.right_to_left+"</td><td align=center><b>"+(v.left_to_right+v.right_to_left)+"</b></td></tr>";
+    }).join("");
+    summaryEl.innerHTML="<b>Пересечения за "+esc(s.hours)+" ч:</b> → "+s.totals.left_to_right+" · ← "+s.totals.right_to_left
+    +'<table style="width:100%;border-collapse:collapse;margin-top:4px"><tr style="color:#93b8c5"><th align=left>класс</th><th>→</th><th>←</th><th>всего</th></tr>'+rows+"</table>";
+  }catch(e){}
+}
+(async()=>{
+  try{const res=await fetch(API+"/crossing-line");cfg=await res.json()}catch(e){}
+  setStatus(cfg.enabled?"линия активна":"линия выключена");
+  draw();loadSummary();setInterval(loadSummary,15000);
+})();
+})();
+</script>
+<details class="panel diagnostics-card">
         <summary><span class="summary-copy"><span>State JSON</span><span class="section-note">runtime</span></span></summary>
         <div class="diagnostics-content"><pre id="stateJson">{}</pre></div>
       </details>
@@ -184,78 +266,6 @@ async function refresh(){try{const [s,e]=await Promise.all([jsonReq(STATE_URL),j
 video.addEventListener("playing",()=>{livePreviewFrame.classList.add("has-video");setStatus(streamStatus,"online","good");lastPlaybackProgressAt=performance.now()});video.addEventListener("waiting",()=>{if(streamDesired)setStatus(streamStatus,"buffering","warn")});video.addEventListener("error",()=>{if(streamDesired)scheduleReconnect("video error")});
 window.addEventListener("resize",resizeAll);window.addEventListener("beforeunload",()=>{streamDesired=false;clearTimers();destroyMedia();fetch(PREVIEW_STOP_URL,{method:"POST",credentials:"same-origin",keepalive:true,headers:{"Content-Length":"0"}}).catch(()=>{})});
 loadSessionIdentity();setInterval(loadSessionIdentity,SESSION_WATCHDOG_MS);loadConfig();refresh();refreshWorkerControl();setInterval(refresh,3000);setInterval(refreshWorkerControl,5000);setTimeout(()=>connectStream(false),0);
-</script>
-<script>
-(function(){
-const API="/sea-speed/api/analytics/road1";
-const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
-const wrap=document.getElementById("roiEditorWrap"),img=document.getElementById("overlayImg");
-if(!wrap||!img)return;
-const btn="padding:5px 9px;border:1px solid #a7f3eb33;border-radius:999px;background:#041725;color:#c7f5ec;font-size:.62rem;cursor:pointer";
-const cv=document.createElement("canvas");
-cv.style.cssText="position:absolute;inset:0;width:100%;height:100%;z-index:5;pointer-events:none";
-wrap.appendChild(cv);
-const ui=document.createElement("div");
-ui.innerHTML='<div style="display:flex;gap:6px;align-items:center;margin-top:8px;flex-wrap:wrap">'
-+'<button id="cxEdit" style="'+btn+'">Линия счёта</button>'
-+'<button id="cxUndo" style="'+btn+'">Отменить точку</button>'
-+'<button id="cxSave" style="'+btn+'">Сохранить</button>'
-+'<button id="cxOff" style="'+btn+'">Выключить</button>'
-+'<span id="cxStatus" style="font-size:.62rem;color:#93b8c5"></span></div>'
-+'<div id="cxSummary" style="margin-top:10px;font-size:.72rem"></div>';
-(wrap.closest("section")||wrap.parentElement).appendChild(ui);
-let pts=[],editing=false,cfg={enabled:false,line:[]};
-function draw(){
-  const r=img.getBoundingClientRect();
-  if(!r.width)return;
-  const d=devicePixelRatio||1;
-  cv.width=Math.round(r.width*d);cv.height=Math.round(r.height*d);
-  const c=cv.getContext("2d");c.setTransform(d,0,0,d,0,0);c.clearRect(0,0,r.width,r.height);
-  const nw=img.naturalWidth||704,nh=img.naturalHeight||576;
-  const dp=p=>({x:p.x*r.width/nw,y:p.y*r.height/nh});
-  if(cfg.line&&cfg.line.length===2){const ab=cfg.line.map(dp);c.strokeStyle="#22d3ee";c.lineWidth=3;c.beginPath();c.moveTo(ab[0].x,ab[0].y);c.lineTo(ab[1].x,ab[1].y);c.stroke()}
-  if(editing)pts.forEach(p=>{const q=dp(p);c.fillStyle="#22d3ee";c.beginPath();c.arc(q.x,q.y,5,0,7);c.fill()});
-}
-img.addEventListener("load",draw);
-window.addEventListener("resize",draw);
-wrap.addEventListener("click",e=>{
-  if(!editing)return;
-  const r=img.getBoundingClientRect(),nw=img.naturalWidth||704,nh=img.naturalHeight||576;
-  const x=Math.round((e.clientX-r.left)*nw/r.width),y=Math.round((e.clientY-r.top)*nh/r.height);
-  if(pts.length>=2)pts=[];
-  pts.push({x:x,y:y});draw();
-});
-document.getElementById("cxEdit").onclick=()=>{editing=!editing;pts=editing?cfg.line.slice():[];draw()};
-document.getElementById("cxUndo").onclick=()=>{pts.pop();draw()};
-document.getElementById("cxSave").onclick=async()=>{
-  try{
-    const line=pts.length===2?pts:cfg.line;
-    const res=await fetch(API+"/crossing-line",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({enabled:line.length===2,line:line})});
-    cfg=await res.json();editing=false;pts=[];draw();
-    document.getElementById("cxStatus").textContent=cfg.enabled?"счётная линия сохранена":"выключена";
-  }catch(e){document.getElementById("cxStatus").textContent="ошибка сохранения"}
-};
-document.getElementById("cxOff").onclick=async()=>{
-  try{
-    const res=await fetch(API+"/crossing-line",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({enabled:false,line:cfg.line})});
-    cfg=await res.json();editing=false;pts=[];draw();
-    document.getElementById("cxStatus").textContent="выключена";
-  }catch(e){}
-};
-async function loadSummary(){
-  try{
-    const res=await fetch(API+"/crossings/summary?hours=24");
-    const s=await res.json();
-    const rows=Object.entries(s.by_class||{}).map(function(kv){
-      const v=kv[1];
-      return "<tr><td>"+esc(kv[0])+"</td><td align=center>"+v.left_to_right+"</td><td align=center>"+v.right_to_left+"</td><td align=center><b>"+(v.left_to_right+v.right_to_left)+"</b></td></tr>";
-    }).join("");
-    document.getElementById("cxSummary").innerHTML="<b>Пересечения за "+esc(s.hours)+" ч</b> <span style=\"color:#93b8c5\">→ "+s.totals.left_to_right+" · ← "+s.totals.right_to_left+"</span>"
-    +'<table style="width:100%;border-collapse:collapse;margin-top:4px"><tr style="color:#93b8c5"><th align=left>класс</th><th>→</th><th>←</th><th>всего</th></tr>'+rows+"</table>";
-  }catch(e){}
-}
-(async()=>{try{const res=await fetch(API+"/crossing-line");cfg=await res.json()}catch(e){}draw();loadSummary();setInterval(loadSummary,15000)})();
-})();
 </script>
 </body>
 </html>
