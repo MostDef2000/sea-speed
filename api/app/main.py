@@ -1667,6 +1667,12 @@ async def post_analytics_event(
     event["camera_id"] = camera_id
     event["analytics_profile"] = identity["analytics_profile"]
     event["domain"] = identity["domain"]
+    person_blocked = (
+        identity["domain"] == "road"
+        and str(event.get("object_type") or "").strip().lower() == "person"
+    )
+    if person_blocked:
+        return {"ok": True, "event": None}
     event.setdefault("object_type", event.get("class_name") or event.get("class") or "object")
     event.setdefault("model_class", event.get("class_name") or event.get("class") or "object")
     event.setdefault("event_schema", VEHICLE_EVENT_SCHEMA)

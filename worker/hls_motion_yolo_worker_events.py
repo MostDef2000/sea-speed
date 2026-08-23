@@ -1262,14 +1262,15 @@ def main():
                 canonical_speed_kmh = best.get("speed_kmh")
                 speed_ready = bool(line_speed_info.get("speed_ready")) and canonical_speed_kmh is not None
                 track_id = best.get("track_id")
+                publishable = track_id is not None and best.get("object_type") != "person"
                 event_already_posted = track_event_posted(track_id)
                 has_px_speed = speed_px_s is not None
                 cooldown_ok = now - last_event_post >= event_cooldown
                 legacy_event_ready = speed_ready or (has_px_speed and speed_px_s >= min_speed and cooldown_ok)
                 if speed_lines_enabled:
-                    should_post_event = speed_ready and not event_already_posted
+                    should_post_event = publishable and speed_ready and not event_already_posted
                 else:
-                    should_post_event = not event_already_posted and legacy_event_ready
+                    should_post_event = publishable and not event_already_posted and legacy_event_ready
                 if should_post_event:
                     event = build_event(best, motion_area, speed_info, line_speed_info)
                     event_snapshot_path = EVENTS_DIR / f'{event["event_id"]}.jpg'

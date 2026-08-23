@@ -53,6 +53,7 @@ PROFILES: dict[str, AnalyticsProfile] = {
             "bus": "bus",
             "motorcycle": "motorcycle",
             "bicycle": "bicycle",
+            "person": "person",
         },
     ),
 }
