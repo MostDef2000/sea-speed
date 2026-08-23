@@ -399,3 +399,32 @@ class OverlayLineColorTests(unittest.TestCase):
         text = WORKER.read_text(encoding="utf-8")
         self.assertIn("(0, 255, 255), 2, cv2.LINE_AA", text)
         self.assertNotIn("(255, 210, 60)", text)
+
+
+class CrossingPanelUiTests(unittest.TestCase):
+    PANEL_PAGES = ("frontend/sea-speed/index.html", "frontend/sea-speed/road/index.html")
+
+    def test_delete_line_button_replaces_point_undo(self) -> None:
+        for rel in self.PANEL_PAGES:
+            text = (ROOT / rel).read_text(encoding="utf-8")
+            start = text.index('id="crossingCard"')
+            block = text[start:text.index("</details>", start)]
+            self.assertIn(">Удалить линию<", block)
+            self.assertNotIn("Отменить точку", block)
+
+    def test_delete_line_persists_disabled_empty_state(self) -> None:
+        for rel in self.PANEL_PAGES:
+            text = (ROOT / rel).read_text(encoding="utf-8")
+            start = text.index('id="cxUndoBtn"')
+            block = text[start:text.index("</script>", start)]
+            self.assertIn("enabled:false,line:[]", block)
+            self.assertIn("линия удалена", block)
+
+    def test_off_button_is_dynamic_toggle(self) -> None:
+        for rel in self.PANEL_PAGES:
+            text = (ROOT / rel).read_text(encoding="utf-8")
+            self.assertIn('cfg.enabled?"Выключить":"Включить"', text)
+            start = text.index('id="cxOffBtn"')
+            block = text[start:text.index("</script>", start)]
+            self.assertIn("нет линии для включения", block)
+            self.assertIn("линия включена", block)
