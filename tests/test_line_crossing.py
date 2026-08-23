@@ -571,3 +571,11 @@ class RegistrySpeedRowTests(unittest.TestCase):
         text = (ROOT / "frontend/sea-speed/objects/index.html").read_text(encoding="utf-8")
         self.assertIn('id="crossingsLayer"', text)
         self.assertIn("date_from", text)
+
+
+class CrossingsLayerToggleTests(unittest.TestCase):
+    def test_toggle_button_is_outside_hidden_layer(self) -> None:
+        text = (ROOT / "frontend/sea-speed/objects/index.html").read_text(encoding="utf-8")
+        i_btn = text.index('id="cxViewBtn"')
+        i_layer = text.index('id="crossingsLayer"')
+        self.assertLess(i_btn, i_layer)
