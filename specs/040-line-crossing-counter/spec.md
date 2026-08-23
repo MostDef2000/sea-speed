@@ -28,7 +28,9 @@ Virtual counting lines for water cam1 and road road1. Objects crossing the line 
 - R4: Each counted crossing is posted to the API, persisted into the objects registry via `persist_object_event` (domain-aware), and appended to a bounded per-camera crossings store.
 - R5: API exposes `GET/POST /api/analytics/{camera_id}/crossing-line` (+ cam1 aliases), `POST .../crossings` ingest, and `GET .../crossings/summary?hours=24` aggregating class x direction totals.
 - R6: Both main screens render an editable counting line (canvas editor) and a 24h summary panel (class x direction table).
-- R7: Overlay relayout in the worker: existing white stats block renders bottom-left; new live crossing-counters block renders bottom-right.
+- R7: Overlay relayout in the worker: existing white stats block renders bottom-left; new live crossing-counters block renders bottom-right; the counting line itself renders yellow BGR (0,255,255) when enabled.
+- R8: The private worker M2M ingress allowlist admits exactly four additional exact locations (GET crossing-line and POST crossings for cam1 and road1) with no wildcards; worker-control remains excluded.
+- R9: A transiently failed crossing POST retains the event in the pending queue; a successful retry removes it exactly once.
 
 ## NFR assessment
 
@@ -48,3 +50,5 @@ Virtual counting lines for water cam1 and road road1. Objects crossing the line 
 - AC-007: Stats block renders bottom-left; counters block bottom-right | Evidence: TESTS | Coverage: tests/test_line_crossing.py
 - AC-008: Line editable in UI on both pages; config round-trips through API | Evidence: RUNTIME-MANUAL | Reason: physical camera UI verification | Coverage: tasks.md
 - AC-009: Both deployed contours runtime_verified with exact source | Evidence: CI | Coverage: deployment manifests
+- AC-010: Private ingress admits exactly the four new crossing locations; worker-control stays excluded | Evidence: TESTS | Coverage: tests/test_line_crossing.py
+- AC-011: Failed crossing POST keeps the queued event; successful retry removes it exactly once | Evidence: TESTS | Coverage: tests/test_line_crossing.py
