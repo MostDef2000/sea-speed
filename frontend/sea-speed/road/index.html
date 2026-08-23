@@ -80,10 +80,9 @@
           <div id="speedConfigStatus" class="roi-status">Speed config: загрузка…</div>
         </div>
       </details>
-      <details class="panel utility-card" id="crossingCard"><summary><span class="summary-copy"><span>Линия счёта</span><span class="section-note">пересечения · 24ч</span></span></summary><div class="utility-content"><p class="panel-kicker">Crossing counter</p><h2>Счётная линия</h2><div class="roi-actions"><button id="cxEditBtn" class="mini-btn">Линия счёта</button><button id="cxUndoBtn" class="mini-btn">Отменить точку</button><button id="cxSaveBtn" class="mini-btn primary">Сохранить</button><button id="cxOffBtn" class="mini-btn">Выключить</button></div><div id="cxStatus" class="roi-status">Линия счёта: загрузка…</div><div id="cxSummary" class="roi-status"></div></div></details>
+      <details class="panel utility-card" id="crossingCard"><summary><span class="summary-copy"><span>Линия счёта</span><span class="section-note">пересечения · 24ч</span></span></summary><div class="utility-content"><p class="panel-kicker">Crossing counter</p><h2>Счётная линия</h2><div class="roi-actions"><button id="cxEditBtn" class="mini-btn">Линия счёта</button><button id="cxUndoBtn" class="mini-btn">Удалить линию</button><button id="cxSaveBtn" class="mini-btn primary">Сохранить</button><button id="cxOffBtn" class="mini-btn">Выключить</button></div><div id="cxStatus" class="roi-status">Линия счёта: загрузка…</div><div id="cxSummary" class="roi-status"></div></div></details>
 <script>
 (function(){
-function init(){
 const API="/sea-speed/api/analytics/road1";
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
 const wrap=document.getElementById("roiEditorWrap"),img=document.getElementById("overlayImg");
@@ -96,6 +95,7 @@ cv.style.cssText="position:absolute;inset:0;width:100%;height:100%;z-index:5;poi
 wrap.appendChild(cv);
 let pts=[],editing=false,cfg={enabled:false,line:[]};
 function setStatus(t){statusEl.textContent=t}
+function syncToggle(){offBtn.textContent=cfg.enabled?"Выключить":"Включить"}
 function draw(){
   const r=img.getBoundingClientRect();
   const d=devicePixelRatio||1;
@@ -128,21 +128,35 @@ cv.addEventListener("click",e=>{
   draw();
 });
 editBtn.onclick=()=>setEditing(!editing);
-undoBtn.onclick=()=>{if(pts.length){pts.pop();setStatus(pts.length?"точка 1 из 2 поставлена — кликните вторую":"кликните 2 точки на кадре");draw()}};
+undoBtn.onclick=async()=>{
+  pts=[];
+  try{
+    const res=await fetch(API+"/crossing-line",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({enabled:false,line:[]})});
+    cfg=await res.json();setEditing(false);syncToggle();draw();
+    setStatus("линия удалена");
+  }catch(e){setStatus("ошибка удаления")}
+};
 saveBtn.onclick=async()=>{
   const line=pts.length===2?pts:cfg.line;
   if(!line||line.length!==2){setStatus("нужны 2 точки — включите режим и кликните на кадре");return}
   try{
     const res=await fetch(API+"/crossing-line",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({enabled:true,line:line})});
-    cfg=await res.json();setEditing(false);draw();
+    cfg=await res.json();setEditing(false);draw();syncToggle();
     setStatus(cfg.enabled?"линия сохранена и активна":"ошибка: линия не активна");
   }catch(e){setStatus("ошибка сохранения")}
 };
 offBtn.onclick=async()=>{
   try{
-    const res=await fetch(API+"/crossing-line",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({enabled:false,line:cfg.line||[]})});
-    cfg=await res.json();setEditing(false);draw();setStatus("линия выключена");
-  }catch(e){setStatus("ошибка выключения")}
+    if(cfg.enabled){
+      const res=await fetch(API+"/crossing-line",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({enabled:false,line:cfg.line||[]})});
+      cfg=await res.json();setEditing(false);draw();setStatus("линия выключена");
+    }else{
+      if(!cfg.line||cfg.line.length!==2){setStatus("нет линии для включения — нарисуйте и сохраните");return}
+      const res=await fetch(API+"/crossing-line",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({enabled:true,line:cfg.line})});
+      cfg=await res.json();setEditing(false);draw();setStatus("линия включена");
+    }
+    syncToggle();
+  }catch(e){setStatus("ошибка переключения")}
 };
 async function loadSummary(){
   try{
@@ -158,13 +172,12 @@ async function loadSummary(){
 }
 (async()=>{
   try{const res=await fetch(API+"/crossing-line");cfg=await res.json()}catch(e){}
-  setStatus(cfg.enabled?"линия активна":"линия выключена");
+  setStatus(cfg.enabled?"линия активна":"линия выключена");syncToggle();
   draw();loadSummary();setInterval(loadSummary,15000);
 })();
-}
-if(document.readyState==="loading"){document.addEventListener("DOMContentLoaded",init)}else{init()}
 })();
 </script>
+
 
 <details class="panel diagnostics-card">
         <summary><span class="summary-copy"><span>State JSON</span><span class="section-note">runtime</span></span></summary>

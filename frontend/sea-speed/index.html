@@ -75,10 +75,9 @@
   <aside class="utility-rail" data-layout="left-utilities">
     <details class="panel utility-card" data-layout="collapsible-overlay-controls"><summary><span class="summary-copy"><span>Overlay controls</span><span class="section-note">ROI / speed lines</span></span></summary><div class="utility-content"><p class="panel-kicker">Overlay setup</p><h2>Разметка акватории</h2><div class="control-label"><span>ROI</span><span>polygon</span></div><div class="roi-actions"><button id="roiEditBtn" class="mini-btn">ROI edit</button><button id="roiUndoBtn" class="mini-btn">Undo</button><button id="roiClearBtn" class="mini-btn">Clear</button><button id="roiSaveBtn" class="mini-btn primary">Save ROI</button></div><div id="roiStatus" class="roi-status">ROI: loading</div><div class="speed-lines-panel"><div class="control-label"><span>Speed lines</span><span>A / B</span></div><div class="speed-lines-grid"><button id="speedLineABtn" class="mini-btn">Line A</button><button id="speedLineBBtn" class="mini-btn">Line B</button><button id="speedLineUndoBtn" class="mini-btn">Undo</button><button id="speedLineClearBtn" class="mini-btn">Clear</button></div><div class="speed-distance-row"><label for="speedLinesDistanceInput">Distance, m</label><input id="speedLinesDistanceInput" type="number" step="0.1" min="0" value="57"><button id="speedLinesSaveBtn" class="mini-btn primary">Save</button></div><div id="speedLinesStatus" class="roi-status">Speed lines: loading</div></div></div></details>
     <details class="panel utility-card" data-layout="collapsible-calibration"><summary><span class="summary-copy"><span>Speed calibration</span><span class="section-note">km/h per px/s</span></span></summary><div class="utility-content"><p class="panel-kicker">Calibration</p><h2>Speed calibration</h2><div class="speed-config-row"><label for="speedFactorInput">km/h per px/s</label><input id="speedFactorInput" type="number" step="0.001" min="0" placeholder="0.000"><button id="speedSaveBtn" class="mini-btn primary">Save</button></div><div id="speedConfigStatus" class="roi-status">Speed config: loading</div></div></details>
-    <details class="panel utility-card" id="crossingCard"><summary><span class="summary-copy"><span>Линия счёта</span><span class="section-note">пересечения · 24ч</span></span></summary><div class="utility-content"><p class="panel-kicker">Crossing counter</p><h2>Счётная линия</h2><div class="roi-actions"><button id="cxEditBtn" class="mini-btn">Линия счёта</button><button id="cxUndoBtn" class="mini-btn">Отменить точку</button><button id="cxSaveBtn" class="mini-btn primary">Сохранить</button><button id="cxOffBtn" class="mini-btn">Выключить</button></div><div id="cxStatus" class="roi-status">Линия счёта: загрузка…</div><div id="cxSummary" class="roi-status"></div></div></details>
+    <details class="panel utility-card" id="crossingCard"><summary><span class="summary-copy"><span>Линия счёта</span><span class="section-note">пересечения · 24ч</span></span></summary><div class="utility-content"><p class="panel-kicker">Crossing counter</p><h2>Счётная линия</h2><div class="roi-actions"><button id="cxEditBtn" class="mini-btn">Линия счёта</button><button id="cxUndoBtn" class="mini-btn">Удалить линию</button><button id="cxSaveBtn" class="mini-btn primary">Сохранить</button><button id="cxOffBtn" class="mini-btn">Выключить</button></div><div id="cxStatus" class="roi-status">Линия счёта: загрузка…</div><div id="cxSummary" class="roi-status"></div></div></details>
 <script>
 (function(){
-function init(){
 const API="/sea-speed/api/cam1";
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
 const wrap=document.getElementById("roiEditorWrap"),img=document.getElementById("overlayImg");
@@ -91,6 +90,7 @@ cv.style.cssText="position:absolute;inset:0;width:100%;height:100%;z-index:5;poi
 wrap.appendChild(cv);
 let pts=[],editing=false,cfg={enabled:false,line:[]};
 function setStatus(t){statusEl.textContent=t}
+function syncToggle(){offBtn.textContent=cfg.enabled?"Выключить":"Включить"}
 function draw(){
   const r=img.getBoundingClientRect();
   const d=devicePixelRatio||1;
@@ -123,21 +123,35 @@ cv.addEventListener("click",e=>{
   draw();
 });
 editBtn.onclick=()=>setEditing(!editing);
-undoBtn.onclick=()=>{if(pts.length){pts.pop();setStatus(pts.length?"точка 1 из 2 поставлена — кликните вторую":"кликните 2 точки на кадре");draw()}};
+undoBtn.onclick=async()=>{
+  pts=[];
+  try{
+    const res=await fetch(API+"/crossing-line",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({enabled:false,line:[]})});
+    cfg=await res.json();setEditing(false);syncToggle();draw();
+    setStatus("линия удалена");
+  }catch(e){setStatus("ошибка удаления")}
+};
 saveBtn.onclick=async()=>{
   const line=pts.length===2?pts:cfg.line;
   if(!line||line.length!==2){setStatus("нужны 2 точки — включите режим и кликните на кадре");return}
   try{
     const res=await fetch(API+"/crossing-line",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({enabled:true,line:line})});
-    cfg=await res.json();setEditing(false);draw();
+    cfg=await res.json();setEditing(false);draw();syncToggle();
     setStatus(cfg.enabled?"линия сохранена и активна":"ошибка: линия не активна");
   }catch(e){setStatus("ошибка сохранения")}
 };
 offBtn.onclick=async()=>{
   try{
-    const res=await fetch(API+"/crossing-line",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({enabled:false,line:cfg.line||[]})});
-    cfg=await res.json();setEditing(false);draw();setStatus("линия выключена");
-  }catch(e){setStatus("ошибка выключения")}
+    if(cfg.enabled){
+      const res=await fetch(API+"/crossing-line",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({enabled:false,line:cfg.line||[]})});
+      cfg=await res.json();setEditing(false);draw();setStatus("линия выключена");
+    }else{
+      if(!cfg.line||cfg.line.length!==2){setStatus("нет линии для включения — нарисуйте и сохраните");return}
+      const res=await fetch(API+"/crossing-line",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({enabled:true,line:cfg.line})});
+      cfg=await res.json();setEditing(false);draw();setStatus("линия включена");
+    }
+    syncToggle();
+  }catch(e){setStatus("ошибка переключения")}
 };
 async function loadSummary(){
   try{
@@ -153,13 +167,12 @@ async function loadSummary(){
 }
 (async()=>{
   try{const res=await fetch(API+"/crossing-line");cfg=await res.json()}catch(e){}
-  setStatus(cfg.enabled?"линия активна":"линия выключена");
+  setStatus(cfg.enabled?"линия активна":"линия выключена");syncToggle();
   draw();loadSummary();setInterval(loadSummary,15000);
 })();
-}
-if(document.readyState==="loading"){document.addEventListener("DOMContentLoaded",init)}else{init()}
 })();
 </script>
+
 
 <details class="panel diagnostics-card" data-layout="collapsible-state"><summary><span class="summary-copy"><span>State JSON</span><span class="section-note">runtime</span></span></summary><div class="diagnostics-content"><pre id="stateJson">{}</pre></div></details>
     <details class="panel diagnostics-card" data-layout="collapsible-log"><summary><span class="summary-copy"><span>Operator log</span><span class="section-note">local</span></span></summary><div class="diagnostics-content"><div id="debugLog" class="debug"></div></div></details>
