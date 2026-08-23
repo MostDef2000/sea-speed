@@ -61,7 +61,7 @@ OBJECT_FUNCTIONS = {
     "read_json_file", "open_objects_db", "prune_objects_registry", "initialize_objects_db",
     "optional_float", "optional_int", "stable_object_id", "persist_object_event", "import_existing_events",
     "object_row_to_dict", "build_objects_where", "get_cam1_objects", "get_cam1_object",
-    "patch_cam1_object", "delete_cam1_object",
+    "patch_cam1_object", "delete_cam1_object", "prune_snapshotless_objects",
 }
 
 
@@ -91,11 +91,13 @@ class ApiContractTests(unittest.TestCase):
                 "event_id": "water-1", "camera_id": "cam1", "created_at": "2026-08-02T10:00:00+00:00",
                 "class_name": "vessel", "object_type": "vessel", "model_class": "boat",
                 "analytics_profile": "water-v1", "domain": "water", "confidence": 0.91,
+                "snapshot_url": "/sea-speed/media/events/water-1.jpg",
             })
             ns["persist_object_event"]({
                 "event_id": "road-1", "camera_id": "road1", "created_at": "2026-08-02T11:00:00+00:00",
                 "class_name": "car", "object_type": "car", "model_class": "car",
                 "analytics_profile": "road-v1", "domain": "road", "confidence": 0.88,
+                "snapshot_url": "/sea-speed/media/events/road-1.jpg",
             })
             with ns["open_objects_db"]() as connection:
                 columns = {row[1] for row in connection.execute("PRAGMA table_info(objects)")}
@@ -141,6 +143,7 @@ class ApiContractTests(unittest.TestCase):
                     "camera_id": "cam1" if index % 2 == 0 else "road1",
                     "created_at": f"2026-08-02T{11 + index // 60:02d}:{index % 60:02d}:00+00:00",
                     "class_name": "vessel" if index % 2 == 0 else "car",
+                    "snapshot_url": f"/sea-speed/media/events/event-{index:03d}.jpg",
                 })
             with ns["open_objects_db"]() as connection:
                 rows = connection.execute(
@@ -162,8 +165,8 @@ class ApiContractTests(unittest.TestCase):
             ns = objects_namespace(temp_dir)
             load_functions(OBJECT_FUNCTIONS, ns)
             ns["initialize_objects_db"]()
-            ns["persist_object_event"]({"event_id": "cam", "camera_id": "cam1", "created_at": "x", "class_name": "vessel"})
-            ns["persist_object_event"]({"event_id": "road", "camera_id": "road1", "created_at": "y", "class_name": "car"})
+            ns["persist_object_event"]({"event_id": "cam", "camera_id": "cam1", "created_at": "x", "class_name": "vessel", "snapshot_url": "/sea-speed/media/events/cam.jpg"})
+            ns["persist_object_event"]({"event_id": "road", "camera_id": "road1", "created_at": "y", "class_name": "car", "snapshot_url": "/sea-speed/media/events/road.jpg"})
             listing = ns["get_cam1_objects"](limit=10)
             self.assertEqual(listing["total"], 1)
             self.assertEqual(listing["objects"][0]["object_id"], "cam")
@@ -239,6 +242,91 @@ class ApiContractTests(unittest.TestCase):
             "renderAnalyticsState(s)",
         ):
             self.assertIn(marker, source)
+
+
+class NoPhotoGuardTests(unittest.TestCase):
+    def test_persist_object_event_rejects_missing_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            ns = objects_namespace(temp_dir)
+            load_functions(OBJECT_FUNCTIONS, ns)
+            ns["initialize_objects_db"]()
+            ok = ns["persist_object_event"]({
+                "event_id": "no-photo", "camera_id": "road1",
+                "created_at": "2026-08-23T10:00:00+00:00",
+                "class_name": "car", "snapshot_url": None,
+            })
+            self.assertFalse(ok)
+            empty = ns["persist_object_event"]({
+                "event_id": "empty", "camera_id": "cam1",
+                "created_at": "2026-08-23T10:00:00+00:00",
+                "class_name": "vessel", "snapshot_url": "",
+            })
+            self.assertFalse(empty)
+            good = ns["persist_object_event"]({
+                "event_id": "good", "camera_id": "road1",
+                "created_at": "2026-08-23T10:00:00+00:00",
+                "class_name": "car", "snapshot_url": "/sea-speed/media/events/good.jpg",
+            })
+            self.assertTrue(good)
+            with ns["open_objects_db"]() as connection:
+                ids = {r[0] for r in connection.execute("SELECT object_id FROM objects")}
+            self.assertNotIn("no-photo", ids)
+            self.assertNotIn("empty", ids)
+            self.assertIn("good", ids)
+
+    def test_persist_passage_object_rejects_missing_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            ns = objects_namespace(temp_dir)
+            # need passage functions, so build separate ns that includes both
+            funcs = {"open_objects_db", "prune_objects_registry", "initialize_objects_db",
+                     "optional_float", "optional_int", "persist_passage_object", "prune_snapshotless_objects"}
+            load_functions(funcs, ns)
+            ns["initialize_objects_db"]()
+            bad = ns["persist_passage_object"]({"passage_id": "p-bad", "snapshot_url": None})
+            self.assertFalse(bad)
+            good = ns["persist_passage_object"]({"passage_id": "p-good", "snapshot_url": "/sea-speed/media/passages/p-good.jpg"})
+            self.assertTrue(good)
+
+    def test_prune_snapshotless_soft_deletes(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            ns = objects_namespace(temp_dir)
+            load_functions(OBJECT_FUNCTIONS, ns)
+            ns["initialize_objects_db"]()
+            with ns["open_objects_db"]() as connection:
+                connection.execute(
+                    "INSERT INTO objects (object_id, camera_id, detected_at, class_name, snapshot_url, original_event_json, created_at, updated_at) "
+                    "VALUES ('a','road1','2026-08-23T10:00:00+00:00','car',NULL,'{}','2026-08-23T10:00:00+00:00','2026-08-23T10:00:00+00:00')"
+                )
+                connection.execute(
+                    "INSERT INTO objects (object_id, camera_id, detected_at, class_name, snapshot_url, original_event_json, created_at, updated_at) "
+                    "VALUES ('b','cam1','2026-08-23T10:00:00+00:00','vessel','', '{}','2026-08-23T10:00:00+00:00','2026-08-23T10:00:00+00:00')"
+                )
+                connection.execute(
+                    "INSERT INTO objects (object_id, camera_id, detected_at, class_name, snapshot_url, original_event_json, created_at, updated_at) "
+                    "VALUES ('c','road1','2026-08-23T10:00:00+00:00','car','/sea-speed/media/events/c.jpg','{}','2026-08-23T10:00:00+00:00','2026-08-23T10:00:00+00:00')"
+                )
+                pruned = ns["prune_snapshotless_objects"](connection)
+            self.assertEqual(pruned, 2)
+            with ns["open_objects_db"]() as connection:
+                remaining = [r[0] for r in connection.execute("SELECT object_id FROM objects WHERE deleted_at IS NULL")]
+                deleted = [r[0] for r in connection.execute("SELECT object_id FROM objects WHERE deleted_at IS NOT NULL")]
+            self.assertEqual(remaining, ["c"])
+            self.assertCountEqual(deleted, ["a", "b"])
+            # idempotent
+            with ns["open_objects_db"]() as connection:
+                pruned2 = ns["prune_snapshotless_objects"](connection)
+            self.assertEqual(pruned2, 0)
+
+    def test_endpoint_requires_snapshot(self) -> None:
+        source = SOURCE.read_text(encoding="utf-8")
+        self.assertIn('if snapshot is None:', source)
+        self.assertIn('raise HTTPException(status_code=422, detail="snapshot is required")', source)
+        self.assertIn('raise HTTPException(status_code=422, detail="passage snapshot is required")', source)
+        self.assertIn("def prune_snapshotless_objects", source)
+        self.assertIn('if not snapshot_url or not str(snapshot_url).strip().startswith("/sea-speed/media/")', source)
+        worker = (ROOT / "worker" / "hls_motion_yolo_worker_events.py").read_text(encoding="utf-8")
+        self.assertIn("POST event skipped: snapshot missing", worker)
+        self.assertIn("wrote = cv2.imwrite", worker)
 
 
 if __name__ == "__main__":

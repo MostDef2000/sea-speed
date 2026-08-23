@@ -613,6 +613,9 @@ def post_state(metadata, overlay_path):
 
 
 def post_event(event, snapshot_path):
+    if snapshot_path is None or not Path(snapshot_path).is_file():
+        print(f"POST event skipped: snapshot missing for {event.get('event_id')}")
+        return False
     state_url = env_str("SEA_SPEED_API_URL")
     event_url = env_str("SEA_SPEED_EVENT_API_URL")
     if not event_url and state_url:
@@ -1513,8 +1516,10 @@ def main():
                 if should_post_event:
                     event = build_event(best, motion_area, speed_info, line_speed_info)
                     event_snapshot_path = EVENTS_DIR / f'{event["event_id"]}.jpg'
-                    cv2.imwrite(str(event_snapshot_path), overlay, [cv2.IMWRITE_JPEG_QUALITY, 90])
-                    if post_event(event, event_snapshot_path):
+                    wrote = cv2.imwrite(str(event_snapshot_path), overlay, [cv2.IMWRITE_JPEG_QUALITY, 90])
+                    if not wrote or not event_snapshot_path.is_file():
+                        print(f"event snapshot write failed for {event['event_id']}")
+                    elif post_event(event, event_snapshot_path):
                         last_event_post = now
                         mark_track_event_posted(track_id)
             if now - last_state_post >= state_interval:

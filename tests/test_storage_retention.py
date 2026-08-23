@@ -234,9 +234,9 @@ class PassageMirrorSyncTests(unittest.TestCase):
             self._insert_passage(ns, "gone-1")
             self._insert_passage(ns, "gone-2")
             self._insert_passage(ns, "kept")
-            ns["persist_passage_object"]({"passage_id": "gone-1"})
-            ns["persist_passage_object"]({"passage_id": "gone-2"})
-            ns["persist_passage_object"]({"passage_id": "kept"})
+            ns["persist_passage_object"]({"passage_id": "gone-1", "snapshot_url": "/sea-speed/media/passages/gone-1.jpg"})
+            ns["persist_passage_object"]({"passage_id": "gone-2", "snapshot_url": "/sea-speed/media/passages/gone-2.jpg"})
+            ns["persist_passage_object"]({"passage_id": "kept", "snapshot_url": "/sea-speed/media/passages/kept.jpg"})
             with ns["open_passages_db"]() as connection:
                 ns["prune_water_passages"](connection, target_limit=2)
             with ns["open_objects_db"]() as connection:
@@ -250,8 +250,8 @@ class PassageMirrorSyncTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             ns = self._prepare(temp_dir)
             self._insert_passage(ns, "alive")
-            ns["persist_passage_object"]({"passage_id": "alive"})
-            ns["persist_passage_object"]({"passage_id": "orphan"})
+            ns["persist_passage_object"]({"passage_id": "alive", "snapshot_url": "/sea-speed/media/passages/alive.jpg"})
+            ns["persist_passage_object"]({"passage_id": "orphan", "snapshot_url": "/sea-speed/media/passages/orphan.jpg"})
             removed = ns["reconcile_passage_mirrors"]()
             with ns["open_objects_db"]() as connection:
                 remaining = {

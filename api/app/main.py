@@ -292,6 +292,10 @@ def initialize_objects_db() -> None:
         connection.execute("CREATE INDEX IF NOT EXISTS idx_objects_camera_id ON objects(camera_id)")
         connection.execute("CREATE INDEX IF NOT EXISTS idx_objects_domain ON objects(domain)")
         prune_objects_registry(connection)
+        try:
+            prune_snapshotless_objects(connection)
+        except Exception:
+            pass
 
 
 def optional_float(value: Any) -> Optional[float]:
@@ -321,7 +325,21 @@ def stable_object_id(event: Dict[str, Any]) -> str:
     return f"legacy-{digest}"
 
 
+def prune_snapshotless_objects(connection: sqlite3.Connection) -> int:
+    now = now_iso()
+    cursor = connection.execute(
+        "UPDATE objects SET deleted_at = ?, updated_at = ? WHERE deleted_at IS NULL AND (snapshot_url IS NULL OR TRIM(snapshot_url) = '')",
+        (now, now),
+    )
+    return int(cursor.rowcount)
+
+
 def persist_object_event(event: Dict[str, Any]) -> bool:
+    snapshot_url = event.get("snapshot_url")
+    if not snapshot_url or not str(snapshot_url).strip():
+        return False
+    if not str(snapshot_url).strip().startswith("/sea-speed/media/"):
+        return False
     object_id = stable_object_id(event)
     detected_at = str(event.get("created_at") or event.get("detected_at") or now_iso())
     created_at = str(event.get("created_at") or now_iso())
@@ -383,6 +401,9 @@ def import_existing_events() -> int:
 
 
 def persist_passage_object(passage: Dict[str, Any]) -> bool:
+    snapshot_url = passage.get("snapshot_url")
+    if not snapshot_url or not str(snapshot_url).strip().startswith("/sea-speed/media/"):
+        return False
     passage_id = str(passage.get("passage_id") or "").strip()
     if not passage_id:
         return False
@@ -797,6 +818,8 @@ def upsert_water_passage(payload: Dict[str, Any], snapshot_bytes: Optional[bytes
             snapshot_path = PASSAGE_MEDIA_DIR / filename
             snapshot_data = bytes(snapshot_bytes)
             snapshot_url = f"/sea-speed/media/passages/{filename}"
+        if not snapshot_url or not str(snapshot_url).strip().startswith("/sea-speed/media/"):
+            raise HTTPException(status_code=422, detail="passage snapshot is required")
         now = now_iso()
         merged = {
             **incoming,
@@ -1705,12 +1728,14 @@ async def post_analytics_event(
     event.setdefault("worker_source_commit", None)
     event.setdefault("calibration_version", None)
     event["created_at"] = event.get("created_at") or now_iso()
-    if snapshot is not None:
-        filename = f"{camera_id}-{event_id}.jpg"
-        snapshot_path = EVENTS_MEDIA_DIR / filename
-        snapshot_path.write_bytes(await snapshot.read())
-        event["snapshot_url"] = f"/sea-speed/media/events/{filename}"
-    persist_object_event(event)
+    if snapshot is None:
+        raise HTTPException(status_code=422, detail="snapshot is required")
+    filename = f"{camera_id}-{event_id}.jpg"
+    snapshot_path = EVENTS_MEDIA_DIR / filename
+    snapshot_path.write_bytes(await snapshot.read())
+    event["snapshot_url"] = f"/sea-speed/media/events/{filename}"
+    if not persist_object_event(event):
+        raise HTTPException(status_code=422, detail="snapshot is required")
     sweep_events_media()
     events_path = analytics_data_file(camera_id, "events")
     events: List[Dict[str, Any]] = read_json_file(events_path, [])
