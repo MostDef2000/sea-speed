@@ -39,12 +39,12 @@ Virtual counting lines for water cam1 and road road1. Objects crossing the line 
 
 ## Acceptance criteria
 
-- AC-001 | Crossing counted left-to-right for a track moving across the line rightward | Evidence: RUNTIME-MANUAL + TESTS | Coverage: tests/test_line_crossing.py
-- AC-002 | Crossing counted right-to-left for the reverse motion | Evidence: RUNTIME-MANUAL + TESTS | Coverage: tests/test_line_crossing.py
-- AC-003 | Wobble around the line does not inflate counts beyond debounce rules | Evidence: TESTS | Coverage: tests/test_line_crossing.py
-- AC-004 | Road person detections produce no crossing counts or registry rows | Evidence: TESTS | Coverage: tests/test_line_crossing.py
-- AC-005 | Crossing persists as an objects-registry row with domain-aware identity | Evidence: TESTS | Coverage: tests/test_line_crossing.py
-- AC-006 | 24h summary aggregates class x direction within the window | Evidence: TESTS | Coverage: tests/test_line_crossing.py
-- AC-007 | Stats block renders bottom-left; counters block bottom-right | Evidence: TESTS | Coverage: tests/test_line_crossing.py
-- AC-008 | Line editable in UI on both pages; config round-trips through API | Evidence: RUNTIME-MANUAL | Reason: physical camera UI verification | Coverage: tasks.md
-- AC-009 | Both deployed contours runtime_verified with exact source | Evidence: CI | Coverage: deployment manifests
+- AC-001: Crossing counted left-to-right for a track moving across the line rightward | Evidence: RUNTIME-MANUAL + TESTS | Coverage: tests/test_line_crossing.py
+- AC-002: Crossing counted right-to-left for the reverse motion | Evidence: RUNTIME-MANUAL + TESTS | Coverage: tests/test_line_crossing.py
+- AC-003: Wobble around the line does not inflate counts beyond debounce rules | Evidence: TESTS | Coverage: tests/test_line_crossing.py
+- AC-004: Road person detections produce no crossing counts or registry rows | Evidence: TESTS | Coverage: tests/test_line_crossing.py
+- AC-005: Crossing persists as an objects-registry row with domain-aware identity | Evidence: TESTS | Coverage: tests/test_line_crossing.py
+- AC-006: 24h summary aggregates class x direction within the window | Evidence: TESTS | Coverage: tests/test_line_crossing.py
+- AC-007: Stats block renders bottom-left; counters block bottom-right | Evidence: TESTS | Coverage: tests/test_line_crossing.py
+- AC-008: Line editable in UI on both pages; config round-trips through API | Evidence: RUNTIME-MANUAL | Reason: physical camera UI verification | Coverage: tasks.md
+- AC-009: Both deployed contours runtime_verified with exact source | Evidence: CI | Coverage: deployment manifests
