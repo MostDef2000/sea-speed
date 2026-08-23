@@ -12,7 +12,7 @@ import threading
 import time
 import uuid
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlsplit
@@ -1543,6 +1543,29 @@ def post_cam1_speed_lines(payload: Dict[str, Any]) -> Dict[str, Any]:
     return post_analytics_speed_lines("cam1", payload)
 
 
+@app.get("/api/cam1/crossing-line")
+def get_cam1_crossing_line() -> Dict[str, Any]:
+    return get_analytics_crossing_line("cam1")
+
+
+@app.post("/api/cam1/crossing-line")
+def post_cam1_crossing_line(payload: Dict[str, Any]) -> Dict[str, Any]:
+    return post_analytics_crossing_line("cam1", payload)
+
+
+@app.post("/api/cam1/crossings")
+async def post_cam1_crossing(
+    metadata: str = Form(...),
+    authorization: Optional[str] = Header(None),
+) -> Dict[str, Any]:
+    return await api_post_crossing("cam1", metadata=metadata, authorization=authorization)
+
+
+@app.get("/api/cam1/crossings/summary")
+def get_cam1_crossings_summary(hours: int = 24) -> Dict[str, Any]:
+    return get_analytics_crossings_summary("cam1", hours)
+
+
 def patch_object_record(object_id: str, payload: Dict[str, Any], camera_id: Optional[str] = None) -> Dict[str, Any]:
     updates: Dict[str, Any] = {}
     if "class_name" in payload:
@@ -1783,6 +1806,147 @@ def post_analytics_speed_lines(camera_id: str, payload: Dict[str, Any]) -> Dict[
               "line_a": line_a, "line_b": line_b, "updated_at": now_iso()}
     write_json_file(analytics_data_file(camera_id, "speed_lines"), config)
     return config
+
+
+def get_analytics_crossing_line(camera_id: str) -> Dict[str, Any]:
+    analytics_identity(camera_id)
+    default_config = {"ok": True, "camera_id": camera_id, "enabled": False, "line": [], "updated_at": None}
+    config = read_json_file(analytics_data_file(camera_id, "crossing_line"), default_config)
+    config["ok"] = True
+    config["camera_id"] = camera_id
+    config.setdefault("enabled", False)
+    config.setdefault("line", [])
+    config.setdefault("updated_at", None)
+    return config
+
+
+def post_analytics_crossing_line(camera_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    analytics_identity(camera_id)
+    line = clean_points_list(payload.get("line"), max_points=2)
+    enabled = bool(payload.get("enabled", True))
+    if enabled and len(line) != 2:
+        raise HTTPException(status_code=400, detail="line must contain exactly 2 points")
+    config = {"ok": True, "camera_id": camera_id, "enabled": enabled,
+              "line": line, "updated_at": now_iso()}
+    write_json_file(analytics_data_file(camera_id, "crossing_line"), config)
+    return config
+
+
+CROSSINGS_STORE_LIMIT = 5000
+CROSSING_DIRECTIONS = ("left_to_right", "right_to_left")
+
+
+def crossings_store_path(camera_id: str) -> Path:
+    return analytics_data_file(camera_id, "crossings")
+
+
+def append_crossing_record(camera_id: str, record: Dict[str, Any]) -> None:
+    path = crossings_store_path(camera_id)
+    records = read_json_file(path, [])
+    if not isinstance(records, list):
+        records = []
+    records.insert(0, record)
+    write_json_file(path, records[:CROSSINGS_STORE_LIMIT])
+
+
+def post_analytics_crossing(camera_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
+    identity = analytics_identity(camera_id)
+    direction = str(data.get("direction") or "")
+    if direction not in CROSSING_DIRECTIONS:
+        raise HTTPException(status_code=400, detail="direction must be left_to_right or right_to_left")
+    object_type = str(data.get("object_type") or data.get("class_name") or "").strip()
+    if not object_type:
+        raise HTTPException(status_code=400, detail="object_type is required")
+    event_id = str(data.get("event_id") or f"{int(time.time())}-{uuid.uuid4().hex[:8]}")
+    created_at = str(data.get("created_at") or now_iso())
+    track_id = optional_int(data.get("track_id"))
+    record = {
+        "event_id": event_id,
+        "camera_id": camera_id,
+        "analytics_profile": identity["analytics_profile"],
+        "domain": identity["domain"],
+        "object_type": object_type,
+        "class_name": object_type,
+        "model_class": str(data.get("model_class") or object_type),
+        "direction": direction,
+        "track_id": track_id,
+        "confidence": optional_float(data.get("confidence")),
+        "kind": "line_crossing",
+        "created_at": created_at,
+    }
+    persist_object_event(record)
+    append_crossing_record(camera_id, record)
+    return {"ok": True, "event_id": event_id}
+
+
+def get_analytics_crossings_summary(camera_id: str, hours: int = 24) -> Dict[str, Any]:
+    identity = analytics_identity(camera_id)
+    hours = max(1, min(int(hours), 168))
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+    records = read_json_file(crossings_store_path(camera_id), [])
+    if not isinstance(records, list):
+        records = []
+    totals = {"left_to_right": 0, "right_to_left": 0}
+    by_class: Dict[str, Dict[str, int]] = {}
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        created_at = str(record.get("created_at") or "")
+        try:
+            moment = datetime.fromisoformat(created_at)
+        except ValueError:
+            continue
+        if moment.tzinfo is None:
+            moment = moment.replace(tzinfo=timezone.utc)
+        if moment < cutoff:
+            continue
+        direction = str(record.get("direction") or "")
+        if direction not in CROSSING_DIRECTIONS:
+            continue
+        class_name = str(record.get("object_type") or record.get("class_name") or "object")
+        totals[direction] += 1
+        class_counts = by_class.setdefault(class_name, {"left_to_right": 0, "right_to_left": 0})
+        class_counts[direction] += 1
+    return {
+        "ok": True,
+        "camera_id": camera_id,
+        "domain": identity["domain"],
+        "hours": hours,
+        "totals": totals,
+        "by_class": by_class,
+        "generated_at": now_iso(),
+    }
+
+
+@app.get("/api/analytics/{camera_id}/crossing-line")
+def api_get_crossing_line(camera_id: str) -> Dict[str, Any]:
+    return get_analytics_crossing_line(camera_id)
+
+
+@app.post("/api/analytics/{camera_id}/crossing-line")
+def api_post_crossing_line(camera_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    return post_analytics_crossing_line(camera_id, payload)
+
+
+@app.post("/api/analytics/{camera_id}/crossings")
+async def api_post_crossing(
+    camera_id: str,
+    metadata: str = Form(...),
+    authorization: Optional[str] = Header(None),
+) -> Dict[str, Any]:
+    require_auth(authorization)
+    try:
+        data = json.loads(metadata)
+    except (TypeError, json.JSONDecodeError):
+        raise HTTPException(status_code=400, detail="metadata must be valid JSON")
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=400, detail="metadata must be a JSON object")
+    return post_analytics_crossing(camera_id, data)
+
+
+@app.get("/api/analytics/{camera_id}/crossings/summary")
+def api_get_crossings_summary(camera_id: str, hours: int = 24) -> Dict[str, Any]:
+    return get_analytics_crossings_summary(camera_id, hours)
 
 
 @app.get("/api/analytics/{camera_id}/objects")
