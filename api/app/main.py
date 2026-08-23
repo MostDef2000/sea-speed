@@ -979,7 +979,7 @@ def analytics_data_file(camera_id: str, kind: str) -> Path:
         "speed_config": SPEED_CONFIG_FILE,
         "speed_lines": SPEED_LINES_FILE,
     }
-    if camera_id == "cam1":
+    if camera_id == "cam1" and kind in legacy:
         return legacy[kind]
     return DATA_DIR / f"{camera_id}_{kind}.json"
 

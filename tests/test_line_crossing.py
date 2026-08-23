@@ -287,3 +287,9 @@ class ApiCrossingTests(unittest.TestCase):
     def test_summary_default_domain_identity(self) -> None:
         summary = self.ns["get_analytics_crossings_summary"]("road1", hours=24)
         self.assertEqual(summary["domain"], "road")
+
+
+class Cam1LegacyKindFallbackTests(unittest.TestCase):
+    def test_cam1_unknown_kind_falls_back_to_data_dir(self) -> None:
+        text = API.read_text(encoding="utf-8")
+        self.assertIn('if camera_id == "cam1" and kind in legacy:', text)
