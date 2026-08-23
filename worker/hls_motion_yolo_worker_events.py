@@ -3,7 +3,7 @@ import os
 import subprocess
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -569,7 +569,7 @@ def draw_overlay(frame, motion_now, motion_area, ai_active, detections, motion_b
         rtl = int(summary.get("right_to_left") or 0)
         counter_lines = [f"CROSSINGS -> {ltr}   <- {rtl}"]
         by_class = summary.get("by_class") or {}
-        for class_name, counts in sorted(by_class.items(), key=lambda kv: -(kv[1].get("left_to_right", 0) + kv[1].get("right_to_left", 0)))[:5]:
+        for class_name, counts in sorted(by_class.items(), key=lambda kv: -(kv[1].get("left_to_right", 0) + kv[1].get("right_to_left", 0))):
             total = int(counts.get("left_to_right", 0)) + int(counts.get("right_to_left", 0))
             counter_lines.append(f"{class_name}: {total}")
         font = cv2.FONT_HERSHEY_SIMPLEX
@@ -879,6 +879,33 @@ _crossing_track_sides = {}
 _crossing_counts = {"left_to_right": 0, "right_to_left": 0}
 _crossings_by_class = {}
 _crossing_pending_posts = []
+VLZ_TIMEZONE = timezone(timedelta(hours=10))
+_crossing_vlz_date = None
+
+
+def vlz_date(now=None):
+    if now is None:
+        now = time.time()
+    return datetime.fromtimestamp(now, VLZ_TIMEZONE).date()
+
+
+def reset_crossing_counts(clear_pending=True):
+    _crossing_counts.update({"left_to_right": 0, "right_to_left": 0})
+    _crossings_by_class.clear()
+    _crossing_track_sides.clear()
+    if clear_pending:
+        _crossing_pending_posts.clear()
+
+
+def maybe_reset_daily_crossings(now=None):
+    """Reset live crossing counters at 00:00 Asia/Vladivostok (UTC+10)."""
+    global _crossing_vlz_date
+    today = vlz_date(now)
+    if _crossing_vlz_date == today:
+        return False
+    _crossing_vlz_date = today
+    reset_crossing_counts(clear_pending=False)
+    return True
 
 
 def get_crossing_line_url():
@@ -933,13 +960,6 @@ def fetch_crossing_line_config():
         return _crossing_line_cache
 
 
-def reset_crossing_counts():
-    _crossing_counts.update({"left_to_right": 0, "right_to_left": 0})
-    _crossings_by_class.clear()
-    _crossing_track_sides.clear()
-    _crossing_pending_posts.clear()
-
-
 def prune_crossing_tracks(now=None):
     if now is None:
         now = time.time()
@@ -959,6 +979,7 @@ def update_crossing_counts(detections, now=None):
     """
     if now is None:
         now = time.time()
+    maybe_reset_daily_crossings(now)
     cfg = fetch_crossing_line_config()
     if not cfg.get("enabled") or len(cfg.get("line") or []) != 2:
         prune_crossing_tracks(now)

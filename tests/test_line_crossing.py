@@ -7,7 +7,7 @@ import tempfile
 import time
 import unittest
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -33,6 +33,7 @@ def extract_worker_functions(names: set[str]) -> dict[str, Any]:
         "time": time,
         "json": json,
         "datetime": datetime,
+        "timedelta": timedelta,
         "timezone": timezone,
         "uuid": uuid,
         "print": print,
@@ -44,6 +45,8 @@ def extract_worker_functions(names: set[str]) -> dict[str, Any]:
         "_crossing_counts": {"left_to_right": 0, "right_to_left": 0},
         "_crossings_by_class": {},
         "_crossing_pending_posts": [],
+        "_crossing_vlz_date": None,
+        "VLZ_TIMEZONE": timezone(timedelta(hours=10)),
     }
     exec(compile(module, str(WORKER), "exec"), namespace)
     return namespace
@@ -73,6 +76,8 @@ class CrossingDetectionTests(unittest.TestCase):
                 "crossing_overlay_summary",
                 "reset_crossing_counts",
                 "prune_crossing_tracks",
+                "maybe_reset_daily_crossings",
+                "vlz_date",
             }
         )
 
@@ -190,8 +195,10 @@ class ApiCrossingTests(unittest.TestCase):
             "time": time,
             "uuid": uuid,
             "datetime": datetime,
+            "date": date,
             "timedelta": timedelta,
             "timezone": timezone,
+            "VLZ_TIMEZONE": timezone(timedelta(hours=10)),
             "Any": Any,
             "Dict": Dict,
             "List": List,
@@ -235,8 +242,8 @@ class ApiCrossingTests(unittest.TestCase):
         cls.tmp.cleanup()
 
     def setUp(self) -> None:
-        self.ns = self.namespace
-        self.persisted = self.__class__.persisted
+        self.ns = type(self).namespace
+        self.persisted = type(self).persisted
         self.persisted.clear()
 
     def test_crossing_line_config_round_trip(self) -> None:
@@ -502,3 +509,65 @@ class CrossingConfigRefreshTests(unittest.TestCase):
         text = WORKER.read_text(encoding="utf-8")
         self.assertIn('env_float("CROSSING_LINE_REFRESH_SEC", 1.0)', text)
         self.assertNotIn('env_float("CROSSING_LINE_REFRESH_SEC", 5.0)', text)
+
+
+class VlzDailyResetTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.ns = extract_worker_functions(
+            {"reset_crossing_counts", "maybe_reset_daily_crossings", "vlz_date",
+             "crossing_overlay_summary", "prune_crossing_tracks"}
+        )
+        self.ns["reset_crossing_counts"]()
+
+    def test_counters_reset_on_vlz_midnight(self) -> None:
+        ns = self.ns
+        # 2026-08-23 15:00 UTC == 2026-08-24 01:00 VLZ (next day)
+        ns["maybe_reset_daily_crossings"](now=1_787_500_000)
+        ns["_crossing_counts"]["left_to_right"] = 7
+        ns["_crossings_by_class"]["car"] = {"left_to_right": 7, "right_to_left": 0}
+        # same VLZ day -> no reset
+        self.assertFalse(ns["maybe_reset_daily_crossings"](now=1_787_503_600))
+        self.assertEqual(ns["_crossing_counts"]["left_to_right"], 7)
+        # next VLZ day -> reset, but pending posts survive
+        ns["_crossing_pending_posts"].append({"direction": "left_to_right"})
+        self.assertTrue(ns["maybe_reset_daily_crossings"](now=1_787_590_000))
+        self.assertEqual(ns["_crossing_counts"]["left_to_right"], 0)
+        self.assertEqual(ns["_crossings_by_class"], {})
+        self.assertEqual(len(ns["_crossing_pending_posts"]), 1)
+
+    def test_vlz_date_is_utc_plus_ten(self) -> None:
+        ns = self.ns
+        # 2026-08-23 15:30 UTC is already 2026-08-24 in Vladivostok
+        d = ns["vlz_date"](1_787_502_600)
+        self.assertEqual((d.year, d.month, d.day), (2026, 8, 24))
+
+
+class SummaryDateRangeTests(unittest.TestCase):
+    def test_summary_supports_vlz_day_window_params(self) -> None:
+        text = API.read_text(encoding="utf-8")
+        self.assertIn("date_from: Optional[str] = None, date_to: Optional[str] = None", text)
+        self.assertIn('"mode": "vlz_days"', text)
+        self.assertIn("VLZ_TIMEZONE = timezone(timedelta(hours=10))", text)
+
+    def test_summary_rejects_malformed_dates(self) -> None:
+        ns = dict(ApiCrossingTests.namespace)
+        with self.assertRaises(_StubHTTPException):
+            ns["get_analytics_crossings_summary"]("road1", hours=24, date_from="bad-date")
+
+
+class OverlayAllClassesTests(unittest.TestCase):
+    def test_overlay_counter_has_no_class_cap(self) -> None:
+        text = WORKER.read_text(encoding="utf-8")
+        self.assertNotIn(')[:5]:', text)
+        self.assertIn('for class_name, counts in sorted(by_class.items()', text)
+
+
+class RegistrySpeedRowTests(unittest.TestCase):
+    def test_registry_card_shows_speed_in_description(self) -> None:
+        text = (ROOT / "frontend/sea-speed/objects/index.html").read_text(encoding="utf-8")
+        self.assertIn("<div>Скорость<span class=\"meta-value\">", text)
+
+    def test_objects_page_has_crossings_layer(self) -> None:
+        text = (ROOT / "frontend/sea-speed/objects/index.html").read_text(encoding="utf-8")
+        self.assertIn('id="crossingsLayer"', text)
+        self.assertIn("date_from", text)

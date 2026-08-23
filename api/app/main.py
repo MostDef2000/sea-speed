@@ -12,7 +12,7 @@ import threading
 import time
 import uuid
 from contextlib import contextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlsplit
@@ -1562,8 +1562,10 @@ async def post_cam1_crossing(
 
 
 @app.get("/api/cam1/crossings/summary")
-def get_cam1_crossings_summary(hours: int = 24) -> Dict[str, Any]:
-    return get_analytics_crossings_summary("cam1", hours)
+def get_cam1_crossings_summary(
+    hours: int = 24, date_from: Optional[str] = None, date_to: Optional[str] = None,
+) -> Dict[str, Any]:
+    return get_analytics_crossings_summary("cam1", hours, date_from, date_to)
 
 
 def patch_object_record(object_id: str, payload: Dict[str, Any], camera_id: Optional[str] = None) -> Dict[str, Any]:
@@ -1883,13 +1885,37 @@ def post_analytics_crossing(camera_id: str, data: Dict[str, Any]) -> Dict[str, A
     return {"ok": True, "event_id": event_id}
 
 
-def get_analytics_crossings_summary(camera_id: str, hours: int = 24) -> Dict[str, Any]:
+VLZ_TIMEZONE = timezone(timedelta(hours=10))
+
+
+def _vlz_day_bounds(day: date) -> tuple[datetime, datetime]:
+    start = datetime.combine(day, datetime.min.time()).replace(tzinfo=VLZ_TIMEZONE)
+    return start, start + timedelta(days=1)
+
+
+def get_analytics_crossings_summary(
+    camera_id: str, hours: int = 24,
+    date_from: Optional[str] = None, date_to: Optional[str] = None,
+) -> Dict[str, Any]:
     identity = analytics_identity(camera_id)
-    hours = max(1, min(int(hours), 168))
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
     records = read_json_file(crossings_store_path(camera_id), [])
     if not isinstance(records, list):
         records = []
+    window: Dict[str, Any] = {"mode": "rolling_hours", "hours": max(1, min(int(hours), 168))}
+    if date_from or date_to:
+        try:
+            from_day = date.fromisoformat(date_from) if date_from else None
+            to_day = date.toisoformat(date_to) if date_to else None
+        except ValueError:
+            raise HTTPException(status_code=400, detail="dates must be YYYY-MM-DD")
+        if from_day and to_day and from_day > to_day:
+            raise HTTPException(status_code=400, detail="date_from must not exceed date_to")
+        start = _vlz_day_bounds(from_day)[0] if from_day else datetime.min.replace(tzinfo=timezone.utc)
+        end = _vlz_day_bounds(to_day)[1] if to_day else datetime.max.replace(tzinfo=timezone.utc)
+        window = {"mode": "vlz_days", "date_from": str(from_day) if from_day else None,
+                  "date_to": str(to_day) if to_day else None}
+    else:
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=window["hours"])
     totals = {"left_to_right": 0, "right_to_left": 0}
     by_class: Dict[str, Dict[str, int]] = {}
     for record in records:
@@ -1902,7 +1928,10 @@ def get_analytics_crossings_summary(camera_id: str, hours: int = 24) -> Dict[str
             continue
         if moment.tzinfo is None:
             moment = moment.replace(tzinfo=timezone.utc)
-        if moment < cutoff:
+        if window["mode"] == "vlz_days":
+            if moment < start or moment >= end:
+                continue
+        elif moment < cutoff:
             continue
         direction = str(record.get("direction") or "")
         if direction not in CROSSING_DIRECTIONS:
@@ -1915,7 +1944,7 @@ def get_analytics_crossings_summary(camera_id: str, hours: int = 24) -> Dict[str
         "ok": True,
         "camera_id": camera_id,
         "domain": identity["domain"],
-        "hours": hours,
+        "window": window,
         "totals": totals,
         "by_class": by_class,
         "generated_at": now_iso(),
@@ -1949,8 +1978,11 @@ async def api_post_crossing(
 
 
 @app.get("/api/analytics/{camera_id}/crossings/summary")
-def api_get_crossings_summary(camera_id: str, hours: int = 24) -> Dict[str, Any]:
-    return get_analytics_crossings_summary(camera_id, hours)
+def api_get_crossings_summary(
+    camera_id: str, hours: int = 24,
+    date_from: Optional[str] = None, date_to: Optional[str] = None,
+) -> Dict[str, Any]:
+    return get_analytics_crossings_summary(camera_id, hours, date_from, date_to)
 
 
 @app.get("/api/analytics/{camera_id}/objects")

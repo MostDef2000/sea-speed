@@ -161,13 +161,15 @@ offBtn.onclick=async()=>{
 };
 async function loadSummary(){
   try{
-    const res=await fetch(API+"/crossings/summary?hours=24");
+    const res=await fetch(API+"/state");
     const s=await res.json();
-    const rows=Object.entries(s.by_class||{}).map(function(kv){
+    const c=s.crossings||{};
+    const totals=c.left_to_right!=null?c:{left_to_right:0,right_to_left:0,by_class:{}};
+    const rows=Object.entries(totals.by_class||{}).map(function(kv){
       const v=kv[1];
       return "<tr><td>"+esc(kv[0])+"</td><td align=center>"+v.left_to_right+"</td><td align=center>"+v.right_to_left+"</td><td align=center><b>"+(v.left_to_right+v.right_to_left)+"</b></td></tr>";
     }).join("");
-    summaryEl.innerHTML="<b>Пересечения за "+esc(s.hours)+" ч:</b> → "+s.totals.left_to_right+" · ← "+s.totals.right_to_left
+    summaryEl.innerHTML="<b>Сегодня (Владивосток):</b> → "+totals.left_to_right+" · ← "+totals.right_to_left
     +'<table style="width:100%;border-collapse:collapse;margin-top:4px"><tr style="color:#93b8c5"><th align=left>класс</th><th>→</th><th>←</th><th>всего</th></tr>'+rows+"</table>";
   }catch(e){}
 }
