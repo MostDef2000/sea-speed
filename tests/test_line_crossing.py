@@ -560,7 +560,8 @@ class OverlayAllClassesTests(unittest.TestCase):
     def test_overlay_counter_has_no_class_cap(self) -> None:
         text = WORKER.read_text(encoding="utf-8")
         self.assertNotIn(')[:5]:', text)
-        self.assertIn('for class_name, counts in sorted(by_class.items()', text)
+        self.assertNotIn('for class_name, counts in sorted(by_class.items()', text)
+        self.assertIn('counter_lines = [f"CROSSINGS', text)
 
 
 class RegistrySpeedRowTests(unittest.TestCase):

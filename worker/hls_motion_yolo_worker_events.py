@@ -595,10 +595,6 @@ def draw_overlay(frame, motion_now, motion_area, ai_active, detections, motion_b
         ltr = int(summary.get("left_to_right") or 0)
         rtl = int(summary.get("right_to_left") or 0)
         counter_lines = [f"CROSSINGS -> {ltr}   <- {rtl}"]
-        by_class = summary.get("by_class") or {}
-        for class_name, counts in sorted(by_class.items(), key=lambda kv: -(kv[1].get("left_to_right", 0) + kv[1].get("right_to_left", 0))):
-            total = int(counts.get("left_to_right", 0)) + int(counts.get("right_to_left", 0))
-            counter_lines.append(f"{class_name}: {total}")
         font = cv2.FONT_HERSHEY_SIMPLEX
         c_line_height = 24
         c_block_height = c_line_height * len(counter_lines) + 10
