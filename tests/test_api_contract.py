@@ -130,26 +130,32 @@ class ApiContractTests(unittest.TestCase):
             self.assertEqual(rows[0]["object_id"], "seed-104")
             self.assertEqual(rows[-1]["object_id"], "seed-005")
 
-    def test_objects_registry_insert_prunes_to_newest_100(self) -> None:
+    def test_objects_registry_insert_prunes_per_domain(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             ns = objects_namespace(temp_dir)
             load_functions(OBJECT_FUNCTIONS, ns)
             ns["initialize_objects_db"]()
-            for index in range(101):
+            for index in range(210):
                 ns["persist_object_event"]({
                     "event_id": f"event-{index:03d}",
                     "camera_id": "cam1" if index % 2 == 0 else "road1",
-                    "created_at": f"2026-08-02T11:{index // 60:02d}:{index % 60:02d}+00:00",
+                    "created_at": f"2026-08-02T{11 + index // 60:02d}:{index % 60:02d}:00+00:00",
                     "class_name": "vessel" if index % 2 == 0 else "car",
                 })
             with ns["open_objects_db"]() as connection:
                 rows = connection.execute(
-                    "SELECT object_id FROM objects ORDER BY detected_at DESC, object_id DESC"
+                    "SELECT object_id, domain FROM objects "
+                    "ORDER BY detected_at DESC, object_id DESC"
                 ).fetchall()
-            self.assertEqual(len(rows), 100)
-            self.assertEqual(rows[0]["object_id"], "event-100")
-            self.assertEqual(rows[-1]["object_id"], "event-001")
+                counts = connection.execute(
+                    "SELECT domain, COUNT(*) FROM objects GROUP BY domain"
+                ).fetchall()
+            by_domain = {row["domain"]: row["COUNT(*)"] for row in counts}
+            self.assertEqual(by_domain.get("water"), 100)
+            self.assertEqual(by_domain.get("road"), 100)
+            self.assertEqual(len(rows), 200)
             self.assertNotIn("event-000", {row["object_id"] for row in rows})
+            self.assertIn("event-209", {row["object_id"] for row in rows})
 
     def test_legacy_cam1_objects_remain_camera_scoped(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

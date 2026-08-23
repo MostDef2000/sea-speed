@@ -226,6 +226,7 @@ class PassageApiRetentionTests(unittest.TestCase):
         "optional_float", "optional_int", "open_passages_db", "cleanup_passage_media",
         "prune_water_passages", "initialize_water_passages_db", "passage_row_to_dict",
         "_validate_passage_payload", "upsert_water_passage", "list_water_passages",
+        "_delete_passage_mirrors", "open_objects_db",
     }
 
     def namespace(self, temp_dir: str) -> dict[str, Any]:
@@ -236,6 +237,8 @@ class PassageApiRetentionTests(unittest.TestCase):
             "Path": Path, "json": json, "sqlite3": sqlite3, "contextmanager": contextmanager,
             "HTTPException": HTTPExceptionStub,
             "PASSAGES_DB_FILE": Path(temp_dir) / "water_passages.sqlite3",
+            "OBJECTS_DB_FILE": Path(temp_dir) / "objects.sqlite3",
+            "sys": sys,
             "PASSAGE_MEDIA_DIR": media,
             "PASSAGES_RETENTION_LIMIT": 3,
             "PASSAGE_STATUSES": {"tracking", "measuring", "measured", "completed"},
