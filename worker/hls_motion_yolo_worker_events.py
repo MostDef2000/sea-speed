@@ -15,6 +15,11 @@ from ultralytics import YOLO
 from analytics_profiles import get_profile, normalize_model_class
 from water_passage import WaterPassageEngine, build_two_gate_estimator
 
+try:
+    from detection_performance import PerformanceTracker
+except Exception:
+    PerformanceTracker = None  # type: ignore[assignment]
+
 
 VEHICLE_CLASSES = {"car", "truck", "bus", "motorcycle", "bicycle"}
 
@@ -44,6 +49,22 @@ def env_float(name, default):
         return float(os.environ.get(name, str(default)))
     except Exception:
         return default
+
+
+def is_motion_gate_always_on() -> bool:
+    """Road motion gate mode — always_on bypasses motion gating for recall."""
+    mode = env_str("MOTION_GATE_MODE", env_str("ROAD_MOTION_GATE_MODE", "gated")).strip().lower()
+    return mode in {"always_on", "always-on", "1", "true", "yes"}
+
+
+def is_yolo_half_enabled() -> bool:
+    return env_str("YOLO_HALF", "0").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def is_yolo_classes_filter_enabled() -> bool:
+    if env_str("YOLO_CLASSES_FILTER", "").strip().lower() in {"1", "true", "yes", "on"}:
+        return True
+    return bool(env_str("YOLO_CLASSES", "").strip())
 
 
 def now_iso():
@@ -1423,14 +1444,16 @@ def main():
             frame_no += 1
             processing_frame, roi_points = prepare_roi_processing_frame(frame, motion_detector)
             motion_now, motion_area, motion_boxes = motion_detector.process(processing_frame)
-            motion_ai_active = motion_detector.is_ai_active()
+            _always_on = is_motion_gate_always_on()
+            motion_ai_active = motion_detector.is_ai_active() or _always_on
             if is_water:
                 ai_active = True
                 detections = detect_vehicles(model, processing_frame)
             elif motion_ai_active:
                 ai_active = True
                 detections = detect_vehicles(model, processing_frame)
-                detections = filter_detections_by_motion(detections, motion_boxes)
+                if not _always_on:
+                    detections = filter_detections_by_motion(detections, motion_boxes)
             else:
                 ai_active = False
                 detections = []

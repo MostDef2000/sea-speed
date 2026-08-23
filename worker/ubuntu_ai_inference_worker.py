@@ -93,6 +93,17 @@ def serialize_detections(results, analytics_profile: str = "water-v1") -> list[d
     return detections
 
 
+def _resolve_half_flag(value: str | None) -> bool:
+    if value is None:
+        return False
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _resolve_class_filter(args_classes: str | None, env_classes: str | None) -> str | None:
+    raw = (args_classes or env_classes or "").strip()
+    return raw or None
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", required=True)
@@ -101,8 +112,19 @@ def main() -> int:
     parser.add_argument("--image-size", type=int, required=True)
     parser.add_argument("--confidence", type=float, required=True)
     parser.add_argument("--device", default="0")
+    parser.add_argument("--half", default=None, help="enable FP16 if 1/true (also YOLO_HALF env)")
+    parser.add_argument("--classes", default=None, help="comma class filter (also YOLO_CLASSES env)")
     args = parser.parse_args()
     profile = get_profile(args.analytics_profile)
+    import os as _os
+
+    half_enabled = _resolve_half_flag(args.half if args.half is not None else _os.environ.get("YOLO_HALF", "0"))
+    classes_raw = _resolve_class_filter(args.classes, _os.environ.get("YOLO_CLASSES", ""))
+    # also support boolean class-filter flag combining profile classes
+    filter_flag = _os.environ.get("YOLO_CLASSES_FILTER", "").strip().lower() in {"1", "true", "yes", "on"}
+    if filter_flag and not classes_raw:
+        # Use profile class_map keys as hint; resolution happens after model load
+        classes_raw = ",".join(sorted(profile.class_map.keys()))
 
     protocol_in = sys.stdin.buffer
     protocol_out = sys.stdout.buffer
@@ -112,6 +134,15 @@ def main() -> int:
         from ultralytics import YOLO
 
         model = YOLO(args.model)
+        if half_enabled:
+            try:
+                # Ultralytics YOLO supports .half() for FP16 weights when CUDA is available
+                if hasattr(model, "half"):
+                    model.half()
+                print("YOLO half enabled", file=sys.stderr)
+            except Exception as exc:
+                print(f"YOLO half fallback to FP32 reason={type(exc).__name__}", file=sys.stderr)
+                half_enabled = False
 
     while True:
         try:
@@ -130,10 +161,26 @@ def main() -> int:
             continue
 
         frame = np.frombuffer(raw, np.uint8).reshape((height, width, channels))
+        # resolve class-filter ids lazily once per model
+        _cached_class_ids: list[int] | None = getattr(main, "_cached_class_ids", None)
+        if classes_raw and _cached_class_ids is None:
+            try:
+                names = getattr(model, "names", {}) or {}
+                inv = {str(v).strip(): int(k) for k, v in names.items()}
+                wanted = [str(x).strip() for x in classes_raw.split(",") if str(x).strip()]
+                ids = [inv[n] for n in wanted if n in inv]
+                setattr(main, "_cached_class_ids", ids if ids else None)
+                _cached_class_ids = getattr(main, "_cached_class_ids")
+            except Exception:
+                setattr(main, "_cached_class_ids", None)
+                _cached_class_ids = None
+        elif not classes_raw:
+            _cached_class_ids = None
+        else:
+            _cached_class_ids = getattr(main, "_cached_class_ids", None)
         try:
             with contextlib.redirect_stdout(sys.stderr):
-                results = model.track(
-                    frame,
+                track_kwargs: dict[str, object] = dict(
                     persist=True,
                     tracker=args.tracker,
                     imgsz=args.image_size,
@@ -141,6 +188,10 @@ def main() -> int:
                     device=args.device,
                     verbose=False,
                 )
+                if _cached_class_ids:
+                    track_kwargs["classes"] = _cached_class_ids
+                # half is already applied via model.half(); some ultralytics versions also accept half kwarg
+                results = model.track(frame, **track_kwargs)  # type: ignore[arg-type]
             write_response(
                 protocol_out,
                 {"ok": True, "detections": serialize_detections(results, profile.name)},

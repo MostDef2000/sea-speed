@@ -37,7 +37,7 @@ PROFILES: dict[str, AnalyticsProfile] = {
         image_size=960,
         confidence=0.15,
         tracker="bytetrack.yaml",
-        sample_fps=5.0,
+        sample_fps=10.0,
         class_map={"boat": "vessel"},
         frame_width=1920,
         frame_height=1080,
@@ -50,7 +50,7 @@ PROFILES: dict[str, AnalyticsProfile] = {
         image_size=960,
         confidence=0.15,
         tracker="bytetrack.yaml",
-        sample_fps=5.0,
+        sample_fps=10.0,
         class_map={
             "car": "car",
             "truck": "truck",
