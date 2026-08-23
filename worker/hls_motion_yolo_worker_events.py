@@ -67,6 +67,35 @@ def is_yolo_classes_filter_enabled() -> bool:
     return bool(env_str("YOLO_CLASSES", "").strip())
 
 
+def _scale_norm_points(norm_points, dst_w: int, dst_h: int):
+    scaled = []
+    for p in norm_points or []:
+        if not isinstance(p, dict):
+            continue
+        try:
+            xn = float(p.get("x_norm", p.get("x", 0)))
+            yn = float(p.get("y_norm", p.get("y", 0)))
+            # detect legacy absolute mistakenly passed as norm: values >1.0 are absolute, skip as not normalized
+            if xn > 1.0 or yn > 1.0:
+                continue
+            scaled.append((int(round(xn * dst_w)), int(round(yn * dst_h))))
+        except Exception:
+            continue
+    return scaled
+
+
+def _maybe_scale_legacy_absolute(points, dst_w: int, dst_h: int):
+    """Fallback for legacy absolute polygons recorded on 704×576."""
+    if not points:
+        return points
+    max_x = max(x for x, _ in points)
+    max_y = max(y for _, y in points)
+    if max_x <= 704 and max_y <= 576 and (dst_w == 1920 or dst_h == 1080):
+        # heuristic: legacy 704×576 → scale to HD
+        return [(int(round(x * dst_w / 704)), int(round(y * dst_h / 576))) for x, y in points]
+    return points
+
+
 def now_iso():
     return datetime.now(timezone.utc).isoformat()
 
@@ -454,18 +483,33 @@ def fetch_remote_roi():
             print(f"ROI fetch failed: HTTP {r.status_code} {r.text[:160]}")
             return _roi_cache["enabled"], _roi_cache["points"]
         data = r.json()
-        raw_points = data.get("polygon", [])
-        points = []
-        if isinstance(raw_points, list):
-            for p in raw_points:
-                if not isinstance(p, dict):
-                    continue
-                try:
-                    x = int(round(float(p.get("x"))))
-                    y = int(round(float(p.get("y"))))
-                except Exception:
-                    continue
-                points.append((x, y))
+        dst_w, dst_h = _resolve_frame_size()
+        # prefer normalized 0..1 geometry
+        norm = data.get("polygon_norm")
+        if isinstance(norm, list) and norm and any(isinstance(p, dict) and ("x_norm" in p or "y_norm" in p) for p in norm):
+            points = _scale_norm_points(norm, dst_w, dst_h)
+        else:
+            raw_points = data.get("polygon", [])
+            points = []
+            if isinstance(raw_points, list):
+                for p in raw_points:
+                    if not isinstance(p, dict):
+                        continue
+                    # allow norm inside legacy polygon as fallback
+                    if "x_norm" in p or "y_norm" in p:
+                        try:
+                            points.append((int(round(float(p.get("x_norm", 0)) * dst_w)), int(round(float(p.get("y_norm", 0)) * dst_h))))
+                        except Exception:
+                            continue
+                        continue
+                    try:
+                        x = int(round(float(p.get("x"))))
+                        y = int(round(float(p.get("y"))))
+                    except Exception:
+                        continue
+                    points.append((x, y))
+            # legacy absolute recorded on 704×576 → scale to current HD
+            points = _maybe_scale_legacy_absolute(points, dst_w, dst_h)
         enabled = bool(data.get("enabled")) and len(points) >= 3
         signature = f"{enabled}:{points}"
         if signature != _roi_cache.get("signature"):
@@ -866,19 +910,32 @@ def fetch_speed_lines_config():
             print(f"Speed lines fetch failed: HTTP {r.status_code} {r.text[:160]}")
             return _speed_lines_cache
         data = r.json()
-        def clean_line(raw):
+        dst_w, dst_h = _resolve_frame_size()
+
+        def clean_line(raw, raw_norm=None):
+            # prefer normalized
+            if isinstance(raw_norm, list) and raw_norm and any(isinstance(p, dict) and ("x_norm" in p or "y_norm" in p) for p in raw_norm):
+                return _scale_norm_points(raw_norm, dst_w, dst_h)
             points = []
             if isinstance(raw, list):
                 for p in raw[:2]:
                     if not isinstance(p, dict):
                         continue
+                    if "x_norm" in p or "y_norm" in p:
+                        try:
+                            points.append((int(round(float(p.get("x_norm", 0)) * dst_w)), int(round(float(p.get("y_norm", 0)) * dst_h))))
+                        except Exception:
+                            continue
+                        continue
                     try:
                         points.append((int(round(float(p.get("x")))), int(round(float(p.get("y"))))))
                     except Exception:
                         continue
-            return points
-        line_a = clean_line(data.get("line_a", []))
-        line_b = clean_line(data.get("line_b", []))
+            # legacy fallback
+            return _maybe_scale_legacy_absolute(points, dst_w, dst_h)
+
+        line_a = clean_line(data.get("line_a", []), data.get("line_a_norm"))
+        line_b = clean_line(data.get("line_b", []), data.get("line_b_norm"))
         enabled = bool(data.get("enabled")) and len(line_a) == 2 and len(line_b) == 2
         try:
             distance_m = float(data.get("distance_m") or 57.0)
@@ -987,15 +1044,27 @@ def fetch_crossing_line_config():
             print(f"Crossing line fetch failed: HTTP {r.status_code} {r.text[:160]}")
             return _crossing_line_cache
         data = r.json()
-        raw_line = data.get("line") or []
-        line = []
-        for p in raw_line[:2]:
-            if not isinstance(p, dict):
-                continue
-            try:
-                line.append((int(round(float(p.get("x")))), int(round(float(p.get("y"))))))
-            except Exception:
-                continue
+        dst_w, dst_h = _resolve_frame_size()
+        norm = data.get("line_norm") or data.get("polygon_norm")
+        if isinstance(norm, list) and norm and any(isinstance(p, dict) and ("x_norm" in p or "y_norm" in p) for p in norm):
+            line = _scale_norm_points(norm, dst_w, dst_h)
+        else:
+            raw_line = data.get("line") or []
+            line = []
+            for p in raw_line[:2]:
+                if not isinstance(p, dict):
+                    continue
+                if "x_norm" in p or "y_norm" in p:
+                    try:
+                        line.append((int(round(float(p.get("x_norm", 0)) * dst_w)), int(round(float(p.get("y_norm", 0)) * dst_h))))
+                    except Exception:
+                        continue
+                    continue
+                try:
+                    line.append((int(round(float(p.get("x")))), int(round(float(p.get("y"))))))
+                except Exception:
+                    continue
+            line = _maybe_scale_legacy_absolute(line, dst_w, dst_h)
         enabled = bool(data.get("enabled")) and len(line) == 2
         signature = f"{enabled}:{line}"
         if signature != _crossing_line_cache.get("signature"):

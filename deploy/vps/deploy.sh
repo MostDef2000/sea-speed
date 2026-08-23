@@ -48,6 +48,95 @@ trap cleanup EXIT
 
 log() { printf '[sea-speed-deploy] %s\n' "$*"; }
 
+migrate_legacy_roi_to_normalized() {
+  local data_dir
+  data_dir="$(dirname "$API_TARGET")/data"
+  if [[ ! -d "$data_dir" ]]; then
+    log "ROI migration skipped: data dir missing $data_dir"
+    return 0
+  fi
+  python3 - "$data_dir" <<'PYEOF'
+import json
+import sys
+from pathlib import Path
+data_dir = Path(sys.argv[1])
+DEFAULT_W, DEFAULT_H = 1920, 1080
+LEGACY_W, LEGACY_H = 704, 576
+def infer_ref(pts):
+    if not pts: return DEFAULT_W, DEFAULT_H
+    mx = max((p.get("x",0) for p in pts), default=0)
+    my = max((p.get("y",0) for p in pts), default=0)
+    if mx<=LEGACY_W and my<=LEGACY_H and mx>0:
+        return LEGACY_W, LEGACY_H
+    return DEFAULT_W, DEFAULT_H
+def normalize(pts, rw, rh):
+    return [{"x_norm": p["x"]/rw, "y_norm": p["y"]/rh} for p in pts]
+migrated=0
+for name in ["cam1_roi.json","road1_roi.json","cam1_speed_lines.json","road1_speed_lines.json","cam1_crossing_line.json","road1_crossing_line.json"]:
+    fp=data_dir/name
+    if not fp.is_file():
+        continue
+    try:
+        raw=json.loads(fp.read_text())
+    except Exception:
+        continue
+    # detect already normalized
+    has_norm=False
+    for k in ["polygon_norm","line_a_norm","line_b_norm","line_norm"]:
+        v=raw.get(k)
+        if isinstance(v,list) and v and any("x_norm" in p for p in v if isinstance(p,dict)):
+            has_norm=True
+            break
+    if has_norm:
+        continue
+    # ROI
+    if "polygon" in raw:
+        leg=[p for p in raw.get("polygon",[]) if isinstance(p,dict) and "x" in p]
+        if leg:
+            rw,rh=infer_ref(leg)
+            raw["polygon_norm"]=normalize(leg, rw, rh)
+            raw["reference_width"]=rw
+            raw["reference_height"]=rh
+            # keep denormalized to 1920 for compat
+            raw["polygon"]=[{"x": int(round(p["x_norm"]*DEFAULT_W)), "y": int(round(p["y_norm"]*DEFAULT_H))} for p in raw["polygon_norm"]]
+            migrated+=1
+    # speed lines
+    if "line_a" in raw and "line_b" in raw:
+        la = [p for p in raw.get("line_a",[]) if isinstance(p,dict) and "x" in p]
+        lb = [p for p in raw.get("line_b",[]) if isinstance(p,dict) and "x" in p]
+        if la and lb:
+            rw,rh=infer_ref(la+lb)
+            raw["line_a_norm"]=normalize(la, rw, rh)
+            raw["line_b_norm"]=normalize(lb, rw, rh)
+            raw["reference_width"]=rw
+            raw["reference_height"]=rh
+            raw["line_a"]=[{"x": int(round(p["x_norm"]*DEFAULT_W)), "y": int(round(p["y_norm"]*DEFAULT_H))} for p in raw["line_a_norm"]]
+            raw["line_b"]=[{"x": int(round(p["x_norm"]*DEFAULT_W)), "y": int(round(p["y_norm"]*DEFAULT_H))} for p in raw["line_b_norm"]]
+            migrated+=1
+    # crossing
+    if "line" in raw and "distance_m" not in raw:
+        # crossing line (has line but not distance)
+        leg=[p for p in raw.get("line",[]) if isinstance(p,dict) and "x" in p]
+        if leg and len(leg)==2 and not raw.get("line_norm"):
+            rw,rh=infer_ref(leg)
+            raw["line_norm"]=normalize(leg, rw, rh)
+            raw["reference_width"]=rw
+            raw["reference_height"]=rh
+            raw["line"]=[{"x": int(round(p["x_norm"]*DEFAULT_W)), "y": int(round(p["y_norm"]*DEFAULT_H))} for p in raw["line_norm"]]
+            migrated+=1
+    if migrated:
+        fp.write_text(json.dumps(raw, ensure_ascii=False, indent=2)+"
+")
+        print(f"ROI_MIGRATED {name} -> normalized")
+if migrated:
+    print(f"ROI_MIGRATED total={migrated}")
+else:
+    print("ROI_MIGRATED none")
+PYEOF
+  log "ROI normalized migration completed"
+}
+
+
 validate_sha() {
   [[ "$COMMIT_SHA" =~ ^[0-9a-f]{40}$ ]] || {
     echo "Commit SHA must already be a lowercase 40-character SHA" >&2
@@ -720,6 +809,7 @@ main() {
 
   log "Deploying ${COMMIT_SHA}; rollback target is ${old_current}"
   install_release "$COMMIT_SHA"
+  migrate_legacy_roi_to_normalized
   if restart_and_verify; then
     if run_auth_boundary; then
       printf '%s\n' "$old_current" > "$PREVIOUS_FILE"
