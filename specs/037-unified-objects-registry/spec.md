@@ -54,7 +54,7 @@ a different URL contour.
 - R8: The registry page nav MUST expose one registry link instead of two
   domain-scoped links.
 
-### NFR assessment
+## NFR assessment
 
 | ID | Area | Requirement | Status | Evidence |
 | --- | --- | --- | --- | --- |
