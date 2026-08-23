@@ -35,6 +35,62 @@
 </form>
 <div class="summary-row"><div id="summary">Загрузка…</div><div id="registryScopeLabel">Water · cam1 · SQLite registry</div></div>
 <section id="objectsGrid" class="objects-grid" aria-live="polite"><div class="panel empty">Загрузка объектов…</div></section>
+<div id="crossingsLayer" class="panel" style="display:none;padding:14px;margin-top:12px">
+  <div style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+    <button id="cxViewBtn" type="button" style="padding:8px 14px;border:1px solid var(--strong);border-radius:12px;background:#10506a;color:var(--text);font-weight:800;font-size:.74rem">Пересечения</button>
+    <label style="color:var(--muted);font-size:.7rem">С даты <input id="cxDfrom" type="date" style="min-height:36px"></label>
+    <label style="color:var(--muted);font-size:.7rem">По дату <input id="cxDto" type="date" style="min-height:36px"></label>
+    <button id="cxShow" type="button" style="padding:8px 14px;border:1px solid var(--border);border-radius:12px;background:#082234e0;color:var(--text);font-size:.72rem">Показать</button>
+  </div>
+  <div id="cxOut" style="margin-top:10px;font-size:.74rem"></div>
+</div>
+<script>
+(function(){
+function initCxLayer(){
+const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
+const layer=document.getElementById("crossingsLayer");
+const viewBtn=document.getElementById("cxViewBtn");
+const fromInput=document.getElementById("cxDfrom");
+const toInput=document.getElementById("cxDto");
+const showBtn=document.getElementById("cxShow");
+const out=document.getElementById("cxOut");
+if(!layer||!viewBtn)return;
+const vlzToday=()=>new Date(Date.now()+10*3600e3).toISOString().slice(0,10);
+let active=false;
+function camFor(){return (window.registryScopeKey==="road")?"road1":"cam1"}
+function setHidden(hidden){
+  ["filters","objectsGrid"].forEach(id=>{const el=document.getElementById(id);if(el)el.style.display=hidden?"none":""});
+  document.querySelectorAll(".pager,.summary-row").forEach(el=>el.style.display=hidden?"none":"");
+}
+viewBtn.addEventListener("click",()=>{
+  active=!active;
+  layer.style.display=active?"block":"none";
+  setHidden(active);
+  if(active){if(!fromInput.value)fromInput.value=vlzToday();if(!toInput.value)toInput.value=vlzToday();loadCrossings()}
+});
+showBtn.addEventListener("click",loadCrossings);
+async function loadCrossings(){
+  const cam=camFor();
+  out.textContent="Загрузка…";
+  try{
+    const q=new URLSearchParams({date_from:fromInput.value,date_to:toInput.value});
+    const res=await fetch("/sea-speed/api/analytics/"+cam+"/crossings/summary?"+q.toString());
+    if(!res.ok)throw Error("HTTP "+res.status);
+    const s=await res.json();
+    const rows=Object.entries(s.by_class||{}).map(function(kv){
+      const v=kv[1];
+      return "<tr><td>"+esc(kv[0])+"</td><td align=center>"+v.left_to_right+"</td><td align=center>"+v.right_to_left+"</td><td align=center><b>"+(v.left_to_right+v.right_to_left)+"</b></td></tr>";
+    }).join("");
+    out.innerHTML="<b>Пересечения "+esc(s.window.date_from||"…")+" … "+esc(s.window.date_to||"…")+" (Владивосток), камера "+esc(s.camera_id)+":</b> → "+s.totals.left_to_right+" · ← "+s.totals.right_to_left
+    +'<table style="width:100%;border-collapse:collapse;margin-top:6px"><tr style="color:#93b8c5"><th align=left>класс</th><th>→</th><th>←</th><th>всего</th></tr>'+(rows||'<tr><td colspan=4 style="color:#93b8c5">нет данных за период</td></tr>')+"</table>";
+  }catch(e){out.textContent="Ошибка загрузки: "+e.message}
+}
+const originalSetScope=window.setRegistryScope;
+if(typeof originalSetScope==="function"){window.setRegistryScope=function(key){originalSetScope(key);if(active)loadCrossings()}}
+}
+if(document.readyState==="loading"){document.addEventListener("DOMContentLoaded",initCxLayer)}else{initCxLayer()}
+})();
+</script>
 <nav class="pager" aria-label="Пагинация"><button id="prevBtn" type="button">← Назад</button><span id="pageInfo">Страница 1</span><button id="nextBtn" type="button">Вперёд →</button></nav>
 </main>
 <div id="modalBackdrop" class="modal-backdrop" role="presentation">
@@ -82,7 +138,7 @@ function applyRegistryScope(){cameraInput.value=registryScope.camera_id;domainIn
 function filterParams(){let data=new FormData(filters),params=new URLSearchParams({limit:String(PAGE_SIZE),offset:String(offset),camera_id:registryScope.camera_id,domain:registryScope.domain});for(let [key,value] of data.entries()){if(key==="camera_id"||key==="domain")continue;value=String(value).trim();if(!value)continue;if((key==="date_from"||key==="date_to")&&value){let date=new Date(value);if(!Number.isNaN(date.getTime()))value=date.toISOString()}params.set(key,value)}return params}
 async function request(url,options={}){let response=await fetch(url,{cache:"no-store",credentials:"same-origin",...options});if(!response.ok){let body=await response.text();try{body=JSON.parse(body).detail||body}catch(_error){}throw Error(`${response.status}: ${body}`)}return response.json()}
 function photoMarkup(object,className=""){return object.snapshot_url?`<img class="${className}" src="${escapeHtml(object.snapshot_url)}" alt="Детекция ${escapeHtml(object.object_id)}">`:'<div class="photo-empty">Фотография отсутствует</div>'}
-function renderObjects(objects){if(!objects.length){objectsGrid.innerHTML='<div class="panel empty">По выбранным условиям объектов нет.</div>';return}objectsGrid.innerHTML=objects.map(object=>`<article class="panel object-card" data-object-id="${escapeHtml(object.object_id)}"><div class="object-photo">${photoMarkup(object)}<span class="speed-badge">${escapeHtml(formatSpeed(object.speed_kmh))}</span><span class="status-badge status-${escapeHtml(object.status)}">${escapeHtml(statusLabel(object.status))}</span></div><div class="object-body"><div class="object-title"><h2>${escapeHtml(object.class_name||"object")}</h2><div class="object-id" title="${escapeHtml(object.object_id)}">${escapeHtml(object.object_id)}</div></div><div class="object-meta"><div>Камера<span class="meta-value">${escapeHtml(object.camera_id||"—")}</span></div><div>Домен<span class="meta-value">${escapeHtml(object.domain||"—")}</span></div><div>Дата<span class="meta-value">${escapeHtml(formatDate(object.detected_at))}</span></div><div>Track ID<span class="meta-value">${escapeHtml(object.track_id??"—")}</span></div><div>Confidence<span class="meta-value">${object.confidence==null?"—":escapeHtml(Number(object.confidence).toFixed(2))}</span></div><div>Обновлено<span class="meta-value">${escapeHtml(formatDate(object.updated_at))}</span></div></div><p class="comment-preview">${escapeHtml(object.comment||"Комментария нет")}</p><div class="card-actions"><button class="primary open-object" type="button">Открыть</button></div></div></article>`).join("");objectsGrid.querySelectorAll(".open-object").forEach(button=>button.addEventListener("click",()=>openObject(button.closest("[data-object-id]").dataset.objectId)))}
+function renderObjects(objects){if(!objects.length){objectsGrid.innerHTML='<div class="panel empty">По выбранным условиям объектов нет.</div>';return}objectsGrid.innerHTML=objects.map(object=>`<article class="panel object-card" data-object-id="${escapeHtml(object.object_id)}"><div class="object-photo">${photoMarkup(object)}<span class="speed-badge">${escapeHtml(formatSpeed(object.speed_kmh))}</span><span class="status-badge status-${escapeHtml(object.status)}">${escapeHtml(statusLabel(object.status))}</span></div><div class="object-body"><div class="object-title"><h2>${escapeHtml(object.class_name||"object")}</h2><div class="object-id" title="${escapeHtml(object.object_id)}">${escapeHtml(object.object_id)}</div></div><div class="object-meta"><div>Камера<span class="meta-value">${escapeHtml(object.camera_id||"—")}</span></div><div>Домен<span class="meta-value">${escapeHtml(object.domain||"—")}</span></div><div>Дата<span class="meta-value">${escapeHtml(formatDate(object.detected_at))}</span></div><div>Track ID<span class="meta-value">${escapeHtml(object.track_id??"—")}</span></div><div>Скорость<span class="meta-value">${object.speed_kmh==null?"—":escapeHtml(Number(object.speed_kmh).toFixed(1)+" km/h")}</span></div><div>Confidence<span class="meta-value">${object.confidence==null?"—":escapeHtml(Number(object.confidence).toFixed(2))}</span></div><div>Обновлено<span class="meta-value">${escapeHtml(formatDate(object.updated_at))}</span></div></div><p class="comment-preview">${escapeHtml(object.comment||"Комментария нет")}</p><div class="card-actions"><button class="primary open-object" type="button">Открыть</button></div></div></article>`).join("");objectsGrid.querySelectorAll(".open-object").forEach(button=>button.addEventListener("click",()=>openObject(button.closest("[data-object-id]").dataset.objectId)))}
 function updatePager(){let page=Math.floor(offset/PAGE_SIZE)+1,maxPage=Math.max(1,Math.ceil(total/PAGE_SIZE));pageInfo.textContent=`Страница ${page} из ${maxPage}`;prevBtn.disabled=offset<=0;nextBtn.disabled=offset+PAGE_SIZE>=total}
 async function loadObjects(){objectsGrid.innerHTML='<div class="panel empty">Загрузка объектов…</div>';try{let data=await request(`${OBJECTS_URL}?${filterParams()}`);total=data.total||0;summary.textContent=`Найдено: ${total}. Показано: ${data.count||0}.`;renderObjects(data.objects||[]);updatePager()}catch(error){objectsGrid.innerHTML=`<div class="panel error">Ошибка загрузки: ${escapeHtml(error.message)}</div>`;summary.textContent="API недоступен";showToast(error.message,true)}}
 async function openObject(objectId){try{let data=await request(`${OBJECTS_URL}/${encodeURIComponent(objectId)}`);currentObject=data.object;$("modalTitle").textContent=`${currentObject.class_name||"object"} · ${formatSpeed(currentObject.speed_kmh)}`;$("detailPhoto").innerHTML=photoMarkup(currentObject,"detail-image");$("detailJson").textContent=JSON.stringify(currentObject.original_event||{},null,2);$("editObjectId").value=currentObject.object_id;$("editClassName").value=currentObject.class_name||"";$("editSpeed").value=currentObject.speed_kmh??"";$("editStatus").value=currentObject.status||"new";$("editComment").value=currentObject.comment||"";modalBackdrop.classList.add("open");document.body.style.overflow="hidden";closeBtn.focus()}catch(error){showToast(error.message,true)}}
