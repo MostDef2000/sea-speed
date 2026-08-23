@@ -108,13 +108,14 @@ class CrossingDetectionTests(unittest.TestCase):
         summary = self.ns["crossing_overlay_summary"]()
         self.assertEqual(summary["left_to_right"] + summary["right_to_left"], 1)
 
-    def test_person_detections_are_not_counted(self) -> None:
+    def test_person_detections_are_counted(self) -> None:
         update = self.ns["update_crossing_counts"]
         update([det(9, 30, 100, 70, 140, object_type="person")], now=10.0)
         crossings = update([det(9, 130, 100, 170, 140, object_type="person")], now=11.0)
-        self.assertEqual(crossings, [])
+        self.assertEqual(len(crossings), 1)
+        self.assertEqual(crossings[0]["direction"], "left_to_right")
         summary = self.ns["crossing_overlay_summary"]()
-        self.assertEqual(summary["left_to_right"] + summary["right_to_left"], 0)
+        self.assertEqual(summary["by_class"]["person"]["left_to_right"], 1)
 
     def test_disabled_line_counts_nothing(self) -> None:
         self.ns["fetch_crossing_line_config"] = lambda: {"enabled": False, "line": []}
@@ -262,6 +263,34 @@ class ApiCrossingTests(unittest.TestCase):
         self.assertEqual(row["kind"], "line_crossing")
         store = ns["read_json_file"](ns["crossings_store_path"]("road1"), [])
         self.assertEqual(store[0]["event_id"], result["event_id"])
+
+    def test_road_person_crossing_skips_registry_but_feeds_store(self) -> None:
+        ns = self.ns
+        result = ns["post_analytics_crossing"](
+            "road1",
+            {
+                "track_id": 21,
+                "object_type": "person",
+                "direction": "right_to_left",
+                "confidence": 0.7,
+            },
+        )
+        self.assertTrue(result["ok"])
+        self.assertEqual(self.persisted, [])
+        store = ns["read_json_file"](ns["crossings_store_path"]("road1"), [])
+        self.assertEqual(store[0]["object_type"], "person")
+
+    def test_water_person_crossing_would_persist_registry(self) -> None:
+        ns = self.ns
+        ns["post_analytics_crossing"](
+            "cam1",
+            {
+                "track_id": 22,
+                "object_type": "vessel",
+                "direction": "left_to_right",
+            },
+        )
+        self.assertEqual(len(self.persisted), 1)
 
     def test_ingest_rejects_unknown_direction(self) -> None:
         with self.assertRaises(_StubHTTPException):
@@ -443,3 +472,10 @@ class CrossingPanelDomGuardTests(unittest.TestCase):
             self.assertIn('document.readyState==="loading"', block)
             self.assertIn('addEventListener("DOMContentLoaded",init)', block)
             self.assertIn("function init(){", block)
+
+
+class CrossingConfigRefreshTests(unittest.TestCase):
+    def test_config_refresh_default_is_one_second(self) -> None:
+        text = WORKER.read_text(encoding="utf-8")
+        self.assertIn('env_float("CROSSING_LINE_REFRESH_SEC", 1.0)', text)
+        self.assertNotIn('env_float("CROSSING_LINE_REFRESH_SEC", 5.0)', text)

@@ -894,7 +894,7 @@ def get_crossing_line_url():
 
 
 def fetch_crossing_line_config():
-    refresh_sec = env_float("CROSSING_LINE_REFRESH_SEC", 5.0)
+    refresh_sec = env_float("CROSSING_LINE_REFRESH_SEC", 1.0)
     now = time.time()
     if now - _crossing_line_cache["ts"] < refresh_sec:
         return _crossing_line_cache
@@ -971,8 +971,6 @@ def update_crossing_counts(detections, now=None):
         if track_id is None:
             continue
         object_type = str(det.get("object_type") or det.get("class_name") or "object")
-        if object_type == "person":
-            continue
         x1, y1, x2, y2 = det["bbox_xyxy"]
         cx = (float(x1) + float(x2)) / 2.0
         cy = (float(y1) + float(y2)) / 2.0
