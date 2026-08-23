@@ -83,6 +83,11 @@ class ApiPersonGuardTests(unittest.TestCase):
                 cloned.decorator_list = []
                 module = ast.Module(body=[cloned], type_ignores=[])
                 ast.fix_missing_locations(module)
+                class HTTPExceptionStub(Exception):
+                    def __init__(self, status_code=None, detail=None, *a, **k):
+                        super().__init__(detail or "")
+                        self.status_code = status_code
+                        self.detail = detail
                 ns: dict[str, Any] = {
                     "json": json,
                     "uuid": __import__("uuid"),
@@ -93,7 +98,7 @@ class ApiPersonGuardTests(unittest.TestCase):
                     "Form": lambda *a, **k: None,
                     "File": lambda *a, **k: None,
                     "Header": lambda *a, **k: None,
-                    "HTTPException": Exception,
+                    "HTTPException": HTTPExceptionStub,
                     "require_auth": lambda token: None,
                     "analytics_identity": lambda camera_id: {
                         "analytics_profile": "road-v1", "domain": "road"
@@ -148,17 +153,38 @@ class ApiPersonGuardTests(unittest.TestCase):
 
             ns["read_json_file"] = read_json_file
             ns["write_json_file"] = write_json_file
+            (Path(temp_dir) / "events").mkdir(parents=True, exist_ok=True)
+            class FakeSnap:
+                async def read(self) -> bytes:
+                    return b"fakejpg"
             result = asyncio.run(ns["post_analytics_event"](
                 camera_id="road1",
                 metadata=json.dumps({"event_id": "v1", "object_type": "car"}),
-                snapshot=None,
+                snapshot=FakeSnap(),
                 authorization=None,
             ))
             self.assertTrue(result["ok"])
             self.assertEqual(result["event"]["event_id"], "v1")
             self.assertEqual(len(persisted), 1)
             self.assertEqual(writes[0][1][0]["event_id"], "v1")
+            self.assertIn("snapshot_url", result["event"])
             _ = original
+
+    def test_vehicle_event_without_snapshot_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            ns, _ = self._load_post_handler(temp_dir)
+            ns["persist_object_event"] = lambda event: (_ for _ in ()).throw(AssertionError("must not persist"))
+            ns["analytics_data_file"] = lambda camera_id, kind: Path(temp_dir) / f"{camera_id}_{kind}.json"
+            ns["read_json_file"] = lambda path, default: []
+            ns["write_json_file"] = lambda path, data: None
+            with self.assertRaises(Exception) as cm:
+                asyncio.run(ns["post_analytics_event"](
+                    camera_id="road1",
+                    metadata=json.dumps({"event_id": "v2", "object_type": "car"}),
+                    snapshot=None,
+                    authorization=None,
+                ))
+            self.assertEqual(getattr(cm.exception, "status_code", None), 422)
 
 
 if __name__ == "__main__":
