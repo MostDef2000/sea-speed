@@ -19,13 +19,13 @@
 </div>
 <div class="header-actions">
 <div class="session-bar" aria-label="Сессия пользователя"><span class="session-login"><span class="session-label">Пользователь</span><strong id="sessionUser" class="session-user">…</strong></span><a class="logout-link" href="/outpost.goauthentik.io/sign_out">Выйти</a></div>
-<nav class="nav" aria-label="Sea Speed navigation"><a href="/sea-speed/">Вода</a><a href="/sea-speed/objects/?scope=water">Реестр воды</a><a href="/sea-speed/road/">Дорога</a><a href="/sea-speed/objects/?scope=road">Реестр дороги</a><a href="/sea-speed/cameras/">Камеры</a></nav>
+<nav class="nav" aria-label="Sea Speed navigation"><a href="/sea-speed/">Вода</a><a href="/sea-speed/objects/">Реестр объектов</a><a href="/sea-speed/road/">Дорога</a><a href="/sea-speed/cameras/">Камеры</a></nav>
 </div>
 </header>
 <form id="filters" class="panel filters">
 <div class="field"><label for="searchInput">Поиск</label><input id="searchInput" name="search" placeholder="ID, класс или комментарий"></div>
 <div class="field"><label for="cameraInput">Камера</label><select id="cameraInput" name="camera_id" disabled><option value="cam1">cam1 · вода</option><option value="road1">road1 · дорога</option></select></div>
-<div class="field"><label for="domainInput">Домен</label><select id="domainInput" name="domain" disabled><option value="water">water</option><option value="road">road</option></select></div>
+<div class="field"><label for="domainInput">Домен</label><select id="domainInput" name="domain"><option value="water">water · cam1</option><option value="road">road · road1</option></select></div>
 <div class="field"><label for="dateFromInput">С даты</label><input id="dateFromInput" name="date_from" type="datetime-local"></div>
 <div class="field"><label for="dateToInput">По дату</label><input id="dateToInput" name="date_to" type="datetime-local"></div>
 <div class="field"><label for="speedMinInput">Скорость от</label><input id="speedMinInput" name="speed_min" type="number" min="0" step="0.1" placeholder="km/h"></div>
@@ -66,8 +66,8 @@ const REGISTRY_SCOPES={
 const requestedScope=new URLSearchParams(window.location.search).get("scope");
 const referrerPath=(()=>{try{let url=new URL(document.referrer);return url.origin===window.location.origin?url.pathname:""}catch(_error){return ""}})();
 const inferredScope=referrerPath.startsWith("/sea-speed/road/")?"road":"water";
-const registryScopeKey=Object.prototype.hasOwnProperty.call(REGISTRY_SCOPES,requestedScope)?requestedScope:(requestedScope?"water":inferredScope);
-const registryScope=REGISTRY_SCOPES[registryScopeKey];
+let registryScopeKey=Object.prototype.hasOwnProperty.call(REGISTRY_SCOPES,requestedScope)?requestedScope:(requestedScope?"water":inferredScope);
+let registryScope=REGISTRY_SCOPES[registryScopeKey];
 const $=id=>document.getElementById(id);
 const sessionUser=$("sessionUser"),filters=$("filters"),objectsGrid=$("objectsGrid"),summary=$("summary"),prevBtn=$("prevBtn"),nextBtn=$("nextBtn"),pageInfo=$("pageInfo"),modalBackdrop=$("modalBackdrop"),closeBtn=$("closeBtn"),editForm=$("editForm"),deleteBtn=$("deleteBtn"),toast=$("toast"),cameraInput=$("cameraInput"),domainInput=$("domainInput"),registryTitle=$("registryTitle"),registryEyebrow=$("registryEyebrow"),registrySubtitle=$("registrySubtitle"),registryScopeLabel=$("registryScopeLabel");
 let offset=0,total=0,currentObject=null,toastTimer=null,sessionIdentityEstablished=false,sessionRedirecting=false;
@@ -87,6 +87,8 @@ function updatePager(){let page=Math.floor(offset/PAGE_SIZE)+1,maxPage=Math.max(
 async function loadObjects(){objectsGrid.innerHTML='<div class="panel empty">Загрузка объектов…</div>';try{let data=await request(`${OBJECTS_URL}?${filterParams()}`);total=data.total||0;summary.textContent=`Найдено: ${total}. Показано: ${data.count||0}.`;renderObjects(data.objects||[]);updatePager()}catch(error){objectsGrid.innerHTML=`<div class="panel error">Ошибка загрузки: ${escapeHtml(error.message)}</div>`;summary.textContent="API недоступен";showToast(error.message,true)}}
 async function openObject(objectId){try{let data=await request(`${OBJECTS_URL}/${encodeURIComponent(objectId)}`);currentObject=data.object;$("modalTitle").textContent=`${currentObject.class_name||"object"} · ${formatSpeed(currentObject.speed_kmh)}`;$("detailPhoto").innerHTML=photoMarkup(currentObject,"detail-image");$("detailJson").textContent=JSON.stringify(currentObject.original_event||{},null,2);$("editObjectId").value=currentObject.object_id;$("editClassName").value=currentObject.class_name||"";$("editSpeed").value=currentObject.speed_kmh??"";$("editStatus").value=currentObject.status||"new";$("editComment").value=currentObject.comment||"";modalBackdrop.classList.add("open");document.body.style.overflow="hidden";closeBtn.focus()}catch(error){showToast(error.message,true)}}
 function closeModal(){modalBackdrop.classList.remove("open");document.body.style.overflow="";currentObject=null}
+function setRegistryScope(key){if(!Object.prototype.hasOwnProperty.call(REGISTRY_SCOPES,key)||key===registryScopeKey)return;registryScopeKey=key;registryScope=REGISTRY_SCOPES[key];offset=0;applyRegistryScope();loadObjects()}
+domainInput.addEventListener("change",()=>setRegistryScope(domainInput.value));
 filters.addEventListener("submit",event=>{event.preventDefault();offset=0;loadObjects()});
 $("resetBtn").addEventListener("click",()=>{filters.reset();applyRegistryScope();offset=0;loadObjects()});
 prevBtn.addEventListener("click",()=>{offset=Math.max(0,offset-PAGE_SIZE);loadObjects();scrollTo({top:0,behavior:"smooth"})});

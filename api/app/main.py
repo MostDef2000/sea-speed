@@ -7,6 +7,7 @@ import re
 import signal
 import sqlite3
 import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -370,6 +371,82 @@ def import_existing_events() -> int:
         if isinstance(event, dict) and persist_object_event(event):
             imported += 1
     return imported
+
+
+def persist_passage_object(passage: Dict[str, Any]) -> bool:
+    passage_id = str(passage.get("passage_id") or "").strip()
+    if not passage_id:
+        return False
+    object_id = f"passage-{passage_id}"
+    started_at = str(passage.get("started_at") or passage.get("last_seen_at") or now_iso())
+    class_name = str(passage.get("class_name") or "vessel")
+    fragments = passage.get("track_fragments")
+    track_id = None
+    if isinstance(fragments, list):
+        for value in fragments:
+            track_id = optional_int(value)
+            if track_id is not None:
+                break
+    original_event_json = json.dumps(
+        {"registry_mirror_schema": "sea_speed_water_passage_registry_mirror_v1", "passage": passage},
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+    with open_objects_db() as connection:
+        cursor = connection.execute(
+            """
+            INSERT INTO objects (
+                object_id, camera_id, track_id, detected_at, class_name,
+                analytics_profile, domain, object_type, model_class,
+                confidence, speed_kmh, snapshot_url, comment, status,
+                original_event_json, created_at, updated_at, deleted_at
+            ) VALUES (?, 'cam1', ?, ?, ?, 'water-v1', 'water', ?, ?, ?, ?, ?, '', 'new', ?, ?, ?, NULL)
+            ON CONFLICT(object_id) DO UPDATE SET
+                track_id=excluded.track_id,
+                class_name=excluded.class_name,
+                object_type=excluded.object_type,
+                model_class=excluded.model_class,
+                confidence=excluded.confidence,
+                speed_kmh=excluded.speed_kmh,
+                snapshot_url=excluded.snapshot_url,
+                original_event_json=excluded.original_event_json,
+                updated_at=excluded.updated_at
+            """,
+            (
+                object_id,
+                track_id,
+                started_at,
+                class_name,
+                class_name,
+                class_name,
+                optional_float(passage.get("confidence")),
+                optional_float(passage.get("speed_kmh")),
+                passage.get("snapshot_url"),
+                original_event_json,
+                started_at,
+                now_iso(),
+            ),
+        )
+        inserted_or_updated = cursor.rowcount > 0
+        if inserted_or_updated:
+            prune_objects_registry(connection)
+        return inserted_or_updated
+
+
+def import_existing_passages() -> int:
+    try:
+        with open_passages_db() as connection:
+            rows = connection.execute("SELECT * FROM water_passages").fetchall()
+    except Exception:
+        return 0
+    mirrored = 0
+    for row in rows:
+        try:
+            if persist_passage_object(dict(row)):
+                mirrored += 1
+        except Exception as error:
+            print(f"passage registry mirror failed for {row['passage_id']}: {error}", file=sys.stderr)
+    return mirrored
 
 
 @contextmanager
@@ -1159,6 +1236,7 @@ def start_camera_preview_locked(camera: Dict[str, str]) -> Dict[str, Any]:
 
 initialize_objects_db()
 import_existing_events()
+import_existing_passages()
 initialize_water_passages_db()
 
 
@@ -1287,6 +1365,10 @@ async def post_cam1_passage(
         passage = upsert_water_passage(payload, snapshot_bytes=snapshot_bytes)
     except RuntimeError as exc:
         raise HTTPException(status_code=507, detail=str(exc)) from exc
+    try:
+        persist_passage_object(passage)
+    except Exception as error:
+        print(f"passage registry mirror failed for {passage.get('passage_id')}: {error}", file=sys.stderr)
     return {"ok": True, "passage": passage}
 
 

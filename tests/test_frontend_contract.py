@@ -120,7 +120,10 @@ class FrontendContractTests(unittest.TestCase):
         self.assertIn('if(key==="camera_id"||key==="domain")continue', self.objects)
         self.assertIn('filters.reset();applyRegistryScope();offset=0;loadObjects()', self.objects)
         self.assertRegex(self.objects, r'name="camera_id"[^>]*disabled')
-        self.assertRegex(self.objects, r'name="domain"[^>]*disabled')
+        self.assertRegex(self.objects, r'<select id="domainInput" name="domain">')
+        self.assertIn('function setRegistryScope(', self.objects)
+        self.assertIn('domainInput.addEventListener("change",()=>setRegistryScope(domainInput.value))', self.objects)
+        self.assertIn('registryScopeKey=key;registryScope=REGISTRY_SCOPES[key];offset=0;applyRegistryScope();loadObjects()', self.objects)
         for marker in ('method:"PATCH"', 'method:"DELETE"', 'credentials:"same-origin"', 'id="objectsGrid"'):
             self.assertIn(marker, self.objects)
 
