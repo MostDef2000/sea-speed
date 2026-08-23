@@ -18,6 +18,8 @@ Ordered delivery sequence: SDD artifacts, worker crossing engine and overlay rel
 - AC-007 | Task: TASK-040-03 | Evidence: tests/test_line_crossing.py::OverlayLayoutTests | Coverage: COVERED
 - AC-008 | Task: TASK-040-04, TASK-040-07 | Evidence: RUNTIME-MANUAL | Reason: physical UI verification on deployed contours | Coverage: RUNTIME-MANUAL
 - AC-009 | Task: TASK-040-08 | Evidence: deployment manifests both contours | Coverage: COVERED
+- AC-010 | Task: TASK-040-09 | Evidence: tests/test_line_crossing.py::IngressAllowlistTests | Coverage: COVERED
+- AC-011 | Task: TASK-040-10 | Evidence: tests/test_line_crossing.py::RetryQueueTests | Coverage: COVERED
 
 ## Task records
 
@@ -29,6 +31,8 @@ Ordered delivery sequence: SDD artifacts, worker crossing engine and overlay rel
 - TASK-040-06 | API 24h summary endpoint class x direction | AC-006 | Evidence: tests/test_line_crossing.py | Status: COMPLETE
 - TASK-040-07 | Frontend line editor + 24h summary panel on both main screens | AC-008 | Evidence: RUNTIME-MANUAL | Reason: physical UI verification on deployed contours | Coverage: RUNTIME-MANUAL
 - TASK-040-08 | Deploy both contours via standing delegation; runtime acceptance | AC-009 | Evidence: deployment manifests | Status: COMPLETE
+- TASK-040-09 | Extend private worker ingress allowlist by exactly four crossing locations | AC-010 | Evidence: tests/test_line_crossing.py::IngressAllowlistTests | Status: COMPLETE
+- TASK-040-10 | No-loss retry semantics for crossing posts + yellow overlay line | AC-011, AC-007 | Evidence: tests/test_line_crossing.py::RetryQueueTests, OverlayLineColorTests | Status: COMPLETE
 
 ## Completion gate
 

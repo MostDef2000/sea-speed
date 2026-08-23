@@ -564,7 +564,7 @@ def draw_overlay(frame, motion_now, motion_area, ai_active, detections, motion_b
     if summary.get("line_enabled"):
         line_points = summary.get("line") or []
         if len(line_points) == 2:
-            cv2.line(out, tuple(line_points[0]), tuple(line_points[1]), (255, 210, 60), 2, cv2.LINE_AA)
+            cv2.line(out, tuple(line_points[0]), tuple(line_points[1]), (0, 255, 255), 2, cv2.LINE_AA)
         ltr = int(summary.get("left_to_right") or 0)
         rtl = int(summary.get("right_to_left") or 0)
         counter_lines = [f"CROSSINGS -> {ltr}   <- {rtl}"]
@@ -1053,11 +1053,11 @@ def post_crossing(crossing):
 def flush_crossing_posts(max_per_frame=4):
     posted = 0
     while _crossing_pending_posts and posted < max_per_frame:
-        crossing = _crossing_pending_posts.pop(0)
-        if post_crossing(crossing):
-            posted += 1
-        else:
+        crossing = _crossing_pending_posts[0]
+        if not post_crossing(crossing):
             break
+        _crossing_pending_posts.pop(0)
+        posted += 1
 
 
 def update_speed_lines_estimate(det):

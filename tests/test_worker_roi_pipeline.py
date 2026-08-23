@@ -182,7 +182,9 @@ class RoiBoundedWorkerTests(unittest.TestCase):
         draw_source = source[start:end]
 
         self.assertNotIn("for x, y, w, h in motion_boxes:", draw_source)
-        self.assertNotIn("(0, 255, 255)", draw_source)
+        # Yellow BGR is reserved for the counting-line overlay; motion boxes stay removed.
+        self.assertEqual(draw_source.count("(0, 255, 255)"), 1)
+        self.assertIn('summary.get("line_enabled")', draw_source)
         self.assertIn('for det in detections:', draw_source)
         self.assertIn("(0, 255, 0)", draw_source)
         self.assertIn("format_detection_label(det)", draw_source)

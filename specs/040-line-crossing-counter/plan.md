@@ -20,6 +20,8 @@
 
 ## Decisions
 
+- D5: The private worker M2M ingress allowlist is extended by exactly four exact-location entries (GET crossing-line, POST crossings for cam1 and road1); no prefix or wildcard proxying is introduced.
+- D6: flush_crossing_posts peeks before posting so a failed transport retains the event at the queue head and a successful retry removes it exactly once.
 - Direction derives from horizontal centroid displacement so left-to-right matches frame semantics regardless of line angle.
 - Road person detections are excluded from crossings to stay consistent with the event publication gate.
 - Crossings reuse the objects registry write path instead of a new store, keeping one durable object truth.

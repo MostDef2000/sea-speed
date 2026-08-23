@@ -317,3 +317,85 @@ class CrossingUrlTests(unittest.TestCase):
         ns["_crossing_line_cache"].update({"enabled": True, "line": [(10, 20), (30, 40)]})
         summary = ns["crossing_overlay_summary"]()
         self.assertEqual(summary["line"], [[10, 20], [30, 40]])
+
+
+NGINX_AUTH = ROOT / "scripts" / "operations" / "nginx_sea_speed_auth.py"
+
+
+class IngressAllowlistTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.namespace: dict[str, Any] = {}
+        exec(compile(NGINX_AUTH.read_text(encoding="utf-8"), str(NGINX_AUTH), "exec"), cls.namespace)
+        cls.endpoints = set(cls.namespace["WORKER_PRIVATE_ENDPOINTS"])
+
+    def test_exactly_four_new_crossing_endpoints_with_exact_methods(self) -> None:
+        crossing = {e for e in self.endpoints if "crossing" in e[0]}
+        expected = {
+            ("/api/cam1/crossing-line", "GET"),
+            ("/api/cam1/crossings", "POST"),
+            ("/api/analytics/road1/crossing-line", "GET"),
+            ("/api/analytics/road1/crossings", "POST"),
+        }
+        self.assertEqual(crossing, expected)
+
+    def test_previously_allowed_endpoints_remain(self) -> None:
+        for endpoint in (
+            ("/api/cam1/state", "POST"),
+            ("/api/cam1/events", "POST"),
+            ("/api/cam1/passages", "POST"),
+            ("/api/cam1/speed-lines", "GET"),
+            ("/api/analytics/road1/state", "POST"),
+            ("/api/analytics/road1/events", "POST"),
+            ("/api/analytics/road1/speed-lines", "GET"),
+        ):
+            self.assertIn(endpoint, self.endpoints)
+
+    def test_worker_control_never_exposed(self) -> None:
+        for path, _method in self.endpoints:
+            self.assertFalse(path.startswith("/api/worker/control"))
+
+    def test_no_wildcard_or_prefix_locations_for_crossings(self) -> None:
+        for path, _method in self.endpoints:
+            self.assertTrue(path.startswith("/"))
+            self.assertNotIn("*", path)
+
+
+class RetryQueueTests(unittest.TestCase):
+    def _namespace_with_posts(self, results):
+        ns = extract_worker_functions({"flush_crossing_posts"})
+        calls = []
+        iterator = iter(results)
+
+        def post_crossing(crossing):
+            calls.append(crossing)
+            return next(iterator)
+
+        ns["post_crossing"] = post_crossing
+        return ns, calls
+
+    def test_failed_post_keeps_event_in_queue(self) -> None:
+        ns, calls = self._namespace_with_posts([False])
+        ns["_crossing_pending_posts"].append({"direction": "left_to_right"})
+        ns["flush_crossing_posts"]()
+        self.assertEqual(len(ns["_crossing_pending_posts"]), 1)
+        self.assertEqual(len(calls), 1)
+
+    def test_successful_retry_removes_event_exactly_once(self) -> None:
+        ns, calls = self._namespace_with_posts([False, True])
+        event = {"direction": "right_to_left"}
+        ns["_crossing_pending_posts"].append(event)
+        ns["flush_crossing_posts"]()
+        self.assertEqual(len(ns["_crossing_pending_posts"]), 1)
+        ns["flush_crossing_posts"]()
+        self.assertEqual(ns["_crossing_pending_posts"], [])
+        self.assertEqual(len(calls), 2)
+        self.assertIs(calls[0], event)
+        self.assertIs(calls[1], event)
+
+
+class OverlayLineColorTests(unittest.TestCase):
+    def test_counting_line_drawn_yellow_bgr(self) -> None:
+        text = WORKER.read_text(encoding="utf-8")
+        self.assertIn("(0, 255, 255), 2, cv2.LINE_AA", text)
+        self.assertNotIn("(255, 210, 60)", text)
