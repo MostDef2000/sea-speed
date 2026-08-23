@@ -38,7 +38,7 @@ and no person object is ever persisted into any registry.
 - R5: Detection/tracking/calibration/speed formulas MUST remain unchanged;
   only publication gating and profile class composition change.
 
-### NFR assessment
+## NFR assessment
 
 - NFR-039-001 | Area: PERF | Target: gates add O(1) checks per frame batch; no new loops or IO | Validation: code review of diff; existing worker tests green | Evidence: PR #263 exact diff | Status: PASS
 - NFR-039-002 | Area: REL | Target: API person guard never breaks the worker POST contract (ok response, no persistence) | Validation: unit test posts a person event and asserts ok:true with empty persistence | Evidence: tests/test_road_event_hygiene.py | Status: PASS
