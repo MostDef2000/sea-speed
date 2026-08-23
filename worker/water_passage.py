@@ -242,6 +242,7 @@ class _PassageState:
     completed_at: Optional[float] = None
     confidence: float = 0.0
     best_snapshot_score: float = -1.0
+    best_snapshot_sharpness: float = -1.0
     measurement: MeasurementResult = field(default_factory=MeasurementResult)
 
 
@@ -403,10 +404,16 @@ class WaterPassageEngine:
             state.status = "measured" if state.measurement.speed_status == "measured" else "measuring"
             area = max(1.0, (x2 - x1) * (y2 - y1))
             snapshot_score = confidence * area
+            candidate_sharpness = float(det.get("_sharpness") or 0.0)
+            sharpness_known = "_sharpness" in det and candidate_sharpness > 0 and state.best_snapshot_sharpness >= 0
             is_better = state.best_snapshot_score < 0 or snapshot_score >= state.best_snapshot_score * self.snapshot_improvement_ratio
+            if sharpness_known and candidate_sharpness < 80.0 and state.best_snapshot_sharpness > candidate_sharpness * 1.5:
+                is_better = False
             contextual_det = _contextual_snapshot_detection(det, self.snapshot_context_scale)
             if is_better:
                 state.best_snapshot_score = snapshot_score
+                if candidate_sharpness > 0:
+                    state.best_snapshot_sharpness = candidate_sharpness
                 snapshot_candidates[state.passage_id] = True
                 det_by_passage[state.passage_id] = contextual_det
             else:

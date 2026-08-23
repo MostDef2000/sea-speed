@@ -90,13 +90,41 @@ def roi_basic_auth():
     return env_str("HLS_BASIC_AUTH_BASE64", "").strip()
 
 
+def _resolve_frame_size() -> tuple[int, int]:
+    profile_name = env_str("ANALYTICS_PROFILE", "water-v1")
+    try:
+        profile = get_profile(profile_name)
+        default_w, default_h = int(profile.frame_width), int(profile.frame_height)
+    except Exception:
+        default_w, default_h = 1920, 1080
+    return env_int("FRAME_WIDTH", default_w), env_int("FRAME_HEIGHT", default_h)
+
+
+def crop_sharpness(crop) -> float:
+    """Laplacian variance sharpness for a BGR crop; 0 for empty."""
+    try:
+        if crop is None or getattr(crop, "size", 0) == 0:
+            return 0.0
+        gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY) if len(crop.shape) == 3 else crop
+        return float(cv2.Laplacian(gray, cv2.CV_64F).var())
+    except Exception:
+        return 0.0
+
+
 def start_ffmpeg():
     hls_url = env_str("HLS_URL")
     if not hls_url:
         raise RuntimeError("HLS_URL is not set")
 
-    width = env_int("FRAME_WIDTH", 704)
-    height = env_int("FRAME_HEIGHT", 576)
+    try:
+        from analytics_profiles import get_profile as _get_profile
+
+        _profile = _get_profile(env_str("ANALYTICS_PROFILE", "water-v1"))
+        _default_w, _default_h = int(_profile.frame_width), int(_profile.frame_height)
+    except Exception:
+        _default_w, _default_h = 1920, 1080
+    width = env_int("FRAME_WIDTH", _default_w)
+    height = env_int("FRAME_HEIGHT", _default_h)
     sample_fps = env_float("SAMPLE_FPS", 5.0)
     auth = media_basic_auth_for_input(hls_url)
 
@@ -233,8 +261,7 @@ def start_media_reader(av_module=None):
     input_url = env_str("HLS_URL")
     if not input_url:
         raise RuntimeError("HLS_URL is not set")
-    width = env_int("FRAME_WIDTH", 704)
-    height = env_int("FRAME_HEIGHT", 576)
+    width, height = _resolve_frame_size()
     sample_fps = env_float("SAMPLE_FPS", 5.0)
     if _media_input_scheme(input_url) == "rtsp":
         print("Starting in-process RTSP reader")
@@ -1418,6 +1445,20 @@ def main():
 
             passage_updates = []
             if is_water and passage_engine is not None:
+                # Inject per-detection sharpness for sharpness-aware best-frame selection.
+                for det in detections:
+                    try:
+                        x1, y1, x2, y2 = [int(round(float(v))) for v in det.get("bbox_xyxy") or []]
+                        if x2 > x1 and y2 > y1:
+                            x1c = max(0, min(x1, frame.shape[1] - 1))
+                            x2c = max(0, min(x2, frame.shape[1]))
+                            y1c = max(0, min(y1, frame.shape[0] - 1))
+                            y2c = max(0, min(y2, frame.shape[0]))
+                            if x2c > x1c and y2c > y1c:
+                                crop = frame[y1c:y2c, x1c:x2c]
+                                det["_sharpness"] = float(crop_sharpness(crop))
+                    except Exception:
+                        pass
                 passage_updates = passage_engine.update(detections, now)
                 passage_by_track = {}
                 for update in passage_updates:
