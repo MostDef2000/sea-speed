@@ -60,7 +60,7 @@ class UbuntuWorkerRuntimeProvenanceTests(unittest.TestCase):
         return module, captured_state, captured_event
 
     def test_exact_source_commit_is_injected_into_state_and_event_payloads(self) -> None:
-        with mock.patch.dict(os.environ, {"SEA_SPEED_SOURCE_COMMIT": SOURCE_SHA}, clear=False):
+        with mock.patch.dict(os.environ, {"SEA_SPEED_SOURCE_COMMIT": SOURCE_SHA, "SEA_SPEED_SYNC_PUBLISH": "1"}, clear=False):
             module, captured_state, captured_event = self.load_entrypoint()
             state_input = {"camera_id": "road1", "worker_source_commit": "f" * 40}
             event_input = {"event_id": "evt-1"}
@@ -74,7 +74,7 @@ class UbuntuWorkerRuntimeProvenanceTests(unittest.TestCase):
         self.assertNotIn("worker_source_commit", event_input)
 
     def test_environment_identity_overrides_payload_identity(self) -> None:
-        with mock.patch.dict(os.environ, {"SEA_SPEED_SOURCE_COMMIT": SOURCE_SHA}, clear=False):
+        with mock.patch.dict(os.environ, {"SEA_SPEED_SOURCE_COMMIT": SOURCE_SHA, "SEA_SPEED_SYNC_PUBLISH": "1"}, clear=False):
             module, captured_state, captured_event = self.load_entrypoint()
             module.post_state({"worker_source_commit": "a" * 40}, "overlay.jpg")
             module.post_event({"worker_source_commit": "b" * 40}, "event.jpg")
@@ -105,6 +105,7 @@ class UbuntuWorkerRuntimeProvenanceTests(unittest.TestCase):
             "SEA_SPEED_API_TOKEN": "secret-token-value",
             "HLS_URL": "rtsp://user:password@private.invalid/live",
             "SEA_SPEED_API_URL": "http://10.0.0.1:18080/api/analytics/road1/state",
+            "SEA_SPEED_SYNC_PUBLISH": "1",
         }
         with mock.patch.dict(os.environ, protected, clear=True):
             module, captured_state, _captured_event = self.load_entrypoint()

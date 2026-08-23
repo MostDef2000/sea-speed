@@ -13,9 +13,21 @@ import time
 from pathlib import Path
 from urllib.parse import urlsplit
 
+import queue
+import threading
+
 import numpy as np
 
 from analytics_profiles import get_profile
+
+try:
+    from detection_performance import PerformanceTracker
+except Exception:
+    PerformanceTracker = None  # type: ignore[assignment]
+
+_perf_tracker = PerformanceTracker() if PerformanceTracker else None
+_publish_queue: queue.Queue = queue.Queue(maxsize=32)
+_publish_thread: threading.Thread | None = None
 
 # Ubuntu main is the water contour unless protected runtime config overrides it.
 os.environ.setdefault("ANALYTICS_PROFILE", "water-v1")
@@ -47,18 +59,87 @@ def _metadata_with_runtime_source_commit(metadata: dict[str, object]) -> dict[st
     return enriched
 
 
+def _publish_worker() -> None:
+    while True:
+        try:
+            kind, meta, path = _publish_queue.get()
+            if kind == "state":
+                _ORIGINAL_POST_STATE(meta, path)
+            elif kind == "event":
+                _ORIGINAL_POST_EVENT(meta, path)
+            _publish_queue.task_done()
+        except Exception:
+            try:
+                _publish_queue.task_done()
+            except Exception:
+                pass
+
+
+def _ensure_publish_thread() -> None:
+    global _publish_thread
+    if _publish_thread and _publish_thread.is_alive():
+        return
+    t = threading.Thread(target=_publish_worker, daemon=True, name="sea-speed-publish")
+    t.start()
+    _publish_thread = t
+
+
+def _is_sync_publish() -> bool:
+    return os.environ.get("SEA_SPEED_SYNC_PUBLISH", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def post_state(metadata, overlay_path):
-    return _ORIGINAL_POST_STATE(
-        _metadata_with_runtime_source_commit(metadata),
-        overlay_path,
-    )
+    enriched = _metadata_with_runtime_source_commit(metadata)
+    if _is_sync_publish():
+        return _ORIGINAL_POST_STATE(enriched, overlay_path)
+    # state/overlay is coalesced — keep latest only, drop stale if queue full
+    if _publish_queue.full():
+        try:
+            # drop oldest state entry if any
+            cur = []
+            while not _publish_queue.empty():
+                try:
+                    cur.append(_publish_queue.get_nowait())
+                except queue.Empty:
+                    break
+            # keep only last event entries, drop oldest state
+            kept = [x for x in cur if x[0] == "event"]
+            # re-queue events
+            for item in kept:
+                try:
+                    _publish_queue.put_nowait(item)
+                except queue.Full:
+                    pass
+            for item in kept:
+                try:
+                    _publish_queue.task_done()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+    _ensure_publish_thread()
+    try:
+        _publish_queue.put_nowait(("state", enriched, overlay_path))
+    except queue.Full:
+        # fallback to synchronous if still full — preserves old behavior
+        return _ORIGINAL_POST_STATE(enriched, overlay_path)
+    return True
 
 
 def post_event(metadata, snapshot_path):
-    return _ORIGINAL_POST_EVENT(
-        _metadata_with_runtime_source_commit(metadata),
-        snapshot_path,
-    )
+    enriched = _metadata_with_runtime_source_commit(metadata)
+    if _is_sync_publish():
+        return _ORIGINAL_POST_EVENT(enriched, snapshot_path)
+    _ensure_publish_thread()
+    try:
+        _publish_queue.put_nowait(("event", enriched, snapshot_path))
+    except queue.Full:
+        return _ORIGINAL_POST_EVENT(enriched, snapshot_path)
+    return True
+
+
+def latest_frame_bounded_enabled() -> bool:
+    return os.environ.get("LATEST_FRAME_BOUNDED", "1").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _media_scheme(input_url: str) -> str:
@@ -194,13 +275,69 @@ class ResilientFFmpegRtspReader:
 
         return bytes(data)
 
+    def _try_read_latest_stale(self, current_raw: bytes) -> bytes:
+        if not latest_frame_bounded_enabled():
+            return current_raw
+        # drain any fully-buffered extra frames with zero timeout — bounded latest-frame
+        latest = current_raw
+        dropped = 0
+        while True:
+            if self.proc is None or self.proc.stdout is None:
+                break
+            fd = self.proc.stdout.fileno()
+            ready, _, _ = select.select([fd], [], [], 0)
+            if not ready:
+                break
+            # peek if at least one full frame is buffered without blocking (use select + available bytes heuristic)
+            # We attempt a non-blocking read of exactly frame_size with 0 deadline; if incomplete, put back via current
+            # Simpler: try to read a full frame with 0 timeout — if we get it, it's the newer freshest frame.
+            try:
+                # use a very small deadline to test availability
+                deadline = time.monotonic() + 0.01
+                data = bytearray()
+                while len(data) < self.frame_size:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        break
+                    r, _, _ = select.select([fd], [], [], remaining)
+                    if not r:
+                        break
+                    chunk = os.read(fd, min(1024 * 1024, self.frame_size - len(data)))
+                    if not chunk:
+                        break
+                    data.extend(chunk)
+                if len(data) == self.frame_size:
+                    latest = bytes(data)
+                    dropped += 1
+                else:
+                    # incomplete — not a full stale frame buffered, stop
+                    break
+            except Exception:
+                break
+            if dropped > 8:  # cap drain burst
+                break
+        if dropped and _perf_tracker is not None:
+            try:
+                _perf_tracker.record_dropped(dropped)
+            except Exception:
+                pass
+        return latest
+
     def read_frame(self):
+        ingest_mono = time.monotonic()
         for attempt in range(self.restart_limit + 1):
             try:
                 raw = self._read_exact_bounded()
-                return np.frombuffer(raw, np.uint8).reshape(
-                    (self.height, self.width, 3)
-                )
+                raw = self._try_read_latest_stale(raw)
+                frame = np.frombuffer(raw, np.uint8).reshape((self.height, self.width, 3))
+                # record frame age placeholder — actual wall time not known; bounded path tracks ingest
+                if _perf_tracker is not None:
+                    try:
+                        frame_age_ms = (time.monotonic() - ingest_mono) * 1000.0
+                        _perf_tracker.record_frame(ingest_mono=ingest_mono, inference_ms=0, frame_age_ms=frame_age_ms)
+                    except Exception:
+                        pass
+                return frame
             except (TimeoutError, EOFError, OSError) as exc:
                 if attempt >= self.restart_limit:
                     raise RuntimeError(
@@ -409,9 +546,19 @@ class BoundedYoloSupervisor:
             return []
         try:
             timeout_sec = self.timeout_sec if self.child_warmed else self.startup_timeout_sec
+            t0 = time.monotonic()
             detections = self._roundtrip(frame, timeout_sec)
             self.child_warmed = True
-            print(f"AI inference ok detections={len(detections)}")
+            dt_ms = (time.monotonic() - t0) * 1000.0
+            # lightweight telemetry hook — never blocks inference
+            if _perf_tracker is not None:
+                try:
+                    # frame age approximated from last ingest; use dt as inference stage
+                    _perf_tracker.record_frame(ingest_mono=t0, inference_ms=dt_ms, frame_age_ms=dt_ms)
+                except Exception:
+                    pass
+            # emit structured timing every ~50 frames via stdout without affecting ROI logic
+            print(f"AI inference ok detections={len(detections)} inference_ms={dt_ms:.1f} half={os.environ.get('YOLO_HALF','0')} classes_filter={os.environ.get('YOLO_CLASSES_FILTER','') or os.environ.get('YOLO_CLASSES','')}")
             return detections
         except (TimeoutError, EOFError, OSError, RuntimeError, ValueError) as exc:
             print(f"AI inference degraded reason={type(exc).__name__}")

@@ -71,6 +71,10 @@ def main() -> int:
         "ai_inference_success_count": 0,
         "ai_inference_failure_count": 0,
         "ai_inference_restart_count": 0,
+        "last_inference_ms": None,
+        "effective_fps": None,
+        "avg_frame_age_ms": None,
+        "dropped_frames": 0,
         "exit_code": None,
     }
 
@@ -118,6 +122,31 @@ def main() -> int:
                 state["ai_inference_failure_count"] += 1
             elif line.startswith("AI inference child restart"):
                 state["ai_inference_restart_count"] += 1
+            # telemetry parsing — never fails worker
+            if "inference_ms=" in line:
+                try:
+                    frag = line.split("inference_ms=")[1].split()[0].strip()
+                    state["last_inference_ms"] = float(frag)
+                except Exception:
+                    pass
+            if "effective_fps=" in line:
+                try:
+                    frag = line.split("effective_fps=")[1].split()[0]
+                    state["effective_fps"] = float(frag)
+                except Exception:
+                    pass
+            if "avg_frame_age_ms=" in line:
+                try:
+                    frag = line.split("avg_frame_age_ms=")[1].split()[0]
+                    state["avg_frame_age_ms"] = float(frag)
+                except Exception:
+                    pass
+            if "dropped=" in line:
+                try:
+                    frag = line.split("dropped=")[1].split()[0]
+                    state["dropped_frames"] = int(float(frag))
+                except Exception:
+                    pass
 
     def forward(pipe: IO[str] | None, target: IO[str]) -> None:
         if pipe is None:

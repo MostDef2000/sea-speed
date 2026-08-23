@@ -125,6 +125,45 @@ def main() -> int:
         raise SystemExit("ERROR protected SEA_SPEED_API_TOKEN is missing")
     road_source = road_relay_source(args.preview_catalog)
     road_state_url, road_event_url = road_worker_api_urls(water)
+    # Preserve allowlisted tuning knobs already present in protected env
+    def _preserve_int(key: str, default: str) -> str:
+        raw = water.get(key, "").strip()
+        try:
+            int(raw)
+            return raw
+        except Exception:
+            return default
+
+    def _preserve_float(key: str, default: str) -> str:
+        raw = water.get(key, "").strip()
+        try:
+            float(raw)
+            return raw
+        except Exception:
+            return default
+
+    # Resolve HD — never propagate 704x576 legacy to Road
+    def _resolve_hd(value: str | None, fallback: str) -> str:
+        raw = (value or "").strip()
+        if raw in {"1920", "1080", "704", "576"}:
+            # explicit numeric but validate HD
+            if raw in {"704", "576"}:
+                return fallback
+            return raw
+        try:
+            iv = int(raw)
+            if iv in {704, 576}:
+                return fallback
+            return str(iv)
+        except Exception:
+            return fallback
+
+    water_frame_w = _resolve_hd(water.get("FRAME_WIDTH"), "1920")
+    water_frame_h = _resolve_hd(water.get("FRAME_HEIGHT"), "1080")
+    # force HD if legacy
+    water_frame_w = "1920" if water_frame_w in {"704", "576"} else water_frame_w
+    water_frame_h = "1080" if water_frame_h in {"704", "576"} else water_frame_h
+
     water.update(
         {
             "ANALYTICS_PROFILE": "water-v1",
@@ -133,7 +172,13 @@ def main() -> int:
             "YOLO_TRACKER": "bytetrack.yaml",
             "YOLO_IMAGE_SIZE": "960",
             "YOLO_CONFIDENCE": "0.15",
-            "SAMPLE_FPS": "5",
+            "SAMPLE_FPS": _preserve_float("SAMPLE_FPS", "10"),
+            "FRAME_WIDTH": water_frame_w,
+            "FRAME_HEIGHT": water_frame_h,
+            "YOLO_HALF": water.get("YOLO_HALF", "1").strip() or "1",
+            "YOLO_CLASSES_FILTER": water.get("YOLO_CLASSES_FILTER", "0").strip() or "0",
+            "MOTION_GATE_MODE": water.get("MOTION_GATE_MODE", "gated").strip() or "gated",
+            "LATEST_FRAME_BOUNDED": water.get("LATEST_FRAME_BOUNDED", "1").strip() or "1",
         }
     )
     road = {
@@ -147,9 +192,13 @@ def main() -> int:
         "YOLO_TRACKER": "bytetrack.yaml",
         "YOLO_IMAGE_SIZE": "960",
         "YOLO_CONFIDENCE": "0.15",
-        "FRAME_WIDTH": water.get("FRAME_WIDTH", "704"),
-        "FRAME_HEIGHT": water.get("FRAME_HEIGHT", "576"),
-        "SAMPLE_FPS": "5",
+        "FRAME_WIDTH": water_frame_w,
+        "FRAME_HEIGHT": water_frame_h,
+        "SAMPLE_FPS": _preserve_float("SAMPLE_FPS", "10"),
+        "YOLO_HALF": water.get("YOLO_HALF", "1").strip() or "1",
+        "YOLO_CLASSES_FILTER": water.get("YOLO_CLASSES_FILTER", "0").strip() or "0",
+        "MOTION_GATE_MODE": water.get("MOTION_GATE_MODE", "gated").strip() or "gated",
+        "LATEST_FRAME_BOUNDED": water.get("LATEST_FRAME_BOUNDED", "1").strip() or "1",
     }
     write_env(road_env, road)
     write_env(worker_env, water)
