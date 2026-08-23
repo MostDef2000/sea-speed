@@ -31,10 +31,9 @@
 <div class="field"><label for="speedMinInput">Скорость от</label><input id="speedMinInput" name="speed_min" type="number" min="0" step="0.1" placeholder="km/h"></div>
 <div class="field"><label for="speedMaxInput">Скорость до</label><input id="speedMaxInput" name="speed_max" type="number" min="0" step="0.1" placeholder="km/h"></div>
 <div class="field"><label for="statusInput">Статус</label><select id="statusInput" name="status"><option value="">Все</option><option value="new">Новый</option><option value="reviewed">Проверен</option><option value="ignored">Игнорировать</option></select></div>
-<div class="filter-actions"><button class="primary" type="submit">Применить</button><button id="resetBtn" class="ghost" type="button">Сбросить</button></div>
+<div class="filter-actions"><button class="primary" type="submit">Применить</button><button id="resetBtn" class="ghost" type="button">Сбросить</button><button id="cxViewBtn" type="button" style="border-color:#5eead46b;background:#0b3144c9;color:var(--cyan);font-weight:800">Пересечения</button></div>
 </form>
 <div class="summary-row"><div id="summary">Загрузка…</div><div id="registryScopeLabel">Water · cam1 · SQLite registry</div></div>
-<div style="margin-top:10px"><button id="cxViewBtn" type="button" style="padding:8px 14px;border:1px solid var(--strong);border-radius:12px;background:#10506a;color:var(--text);font-weight:800;font-size:.74rem">Пересечения</button></div>
 <section id="objectsGrid" class="objects-grid" aria-live="polite"><div class="panel empty">Загрузка объектов…</div></section>
 <div id="crossingsLayer" class="panel" style="display:none;padding:14px;margin-top:12px">
   <div style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
@@ -65,6 +64,7 @@ function setHidden(hidden){
 viewBtn.addEventListener("click",()=>{
   active=!active;
   layer.style.display=active?"block":"none";
+  viewBtn.textContent=active?"← К объектам":"Пересечения";
   setHidden(active);
   if(active){if(!fromInput.value)fromInput.value=vlzToday();if(!toInput.value)toInput.value=vlzToday();loadCrossings()}
 });
