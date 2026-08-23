@@ -226,20 +226,29 @@ def open_objects_db():
         connection.close()
 
 
-def prune_objects_registry(connection: sqlite3.Connection) -> int:
-    cursor = connection.execute(
-        """
-        DELETE FROM objects
-        WHERE object_id NOT IN (
-            SELECT object_id
+def prune_objects_registry(connection: sqlite3.Connection) -> List[str]:
+    retention = max(0, int(OBJECTS_RETENTION_LIMIT))
+    eviction_subquery = """
+        SELECT object_id FROM (
+            SELECT object_id, ROW_NUMBER() OVER (
+                PARTITION BY domain
+                ORDER BY detected_at DESC, object_id DESC
+            ) AS rn
             FROM objects
-            ORDER BY detected_at DESC, object_id DESC
-            LIMIT ?
         )
-        """,
-        (OBJECTS_RETENTION_LIMIT,),
+        WHERE rn > ?
+    """
+    evicted = connection.execute(
+        f"SELECT object_id, snapshot_url FROM objects WHERE object_id IN ({eviction_subquery})",
+        (retention,),
+    ).fetchall()
+    if not evicted:
+        return []
+    connection.execute(
+        f"DELETE FROM objects WHERE object_id IN ({eviction_subquery})",
+        (retention,),
     )
-    return cursor.rowcount
+    return [str(row["snapshot_url"]) for row in evicted if row["snapshot_url"]]
 
 
 def initialize_objects_db() -> None:
@@ -449,6 +458,90 @@ def import_existing_passages() -> int:
     return mirrored
 
 
+EVENTS_MEDIA_GRACE_SECONDS = 24 * 3600
+EVENTS_SWEEP_INTERVAL_SECONDS = 3600
+_events_sweep_state = {"last": 0.0}
+
+
+def _delete_passage_mirrors(passage_ids: List[str]) -> int:
+    ids = [str(value) for value in passage_ids if str(value or "").strip()]
+    if not ids:
+        return 0
+    targets = [f"passage-{value}" for value in ids]
+    placeholders = ",".join("?" for _ in targets)
+    try:
+        with open_objects_db() as connection:
+            cursor = connection.execute(
+                f"DELETE FROM objects WHERE object_id IN ({placeholders})", targets
+            )
+            return max(0, cursor.rowcount)
+    except Exception as error:
+        print(f"passage mirror sync failed: {error}", file=sys.stderr)
+        return 0
+
+
+def reconcile_passage_mirrors() -> int:
+    try:
+        with open_passages_db() as connection:
+            rows = connection.execute("SELECT passage_id FROM water_passages").fetchall()
+    except Exception:
+        return 0
+    live = {f"passage-{str(row['passage_id'])}" for row in rows}
+    with open_objects_db() as connection:
+        mirrors = connection.execute(
+            "SELECT object_id FROM objects WHERE object_id LIKE 'passage-%'"
+        ).fetchall()
+        orphans = [str(row["object_id"]) for row in mirrors if str(row["object_id"]) not in live]
+        if not orphans:
+            return 0
+        placeholders = ",".join("?" for _ in orphans)
+        cursor = connection.execute(
+            f"DELETE FROM objects WHERE object_id IN ({placeholders})", orphans
+        )
+        return max(0, cursor.rowcount)
+
+
+def sweep_events_media(force: bool = False, now: Optional[float] = None) -> int:
+    current = time.time() if now is None else float(now)
+    last = float(_events_sweep_state.get("last") or 0.0)
+    if not force and current - last < EVENTS_SWEEP_INTERVAL_SECONDS:
+        return 0
+    _events_sweep_state["last"] = current
+    try:
+        candidates = list(EVENTS_MEDIA_DIR.iterdir())
+    except OSError:
+        return 0
+    try:
+        with open_objects_db() as connection:
+            referenced = {
+                str(row[0]) for row in connection.execute("SELECT DISTINCT snapshot_url FROM objects")
+            }
+    except Exception as error:
+        print(f"events media sweep skipped: {error}", file=sys.stderr)
+        return 0
+    deleted = 0
+    for path in candidates:
+        if not path.is_file():
+            continue
+        name = path.name
+        if not name.endswith(".jpg") or name != Path(name).name:
+            continue
+        if f"/sea-speed/media/events/{name}" in referenced:
+            continue
+        try:
+            age = current - path.stat().st_mtime
+        except OSError:
+            continue
+        if age <= EVENTS_MEDIA_GRACE_SECONDS:
+            continue
+        try:
+            path.unlink()
+            deleted += 1
+        except OSError as error:
+            print(f"events media sweep failed for {name}: {error}", file=sys.stderr)
+    return deleted
+
+
 @contextmanager
 def open_passages_db():
     connection = sqlite3.connect(str(PASSAGES_DB_FILE), timeout=10)
@@ -500,6 +593,7 @@ def prune_water_passages(connection: sqlite3.Connection, target_limit: int = PAS
     passage_ids = [str(row["passage_id"]) for row in rows]
     placeholders = ",".join("?" for _ in passage_ids)
     connection.execute(f"DELETE FROM water_passages WHERE passage_id IN ({placeholders})", passage_ids)
+    _delete_passage_mirrors(passage_ids)
     return [str(row["snapshot_url"]) for row in rows if row["snapshot_url"]]
 
 
@@ -1237,6 +1331,8 @@ def start_camera_preview_locked(camera: Dict[str, str]) -> Dict[str, Any]:
 initialize_objects_db()
 import_existing_events()
 import_existing_passages()
+reconcile_passage_mirrors()
+sweep_events_media(force=True)
 initialize_water_passages_db()
 
 
@@ -1369,6 +1465,7 @@ async def post_cam1_passage(
         persist_passage_object(passage)
     except Exception as error:
         print(f"passage registry mirror failed for {passage.get('passage_id')}: {error}", file=sys.stderr)
+    sweep_events_media()
     return {"ok": True, "passage": passage}
 
 
@@ -1583,6 +1680,7 @@ async def post_analytics_event(
         snapshot_path.write_bytes(await snapshot.read())
         event["snapshot_url"] = f"/sea-speed/media/events/{filename}"
     persist_object_event(event)
+    sweep_events_media()
     events_path = analytics_data_file(camera_id, "events")
     events: List[Dict[str, Any]] = read_json_file(events_path, [])
     events.insert(0, event)
