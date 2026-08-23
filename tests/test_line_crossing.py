@@ -174,6 +174,11 @@ class _StubHTTPException(Exception):
 CROSSING_API_FUNCTIONS = {
     "_vlz_day_bounds",
     "clean_points_list",
+    "_clean_norm_points",
+    "_infer_legacy_ref_w_h",
+    "_normalize_from_absolute",
+    "_denormalize_to_absolute",
+    "_normalize_legacy_polygon",
     "optional_int",
     "optional_float",
     "get_analytics_crossing_line",
@@ -203,6 +208,10 @@ class ApiCrossingTests(unittest.TestCase):
             "Any": Any,
             "Dict": Dict,
             "List": List,
+            "DEFAULT_ROI_REF_W": 1920,
+            "DEFAULT_ROI_REF_H": 1080,
+            "LEGACY_ROI_W": 704,
+            "LEGACY_ROI_H": 576,
             "DATA_DIR": Path(cls.tmp.name),
             "CROSSINGS_STORE_LIMIT": 5000,
             "CROSSING_DIRECTIONS": ("left_to_right", "right_to_left"),
@@ -257,7 +266,8 @@ class ApiCrossingTests(unittest.TestCase):
         self.assertTrue(config["enabled"])
         self.assertEqual(len(config["line"]), 2)
         reread = ns["get_analytics_crossing_line"]("road1")
-        self.assertEqual(reread["line"], [{"x": 10, "y": 20}, {"x": 30, "y": 40}])
+        # legacy 704 → normalized → 1920 HD response
+        self.assertEqual(reread["line"], [{"x": 27, "y": 38}, {"x": 82, "y": 75}])
 
     def test_crossing_line_validation_rejects_bad_payload(self) -> None:
         ns = self.ns

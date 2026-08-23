@@ -1068,6 +1068,63 @@ def clean_points_list(raw_points: Any, max_points: int = 2) -> List[Dict[str, in
     return clean
 
 
+# Normalized ROI geometry — 0..1 + reference, scale-on-read to current frame size
+DEFAULT_ROI_REF_W = 1920
+DEFAULT_ROI_REF_H = 1080
+LEGACY_ROI_W = 704
+LEGACY_ROI_H = 576
+
+
+def _is_normalized_point(point: Any) -> bool:
+    return isinstance(point, dict) and ("x_norm" in point or "y_norm" in point)
+
+
+def _clean_norm_points(raw_points: Any, max_points: int = 1000) -> List[Dict[str, float]]:
+    clean: List[Dict[str, float]] = []
+    if not isinstance(raw_points, list):
+        return clean
+    for p in raw_points[:max_points]:
+        if not isinstance(p, dict):
+            continue
+        try:
+            xn = float(p.get("x_norm", p.get("x", 0)))
+            yn = float(p.get("y_norm", p.get("y", 0)))
+        except Exception:
+            continue
+        # if caller passed absolute x 0..1920 already treat as norm only when explicitly x_norm present
+        if "x_norm" not in p and "y_norm" not in p:
+            continue
+        xn = max(0.0, min(1.0, xn))
+        yn = max(0.0, min(1.0, yn))
+        clean.append({"x_norm": xn, "y_norm": yn})
+    return clean
+
+
+def _infer_legacy_ref_w_h(polygon: List[Dict[str, int]]) -> tuple[int, int]:
+    if not polygon:
+        return DEFAULT_ROI_REF_W, DEFAULT_ROI_REF_H
+    max_x = max((p.get("x", 0) for p in polygon), default=0)
+    max_y = max((p.get("y", 0) for p in polygon), default=0)
+    if max_x <= LEGACY_ROI_W and max_y <= LEGACY_ROI_H and max_x > 0 and max_y > 0:
+        return LEGACY_ROI_W, LEGACY_ROI_H
+    return DEFAULT_ROI_REF_W, DEFAULT_ROI_REF_H
+
+
+def _normalize_from_absolute(polygon: List[Dict[str, int]], ref_w: int, ref_h: int) -> List[Dict[str, float]]:
+    return [{"x_norm": p["x"] / ref_w, "y_norm": p["y"] / ref_h} for p in polygon]
+
+
+def _denormalize_to_absolute(polygon_norm: List[Dict[str, float]], dst_w: int, dst_h: int) -> List[Dict[str, int]]:
+    return [{"x": int(round(p["x_norm"] * dst_w)), "y": int(round(p["y_norm"] * dst_h))} for p in polygon_norm]
+
+
+def _normalize_legacy_polygon(legacy: List[Dict[str, int]], raw: Dict[str, Any]) -> tuple[List[Dict[str, float]], int, int]:
+    ref_w, ref_h = _infer_legacy_ref_w_h(legacy)
+    ref_w = int(raw.get("reference_width") or raw.get("referenceWidth") or ref_w)
+    ref_h = int(raw.get("reference_height") or raw.get("referenceHeight") or ref_h)
+    return _normalize_from_absolute(legacy, ref_w, ref_h), ref_w, ref_h
+
+
 def validate_camera_preview_source(camera_id: str, source: str) -> str:
     if not CAMERA_PREVIEW_ID_RE.fullmatch(camera_id):
         raise ValueError("invalid camera preview identity")
@@ -1747,26 +1804,65 @@ async def post_analytics_event(
 @app.get("/api/analytics/{camera_id}/roi")
 def get_analytics_roi(camera_id: str) -> Dict[str, Any]:
     analytics_identity(camera_id)
-    default_roi = {"ok": True, "camera_id": camera_id, "enabled": False, "polygon": [], "updated_at": None}
+    default_roi = {"ok": True, "camera_id": camera_id, "enabled": False, "polygon": [], "polygon_norm": [], "reference_width": DEFAULT_ROI_REF_W, "reference_height": DEFAULT_ROI_REF_H, "updated_at": None}
     roi = read_json_file(analytics_data_file(camera_id, "roi"), default_roi)
     roi["ok"] = True
     roi["camera_id"] = camera_id
     roi.setdefault("enabled", False)
-    roi.setdefault("polygon", [])
     roi.setdefault("updated_at", None)
+    # migrate legacy absolute polygon to normalized if needed
+    if roi.get("polygon_norm") is None or not isinstance(roi.get("polygon_norm"), list) or not roi.get("polygon_norm"):
+        legacy = clean_points_list(roi.get("polygon", []), max_points=1000)
+        if legacy:
+            norm, ref_w, ref_h = _normalize_legacy_polygon(legacy, roi)
+            roi["polygon_norm"] = norm
+            roi["reference_width"] = ref_w
+            roi["reference_height"] = ref_h
+            # keep legacy polygon but also ensure denormalized to default for compat
+            roi["polygon"] = _denormalize_to_absolute(norm, DEFAULT_ROI_REF_W, DEFAULT_ROI_REF_H)
+            write_json_file(analytics_data_file(camera_id, "roi"), {k: v for k, v in roi.items() if k not in ("ok", "camera_id")})
+        else:
+            roi.setdefault("polygon_norm", [])
+            roi.setdefault("reference_width", DEFAULT_ROI_REF_W)
+            roi.setdefault("reference_height", DEFAULT_ROI_REF_H)
+            roi.setdefault("polygon", [])
+    else:
+        # ensure polygon absolute is in sync with norm for legacy clients
+        norm = _clean_norm_points(roi.get("polygon_norm"), max_points=1000)
+        ref_w = int(roi.get("reference_width", DEFAULT_ROI_REF_W))
+        ref_h = int(roi.get("reference_height", DEFAULT_ROI_REF_H))
+        roi["polygon_norm"] = norm
+        roi["reference_width"] = ref_w
+        roi["reference_height"] = ref_h
+        roi["polygon"] = _denormalize_to_absolute(norm, DEFAULT_ROI_REF_W, DEFAULT_ROI_REF_H)
     return roi
 
 
 @app.post("/api/analytics/{camera_id}/roi")
 def post_analytics_roi(camera_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     analytics_identity(camera_id)
-    polygon = payload.get("polygon", [])
     enabled = bool(payload.get("enabled", True))
-    clean_polygon = clean_points_list(polygon, max_points=1000)
-    if enabled and len(clean_polygon) < 3:
+    # accept either normalized or legacy
+    norm = _clean_norm_points(payload.get("polygon_norm") or payload.get("polygon") or [], max_points=1000)
+    if norm:
+        ref_w = int(payload.get("reference_width") or payload.get("referenceWidth") or DEFAULT_ROI_REF_W)
+        ref_h = int(payload.get("reference_height") or payload.get("referenceHeight") or DEFAULT_ROI_REF_H)
+        polygon_norm = norm
+    else:
+        legacy = clean_points_list(payload.get("polygon", []), max_points=1000)
+        if enabled and len(legacy) < 3:
+            raise HTTPException(status_code=400, detail="ROI polygon must contain at least 3 points")
+        if legacy:
+            polygon_norm, ref_w, ref_h = _normalize_legacy_polygon(legacy, payload)
+        else:
+            polygon_norm, ref_w, ref_h = [], DEFAULT_ROI_REF_W, DEFAULT_ROI_REF_H
+            if enabled:
+                raise HTTPException(status_code=400, detail="ROI polygon must contain at least 3 points")
+    if enabled and len(polygon_norm) < 3:
         raise HTTPException(status_code=400, detail="ROI polygon must contain at least 3 points")
-    roi = {"ok": True, "camera_id": camera_id, "enabled": enabled, "polygon": clean_polygon, "updated_at": now_iso()}
-    write_json_file(analytics_data_file(camera_id, "roi"), roi)
+    polygon = _denormalize_to_absolute(polygon_norm, DEFAULT_ROI_REF_W, DEFAULT_ROI_REF_H)
+    roi = {"ok": True, "camera_id": camera_id, "enabled": enabled, "polygon": polygon, "polygon_norm": polygon_norm, "reference_width": ref_w, "reference_height": ref_h, "updated_at": now_iso()}
+    write_json_file(analytics_data_file(camera_id, "roi"), {k: v for k, v in roi.items() if k not in ("ok", "camera_id")})
     return roi
 
 
@@ -1803,15 +1899,43 @@ def post_analytics_speed_config(camera_id: str, payload: Dict[str, Any]) -> Dict
 def get_analytics_speed_lines(camera_id: str) -> Dict[str, Any]:
     analytics_identity(camera_id)
     default_config = {"ok": True, "camera_id": camera_id, "enabled": False, "distance_m": 57.0,
-                      "line_a": [], "line_b": [], "updated_at": None}
+                      "line_a": [], "line_b": [], "line_a_norm": [], "line_b_norm": [], "reference_width": DEFAULT_ROI_REF_W, "reference_height": DEFAULT_ROI_REF_H, "updated_at": None}
     config = read_json_file(analytics_data_file(camera_id, "speed_lines"), default_config)
     config["ok"] = True
     config["camera_id"] = camera_id
     config.setdefault("enabled", False)
     config.setdefault("distance_m", 57.0)
-    config.setdefault("line_a", [])
-    config.setdefault("line_b", [])
     config.setdefault("updated_at", None)
+    # migrate legacy
+    if not config.get("line_a_norm") or not config.get("line_b_norm"):
+        la = clean_points_list(config.get("line_a", []), max_points=2)
+        lb = clean_points_list(config.get("line_b", []), max_points=2)
+        if la and lb:
+            ref_w, ref_h = _infer_legacy_ref_w_h(la + lb)
+            ref_w = int(config.get("reference_width", ref_w))
+            ref_h = int(config.get("reference_height", ref_h))
+            config["line_a_norm"] = _normalize_from_absolute(la, ref_w, ref_h)
+            config["line_b_norm"] = _normalize_from_absolute(lb, ref_w, ref_h)
+            config["reference_width"] = ref_w
+            config["reference_height"] = ref_h
+            config["line_a"] = _denormalize_to_absolute(config["line_a_norm"], DEFAULT_ROI_REF_W, DEFAULT_ROI_REF_H)
+            config["line_b"] = _denormalize_to_absolute(config["line_b_norm"], DEFAULT_ROI_REF_W, DEFAULT_ROI_REF_H)
+            write_json_file(analytics_data_file(camera_id, "speed_lines"), {k: v for k, v in config.items() if k not in ("ok", "camera_id")})
+        else:
+            config.setdefault("line_a", [])
+            config.setdefault("line_b", [])
+            config.setdefault("line_a_norm", [])
+            config.setdefault("line_b_norm", [])
+            config.setdefault("reference_width", DEFAULT_ROI_REF_W)
+            config.setdefault("reference_height", DEFAULT_ROI_REF_H)
+    else:
+        # sync absolute for legacy clients
+        ref_w = int(config.get("reference_width", DEFAULT_ROI_REF_W))
+        ref_h = int(config.get("reference_height", DEFAULT_ROI_REF_H))
+        config["line_a_norm"] = _clean_norm_points(config.get("line_a_norm"), max_points=2)
+        config["line_b_norm"] = _clean_norm_points(config.get("line_b_norm"), max_points=2)
+        config["line_a"] = _denormalize_to_absolute(config["line_a_norm"], DEFAULT_ROI_REF_W, DEFAULT_ROI_REF_H)
+        config["line_b"] = _denormalize_to_absolute(config["line_b_norm"], DEFAULT_ROI_REF_W, DEFAULT_ROI_REF_H)
     return config
 
 
@@ -1824,38 +1948,95 @@ def post_analytics_speed_lines(camera_id: str, payload: Dict[str, Any]) -> Dict[
         raise HTTPException(status_code=400, detail="distance_m must be a number")
     if distance_m <= 0:
         raise HTTPException(status_code=400, detail="distance_m must be > 0")
-    line_a = clean_points_list(payload.get("line_a"), max_points=2)
-    line_b = clean_points_list(payload.get("line_b"), max_points=2)
     enabled = bool(payload.get("enabled", True))
-    if enabled and (len(line_a) != 2 or len(line_b) != 2):
+    # accept normalized first
+    la_norm = _clean_norm_points(payload.get("line_a_norm") or payload.get("line_a") or [], max_points=2)
+    lb_norm = _clean_norm_points(payload.get("line_b_norm") or payload.get("line_b") or [], max_points=2)
+    if la_norm and lb_norm:
+        ref_w = int(payload.get("reference_width") or payload.get("referenceWidth") or DEFAULT_ROI_REF_W)
+        ref_h = int(payload.get("reference_height") or payload.get("referenceHeight") or DEFAULT_ROI_REF_H)
+    else:
+        la = clean_points_list(payload.get("line_a"), max_points=2)
+        lb = clean_points_list(payload.get("line_b"), max_points=2)
+        if enabled and (len(la) != 2 or len(lb) != 2):
+            raise HTTPException(status_code=400, detail="line_a and line_b must contain exactly 2 points each")
+        if la and lb:
+            ref_w, ref_h = _infer_legacy_ref_w_h(la + lb)
+            ref_w = int(payload.get("reference_width") or ref_w)
+            ref_h = int(payload.get("reference_height") or ref_h)
+            la_norm = _normalize_from_absolute(la, ref_w, ref_h)
+            lb_norm = _normalize_from_absolute(lb, ref_w, ref_h)
+        else:
+            la_norm, lb_norm, ref_w, ref_h = [], [], DEFAULT_ROI_REF_W, DEFAULT_ROI_REF_H
+    if enabled and (len(la_norm) != 2 or len(lb_norm) != 2):
         raise HTTPException(status_code=400, detail="line_a and line_b must contain exactly 2 points each")
+    line_a = _denormalize_to_absolute(la_norm, DEFAULT_ROI_REF_W, DEFAULT_ROI_REF_H)
+    line_b = _denormalize_to_absolute(lb_norm, DEFAULT_ROI_REF_W, DEFAULT_ROI_REF_H)
     config = {"ok": True, "camera_id": camera_id, "enabled": enabled, "distance_m": distance_m,
-              "line_a": line_a, "line_b": line_b, "updated_at": now_iso()}
-    write_json_file(analytics_data_file(camera_id, "speed_lines"), config)
+              "line_a": line_a, "line_b": line_b, "line_a_norm": la_norm, "line_b_norm": lb_norm, "reference_width": ref_w, "reference_height": ref_h, "updated_at": now_iso()}
+    write_json_file(analytics_data_file(camera_id, "speed_lines"), {k: v for k, v in config.items() if k not in ("ok", "camera_id")})
     return config
 
 
 def get_analytics_crossing_line(camera_id: str) -> Dict[str, Any]:
     analytics_identity(camera_id)
-    default_config = {"ok": True, "camera_id": camera_id, "enabled": False, "line": [], "updated_at": None}
+    default_config = {"ok": True, "camera_id": camera_id, "enabled": False, "line": [], "line_norm": [], "reference_width": DEFAULT_ROI_REF_W, "reference_height": DEFAULT_ROI_REF_H, "updated_at": None}
     config = read_json_file(analytics_data_file(camera_id, "crossing_line"), default_config)
     config["ok"] = True
     config["camera_id"] = camera_id
     config.setdefault("enabled", False)
-    config.setdefault("line", [])
     config.setdefault("updated_at", None)
+    if not config.get("line_norm"):
+        legacy = clean_points_list(config.get("line", []), max_points=2)
+        if legacy:
+            ref_w, ref_h = _infer_legacy_ref_w_h(legacy)
+            ref_w = int(config.get("reference_width", ref_w))
+            ref_h = int(config.get("reference_height", ref_h))
+            config["line_norm"] = _normalize_from_absolute(legacy, ref_w, ref_h)
+            config["reference_width"] = ref_w
+            config["reference_height"] = ref_h
+            config["line"] = _denormalize_to_absolute(config["line_norm"], DEFAULT_ROI_REF_W, DEFAULT_ROI_REF_H)
+            write_json_file(analytics_data_file(camera_id, "crossing_line"), {k: v for k, v in config.items() if k not in ("ok", "camera_id")})
+        else:
+            config.setdefault("line", [])
+            config.setdefault("line_norm", [])
+            config.setdefault("reference_width", DEFAULT_ROI_REF_W)
+            config.setdefault("reference_height", DEFAULT_ROI_REF_H)
+    else:
+        ref_w = int(config.get("reference_width", DEFAULT_ROI_REF_W))
+        ref_h = int(config.get("reference_height", DEFAULT_ROI_REF_H))
+        config["line_norm"] = _clean_norm_points(config.get("line_norm"), max_points=2)
+        config["line"] = _denormalize_to_absolute(config["line_norm"], DEFAULT_ROI_REF_W, DEFAULT_ROI_REF_H)
     return config
 
 
 def post_analytics_crossing_line(camera_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     analytics_identity(camera_id)
-    line = clean_points_list(payload.get("line"), max_points=2)
     enabled = bool(payload.get("enabled", True))
-    if enabled and len(line) != 2:
+    norm = _clean_norm_points(payload.get("line_norm") or payload.get("line") or [], max_points=2)
+    if norm:
+        ref_w = int(payload.get("reference_width") or payload.get("referenceWidth") or DEFAULT_ROI_REF_W)
+        ref_h = int(payload.get("reference_height") or payload.get("referenceHeight") or DEFAULT_ROI_REF_H)
+        line_norm = norm
+    else:
+        legacy = clean_points_list(payload.get("line"), max_points=2)
+        if enabled and len(legacy) != 2:
+            raise HTTPException(status_code=400, detail="line must contain exactly 2 points")
+        if legacy:
+            ref_w, ref_h = _infer_legacy_ref_w_h(legacy)
+            ref_w = int(payload.get("reference_width") or ref_w)
+            ref_h = int(payload.get("reference_height") or ref_h)
+            line_norm = _normalize_from_absolute(legacy, ref_w, ref_h)
+        else:
+            line_norm, ref_w, ref_h = [], DEFAULT_ROI_REF_W, DEFAULT_ROI_REF_H
+            if enabled:
+                raise HTTPException(status_code=400, detail="line must contain exactly 2 points")
+    if enabled and len(line_norm) != 2:
         raise HTTPException(status_code=400, detail="line must contain exactly 2 points")
+    line = _denormalize_to_absolute(line_norm, DEFAULT_ROI_REF_W, DEFAULT_ROI_REF_H)
     config = {"ok": True, "camera_id": camera_id, "enabled": enabled,
-              "line": line, "updated_at": now_iso()}
-    write_json_file(analytics_data_file(camera_id, "crossing_line"), config)
+              "line": line, "line_norm": line_norm, "reference_width": ref_w, "reference_height": ref_h, "updated_at": now_iso()}
+    write_json_file(analytics_data_file(camera_id, "crossing_line"), {k: v for k, v in config.items() if k not in ("ok", "camera_id")})
     return config
 
 

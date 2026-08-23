@@ -181,16 +181,19 @@ class ApiContractTests(unittest.TestCase):
                 "cam1": {"analytics_profile": "water-v1", "domain": "water"},
                 "road1": {"analytics_profile": "road-v1", "domain": "road"},
             },
+            "DEFAULT_ROI_REF_W": 1920, "DEFAULT_ROI_REF_H": 1080, "LEGACY_ROI_W": 704, "LEGACY_ROI_H": 576,
             "now_iso": lambda: "x", "write_json_file": lambda path, data: writes.append((path, data)),
         }
         load_functions({
-            "clean_points_list", "analytics_identity", "analytics_data_file",
+            "clean_points_list", "_clean_norm_points", "_infer_legacy_ref_w_h", "_normalize_from_absolute", "_denormalize_to_absolute", "_normalize_legacy_polygon",
+            "analytics_identity", "analytics_data_file",
             "post_analytics_roi", "post_analytics_speed_lines", "post_cam1_roi", "post_cam1_speed_lines",
         }, ns)
         with self.assertRaises(HTTPExceptionStub):
             ns["post_cam1_roi"]({"enabled": True, "polygon": [{"x": 1, "y": 2}]})
         roi = ns["post_cam1_roi"]({"enabled": True, "polygon": [{"x": 1.2, "y": 2.7}, {"x": 10, "y": 20}, {"x": "30", "y": "40"}]})
-        self.assertEqual(roi["polygon"][0], {"x": 1, "y": 3})
+        # legacy 704 → normalized → denormalized to 1920/1080 for HD response
+        self.assertEqual(roi["polygon"][0], {"x": 3, "y": 6})
         self.assertEqual(writes[-1][0], Path("roi.json"))
         with self.assertRaises(HTTPExceptionStub):
             ns["post_cam1_speed_lines"]({"enabled": True, "distance_m": 0, "line_a": [], "line_b": []})
