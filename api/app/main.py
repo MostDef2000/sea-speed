@@ -1874,7 +1874,10 @@ def post_analytics_crossing(camera_id: str, data: Dict[str, Any]) -> Dict[str, A
         "kind": "line_crossing",
         "created_at": created_at,
     }
-    persist_object_event(record)
+    # Road-domain person crossings feed counters/summary only; the objects
+    # registry and the event feed remain person-free (Issue #263 contract).
+    if not (identity["domain"] == "road" and object_type == "person"):
+        persist_object_event(record)
     append_crossing_record(camera_id, record)
     return {"ok": True, "event_id": event_id}
 
