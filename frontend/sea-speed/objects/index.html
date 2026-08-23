@@ -56,7 +56,10 @@ const out=document.getElementById("cxOut");
 if(!layer||!viewBtn)return;
 const vlzToday=()=>new Date(Date.now()+10*3600e3).toISOString().slice(0,10);
 let active=false;
-function camFor(){return (window.registryScopeKey==="road")?"road1":"cam1"}
+function camFor(){
+  try{return (registryScopeKey==="road")?"road1":"cam1"}
+  catch(e){return "cam1"}
+}
 function setHidden(hidden){
   ["filters","objectsGrid"].forEach(id=>{const el=document.getElementById(id);if(el)el.style.display=hidden?"none":""});
   document.querySelectorAll(".pager,.summary-row").forEach(el=>el.style.display=hidden?"none":"");

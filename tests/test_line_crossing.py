@@ -607,3 +607,10 @@ class SummaryVlzHappyPathTests(unittest.TestCase):
         i_close = text.index("</div>", i_actions)
         self.assertLess(i_actions, i_btn)
         self.assertLess(i_btn, i_close)
+
+
+class CrossingsLayerCameraScopeTests(unittest.TestCase):
+    def test_layer_reads_global_scope_binding_not_window(self) -> None:
+        text = (ROOT / "frontend/sea-speed/objects/index.html").read_text(encoding="utf-8")
+        self.assertIn('registryScopeKey==="road"', text)
+        self.assertNotIn("window.registryScopeKey", text)
