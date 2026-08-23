@@ -46,7 +46,7 @@ together with their source passage so the two registries never diverge.
 - R6: At startup, reconciliation MUST delete mirror rows whose source passage
   no longer exists.
 
-### NFR assessment
+## NFR assessment
 
 - NFR-038-001 | Area: PERF | Target: prune stays a single SQL statement; sweep scan cost bounded by directory size and throttled to <=1 run/hour after startup | Validation: unit tests assert prune correctness; throttle logic unit-tested without sleeps | Evidence: tests/test_storage_retention.py | Status: PASS
 - NFR-038-002 | Area: REL | Target: media deletion failures never fail the API request that triggered pruning | Validation: unlink errors swallowed with stderr log; unit test with unwritable dir | Evidence: tests/test_storage_retention.py::test_media_sweep_survives_errors | Status: PASS
