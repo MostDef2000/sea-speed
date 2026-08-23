@@ -83,6 +83,7 @@
       <details class="panel utility-card" id="crossingCard"><summary><span class="summary-copy"><span>Линия счёта</span><span class="section-note">пересечения · 24ч</span></span></summary><div class="utility-content"><p class="panel-kicker">Crossing counter</p><h2>Счётная линия</h2><div class="roi-actions"><button id="cxEditBtn" class="mini-btn">Линия счёта</button><button id="cxUndoBtn" class="mini-btn">Отменить точку</button><button id="cxSaveBtn" class="mini-btn primary">Сохранить</button><button id="cxOffBtn" class="mini-btn">Выключить</button></div><div id="cxStatus" class="roi-status">Линия счёта: загрузка…</div><div id="cxSummary" class="roi-status"></div></div></details>
 <script>
 (function(){
+function init(){
 const API="/sea-speed/api/analytics/road1";
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
 const wrap=document.getElementById("roiEditorWrap"),img=document.getElementById("overlayImg");
@@ -160,8 +161,11 @@ async function loadSummary(){
   setStatus(cfg.enabled?"линия активна":"линия выключена");
   draw();loadSummary();setInterval(loadSummary,15000);
 })();
+}
+if(document.readyState==="loading"){document.addEventListener("DOMContentLoaded",init)}else{init()}
 })();
 </script>
+
 <details class="panel diagnostics-card">
         <summary><span class="summary-copy"><span>State JSON</span><span class="section-note">runtime</span></span></summary>
         <div class="diagnostics-content"><pre id="stateJson">{}</pre></div>
