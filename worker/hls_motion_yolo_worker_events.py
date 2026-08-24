@@ -697,6 +697,27 @@ def draw_overlay(frame, motion_now, motion_area, ai_active, detections, motion_b
     return out
 
 
+def post_live_envelope(envelope):
+    live_url = env_str("SEA_SPEED_LIVE_API_URL")
+    if not live_url:
+        base = env_str("SEA_SPEED_API_URL")
+        if base:
+            live_url = base.rsplit("/", 1)[0] + "/live"
+    token = env_str("SEA_SPEED_API_TOKEN")
+    if not live_url or not token:
+        return False
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    try:
+        r = requests.post(live_url, headers=headers, data=json.dumps(envelope, ensure_ascii=False), timeout=5)
+        if r.status_code >= 300:
+            print(f"POST live failed: HTTP {r.status_code} {r.text[:300]}")
+            return False
+        return True
+    except Exception as e:
+        print(f"POST live error: {e}")
+        return False
+
+
 def post_state(metadata, overlay_path):
     state_url = env_str("SEA_SPEED_API_URL")
     token = env_str("SEA_SPEED_API_TOKEN")
@@ -1553,6 +1574,15 @@ def main():
             now = time.time()
             active_track_ids = {int(det["track_id"]) for det in detections if det.get("track_id") is not None}
             update_crossing_counts(detections, now)
+            if not is_water:
+                try:
+                    h, w = frame.shape[:2]
+                    gen = int(time.monotonic() * 1000) % 10000000
+                    wc = os.environ.get("SEA_SPEED_SOURCE_COMMIT", "unknown")
+                    env_live = build_road_live_envelope(frame_no, gen, time.monotonic(), detections, w, h, wc)
+                    post_live_envelope(env_live)
+                except Exception as e:
+                    print(f"live envelope post skipped: {e}")
 
             passage_updates = []
             if is_water and passage_engine is not None:

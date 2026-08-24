@@ -2378,7 +2378,17 @@ def get_road_live(limit: int = 20) -> Dict[str, Any]:
 @app.get("/sea-speed/api/analytics/road1/live/stream")
 def road_live_stream():
     def gen():
+        last_idx = len(ROAD_LIVE)
         yield "data: {}\n\n"
+        import time as _time, json as _json
+        while True:
+            if len(ROAD_LIVE) > last_idx:
+                for env in list(ROAD_LIVE)[last_idx:]:
+                    yield f"data: {_json.dumps(env, ensure_ascii=False)}\n\n"
+                last_idx = len(ROAD_LIVE)
+            else:
+                yield ": keepalive\n\n"
+            _time.sleep(0.1)
     return StreamingResponse(gen(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 @app.get("/api/health")
