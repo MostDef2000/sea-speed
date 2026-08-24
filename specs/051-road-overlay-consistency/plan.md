@@ -75,6 +75,10 @@ MIXED normalized fix on top of 050:
 
 Required: runtime deployment REQUIRED (MIXED).
 
+- Adjacent-stage review: COMPLETE
+- Production-learning root cause: shallow-copy race at two levels (crossing snapshot and async publisher) allowed nested by_class counts to advance after top-level totals were captured
+- Production-learning adjacent-stage findings: direction totals are value data, not live view; queue boundary must deepcopy; regression proves totals equal sums
+
 - TX-051-001 | Stage: ADMISSION | Mutation: NO | Failure disposition: FATAL | State after failure: no transport | Retry: after policy correction | Rollback: NOT REQUIRED | Evidence: autonomous log
 - TX-051-002 | Stage: PRE-MUTATION | Mutation: NO | Failure disposition: FATAL | State after failure: verify_source_protection fails | Retry: after remediate | Rollback: NOT REQUIRED | Evidence: verify_source_protection output
 - TX-051-003 | Stage: MUTATION | Mutation: YES | Failure disposition: CONDITIONAL | State after failure: previous VPS/Worker serving | Retry: rerun contour | Rollback: redeploy c170c7c | Evidence: deployment-manifest MIXED runtime_verified
