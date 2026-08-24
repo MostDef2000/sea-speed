@@ -139,6 +139,30 @@ class CrossingDetectionTests(unittest.TestCase):
         self.assertEqual(pending[0]["direction"], "left_to_right")
         self.assertEqual(pending[0]["object_type"], "bus")
 
+    def test_crossing_snapshot_is_deeply_immutable(self) -> None:
+        update = self.ns["update_crossing_counts"]
+        update([det(21, 30, 100, 70, 140, object_type="car")], now=10.0)
+        update([det(21, 130, 100, 170, 140, object_type="car")], now=11.0)
+        first = self.ns["crossing_overlay_summary"]()
+
+        update([det(22, 30, 100, 70, 140, object_type="car")], now=20.0)
+        update([det(22, 130, 100, 170, 140, object_type="car")], now=21.0)
+        current = self.ns["crossing_overlay_summary"]()
+
+        self.assertEqual(first["left_to_right"], 1)
+        self.assertEqual(first["by_class"]["car"]["left_to_right"], 1)
+        self.assertEqual(current["left_to_right"], 2)
+        self.assertEqual(current["by_class"]["car"]["left_to_right"], 2)
+        for summary in (first, current):
+            self.assertEqual(
+                summary["left_to_right"],
+                sum(v["left_to_right"] for v in summary["by_class"].values()),
+            )
+            self.assertEqual(
+                summary["right_to_left"],
+                sum(v["right_to_left"] for v in summary["by_class"].values()),
+            )
+
     def test_crossing_payload_carries_measured_speed(self) -> None:
         update = self.ns["update_crossing_counts"]
         d = det(13, 30, 100, 70, 140, object_type="car")

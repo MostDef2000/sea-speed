@@ -157,6 +157,27 @@ class BoundedQueueAndPublishingTests(unittest.TestCase):
             except Exception:
                 pass
 
+    def test_queued_metadata_is_deeply_immutable(self):
+        entry = self._load_entry_with_mocks()
+        metadata = {
+            "crossings": {
+                "left_to_right": 1,
+                "right_to_left": 0,
+                "by_class": {
+                    "car": {"left_to_right": 1, "right_to_left": 0},
+                },
+            },
+        }
+        with mock.patch.dict(os.environ, {"SEA_SPEED_SOURCE_COMMIT": "a" * 40}):
+            queued = entry._metadata_with_runtime_source_commit(metadata)
+
+        metadata["crossings"]["by_class"]["car"]["left_to_right"] = 2
+        self.assertEqual(queued["crossings"]["left_to_right"], 1)
+        self.assertEqual(
+            queued["crossings"]["by_class"]["car"]["left_to_right"],
+            1,
+        )
+
 
 class ObservedRunnerTelemetryTests(unittest.TestCase):
     def test_observed_parses_telemetry(self):

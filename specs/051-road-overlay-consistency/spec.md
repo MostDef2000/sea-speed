@@ -32,6 +32,7 @@ Road operator sees stable AI overlay that is atomically synchronized with crossi
 - NFR-051-003 | Area: usability | Target: Road main stage has no >40px empty top/bottom bands at 720px width, canvas alignment preserved | Validation: pixel/layout assertion + visual | Evidence: frontend contract test | Status: PASS
 - NFR-051-004 | Area: observability | Target: state exposes both sample_fps and effective_fps with p95 | Validation: schema + state test | Evidence: tests/test_ubuntu_worker_observability.py | Status: PASS
 - NFR-051-005 | Area: compatibility | Target: old absolute payloads still rendered correctly via 1920 fallback | Validation: legacy absolute draw test | Evidence: test_roi_normalization.py | Status: PASS
+- NFR-051-006 | Area: consistency | Target: every published crossing snapshot satisfies direction total = sum of direction counts across classes, even while later frames mutate live counters | Validation: snapshot and publisher-boundary deep-immutability regression tests | Evidence: tests/test_line_crossing.py, tests/test_detection_runtime_optimization.py | Status: PASS
 
 ## Acceptance criteria
 
@@ -44,4 +45,5 @@ Road operator sees stable AI overlay that is atomically synchronized with crossi
 
 ## Runtime feedback
 
-To be recorded after MIXED deployment acceptance (visual A/B, resolution, sync, fit, FPS).
+- 2026-08-24 `EVIDENCE_CONTRADICTION`: operator observed per-class sums larger than direction totals. Root cause: top-level totals were captured as immutable integers, but nested `by_class` dictionaries remained shared through two shallow copies and mutated before asynchronous serialization.
+- Corrective acceptance requires an immutable nested snapshot and the invariant `total[direction] == sum(by_class[*][direction])` at the queued publisher boundary.
