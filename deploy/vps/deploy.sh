@@ -50,7 +50,7 @@ log() { printf '[sea-speed-deploy] %s\n' "$*"; }
 
 migrate_legacy_roi_to_normalized() {
   local data_dir
-  data_dir="$(dirname "$API_TARGET")/data"
+  data_dir="$(dirname "$(dirname "$API_TARGET")")/data"
   if [[ ! -d "$data_dir" ]]; then
     log "ROI migration skipped: data dir missing $data_dir"
     return 0
@@ -71,7 +71,7 @@ def infer_ref(pts):
     return DEFAULT_W, DEFAULT_H
 def normalize(pts, rw, rh):
     return [{"x_norm": p["x"]/rw, "y_norm": p["y"]/rh} for p in pts]
-migrated=0
+total_migrated=0
 for name in ["cam1_roi.json","road1_roi.json","cam1_speed_lines.json","road1_speed_lines.json","cam1_crossing_line.json","road1_crossing_line.json"]:
     fp=data_dir/name
     if not fp.is_file():
@@ -90,6 +90,7 @@ for name in ["cam1_roi.json","road1_roi.json","cam1_speed_lines.json","road1_spe
     if has_norm:
         continue
     # ROI
+    migrated=False
     if "polygon" in raw:
         leg=[p for p in raw.get("polygon",[]) if isinstance(p,dict) and "x" in p]
         if leg:
@@ -99,7 +100,7 @@ for name in ["cam1_roi.json","road1_roi.json","cam1_speed_lines.json","road1_spe
             raw["reference_height"]=rh
             # keep denormalized to 1920 for compat
             raw["polygon"]=[{"x": int(round(p["x_norm"]*DEFAULT_W)), "y": int(round(p["y_norm"]*DEFAULT_H))} for p in raw["polygon_norm"]]
-            migrated+=1
+            migrated=True
     # speed lines
     if "line_a" in raw and "line_b" in raw:
         la = [p for p in raw.get("line_a",[]) if isinstance(p,dict) and "x" in p]
@@ -112,7 +113,7 @@ for name in ["cam1_roi.json","road1_roi.json","cam1_speed_lines.json","road1_spe
             raw["reference_height"]=rh
             raw["line_a"]=[{"x": int(round(p["x_norm"]*DEFAULT_W)), "y": int(round(p["y_norm"]*DEFAULT_H))} for p in raw["line_a_norm"]]
             raw["line_b"]=[{"x": int(round(p["x_norm"]*DEFAULT_W)), "y": int(round(p["y_norm"]*DEFAULT_H))} for p in raw["line_b_norm"]]
-            migrated+=1
+            migrated=True
     # crossing
     if "line" in raw and "distance_m" not in raw:
         # crossing line (has line but not distance)
@@ -123,13 +124,13 @@ for name in ["cam1_roi.json","road1_roi.json","cam1_speed_lines.json","road1_spe
             raw["reference_width"]=rw
             raw["reference_height"]=rh
             raw["line"]=[{"x": int(round(p["x_norm"]*DEFAULT_W)), "y": int(round(p["y_norm"]*DEFAULT_H))} for p in raw["line_norm"]]
-            migrated+=1
+            migrated=True
     if migrated:
-        fp.write_text(json.dumps(raw, ensure_ascii=False, indent=2)+"
-")
+        fp.write_text(json.dumps(raw, ensure_ascii=False, indent=2)+"\n")
         print(f"ROI_MIGRATED {name} -> normalized")
-if migrated:
-    print(f"ROI_MIGRATED total={migrated}")
+        total_migrated+=1
+if total_migrated:
+    print(f"ROI_MIGRATED total={total_migrated}")
 else:
     print("ROI_MIGRATED none")
 PYEOF

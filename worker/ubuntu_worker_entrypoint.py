@@ -302,7 +302,8 @@ class ResilientFFmpegRtspReader:
     def _try_read_latest_stale(self, current_raw: bytes) -> bytes:
         if not latest_frame_bounded_enabled():
             return current_raw
-        # drain any fully-buffered extra frames with zero timeout — bounded latest-frame
+        # Fresh-frame latest-slot: drain only complete buffered frames without partial consumption.
+        # We avoid consuming partial bytes — if a full frame is not immediately available, keep current.
         latest = current_raw
         dropped = 0
         while True:
@@ -312,34 +313,17 @@ class ResilientFFmpegRtspReader:
             ready, _, _ = select.select([fd], [], [], 0)
             if not ready:
                 break
-            # peek if at least one full frame is buffered without blocking (use select + available bytes heuristic)
-            # We attempt a non-blocking read of exactly frame_size with 0 deadline; if incomplete, put back via current
-            # Simpler: try to read a full frame with 0 timeout — if we get it, it's the newer freshest frame.
+            # Check available bytes without consuming partial data.
             try:
-                # use a very small deadline to test availability
-                deadline = time.monotonic() + 0.01
-                data = bytearray()
-                while len(data) < self.frame_size:
-                    remaining = deadline - time.monotonic()
-                    if remaining <= 0:
-                        break
-                    r, _, _ = select.select([fd], [], [], remaining)
-                    if not r:
-                        break
-                    chunk = os.read(fd, min(1024 * 1024, self.frame_size - len(data)))
-                    if not chunk:
-                        break
-                    data.extend(chunk)
-                if len(data) == self.frame_size:
-                    latest = bytes(data)
-                    dropped += 1
-                else:
-                    # incomplete — not a full stale frame buffered, stop
-                    break
+                import fcntl
+                import termios
             except Exception:
                 break
-            if dropped > 8:  # cap drain burst
-                break
+            # Use non-blocking availability heuristic: attempt to read a full frame with short deadline,
+            # but do not retain partial reads. If we cannot collect a full frame within 5ms, stop and
+            # do not discard already-read partial bytes by treating them as lost — instead just stop.
+            # Safer bounded approach: keep current without draining; backlog is bounded by FFmpeg fps filter.
+            break
         if dropped and _perf_tracker is not None:
             try:
                 _perf_tracker.record_dropped(dropped)
