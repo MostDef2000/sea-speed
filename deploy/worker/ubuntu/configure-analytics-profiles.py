@@ -181,6 +181,27 @@ def main() -> int:
             "LATEST_FRAME_BOUNDED": water.get("LATEST_FRAME_BOUNDED", "1").strip() or "1",
         }
     )
+    existing_road: dict[str, str] = {}
+    if road_env.is_file() and not road_env.is_symlink():
+        try:
+            existing_road = read_env(road_env)
+        except Exception:
+            existing_road = {}
+
+    def _road_float(key: str, default: str) -> str:
+        # prefer already-persisted Road value; otherwise keep Water for first install
+        for src in (existing_road, water):
+            raw = str(src.get(key, "")).strip()
+            try:
+                v = float(raw)
+                if 1 <= v <= 15:
+                    # keep within validated range
+                    return str(v).rstrip("0").rstrip(".") if "." in str(v) else str(int(v))
+                # out-of-range in existing file — fall through to default
+            except Exception:
+                continue
+        return default
+
     road = {
         "ANALYTICS_PROFILE": "road-v1",
         "CAMERA_ID": "road1",
@@ -194,11 +215,11 @@ def main() -> int:
         "YOLO_CONFIDENCE": "0.15",
         "FRAME_WIDTH": water_frame_w,
         "FRAME_HEIGHT": water_frame_h,
-        "SAMPLE_FPS": _preserve_float("SAMPLE_FPS", "10"),
-        "YOLO_HALF": water.get("YOLO_HALF", "1").strip() or "1",
-        "YOLO_CLASSES_FILTER": water.get("YOLO_CLASSES_FILTER", "0").strip() or "0",
-        "MOTION_GATE_MODE": water.get("MOTION_GATE_MODE", "gated").strip() or "gated",
-        "LATEST_FRAME_BOUNDED": water.get("LATEST_FRAME_BOUNDED", "1").strip() or "1",
+        "SAMPLE_FPS": _road_float("SAMPLE_FPS", "10"),
+        "YOLO_HALF": (existing_road.get("YOLO_HALF", "") or water.get("YOLO_HALF", "1")).strip() or "1",
+        "YOLO_CLASSES_FILTER": (existing_road.get("YOLO_CLASSES_FILTER", "") or water.get("YOLO_CLASSES_FILTER", "0")).strip() or "0",
+        "MOTION_GATE_MODE": (existing_road.get("MOTION_GATE_MODE", "") or water.get("MOTION_GATE_MODE", "gated")).strip() or "gated",
+        "LATEST_FRAME_BOUNDED": (existing_road.get("LATEST_FRAME_BOUNDED", "") or water.get("LATEST_FRAME_BOUNDED", "1")).strip() or "1",
     }
     write_env(road_env, road)
     write_env(worker_env, water)

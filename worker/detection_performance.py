@@ -21,33 +21,63 @@ class StageTimers:
 class PerformanceTracker:
     window_sec: float = 5.0
     _times: collections.deque = field(default_factory=lambda: collections.deque())
+    _decoded_times: collections.deque = field(default_factory=lambda: collections.deque())
+    _inferred_times: collections.deque = field(default_factory=lambda: collections.deque())
     _inference_ms: collections.deque = field(default_factory=lambda: collections.deque(maxlen=100))
     _frame_ages_ms: collections.deque = field(default_factory=lambda: collections.deque(maxlen=100))
     _dropped: int = 0
+    _published: int = 0
 
-    def record_frame(self, *, ingest_mono: float, inference_ms: float, frame_age_ms: float) -> None:
+    def record_decoded(self, *, ingest_mono: float) -> None:
         now = time.monotonic()
-        self._times.append(now)
+        self._decoded_times.append(now)
+        cutoff = now - self.window_sec
+        while self._decoded_times and self._decoded_times[0] < cutoff:
+            self._decoded_times.popleft()
+
+    def record_inferred(self, *, ingest_mono: float, inference_ms: float, frame_age_ms: float) -> None:
+        now = ingest_mono if ingest_mono else time.monotonic()
+        # use wall time for window but ingest for age consistency
+        wall = time.monotonic()
+        self._inferred_times.append(wall)
+        self._times.append(wall)
         self._inference_ms.append(float(inference_ms))
         self._frame_ages_ms.append(float(frame_age_ms))
-        # prune window
-        cutoff = now - self.window_sec
+        cutoff = wall - self.window_sec
+        while self._inferred_times and self._inferred_times[0] < cutoff:
+            self._inferred_times.popleft()
         while self._times and self._times[0] < cutoff:
             self._times.popleft()
+
+    def record_published(self) -> None:
+        self._published += 1
+
+    def record_frame(self, *, ingest_mono: float, inference_ms: float, frame_age_ms: float) -> None:
+        # backward-compat: treat as inferred completion; decoded path should call record_decoded separately
+        if inference_ms:
+            self.record_inferred(ingest_mono=ingest_mono, inference_ms=inference_ms, frame_age_ms=frame_age_ms)
+        else:
+            self.record_decoded(ingest_mono=ingest_mono)
 
     def record_dropped(self, count: int = 1) -> None:
         self._dropped += int(count)
 
     def effective_fps(self) -> float:
-        if not self._times:
+        src = self._inferred_times if self._inferred_times else self._times
+        if not src:
             return 0.0
-        # windowed count / window_sec, fallback to span
-        if len(self._times) < 2:
+        if len(src) < 2:
             return 0.0
-        span = self._times[-1] - self._times[0]
+        span = src[-1] - src[0]
         if span <= 0:
             return 0.0
-        return (len(self._times) - 1) / span
+        return (len(src) - 1) / span
+
+    def decoded_fps(self) -> float:
+        if len(self._decoded_times) < 2:
+            return 0.0
+        span = self._decoded_times[-1] - self._decoded_times[0]
+        return (len(self._decoded_times) - 1) / span if span > 0 else 0.0
 
     def p95_inference_ms(self) -> float:
         if not self._inference_ms:
@@ -64,9 +94,11 @@ class PerformanceTracker:
     def snapshot(self) -> dict[str, float]:
         return {
             "effective_fps": float(self.effective_fps()),
+            "decoded_fps": float(self.decoded_fps()),
             "p95_inference_ms": float(self.p95_inference_ms()),
             "avg_frame_age_ms": float(self.avg_frame_age_ms()),
             "dropped": float(self._dropped),
+            "published": float(self._published),
         }
 
     @staticmethod

@@ -1836,7 +1836,16 @@ async def post_analytics_event(
 def get_analytics_roi(camera_id: str) -> Dict[str, Any]:
     analytics_identity(camera_id)
     default_roi = {"ok": True, "camera_id": camera_id, "enabled": False, "polygon": [], "polygon_norm": [], "reference_width": DEFAULT_ROI_REF_W, "reference_height": DEFAULT_ROI_REF_H, "updated_at": None}
-    roi = read_json_file(analytics_data_file(camera_id, "roi"), default_roi)
+    roi_path = analytics_data_file(camera_id, "roi")
+    if roi_path.exists():
+        try:
+            roi = json.loads(roi_path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail="ROI storage is corrupted") from exc
+        if not isinstance(roi, dict):
+            raise HTTPException(status_code=500, detail="ROI storage is corrupted")
+    else:
+        roi = dict(default_roi)
     roi["ok"] = True
     roi["camera_id"] = camera_id
     roi.setdefault("enabled", False)
