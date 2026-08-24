@@ -29,6 +29,7 @@ except Exception:
 _perf_tracker = PerformanceTracker() if PerformanceTracker else None
 _publish_queue: queue.Queue = queue.Queue(maxsize=32)
 _publish_thread: threading.Thread | None = None
+_LIVE_GENERATION = str(int(time.monotonic() * 1000))  # restart-safe generation
 
 # Ubuntu main is the water contour unless protected runtime config overrides it.
 os.environ.setdefault("ANALYTICS_PROFILE", "water-v1")
@@ -55,6 +56,12 @@ def runtime_source_commit() -> str:
 def _metadata_with_runtime_source_commit(metadata: dict[str, object]) -> dict[str, object]:
     if not isinstance(metadata, dict):
         raise RuntimeError("worker metadata must be a mapping")
+    # inject generation and honest observed_mono
+    try:
+        metadata["generation"] = int(_LIVE_GENERATION)
+    except Exception:
+        metadata["generation"] = _LIVE_GENERATION
+    metadata["observed_mono"] = time.monotonic()
     # The publisher is asynchronous.  A shallow copy leaves nested structures
     # (notably crossings.by_class) shared with the live counter state, allowing
     # class counts to advance after top-level totals were captured.
