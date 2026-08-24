@@ -62,11 +62,27 @@ def _metadata_with_runtime_source_commit(metadata: dict[str, object]) -> dict[st
 def _publish_worker() -> None:
     while True:
         try:
-            kind, meta, path = _publish_queue.get()
+            kind, meta, payload = _publish_queue.get()
             if kind == "state":
-                _ORIGINAL_POST_STATE(meta, path)
+                # payload may be bytes (immutable snapshot) or Path
+                if isinstance(payload, (bytes, bytearray)):
+                    import tempfile
+                    tmp = None
+                    try:
+                        with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tf:
+                            tf.write(bytes(payload))
+                            tmp = Path(tf.name)
+                        _ORIGINAL_POST_STATE(meta, tmp)
+                    finally:
+                        try:
+                            if tmp is not None and tmp.exists():
+                                tmp.unlink(missing_ok=True)
+                        except Exception:
+                            pass
+                else:
+                    _ORIGINAL_POST_STATE(meta, payload)
             elif kind == "event":
-                _ORIGINAL_POST_EVENT(meta, path)
+                _ORIGINAL_POST_EVENT(meta, payload)
             _publish_queue.task_done()
         except Exception:
             try:
@@ -92,19 +108,24 @@ def post_state(metadata, overlay_path):
     enriched = _metadata_with_runtime_source_commit(metadata)
     if _is_sync_publish():
         return _ORIGINAL_POST_STATE(enriched, overlay_path)
+    # capture immutable overlay bytes immediately to avoid mutable file race
+    overlay_payload: object = overlay_path
+    try:
+        p = Path(overlay_path) if not isinstance(overlay_path, Path) else overlay_path
+        if p.exists():
+            overlay_payload = p.read_bytes()
+    except Exception:
+        overlay_payload = overlay_path
     # state/overlay is coalesced — keep latest only, drop stale if queue full
     if _publish_queue.full():
         try:
-            # drop oldest state entry if any
             cur = []
             while not _publish_queue.empty():
                 try:
                     cur.append(_publish_queue.get_nowait())
                 except queue.Empty:
                     break
-            # keep only last event entries, drop oldest state
             kept = [x for x in cur if x[0] == "event"]
-            # re-queue events
             for item in kept:
                 try:
                     _publish_queue.put_nowait(item)
@@ -119,9 +140,8 @@ def post_state(metadata, overlay_path):
             pass
     _ensure_publish_thread()
     try:
-        _publish_queue.put_nowait(("state", enriched, overlay_path))
+        _publish_queue.put_nowait(("state", enriched, overlay_payload))
     except queue.Full:
-        # fallback to synchronous if still full — preserves old behavior
         return _ORIGINAL_POST_STATE(enriched, overlay_path)
     return True
 

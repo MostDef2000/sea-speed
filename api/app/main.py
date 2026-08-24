@@ -981,6 +981,12 @@ def default_state() -> Dict[str, Any]:
         "detections": 0,
         "tracks": 0,
         "frame_no": 0,
+        "frame_width": 1920,
+        "frame_height": 1080,
+        "sample_fps": 10.0,
+        "effective_fps": None,
+        "p95_inference_ms": None,
+        "overlay_rev": 0,
         "last_overlay_url": None,
         "message": "No worker state received yet",
     }
@@ -1022,6 +1028,12 @@ def analytics_default_state(camera_id: str) -> Dict[str, Any]:
         "detections": 0,
         "tracks": 0,
         "frame_no": 0,
+        "frame_width": 1920,
+        "frame_height": 1080,
+        "sample_fps": 10.0,
+        "effective_fps": None,
+        "p95_inference_ms": None,
+        "overlay_rev": 0,
         "last_overlay_url": None,
         "message": "No worker state received yet",
     }
@@ -1040,6 +1052,12 @@ def analytics_state(camera_id: str) -> Dict[str, Any]:
     state.setdefault("telemetry_schema", TELEMETRY_SCHEMA)
     state.setdefault("worker_source_commit", None)
     state.setdefault("frame_no", 0)
+    state.setdefault("frame_width", 1920)
+    state.setdefault("frame_height", 1080)
+    state.setdefault("sample_fps", 10.0)
+    state.setdefault("effective_fps", None)
+    state.setdefault("p95_inference_ms", None)
+    state.setdefault("overlay_rev", state.get("frame_no", 0))
     updated_at = state.get("updated_at")
     if not updated_at:
         state["worker_online"] = False
@@ -1737,11 +1755,24 @@ async def post_analytics_state(
     path = analytics_data_file(camera_id, "state")
     if overlay is not None:
         overlay_path = OVERLAY_DIR / f"{camera_id}_latest_overlay.jpg"
-        overlay_path.write_bytes(await overlay.read())
+        overlay_bytes = await overlay.read()
+        # atomic replace to avoid readers seeing partial JPEG
+        overlay_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = overlay_path.with_suffix(".tmp")
+        tmp_path.write_bytes(overlay_bytes)
+        os.replace(tmp_path, overlay_path)
         data["last_overlay_url"] = f"/sea-speed/media/overlays/{camera_id}_latest_overlay.jpg"
+        # ensure overlay_rev bound to frame_no if not already
+        if data.get("overlay_rev") is None:
+            try:
+                data["overlay_rev"] = int(data.get("frame_no", 0))
+            except Exception:
+                data["overlay_rev"] = 0
     else:
         old_state = read_json_file(path, analytics_default_state(camera_id))
         data["last_overlay_url"] = old_state.get("last_overlay_url")
+        if data.get("overlay_rev") is None:
+            data["overlay_rev"] = old_state.get("overlay_rev", old_state.get("frame_no", 0))
     write_json_file(path, data)
     return {"ok": True, "state": data}
 
