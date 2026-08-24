@@ -59,7 +59,7 @@ MIXED normalized fix on top of 050:
 ## Correct-course check
 
 - Adjacent-stage review: COMPLETE (speed lines coord contract, overlay publish/state, API atomic, FPS telemetry, panel layout)
-- Trigger: EVIDENCE_CONTRADICTION — production Road class sums exceeded direction totals after #297 deployment
+- Trigger: PRODUCTION_LEARNING — production Road class sums exceeded direction totals after #297 deployment (evidence contradiction within admitted scope)
 - Issue impact: #296 restores Road visibility/sync/fit and clarifies FPS without formula change
 - Specification impact: R1-R6 add presentation/publish hardening
 - Plan impact: MIXED deployment, transaction audit unchanged
