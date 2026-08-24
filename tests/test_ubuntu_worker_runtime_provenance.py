@@ -112,7 +112,11 @@ class UbuntuWorkerRuntimeProvenanceTests(unittest.TestCase):
             module.post_state({"camera_id": "road1"}, "overlay.jpg")
 
         payload = captured_state[0][0]
-        self.assertEqual(payload, {"camera_id": "road1", "worker_source_commit": SOURCE_SHA})
+        self.assertEqual(payload["camera_id"], "road1")
+        self.assertEqual(payload["worker_source_commit"], SOURCE_SHA)
+        # generation/observed_mono are allowed additive provenance fields
+        for key in payload:
+            self.assertIn(key, {"camera_id", "worker_source_commit", "generation", "observed_mono"})
         serialized = repr(payload)
         self.assertNotIn("secret-token-value", serialized)
         self.assertNotIn("password", serialized)
