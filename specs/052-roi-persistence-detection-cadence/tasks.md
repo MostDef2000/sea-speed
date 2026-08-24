@@ -6,17 +6,17 @@
 
 ## Requirements traceability
 
-- AC-001 | Task: TASK-052-01 | Evidence: test_frontend_contract + test_api_contract draft/persisted/verified save | Coverage: PENDING
-- AC-002 | Task: TASK-052-01 | Evidence: test_frontend_contract + test_api_contract reload after restart/reload | Coverage: PENDING
-- AC-003 | Task: TASK-052-01 | Evidence: test_roi_normalization + test_api_contract malformed vs absent | Coverage: PENDING
-- AC-004 | Task: TASK-052-02 | Evidence: test_vps_deploy_transaction executed migration | Coverage: PENDING
-- AC-005 | Task: TASK-052-02 | Evidence: worker poll / reload integration test + runtime check | Coverage: PENDING
-- AC-006 | Task: TASK-052-03 | Evidence: test_detection_runtime_optimization complete-frame latest slot | Coverage: PENDING
-- AC-007 | Task: TASK-052-04 | Evidence: test_detection_runtime_optimization + test_ubuntu_worker_observability + test_telemetry_contract | Coverage: PENDING
-- AC-008 | Task: TASK-052-04 | Evidence: test_detection_runtime_optimization + test_worker_tracking_overlay critical-path | Coverage: PENDING
-- AC-009 | Task: TASK-052-03 | Evidence: test_analytics_profiles + test_ubuntu_worker_ai_supervision independent Road cadence | Coverage: PENDING
-- AC-010 | Task: TASK-052-05 | Evidence: protected-runtime benchmark report | Coverage: PENDING
-- AC-011 | Task: TASK-052-05 | Evidence: full validations + MIXED manifests + health checks | Coverage: PENDING
+- AC-001 | Task: TASK-052-01 | Evidence: test_frontend_contract + test_api_contract draft/persisted/verified save | Coverage: COVERED
+- AC-002 | Task: TASK-052-01 | Evidence: test_frontend_contract + test_api_contract reload after restart/reload | Coverage: COVERED
+- AC-003 | Task: TASK-052-01 | Evidence: test_roi_normalization + test_api_contract malformed vs absent | Coverage: COVERED
+- AC-004 | Task: TASK-052-02 | Evidence: test_vps_deploy_transaction executed migration | Coverage: COVERED
+- AC-005 | Task: TASK-052-02 | Evidence: worker poll / reload integration test + runtime check | Coverage: COVERED
+- AC-006 | Task: TASK-052-03 | Evidence: test_detection_runtime_optimization complete-frame latest slot | Coverage: COVERED
+- AC-007 | Task: TASK-052-04 | Evidence: test_detection_runtime_optimization + test_ubuntu_worker_observability + test_telemetry_contract | Coverage: COVERED
+- AC-008 | Task: TASK-052-04 | Evidence: test_detection_runtime_optimization + test_worker_tracking_overlay critical-path | Coverage: COVERED
+- AC-009 | Task: TASK-052-03 | Evidence: test_analytics_profiles + test_ubuntu_worker_ai_supervision independent Road cadence | Coverage: COVERED
+- AC-010 | Task: TASK-052-05 | Evidence: protected-runtime benchmark report | Coverage: RUNTIME-MANUAL | Reason: protected hardware benchmark
+- AC-011 | Task: TASK-052-05 | Evidence: full validations + MIXED manifests + health checks | Coverage: COVERED
 
 ## Delivery tasks
 
@@ -34,11 +34,11 @@ Ordered lifecycle:
 
 ## Task records
 
-- TASK-052-01 | Road ROI persistence surface — draft vs persisted vs error UI, POST→GET verified save, independent ROI load | AC-001, AC-002, AC-003 | Evidence: frontend/sea-speed/road/index.html, api/app/main.py, tests/test_frontend_contract.py, tests/test_api_contract.py, tests/test_roi_normalization.py | Status: PENDING
-- TASK-052-02 | ROI durable storage and deployment correctness — atomic write/migration against production data directory, per-file semantics | AC-004, AC-005 | Evidence: deploy/vps/deploy.sh, tests/test_vps_deploy_transaction.py, worker/hls_motion_yolo_worker_events.py, deploy/worker/ubuntu/configure-analytics-profiles.py | Status: PENDING
-- TASK-052-03 | Fresh-frame transport and cadence ownership — verified complete-frame latest slot without partial drain; Road cadence not silently inherited from Water | AC-006, AC-009 | Evidence: worker/ubuntu_worker_entrypoint.py, worker/ubuntu_ai_inference_worker.py, worker/analytics_profiles.py, deploy/worker/ubuntu/configure-analytics-profiles.py, tests/test_detection_runtime_optimization.py, tests/test_analytics_profiles.py | Status: PENDING
-- TASK-052-04 | Measured pipeline and non-blocking publish — split decoded/inferred/published FPS without double counting, stage timing, queue isolation while preserving snapshot consistency | AC-007, AC-008 | Evidence: worker/detection_performance.py, worker/hls_motion_yolo_worker_events.py, worker/ubuntu_worker_entrypoint.py, schemas/telemetry.schema.json, tests/test_detection_runtime_optimization.py, tests/test_ubuntu_worker_observability.py, tests/test_telemetry_contract.py, tests/test_worker_tracking_overlay.py | Status: PENDING
-- TASK-052-05 | Validation and runtime benchmark — validators, full suite, exact-green-head merge, exact-main Quality, MIXED deploy, ROI + cadence runtime acceptance and protected 5/10/15 benchmark | AC-010, AC-011 | Evidence: specs/052/*, manifests, health, benchmark report | Status: PENDING
+- TASK-052-01 | Road ROI persistence surface — draft vs persisted vs error UI, POST→GET verified save, independent ROI load | AC-001, AC-002, AC-003 | Evidence: frontend/sea-speed/road/index.html, api/app/main.py, tests/test_frontend_contract.py, tests/test_api_contract.py, tests/test_roi_normalization.py | Status: COMPLETE
+- TASK-052-02 | ROI durable storage and deployment correctness — atomic write/migration against production data directory, per-file semantics | AC-004, AC-005 | Evidence: deploy/vps/deploy.sh, tests/test_vps_deploy_transaction.py, worker/hls_motion_yolo_worker_events.py, deploy/worker/ubuntu/configure-analytics-profiles.py | Status: COMPLETE
+- TASK-052-03 | Fresh-frame transport and cadence ownership — verified complete-frame latest slot without partial drain; Road cadence not silently inherited from Water | AC-006, AC-009 | Evidence: worker/ubuntu_worker_entrypoint.py, worker/ubuntu_ai_inference_worker.py, worker/analytics_profiles.py, deploy/worker/ubuntu/configure-analytics-profiles.py, tests/test_detection_runtime_optimization.py, tests/test_analytics_profiles.py | Status: COMPLETE
+- TASK-052-04 | Measured pipeline and non-blocking publish — split decoded/inferred/published FPS without double counting, stage timing, queue isolation while preserving snapshot consistency | AC-007, AC-008 | Evidence: worker/detection_performance.py, worker/hls_motion_yolo_worker_events.py, worker/ubuntu_worker_entrypoint.py, schemas/telemetry.schema.json, tests/test_detection_runtime_optimization.py, tests/test_ubuntu_worker_observability.py, tests/test_telemetry_contract.py, tests/test_worker_tracking_overlay.py | Status: COMPLETE
+- TASK-052-05 | Validation and runtime benchmark — validators, full suite, exact-green-head merge, exact-main Quality, MIXED deploy, ROI + cadence runtime acceptance and protected 5/10/15 benchmark | AC-010, AC-011 | Evidence: specs/052/*, manifests, health, benchmark report | Status: IN PROGRESS
 
 ## Completion gate
 

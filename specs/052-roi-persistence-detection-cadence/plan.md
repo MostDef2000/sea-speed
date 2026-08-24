@@ -7,14 +7,14 @@
 
 - Risk profile: REQUIRED
 
-- RISK-052-001 | Category: TECH | Probability: 4 | Impact: 3 | Score: 12 | Mitigation: split frontend draft/persisted ROI state, verify POST with subsequent GET before Saved, keep draft with explicit unsaved marker on failure | Validation: frontend contract + persistence roundtrip tests | Residual risk: 1 | Owner: frontend | Status: PENDING
-- RISK-052-002 | Category: TECH | Probability: 3 | Impact: 3 | Score: 9 | Mitigation: make ROI load independent of speed-config/speed-lines loads and distinguish corrupt JSON from absent ROI without silent disabled fallback | Validation: load-independence + malformed-file tests | Residual risk: 1 | Owner: api/frontend | Status: PENDING
-- RISK-052-003 | Category: TECH | Probability: 3 | Impact: 4 | Score: 12 | Mitigation: point VPS migration at the real production data path, fix heredoc syntax and global-counter side effect, migrate per-file with atomic replacement | Validation: executed migration harness + atomicity test | Residual risk: 1 | Owner: deploy/vps | Status: PENDING
-- RISK-052-004 | Category: TECH | Probability: 4 | Impact: 4 | Score: 16 | Mitigation: replace partial-read frame drain with verified complete-frame latest-slot primitive, enforce backlog bounds with deterministic drop accounting | Validation: queue-level unit tests including partial/corrupt frame and staleness cases | Residual risk: 2 | Owner: worker | Status: PENDING
-- RISK-052-005 | Category: TECH | Probability: 3 | Impact: 4 | Score: 12 | Mitigation: redesign telemetry to count decoded/inferred/published separately, fix double-counted effective_fps and non-sourced age | Validation: deterministic timing harness tests | Residual risk: 1 | Owner: worker | Status: PENDING
-- RISK-052-006 | Category: TECH | Probability: 3 | Impact: 4 | Score: 12 | Mitigation: keep outbound publication off ordered inference loop, preserve frame/metadata/crossing snapshot consistency, bound JPEG work | Validation: critical-path isolation tests + snapshot immutability tests | Residual risk: 2 | Owner: worker | Status: PENDING
-- RISK-052-007 | Category: TECH | Probability: 3 | Impact: 3 | Score: 9 | Mitigation: isolate Road cadence configuration from Water preserved config and validate bounded 1..15 FPS range | Validation: profile/config tests including preserved-value scenarios | Residual risk: 1 | Owner: worker/deploy | Status: PENDING
-- RISK-052-008 | Category: TECH | Probability: 2 | Impact: 3 | Score: 6 | Mitigation: document honest benchmark handling when sustained ≥10 FPS is not achievable on the current GPU/load profile | Validation: runtime benchmark report review | Residual risk: 1 | Owner: docs/runtime | Status: PENDING
+- RISK-052-001 | Category: TECH | Probability: 4 | Impact: 3 | Score: 12 | Mitigation: split frontend draft/persisted ROI state, verify POST with subsequent GET before Saved, keep draft with explicit unsaved marker on failure | Validation: frontend contract + persistence roundtrip tests | Residual risk: 1 | Owner: frontend | Status: MITIGATED
+- RISK-052-002 | Category: TECH | Probability: 3 | Impact: 3 | Score: 9 | Mitigation: make ROI load independent of speed-config/speed-lines loads and distinguish corrupt JSON from absent ROI without silent disabled fallback | Validation: load-independence + malformed-file tests | Residual risk: 1 | Owner: api/frontend | Status: MITIGATED
+- RISK-052-003 | Category: TECH | Probability: 3 | Impact: 4 | Score: 12 | Mitigation: point VPS migration at the real production data path, fix heredoc syntax and global-counter side effect, migrate per-file with atomic replacement | Validation: executed migration harness + atomicity test | Residual risk: 1 | Owner: deploy/vps | Status: MITIGATED
+- RISK-052-004 | Category: TECH | Probability: 4 | Impact: 4 | Score: 16 | Mitigation: replace partial-read frame drain with verified complete-frame latest-slot primitive, enforce backlog bounds with deterministic drop accounting | Validation: queue-level unit tests including partial/corrupt frame and staleness cases | Residual risk: 2 | Owner: worker | Status: MITIGATED
+- RISK-052-005 | Category: TECH | Probability: 3 | Impact: 4 | Score: 12 | Mitigation: redesign telemetry to count decoded/inferred/published separately, fix double-counted effective_fps and non-sourced age | Validation: deterministic timing harness tests | Residual risk: 1 | Owner: worker | Status: MITIGATED
+- RISK-052-006 | Category: TECH | Probability: 3 | Impact: 4 | Score: 12 | Mitigation: keep outbound publication off ordered inference loop, preserve frame/metadata/crossing snapshot consistency, bound JPEG work | Validation: critical-path isolation tests + snapshot immutability tests | Residual risk: 2 | Owner: worker | Status: MITIGATED
+- RISK-052-007 | Category: TECH | Probability: 3 | Impact: 3 | Score: 9 | Mitigation: isolate Road cadence configuration from Water preserved config and validate bounded 1..15 FPS range | Validation: profile/config tests including preserved-value scenarios | Residual risk: 1 | Owner: worker/deploy | Status: MITIGATED
+- RISK-052-008 | Category: TECH | Probability: 2 | Impact: 3 | Score: 6 | Mitigation: document honest benchmark handling when sustained ≥10 FPS is not achievable on the current GPU/load profile | Validation: runtime benchmark report review | Residual risk: 1 | Owner: docs/runtime | Status: MITIGATED
 
 ## Architecture
 
@@ -60,22 +60,22 @@
 
 ## Test design
 
-- TEST-052-001 | Covers: AC-001, AC-002, R1 | Level: unit | Priority: P0 | Evidence: `test_frontend_contract` + `test_api_contract` — draft vs persisted states, POST→GET verification, unsaved indicator, failed save retains draft | Coverage: PENDING
-- TEST-052-002 | Covers: AC-002, R2 | Level: unit | Priority: P0 | Evidence: `test_frontend_contract` — ROI loads even when speed-config/speed-lines GET fails | Coverage: PENDING
-- TEST-052-003 | Covers: AC-003, R3 | Level: unit | Priority: P0 | Evidence: `test_roi_normalization` / `test_api_contract` — malformed JSON distinct from absent ROI | Coverage: PENDING
-- TEST-052-004 | Covers: AC-004, R4 | Level: unit | Priority: P0 | Evidence: `test_vps_deploy_transaction` — migration targets `/opt/sea-speed-api/data`, per-file atomic behavior, normalized-file preservation | Coverage: PENDING
-- TEST-052-005 | Covers: AC-005 | Level: unit + runtime-manual | Priority: P0 | Evidence: worker poll / restart propagation test + VPS→Worker runtime check | Coverage: PENDING
-- TEST-052-006 | Covers: AC-006, R6, NFR-052-004 | Level: unit | Priority: P0 | Evidence: `test_detection_runtime_optimization` — verified complete-frame latest slot, no partial consumption, bounded backlog, deterministic drops | Coverage: PENDING
-- TEST-052-007 | Covers: AC-007, R7 | Level: unit | Priority: P0 | Evidence: `test_detection_runtime_optimization` + `test_ubuntu_worker_observability` + `test_telemetry_contract` — split decoded/inferred/published FPS without double counting | Coverage: PENDING
-- TEST-052-008 | Covers: AC-008, R8 | Level: unit | Priority: P0 | Evidence: `test_detection_runtime_optimization` + `test_worker_tracking_overlay` — JPEG/HTTP off critical ordered path while snapshot consistency holds | Coverage: PENDING
-- TEST-052-009 | Covers: AC-009, R9 | Level: unit | Priority: P0 | Evidence: `test_analytics_profiles` + `test_ubuntu_worker_ai_supervision` — Road cadence independent of preserved Water config | Coverage: PENDING
-- TEST-052-010 | Covers: AC-010, R10 | Level: runtime-manual | Priority: P1 | Evidence: protected runtime benchmark Road-only and Water+Road at 5/10/15 FPS with honest ceiling | Coverage: PENDING
-- TEST-052-011 | Covers: AC-011 | Level: unit | Priority: P0 | Evidence: full discovery + validators + MIXED deployment manifests/health | Coverage: PENDING
+- TEST-052-001 | Covers: AC-001, AC-002, R1 | Level: unit | Priority: P0 | Evidence: `test_frontend_contract` + `test_api_contract` — draft vs persisted states, POST→GET verification, unsaved indicator, failed save retains draft | Coverage: COVERED
+- TEST-052-002 | Covers: AC-002, R2 | Level: unit | Priority: P0 | Evidence: `test_frontend_contract` — ROI loads even when speed-config/speed-lines GET fails | Coverage: COVERED
+- TEST-052-003 | Covers: AC-003, R3 | Level: unit | Priority: P0 | Evidence: `test_roi_normalization` / `test_api_contract` — malformed JSON distinct from absent ROI | Coverage: COVERED
+- TEST-052-004 | Covers: AC-004, R4 | Level: unit | Priority: P0 | Evidence: `test_vps_deploy_transaction` — migration targets `/opt/sea-speed-api/data`, per-file atomic behavior, normalized-file preservation | Coverage: COVERED
+- TEST-052-005 | Covers: AC-005 | Level: integration | Priority: P0 | Evidence: worker poll / restart propagation test + VPS→Worker runtime check | Coverage: COVERED
+- TEST-052-006 | Covers: AC-006, R6, NFR-052-004 | Level: unit | Priority: P0 | Evidence: `test_detection_runtime_optimization` — verified complete-frame latest slot, no partial consumption, bounded backlog, deterministic drops | Coverage: COVERED
+- TEST-052-007 | Covers: AC-007, R7 | Level: unit | Priority: P0 | Evidence: `test_detection_runtime_optimization` + `test_ubuntu_worker_observability` + `test_telemetry_contract` — split decoded/inferred/published FPS without double counting | Coverage: COVERED
+- TEST-052-008 | Covers: AC-008, R8 | Level: unit | Priority: P0 | Evidence: `test_detection_runtime_optimization` + `test_worker_tracking_overlay` — JPEG/HTTP off critical ordered path while snapshot consistency holds | Coverage: COVERED
+- TEST-052-009 | Covers: AC-009, R9 | Level: unit | Priority: P0 | Evidence: `test_analytics_profiles` + `test_ubuntu_worker_ai_supervision` — Road cadence independent of preserved Water config | Coverage: COVERED
+- TEST-052-010 | Covers: AC-010, R10 | Level: runtime-manual | Priority: P1 | Evidence: protected runtime benchmark Road-only and Water+Road at 5/10/15 FPS with honest ceiling | Coverage: RUNTIME-MANUAL | Reason: protected hardware benchmark
+- TEST-052-011 | Covers: AC-011 | Level: unit | Priority: P0 | Evidence: full discovery + validators + MIXED deployment manifests/health | Coverage: COVERED
 
 ## Correct-course check
 
 - Adjacent-stage review: COMPLETE — frontend ROI persistence, API durable storage, VPS migration execution path, Worker frame ingress/telemetry/critical-path, protected cadence configuration, benchmark scope.
-- Trigger: NOT APPLICABLE
+- Trigger: NONE
 - Issue impact: repairs Road ROI persistence, honest FPS/age/queue telemetry and fresh-frame cadence foundation without promising 25–30 FPS inference.
 - Specification impact: introduces draft/persisted ROI semantics, explicit production-path migration execution, latest-slot transport and separated telemetry semantics.
 - Plan impact: adds MIXED transaction footprint with pre-mutation/mutation/verification separation for ROI vs pipeline stages.
