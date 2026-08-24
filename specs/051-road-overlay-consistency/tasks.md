@@ -8,11 +8,10 @@
 
 - AC-001 | Task: TASK-051-01 | Evidence: test_roi_normalization ROAD norm + legacy fallback + test_frontend_contract speed lines | Coverage: COVERED
 - AC-002 | Task: TASK-051-01 | Evidence: test_frontend_contract frameMeta resolution + state fields 1920x1080 | Coverage: COVERED
-- AC-003 | Task: TASK-051-01 | Evidence: test_detection_runtime_optimization atomic queue + test_line_crossing overlay sync | Coverage: COVERED
+- AC-003 | Task: TASK-051-01, TASK-051-03 | Evidence: test_detection_runtime_optimization atomic queue + test_line_crossing overlay sync + deep-immutability invariant | Coverage: COVERED
 - AC-004 | Task: TASK-051-01 | Evidence: test_frontend_contract layout stage fit no bands | Coverage: COVERED
 - AC-005 | Task: TASK-051-02 | Evidence: test_ubuntu_worker_observability + api contract effective_fps | Coverage: COVERED
 - AC-006 | Task: TASK-051-02 | Evidence: discover + validators + MIXED manifest | Coverage: COVERED
-- AC-003 | Task: TASK-051-03 | Evidence: deep-immutability and direction/class sum invariant regression tests | Coverage: COVERED
 
 ## Delivery tasks
 
