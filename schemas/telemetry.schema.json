@@ -13,7 +13,7 @@
       "properties": {
         "state_schema":{"const":"sea_speed_worker_state_v1"},"telemetry_schema":{"const":"sea_speed_telemetry_v1"},"worker_source_commit":{"$ref":"#/$defs/commitIdentity"},
         "camera_id":{"type":"string","minLength":1},"analytics_profile":{"$ref":"#/$defs/analyticsProfile"},"domain":{"$ref":"#/$defs/domain"},
-        "frame_no":{"type":"integer","minimum":0},"worker_online":{"type":"boolean"},"updated_at":{"type":["string","null"]},"last_overlay_url":{"type":["string","null"]}
+        "frame_no":{"type":"integer","minimum":0},"frame_width":{"type":["integer","null"],"minimum":1},"frame_height":{"type":["integer","null"],"minimum":1},"sample_fps":{"type":["number","null"],"minimum":0},"effective_fps":{"type":["number","null"],"minimum":0},"p95_inference_ms":{"type":["number","null"],"minimum":0},"overlay_rev":{"type":["integer","null"],"minimum":0},"worker_online":{"type":"boolean"},"updated_at":{"type":["string","null"]},"last_overlay_url":{"type":["string","null"]}
       },"additionalProperties":true
     },
     "vehicleEvent": {

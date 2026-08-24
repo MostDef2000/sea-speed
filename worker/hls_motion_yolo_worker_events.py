@@ -1588,7 +1588,8 @@ def main():
                     det["_line_speed_info"] = line_speed_info
                 prune_track_states(now)
 
-            overlay = draw_overlay(frame=frame, motion_now=motion_now, motion_area=motion_area, ai_active=ai_active, detections=detections, motion_boxes=motion_boxes, crossing_summary=crossing_overlay_summary())
+            crossing_snapshot = crossing_overlay_summary()
+            overlay = draw_overlay(frame=frame, motion_now=motion_now, motion_area=motion_area, ai_active=ai_active, detections=detections, motion_boxes=motion_boxes, crossing_summary=crossing_snapshot)
             cv2.imwrite(str(latest_overlay_path), overlay, [cv2.IMWRITE_JPEG_QUALITY, 85])
             flush_crossing_posts()
 
@@ -1653,6 +1654,29 @@ def main():
                         mark_track_event_posted(track_id)
             if now - last_state_post >= state_interval:
                 track_count = len(active_track_ids)
+                # single snapshot reused for overlay already; ensure sync
+                try:
+                    cw, ch = _resolve_frame_size()
+                except Exception:
+                    cw, ch = 1920, 1080
+                try:
+                    sample_fps_val = float(env_float("SAMPLE_FPS", profile.sample_fps if profile else 10.0))
+                except Exception:
+                    sample_fps_val = 10.0
+                eff_fps = None
+                p95_ms = None
+                try:
+                    from detection_performance import PerformanceTracker as _PT
+                    # try to get global tracker from entrypoint if available
+                    import sys as _sys
+                    _entry = _sys.modules.get("ubuntu_worker_entrypoint")
+                    _tracker = getattr(_entry, "_perf_tracker", None) if _entry else None
+                    if _tracker is not None:
+                        snap = _tracker.snapshot()
+                        eff_fps = float(snap.get("effective_fps", 0) or 0)
+                        p95_ms = float(snap.get("p95_inference_ms", 0) or 0)
+                except Exception:
+                    pass
                 metadata = {
                     "camera_id": env_str("CAMERA_ID", profile.default_camera_id if profile else "cam1_road_test"),
                     "analytics_profile": profile.name if profile else None,
@@ -1663,8 +1687,14 @@ def main():
                     "detections": len(detections),
                     "tracks": track_count,
                     "active_passages": passage_engine.active_count if passage_engine is not None else None,
-                    "crossings": crossing_overlay_summary(),
+                    "crossings": crossing_snapshot,
                     "frame_no": frame_no,
+                    "frame_width": int(cw),
+                    "frame_height": int(ch),
+                    "sample_fps": float(sample_fps_val),
+                    "effective_fps": eff_fps,
+                    "p95_inference_ms": p95_ms,
+                    "overlay_rev": int(frame_no),
                     "model_name": model_name,
                     "message": "event-worker running with persistent tracking",
                 }
