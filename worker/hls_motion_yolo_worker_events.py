@@ -1154,7 +1154,12 @@ def crossing_overlay_summary():
     return {
         "left_to_right": _crossing_counts.get("left_to_right", 0),
         "right_to_left": _crossing_counts.get("right_to_left", 0),
-        "by_class": dict(_crossings_by_class),
+        # Copy both mapping levels.  The snapshot is queued asynchronously and
+        # must not retain references to live per-class count dictionaries.
+        "by_class": {
+            class_name: dict(counts)
+            for class_name, counts in _crossings_by_class.items()
+        },
         "line_enabled": bool(_crossing_line_cache.get("enabled")),
         "line": [list(point) for point in line],
     }

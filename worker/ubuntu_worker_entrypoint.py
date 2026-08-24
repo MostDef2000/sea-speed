@@ -10,6 +10,7 @@ import struct
 import subprocess
 import sys
 import time
+from copy import deepcopy
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -54,7 +55,10 @@ def runtime_source_commit() -> str:
 def _metadata_with_runtime_source_commit(metadata: dict[str, object]) -> dict[str, object]:
     if not isinstance(metadata, dict):
         raise RuntimeError("worker metadata must be a mapping")
-    enriched = dict(metadata)
+    # The publisher is asynchronous.  A shallow copy leaves nested structures
+    # (notably crossings.by_class) shared with the live counter state, allowing
+    # class counts to advance after top-level totals were captured.
+    enriched = deepcopy(metadata)
     enriched["worker_source_commit"] = runtime_source_commit()
     return enriched
 

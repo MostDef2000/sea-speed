@@ -11,6 +11,7 @@
 - RISK-051-002 | Category: TECH | Probability: 3 | Impact: 4 | Score: 12 | Mitigation: queue immutable overlay bytes + revision + atomic replace, preload swap | Validation: race unit test + state/overlay binding test | Residual risk: 1 | Owner: worker | Status: MITIGATED
 - RISK-051-003 | Category: TECH | Probability: 2 | Impact: 3 | Score: 6 | Mitigation: adjust panel/stage height to content, preserve canvas transform | Validation: layout test for no empty bands | Residual risk: 1 | Owner: frontend | Status: ACCEPTED
 - RISK-051-004 | Category: TECH | Probability: 2 | Impact: 3 | Score: 6 | Mitigation: expose sample_fps + effective_fps via PerformanceTracker snapshot in state | Validation: telemetry schema + UI test | Residual risk: 1 | Owner: worker | Status: MITIGATED
+- RISK-051-005 | Category: TECH | Probability: 4 | Impact: 3 | Score: 12 | Mitigation: deep-copy nested crossing maps at snapshot creation and deep-copy all metadata at the asynchronous queue boundary | Validation: mutate live source after capture and assert queued totals/classes remain equal and unchanged | Residual risk: 1 | Owner: worker | Status: MITIGATED
 
 ## Architecture
 
@@ -31,6 +32,7 @@ MIXED normalized fix on top of 050:
 - D3: Frontend preloads next overlay into offscreen Image and swaps only on `load` with revision monotonic check.
 - D4: Road CSS keeps 1920/1080 aspect but panel height becomes `auto` with stage `aspect-ratio` and no vertical auto margins that create bands.
 - D5: FPS: configured `SAMPLE_FPS` shown as `sample_fps`, measured as `effective_fps` from tracker; Road UI shows both.
+- D6: A crossing state is a value snapshot, not a live mapping view; both snapshot construction and the asynchronous publisher boundary sever nested references.
 
 ## Affected contours
 
@@ -52,25 +54,30 @@ MIXED normalized fix on top of 050:
 - TEST-051-005 | Covers: AC-005, R5 | Level: unit | Priority: P0 | Evidence: `test_ubuntu_worker_observability` — effective_fps published | Coverage: COVERED
 - TEST-051-006 | Covers: AC-006 | Level: unit | Priority: P0 | Evidence: `discover` + validators + MIXED Quality | Coverage: COVERED
 - TEST-051-007 | Covers: AC-003, AC-004 | Level: runtime-manual | Priority: P1 | Evidence: visual Road after deploy | Coverage: RUNTIME-MANUAL | Reason: visual
+- TEST-051-008 | Covers: AC-003, NFR-051-006 | Level: unit | Priority: P0 | Evidence: mutate live per-class counters after snapshot and mutate caller metadata after queue enrichment; captured values must remain unchanged and totals must equal class sums | Coverage: COVERED
 
 ## Correct-course check
 
 - Adjacent-stage review: COMPLETE (speed lines coord contract, overlay publish/state, API atomic, FPS telemetry, panel layout)
-- Trigger: NONE
+- Trigger: PRODUCTION_LEARNING
 - Issue impact: #296 restores Road visibility/sync/fit and clarifies FPS without formula change
 - Specification impact: R1-R6 add presentation/publish hardening
 - Plan impact: MIXED deployment, transaction audit unchanged
 - Tasks impact: traceability AC-001..006 → TASK-051-01/02
 - Authorization impact: NONE — fresh receipt src-auth-051 covers listed files
-- Follow-up: future optional: merge overlay_rev into persisted telemetry trend
+- Follow-up: deploy the immutable-snapshot repair and verify the directional sum invariant in production Road state; future optional: merge overlay_rev into persisted telemetry trend
 
 ## Runtime feedback
 
-To be recorded after MIXED deployment acceptance (Road visual + FPS sample).
+- Initial MIXED deployment succeeded, but runtime acceptance exposed a shallow-copy race in nested crossing metadata. The repair remains inside the original #296 scope and changes no crossing formula.
 
 ## Deployment transaction audit
 
 Required: runtime deployment REQUIRED (MIXED).
+
+- Adjacent-stage review: COMPLETE
+- Production-learning root cause: shallow-copy race at two levels (crossing snapshot and async publisher) allowed nested by_class counts to advance after top-level totals were captured
+- Production-learning adjacent-stage findings: direction totals are value data, not live view; queue boundary must deepcopy; regression proves totals equal sums
 
 - TX-051-001 | Stage: ADMISSION | Mutation: NO | Failure disposition: FATAL | State after failure: no transport | Retry: after policy correction | Rollback: NOT REQUIRED | Evidence: autonomous log
 - TX-051-002 | Stage: PRE-MUTATION | Mutation: NO | Failure disposition: FATAL | State after failure: verify_source_protection fails | Retry: after remediate | Rollback: NOT REQUIRED | Evidence: verify_source_protection output
