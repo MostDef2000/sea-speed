@@ -6,11 +6,10 @@
 
 ## Requirements traceability
 
-- R1 | TASK-053-01 | test_worker_tracking_overlay + test_detection_runtime_optimization | COVERED
-- R2 | TASK-053-02 | test_api_contract | COVERED
-- R3 | TASK-053-01 | test_frontend_contract | COVERED
-- R4 | TASK-053-03 | test_telemetry_contract + telemetry.schema | COVERED
-- R5 | TASK-053-04 | test_detector_frequency_benchmark | COVERED
+- AC-001 | Task: TASK-053-01 | Evidence: test_worker_tracking_overlay + test_detection_runtime_optimization | Coverage: COVERED
+- AC-002 | Task: TASK-053-01 | Evidence: test_frontend_contract | Coverage: COVERED
+- AC-003 | Task: TASK-053-02 | Evidence: test_api_contract + test_telemetry_contract | Coverage: COVERED
+- AC-004 | Task: TASK-053-04 | Evidence: test_detector_frequency_benchmark | Coverage: COVERED
 
 ## Delivery tasks
 
@@ -22,11 +21,11 @@
 
 ## Task records
 
-- TASK-053-01 | Worker envelope + frontend overlay | R1,R3 | Evidence: worker/hls_motion_yolo_worker_events.py, worker/ubuntu_worker_entrypoint.py, worker/detection_performance.py, frontend/sea-speed/road/index.html, tests/test_frontend_contract.py | Status: IN PROGRESS
-- TASK-053-02 | API SSE transport | R2 | Evidence: api/app/main.py, schemas/telemetry.schema.json, tests/test_api_contract.py | Status: IN PROGRESS
-- TASK-053-03 | Schema/observability compatibility | R4 | Evidence: schemas/telemetry.schema.json, scripts/ci/validate_telemetry.py, tests/test_telemetry_contract.py | Status: IN PROGRESS
-- TASK-053-04 | Stage4 research kit | R5 | Evidence: scripts/worker/benchmark_detector_frequency.py, scripts/worker/detector_frequency_matrix_v1.json, schemas/detector-frequency-benchmark.schema.json, scripts/quality/build_exact_artifacts.py, tests/test_detector_frequency_benchmark.py | Status: IN PROGRESS
-- TASK-053-05 | Validation + deploy + acceptance | All | Evidence: validators, CI, manifests | Status: PENDING
+- TASK-053-01 | Worker envelope + frontend overlay — live envelope, canvas TTL and content-box alignment | AC-001, AC-002 | Evidence: worker/hls_motion_yolo_worker_events.py, worker/ubuntu_worker_entrypoint.py, worker/detection_performance.py, frontend/sea-speed/road/index.html, tests/test_frontend_contract.py | Status: IN PROGRESS
+- TASK-053-02 | API SSE transport — bounded deque and authenticated stream | AC-001, AC-003 | Evidence: api/app/main.py, schemas/telemetry.schema.json, tests/test_api_contract.py | Status: IN PROGRESS
+- TASK-053-03 | Schema/observability compatibility — additive envelope and telemetry | AC-003 | Evidence: schemas/telemetry.schema.json, scripts/ci/validate_telemetry.py, tests/test_telemetry_contract.py | Status: IN PROGRESS
+- TASK-053-04 | Stage4 research kit — matrix/schema/benchmark harness | AC-004 | Evidence: scripts/worker/benchmark_detector_frequency.py, scripts/worker/detector_frequency_matrix_v1.json, schemas/detector-frequency-benchmark.schema.json, tests/test_detector_frequency_benchmark.py | Status: IN PROGRESS
+- TASK-053-05 | Validation + deploy + acceptance — validators, CI and MIXED runtime | AC-001, AC-002, AC-003, AC-004 | Evidence: validators, CI, manifests | Status: PENDING
 
 ## Completion gate
 
@@ -37,8 +36,13 @@
 
 ## Definition of Done
 
-- [ ] Spec/plan/tasks current
-- [ ] Scope verified
-- [ ] Tests + validators PASS
-- [ ] PR exact-green-head merged
-- [ ] MIXED deployed and accepted
+- [ ] Issue/spec/plan/tasks current and linked
+- [ ] Exact changed-file scope verified and matches Change Contract
+- [ ] Required tests and evidence complete
+- [ ] Required CI green (Repository validation + quality-integration)
+- [ ] Exact-green-head merge complete
+- [ ] Deployment state resolved (VPS+Worker runtime_verified)
+- [ ] Runtime acceptance resolved (overlay + research kit)
+- [ ] Deferred work recorded (Stage4 production bump separate)
+- [ ] Risks resolved or explicitly accepted (REQUIRED documented)
+- [ ] Waivers resolved or current (none expected)

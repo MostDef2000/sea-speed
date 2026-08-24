@@ -7,9 +7,9 @@
 
 - Risk profile: REQUIRED
 
-- RISK-053-001 | Category: TECH | Probability: 4 | Impact: 4 | Score: 16 | Mitigation: normalized envelope with generation/timestamp, immutable deepcopy, SSE bounded deque, canvas content-box transform | Validation: overlay + SSE + schema tests | Residual: 1 | Status: MITIGATED
-- RISK-053-002 | Category: TECH | Probability: 3 | Impact: 3 | Score: 9 | Mitigation: additive state, no URL/secret leak, Authentik-scoped SSE, exact private peer checks | Validation: contract tests | Residual: 1 | Status: MITIGATED
-- RISK-053-003 | Category: TECH | Probability: 3 | Impact: 4 | Score: 12 | Mitigation: deterministic benchmark kit with guards, redaction, stop rules | Validation: detector frequency tests | Residual: 1 | Status: MITIGATED
+- RISK-053-001 | Category: TECH | Probability: 4 | Impact: 4 | Score: 16 | Mitigation: normalized envelope with generation/timestamp, immutable deepcopy, SSE bounded deque, canvas content-box transform | Validation: overlay + SSE + schema tests | Residual risk: 1 | Owner: worker | Status: MITIGATED
+- RISK-053-002 | Category: TECH | Probability: 3 | Impact: 3 | Score: 9 | Mitigation: additive state, no URL/secret leak, Authentik-scoped SSE, exact private peer checks | Validation: contract tests | Residual risk: 1 | Owner: api | Status: MITIGATED
+- RISK-053-003 | Category: TECH | Probability: 3 | Impact: 4 | Score: 12 | Mitigation: deterministic benchmark kit with guards, redaction, stop rules | Validation: detector frequency tests | Residual risk: 1 | Owner: worker | Status: MITIGATED
 
 ## Architecture
 
@@ -37,17 +37,22 @@
 
 ## Test design
 
-- TEST-053-001 | Covers: R1,R3 | Level: unit | Evidence: test_frontend_contract | COVERED
-- TEST-053-002 | Covers: R2 | Level: unit | Evidence: test_api_contract | COVERED
-- TEST-053-003 | Covers: R1,R4 | Level: unit | Evidence: test_worker_tracking_overlay + test_detection_runtime_optimization | COVERED
-- TEST-053-004 | Covers: R1,R4 | Level: unit | Evidence: test_telemetry_contract + telemetry.schema | COVERED
-- TEST-053-005 | Covers: R5 | Level: unit | Evidence: test_detector_frequency_benchmark | COVERED
-- TEST-053-006 | Covers: runtime | Level: runtime-manual | Evidence: MIXED manifests + manual overlay | RUNTIME-MANUAL
+- TEST-053-001 | Covers: R1,R3 | Level: unit | Priority: P0 | Evidence: test_frontend_contract | Coverage: COVERED
+- TEST-053-002 | Covers: R2 | Level: unit | Priority: P0 | Evidence: test_api_contract | Coverage: COVERED
+- TEST-053-003 | Covers: R1,R4 | Level: unit | Priority: P0 | Evidence: test_worker_tracking_overlay + test_detection_runtime_optimization | Coverage: COVERED
+- TEST-053-004 | Covers: R1,R4 | Level: unit | Priority: P0 | Evidence: test_telemetry_contract + telemetry.schema | Coverage: COVERED
+- TEST-053-005 | Covers: R5 | Level: unit | Priority: P0 | Evidence: test_detector_frequency_benchmark | Coverage: COVERED
+- TEST-053-006 | Covers: runtime | Level: runtime-manual | Priority: P1 | Evidence: MIXED manifests + manual overlay | Coverage: RUNTIME-MANUAL | Reason: protected hardware check
 
 ## Correct-course check
 
 - Trigger: NONE
-- Impact: additive metadata overlay without changing model formulas.
+- Issue impact: additive live overlay and research kit, no model change
+- Specification impact: new envelope/SSE/browser alignment and benchmark schema
+- Plan impact: adds MIXED SSE path and research harness
+- Tasks impact: AC-001..AC-004 → TASK-053-01..TASK-053-05
+- Authorization impact: NONE — initial SDD for src-auth-053
+- Follow-up: keep Stage4 production frequency bump separate
 
 ## Runtime feedback
 
@@ -55,11 +60,11 @@
 
 ## Deployment transaction audit
 
-- TX-053-001 ADMISSION FATAL no transport — autonomous log
-- TX-053-002 PRE-MUTATION FATAL verify_source_protection fails
-- TX-053-003 MUTATION CONDITIONAL previous serving — rerun — redeploy 5bda18f
-- TX-053-004 VERIFICATION BEST-EFFORT runtime_verified false blocks DONE
-- TX-053-005 STATE-COMMIT BEST-EFFORT exact-artifacts
-- TX-053-006 HOUSEKEEPING BEST-EFFORT tmp stale
-- TX-053-007 EVIDENCE FATAL audit missing blocks DONE
-- TX-053-008 ROLLBACK FATAL failed rollback → BLOCKED
+- TX-053-001 | Stage: ADMISSION | Mutation: NO | Failure disposition: FATAL | State after failure: no transport | Retry: after policy correction | Rollback: NOT REQUIRED | Evidence: autonomous log
+- TX-053-002 | Stage: PRE-MUTATION | Mutation: NO | Failure disposition: FATAL | State after failure: verify_source_protection fails | Retry: after remediate | Rollback: NOT REQUIRED | Evidence: verify_source_protection output
+- TX-053-003 | Stage: MUTATION | Mutation: YES | Failure disposition: CONDITIONAL | State after failure: previous serving | Retry: rerun contour | Rollback: redeploy 5bda18f | Evidence: deployment-manifest MIXED runtime_verified
+- TX-053-004 | Stage: VERIFICATION | Mutation: NO | Failure disposition: BEST-EFFORT | State after failure: runtime_verified false blocks DONE | Retry: rerun verification | Rollback: 5bda18f | Evidence: manifest + overlay checks
+- TX-053-005 | Stage: STATE-COMMIT | Mutation: NO | Failure disposition: BEST-EFFORT | State after failure: evidence missing | Retry: rerun upload | Rollback: NOT REQUIRED | Evidence: exact-artifacts.json
+- TX-053-006 | Stage: HOUSEKEEPING | Mutation: POSSIBLE | Failure disposition: BEST-EFFORT | State after failure: tmp stale | Retry: next deploy | Rollback: NOT REQUIRED | Evidence: deploy logs
+- TX-053-007 | Stage: EVIDENCE | Mutation: NO | Failure disposition: FATAL | State after failure: audit missing blocks DONE | Retry: rerun audit | Rollback: NOT REQUIRED | Evidence: execution audit v1
+- TX-053-008 | Stage: ROLLBACK | Mutation: POSSIBLE | Failure disposition: FATAL | State after failure: failed rollback → BLOCKED | Retry: manual redeploy 5bda18f | Rollback: itself | Evidence: rollbackTarget hash
