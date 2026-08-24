@@ -205,6 +205,7 @@ if(document.readyState==="loading"){document.addEventListener("DOMContentLoaded"
           <img id="overlayImg" class="overlay-img" alt="Road 1 AI overlay">
           <canvas id="roiCanvas"></canvas>
           <canvas id="speedLinesCanvas"></canvas>
+          <canvas id="liveOverlayCanvas"></canvas>
         </div>
         <div class="stage-badges"><span class="stage-badge">AI overlay</span><span class="stage-badge secondary">Vladivostok · Road 1</span></div>
       </div>
@@ -306,6 +307,13 @@ async function refresh(){try{const [s,e]=await Promise.all([jsonReq(STATE_URL),j
 video.addEventListener("playing",()=>{livePreviewFrame.classList.add("has-video");setStatus(streamStatus,"online","good");lastPlaybackProgressAt=performance.now()});video.addEventListener("waiting",()=>{if(streamDesired)setStatus(streamStatus,"buffering","warn")});video.addEventListener("error",()=>{if(streamDesired)scheduleReconnect("video error")});
 window.addEventListener("resize",resizeAll);window.addEventListener("beforeunload",()=>{streamDesired=false;clearTimers();destroyMedia();fetch(PREVIEW_STOP_URL,{method:"POST",credentials:"same-origin",keepalive:true,headers:{"Content-Length":"0"}}).catch(()=>{})});
 loadSessionIdentity();setInterval(loadSessionIdentity,SESSION_WATCHDOG_MS);loadConfig();refresh();refreshWorkerControl();setInterval(refresh,3000);setInterval(refreshWorkerControl,5000);setTimeout(()=>connectStream(false),0);
+(function(){
+const LIVE_URL="/sea-speed/api/analytics/road1/live/stream";
+let liveGen=null, lastTs=0;
+const canvas=document.getElementById("liveOverlayCanvas");
+function clearStale(){ if(canvas){ const c=canvas.getContext("2d"); const r=overlayImg.getBoundingClientRect(); c.clearRect(0,0,r.width,r.height); } }
+try{ const es=new EventSource(LIVE_URL); es.onmessage=e=>{ try{ const env=JSON.parse(e.data); if(!env || env.camera_id!=="road1") return; if(liveGen!==null && env.generation!==liveGen){ clearStale(); } liveGen=env.generation; lastTs=Date.now(); }catch(_){} }; es.onerror=()=>{}; setInterval(()=>{ if(Date.now()-lastTs>1000) clearStale(); },500);}catch(_){}
+})();
 </script>
 </body>
 </html>

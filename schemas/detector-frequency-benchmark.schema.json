@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mostdef.ru/sea-speed/schemas/detector-frequency-benchmark.schema.json",
+  "title": "Sea Speed detector frequency benchmark",
+  "type": "object",
+  "required": ["schema", "source_commit", "matrix", "results"],
+  "properties": {
+    "schema": { "const": "sea_speed_detector_frequency_benchmark_v1" },
+    "source_commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "matrix": { "type": "object" },
+    "results": { "type": "array" }
+  },
+  "additionalProperties": true
+}

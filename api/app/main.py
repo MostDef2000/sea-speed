@@ -17,9 +17,10 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlsplit
 
+from collections import deque
 from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 
 
 BASE_DIR = Path("/opt/sea-speed-api")
@@ -2349,6 +2350,36 @@ def get_session_identity(x_authentik_username: Optional[str] = Header(None)) -> 
         raise HTTPException(status_code=503, detail="Trusted Authentik identity is unavailable")
     return {"ok": True, "username": username}
 
+
+ROAD_LIVE_MAX = 120
+ROAD_LIVE: deque = deque(maxlen=ROAD_LIVE_MAX)
+
+def _validate_road_live_envelope(payload: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="live envelope must be object")
+    if payload.get("camera_id") != "road1":
+        raise HTTPException(status_code=400, detail="camera_id must be road1")
+    if payload.get("analytics_profile") != "road-v1":
+        raise HTTPException(status_code=400, detail="analytics_profile must be road-v1")
+    return payload
+
+@app.post("/api/analytics/road1/live")
+async def post_road_live(payload: Dict[str, Any]) -> Dict[str, Any]:
+    env = _validate_road_live_envelope(payload)
+    ROAD_LIVE.append(env)
+    return {"ok": True, "queued": len(ROAD_LIVE)}
+
+@app.get("/api/analytics/road1/live")
+def get_road_live(limit: int = 20) -> Dict[str, Any]:
+    lim = max(1, min(int(limit), ROAD_LIVE_MAX))
+    items = list(ROAD_LIVE)[-lim:]
+    return {"camera_id": "road1", "items": items}
+
+@app.get("/sea-speed/api/analytics/road1/live/stream")
+def road_live_stream():
+    def gen():
+        yield "data: {}\n\n"
+    return StreamingResponse(gen(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 @app.get("/api/health")
 def health() -> Dict[str, Any]:

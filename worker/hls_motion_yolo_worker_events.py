@@ -21,6 +21,24 @@ except Exception:
     PerformanceTracker = None  # type: ignore[assignment]
 
 
+ROAD_LIVE_SCHEMA = "sea_speed_road_live_v1"
+
+def build_road_live_envelope(frame_no: int, generation: int, observed_mono: float, detections, frame_w: int, frame_h: int, worker_commit: str):
+    # normalized boxes, immutable
+    import copy
+    boxes = []
+    for d in detections or []:
+        try:
+            x1 = float(d.get("x1", 0)) / max(1, frame_w)
+            y1 = float(d.get("y1", 0)) / max(1, frame_h)
+            x2 = float(d.get("x2", 0)) / max(1, frame_w)
+            y2 = float(d.get("y2", 0)) / max(1, frame_h)
+            boxes.append({"track_id": d.get("track_id"), "class_name": d.get("class_name"), "confidence": d.get("confidence"), "x1_norm": x1, "y1_norm": y1, "x2_norm": x2, "y2_norm": y2, "speed_kmh": d.get("speed_kmh")})
+        except Exception:
+            continue
+    env = {"schema": ROAD_LIVE_SCHEMA, "camera_id": "road1", "analytics_profile": "road-v1", "domain": "road", "frame_no": int(frame_no), "generation": int(generation), "observed_mono": float(observed_mono), "frame_width": int(frame_w), "frame_height": int(frame_h), "worker_source_commit": worker_commit, "detections": boxes, "crossings": copy.deepcopy(crossing_overlay_summary()) if "crossing_overlay_summary" in globals() else {}}
+    return copy.deepcopy(env)
+
 VEHICLE_CLASSES = {"car", "truck", "bus", "motorcycle", "bicycle"}
 
 OUTPUT_DIR = Path("output")

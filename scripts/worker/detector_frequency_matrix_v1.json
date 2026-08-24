@@ -1,0 +1,9 @@
+{
+  "schema": "sea_speed_detector_frequency_matrix_v1",
+  "offered": [5, 10, 15],
+  "extended": [20, 25, 30],
+  "modes": ["water_solo", "road_solo", "joint"],
+  "duration_sec": 120,
+  "warmup_sec": 30,
+  "repetitions": 3
+}
