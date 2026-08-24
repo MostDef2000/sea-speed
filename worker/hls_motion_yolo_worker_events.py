@@ -635,25 +635,34 @@ def overlay_label_opacity():
 
 def draw_overlay(frame, motion_now, motion_area, ai_active, detections, motion_boxes, crossing_summary=None):
     out = frame.copy()
-    for det in detections:
-        x1, y1, x2, y2 = det["bbox_xyxy"]
-        label = format_detection_label(det)
-        cv2.rectangle(out, (x1, y1), (x2, y2), (0, 255, 0), 2)
-        font = cv2.FONT_HERSHEY_SIMPLEX
-        font_scale = 0.5
-        thickness = 2
-        (text_width, text_height), baseline = cv2.getTextSize(label, font, font_scale, thickness)
-        label_x = max(0, x1)
-        label_y = max(text_height + 8, y1 - 7)
-        label_right = min(out.shape[1] - 1, label_x + text_width + 8)
-        label_top = max(0, label_y - text_height - 7)
-        label_bottom = min(out.shape[0] - 1, label_y + baseline + 2)
-        label_layer = out.copy()
-        cv2.rectangle(label_layer, (label_x, label_top), (label_right, label_bottom), (0, 18, 18), -1)
-        opacity = overlay_label_opacity()
-        cv2.addWeighted(label_layer, opacity, out, 1.0 - opacity, 0.0, dst=out)
-        cv2.rectangle(out, (label_x, label_top), (label_right, label_bottom), (0, 210, 140), 1)
-        cv2.putText(out, label, (label_x + 4, label_y), font, font_scale, (0, 255, 0), thickness, cv2.LINE_AA)
+    # Road clean-overlay: do not bake AI boxes/IDs into JPEG, live canvas is sole source
+    try:
+        _profile = get_profile()
+        _is_water = getattr(_profile, "name", "") == "water-v1"
+    except Exception:
+        _is_water = False
+    _clean = env_str("ROAD_CLEAN_OVERLAY", "1" if not _is_water else "0").strip().lower() in {"1","true","yes","on"}
+    _skip_boxes = _clean and not _is_water
+    if not _skip_boxes:
+        for det in detections:
+            x1, y1, x2, y2 = det["bbox_xyxy"]
+            label = format_detection_label(det)
+            cv2.rectangle(out, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            font_scale = 0.5
+            thickness = 2
+            (text_width, text_height), baseline = cv2.getTextSize(label, font, font_scale, thickness)
+            label_x = max(0, x1)
+            label_y = max(text_height + 8, y1 - 7)
+            label_right = min(out.shape[1] - 1, label_x + text_width + 8)
+            label_top = max(0, label_y - text_height - 7)
+            label_bottom = min(out.shape[0] - 1, label_y + baseline + 2)
+            label_layer = out.copy()
+            cv2.rectangle(label_layer, (label_x, label_top), (label_right, label_bottom), (0, 18, 18), -1)
+            opacity = overlay_label_opacity()
+            cv2.addWeighted(label_layer, opacity, out, 1.0 - opacity, 0.0, dst=out)
+            cv2.rectangle(out, (label_x, label_top), (label_right, label_bottom), (0, 210, 140), 1)
+            cv2.putText(out, label, (label_x + 4, label_y), font, font_scale, (0, 255, 0), thickness, cv2.LINE_AA)
     active_track_ids = {int(det["track_id"]) for det in detections if det.get("track_id") is not None}
     height, width = out.shape[:2]
     lines = [
