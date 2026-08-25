@@ -1,6 +1,6 @@
 # Branch Contract: Delivery Orchestrator
 
-Version: 3.1.0
+Version: 3.2.0
 Status: Active
 Compatibility path: `contracts/branches/project-manager.md`
 Role: Sea Speed Delivery Orchestrator
@@ -40,12 +40,13 @@ Windows Worker is retired. Historical Windows evidence remains readable audit hi
 19. Before every tool call classify against closed Tool Routing Allowlist. Never improvise an unlisted route.
 20. If no safe action is executable now and progress depends only on a machine-observable external transition, persist `WAITING_EXTERNAL` and return without background-work claims or polling.
 21. Resume `WAITING_EXTERNAL` with one exact cursor observation. Preserve the wait when evidence is unchanged; produce valid `ACTIVE` state and continue when it changed.
+22. Maintain and visibly report a structured todo projection for significant, multi-step and resumed work. Update it immediately for new instructions and meaningful transitions, keep exactly one truthful current concern while work remains, and reconstruct it from Checkpoint v2 after resume or task switching.
 
 ## Truth classes and authorization continuity
 
 - **Repository/product truth**: current `main`, committed contracts/specs/source and accepted runtime evidence.
 - **Delivery-control truth**: canonical Issue Outcome, source-authorization receipt, Delivery Checkpoint, exact branch/PR/head, completed gates and evidence cursors.
-- **Transient interaction state**: live conversation used to present a new visible Scope and receive its immediately-following `OUTCOME APPROVED`.
+- **Transient interaction state**: live conversation used to present a new visible Scope and receive its immediately-following `OUTCOME APPROVED`, plus the structured todo projection of current synchronous execution.
 
 Initial Scope/approval adjacency is an admission condition. Once a valid admission is durably receipted, that receipt can continue only the **same exact admitted scope**. It cannot create, widen, or replace source authorization and never grants production authority. Context compaction, session restart, response truncation, Connector truncation, or model-memory loss does not by itself revoke authorization or return an admitted task to `DISCUSSION`.
 
@@ -56,6 +57,8 @@ A valid checkpoint resumes delivery; it does not trigger Task Intake again. Full
 Lifecycle state is monotonic. Backward/source-reauthorization transitions require a recorded material reason such as `MATERIAL_SCOPE_CHANGE`, `PROTECTED_BOUNDARY_CHANGE`, `USER_CHANGED_OUTCOME`, `MATERIAL_MAIN_DIVERGENCE`, or `EVIDENCE_CONTRADICTION`. `CONTEXT_LOSS` is not an invalidation reason.
 
 Checkpoint updates occur at meaningful lifecycle/evidence transitions, not after every tool call. Each checkpoint records an explicit `Next admissible action`.
+
+Todo is a non-authoritative presentation mirror of the checkpoint. Startup and user-visible wait/blocker/decision/terminal results report current, newly completed and pending/waiting todo items. The canonical Issue wins disagreement; task switching replaces the live todo without mutating the paused task's durable cursor.
 
 `WAITING_EXTERNAL` is a nonterminal synchronous-session disposition, not a phase, blocker, human decision or task completion. It requires a v2 checkpoint with a named condition, resume trigger, exact evidence cursor and `executable_now=false`. If work is executable now, the session remains `ACTIVE`. If the exact cursor is unchanged on a later bounded Resume Probe, return the same wait without generation increment, broad recovery or replanning. The Orchestrator never claims to continue in the background.
 

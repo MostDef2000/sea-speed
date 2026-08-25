@@ -43,6 +43,10 @@ The active orchestration role is **Sea Speed Delivery Orchestrator**. It retains
 22. Checkpoint updates occur at meaningful lifecycle/evidence transitions, not after every tool call, and always record `Next admissible action`.
 23. In a synchronous session, when no safe action is executable now and progress depends only on a machine-observable external transition, persist `WAITING_EXTERNAL` and return control without promising background work.
 24. A resumed `WAITING_EXTERNAL` checkpoint permits one bounded observation of its exact evidence cursor. Unchanged evidence returns `WAITING_EXTERNAL` without replanning, polling, or incrementing checkpoint generation; changed evidence resumes automatic execution.
+25. For every significant, multi-step or resumed delivery maintain a structured todo list as the current transient execution projection of the canonical Issue checkpoint. Update it immediately when user instructions, lifecycle state, evidence cursor, blocker, disposition or `Next admissible action` changes.
+26. While work remains, keep exactly one truthful current todo item. `ACTIVE` identifies executable work; `WAITING_EXTERNAL`, `BLOCKED` and `HUMAN DECISION REQUIRED` identify the exact non-executable prerequisite without claiming background execution. `DONE` has no incomplete current item.
+27. Reconstruct todo state from the valid Checkpoint v2 during Resume Probe; never use todo as source authorization, production authority or durable delivery-control truth.
+28. Every startup status block and every user-visible wait, blocker, decision or terminal result includes a concise todo summary: current item, items completed since the prior visible transition, and remaining/waiting items.
 
 ## Resumable delivery contract
 
@@ -50,7 +54,7 @@ Truth classes are explicit:
 
 - **Repository/product truth** — `main`, committed source/contracts/specs and accepted runtime evidence.
 - **Delivery-control truth** — canonical Issue, authorization receipt, `Sea Speed Delivery Checkpoint v2`, branch/PR/head, completed gates and evidence cursors.
-- **Transient interaction state** — current chat used for initial visible-Scope -> immediately-following `OUTCOME APPROVED` admission.
+- **Transient interaction state** — current chat used for initial visible-Scope -> immediately-following `OUTCOME APPROVED` admission, plus the structured todo projection used to expose current synchronous execution.
 
 Initial Scope/approval adjacency remains mandatory to create source authority. A durable authorization receipt can only resume the **same exact admitted scope**. It never creates source authority, cannot expand it, and never grants production authority.
 
@@ -59,6 +63,12 @@ A known task Resume Probe is bounded to current `main`, the canonical Issue chec
 Lifecycle state is monotonic. Backward/source-reauthorization transition requires a concrete recorded invalidation such as `MATERIAL_SCOPE_CHANGE`, `PROTECTED_BOUNDARY_CHANGE`, `USER_CHANGED_OUTCOME`, `MATERIAL_MAIN_DIVERGENCE`, or `EVIDENCE_CONTRADICTION`. `CONTEXT_LOSS` is not an invalidation reason.
 
 A Connector read is admissible only to advance the task, validate a mandatory gate, or resolve an explicit evidence gap. A mandatory fresh read, such as exact pre-merge base/head verification, is not considered an equivalent-read loop.
+
+## Execution todo contract
+
+The todo list is operational presentation state, not another checkpoint. It mirrors the checkpoint's phase, completed gates, disposition and `Next admissible action`; material disagreement is corrected from durable Issue evidence before execution continues. Todo updates occur immediately around meaningful transitions and before the corresponding user-visible status/result. Tool calls alone do not justify synthetic todo churn.
+
+On restart or compaction, Resume Probe reconstructs the smallest useful todo plan from the exact durable cursor. A task switch preserves the paused task's durable checkpoint and replaces the live todo projection with the newly active task; returning to the paused task reconstructs it again rather than relying on chat memory.
 
 ## Synchronous external wait
 
