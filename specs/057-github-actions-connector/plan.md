@@ -54,7 +54,7 @@ Use GitHub's hosted official MCP endpoint as the single OpenCode GitHub API tran
 - RISK-057-001 | Category: SEC | Probability: 2 | Impact: 5 | Score: 10 | Mitigation: env-only credential reference, least-context toolsets, secret scan | Validation: tests/test_github_actions_connector_contract.py + validate_repo.py | Residual risk: LOW | Owner: Sea Speed Delivery Orchestrator | Status: MITIGATED
 - RISK-057-002 | Category: SEC | Probability: 3 | Impact: 4 | Score: 12 | Mitigation: method-level contract denies cancellation/log deletion without fresh authorization | Validation: cross-entrypoint static assertions | Residual risk: MEDIUM because the upstream tool is consolidated; governance remains fail closed | Owner: Sea Speed Delivery Orchestrator | Status: MITIGATED
 - RISK-057-003 | Category: OPS | Probability: 3 | Impact: 3 | Score: 9 | Mitigation: exact startup capability preflight and restart prerequisite | Validation: post-restart discovery | Residual risk: LOW | Owner: Sea Speed Delivery Orchestrator | Status: MITIGATED
-- RISK-057-004 | Category: SUPPLY_CHAIN | Probability: 2 | Impact: 4 | Score: 8 | Mitigation: use GitHub-owned hosted endpoint instead of deprecated npm package | Validation: config contract test | Residual risk: LOW | Owner: Sea Speed Delivery Orchestrator | Status: MITIGATED
+- RISK-057-004 | Category: SEC | Probability: 2 | Impact: 4 | Score: 8 | Mitigation: use GitHub-owned hosted endpoint instead of deprecated npm package | Validation: config contract test | Residual risk: LOW | Owner: Sea Speed Delivery Orchestrator | Status: MITIGATED
 
 ## Test design
 
