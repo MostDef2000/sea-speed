@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://mostdef.ru/sea-speed/schemas/telemetry.schema.json",
   "title": "Sea Speed runtime telemetry",
-  "oneOf": [{"$ref":"#/$defs/workerState"},{"$ref":"#/$defs/vehicleEvent"}],
+  "oneOf": [{"$ref":"#/$defs/workerState"},{"$ref":"#/$defs/vehicleEvent"},{"$ref":"#/$defs/roadLiveEnvelope"}],
   "$defs": {
     "commitIdentity": {"type":["string","null"],"pattern":"^[0-9a-f]{40}$|^unknown$"},
     "analyticsProfile": {"enum":["water-v1","road-v1"]},
@@ -24,6 +24,27 @@
         "calibration_version":{"type":["string","null"],"pattern":"^sha256:[0-9a-f]{16}$"},"event_id":{"type":"string","minLength":1},"created_at":{"type":"string","minLength":1},"camera_id":{"type":"string","minLength":1},
         "analytics_profile":{"$ref":"#/$defs/analyticsProfile"},"domain":{"$ref":"#/$defs/domain"},"object_type":{"type":"string","minLength":1},"model_class":{"type":"string","minLength":1},
         "class_name":{"type":"string","minLength":1},"confidence":{"type":"number","minimum":0,"maximum":1},"speed_kmh":{"type":["number","null"],"minimum":0},"speed_source":{"type":["string","null"]},"snapshot_url":{"type":["string","null"]}
+      },"additionalProperties":true
+    },
+    "roadLiveEnvelope": {
+      "type":"object",
+      "required":["schema","camera_id","analytics_profile","domain","frame_no","generation","frame_width","frame_height","worker_source_commit","detections","crossings"],
+      "properties": {
+        "schema":{"enum":["sea_speed_road_live_v1","sea_speed_road_live_v2"]},
+        "camera_id":{"const":"road1"},
+        "analytics_profile":{"const":"road-v1"},
+        "domain":{"const":"road"},
+        "frame_no":{"type":"integer","minimum":0},
+        "generation":{"type":"integer","minimum":0},
+        "observed_mono":{"type":"number","minimum":0},
+        "capture_time_unix_ms":{"type":"integer","minimum":0},
+        "processed_time_unix_ms":{"type":"integer","minimum":0},
+        "timestamp_semantics":{"enum":["worker_receive_utc"]},
+        "frame_width":{"type":"integer","minimum":1},
+        "frame_height":{"type":"integer","minimum":1},
+        "worker_source_commit":{"$ref":"#/$defs/commitIdentity"},
+        "detections":{"type":"array","maxItems":64,"items":{"type":"object","required":["x1_norm","y1_norm","x2_norm","y2_norm"],"properties":{"track_id":{"type":["integer","null"]},"class_name":{"type":"string"},"confidence":{"type":["number","null"]},"x1_norm":{"type":"number","minimum":0,"maximum":1},"y1_norm":{"type":"number","minimum":0,"maximum":1},"x2_norm":{"type":"number","minimum":0,"maximum":1},"y2_norm":{"type":"number","minimum":0,"maximum":1},"speed_kmh":{"type":["number","null"]}},"additionalProperties":true}},
+        "crossings":{"type":"object","properties":{"left_to_right":{"type":"integer"},"right_to_left":{"type":"integer"},"by_class":{"type":"object"},"line_enabled":{"type":"boolean"},"line":{"type":"array"}},"additionalProperties":true}
       },"additionalProperties":true
     }
   }

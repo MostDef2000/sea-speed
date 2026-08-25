@@ -52,6 +52,7 @@ WORKER_PRIVATE_ENDPOINTS = (
     ("/api/cam1/crossings", "POST"),
     ("/api/analytics/road1/crossing-line", "GET"),
     ("/api/analytics/road1/crossings", "POST"),
+    ("/api/analytics/road1/live", "POST"),
 )
 RFC1918_NETWORKS = tuple(
     ipaddress.ip_network(value)

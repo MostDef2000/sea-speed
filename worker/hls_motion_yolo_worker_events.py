@@ -23,14 +23,15 @@ except Exception:
     PerformanceTracker = None  # type: ignore[assignment]
 
 
-ROAD_LIVE_SCHEMA = "sea_speed_road_live_v1"
+ROAD_LIVE_SCHEMA = "sea_speed_road_live_v2"
 ROAD_LIVE_GENERATION = int(time.time() * 1000)
+_LAST_FRAME_CAPTURE_MS: int | None = None
 _LIVE_PUBLISH_QUEUE = queue.Queue(maxsize=1)
 _LIVE_PUBLISH_LOCK = threading.Lock()
 _LIVE_PUBLISH_THREAD = None
 
-def build_road_live_envelope(frame_no: int, generation: int, observed_mono: float, detections, frame_w: int, frame_h: int, worker_commit: str):
-    # normalized boxes, immutable
+def build_road_live_envelope(frame_no: int, generation: int, observed_mono: float, detections, frame_w: int, frame_h: int, worker_commit: str, capture_time_unix_ms: int | None = None, processed_time_unix_ms: int | None = None):
+    # normalized boxes, immutable — v2 carries honest worker-receive timestamps
     import copy
     boxes = []
     for d in detections or []:
@@ -48,7 +49,12 @@ def build_road_live_envelope(frame_no: int, generation: int, observed_mono: floa
             boxes.append({"track_id": d.get("track_id"), "class_name": d.get("class_name"), "confidence": d.get("confidence"), "x1_norm": x1, "y1_norm": y1, "x2_norm": x2, "y2_norm": y2, "speed_kmh": d.get("speed_kmh")})
         except Exception:
             continue
-    env = {"schema": ROAD_LIVE_SCHEMA, "camera_id": "road1", "analytics_profile": "road-v1", "domain": "road", "frame_no": int(frame_no), "generation": int(generation), "observed_mono": float(observed_mono), "frame_width": int(frame_w), "frame_height": int(frame_h), "worker_source_commit": worker_commit, "detections": boxes, "crossings": copy.deepcopy(crossing_overlay_summary()) if "crossing_overlay_summary" in globals() else {}}
+    now_ms = int(time.time() * 1000)
+    if capture_time_unix_ms is None:
+        capture_time_unix_ms = now_ms
+    if processed_time_unix_ms is None:
+        processed_time_unix_ms = now_ms
+    env = {"schema": ROAD_LIVE_SCHEMA, "camera_id": "road1", "analytics_profile": "road-v1", "domain": "road", "frame_no": int(frame_no), "generation": int(generation), "observed_mono": float(observed_mono), "capture_time_unix_ms": int(capture_time_unix_ms), "processed_time_unix_ms": int(processed_time_unix_ms), "timestamp_semantics": "worker_receive_utc", "frame_width": int(frame_w), "frame_height": int(frame_h), "worker_source_commit": worker_commit, "detections": boxes, "crossings": copy.deepcopy(crossing_overlay_summary()) if "crossing_overlay_summary" in globals() else {}}
     return copy.deepcopy(env)
 
 VEHICLE_CLASSES = {"car", "truck", "bus", "motorcycle", "bicycle"}
@@ -1615,6 +1621,12 @@ def main():
                 print("Media stream ended")
                 break
             frame_no += 1
+            # honest worker-receive timestamp for live envelope v2
+            try:
+                _LAST_FRAME_CAPTURE_MS = int(time.time() * 1000)  # type: ignore[assignment]
+                globals()["_LAST_FRAME_CAPTURE_MS"] = _LAST_FRAME_CAPTURE_MS
+            except Exception:
+                pass
             processing_frame, roi_points = prepare_roi_processing_frame(frame, motion_detector)
             motion_now, motion_area, motion_boxes = motion_detector.process(processing_frame)
             _always_on = is_motion_gate_always_on()
@@ -1695,6 +1707,17 @@ def main():
                 try:
                     h, w = frame.shape[:2]
                     wc = os.environ.get("SEA_SPEED_SOURCE_COMMIT", "unknown")
+                    # capture_time is worker-receive UTC; main loop captures after read_frame
+                    # Use dedicated per-frame timestamp if available via thread-local, else now
+                    ct_ms = int(getattr(frame, "_capture_time_unix_ms", int(time.time() * 1000))) if hasattr(frame, "_capture_time_unix_ms") else int(time.time() * 1000)
+                    # fallback to frame_no-based ingest time stored in global last capture
+                    try:
+                        _last_cap = globals().get("_LAST_FRAME_CAPTURE_MS")
+                        if isinstance(_last_cap, int):
+                            ct_ms = _last_cap
+                    except Exception:
+                        pass
+                    pt_ms = int(time.time() * 1000)
                     env_live = build_road_live_envelope(
                         frame_no,
                         ROAD_LIVE_GENERATION,
@@ -1703,6 +1726,8 @@ def main():
                         w,
                         h,
                         wc,
+                        capture_time_unix_ms=ct_ms,
+                        processed_time_unix_ms=pt_ms,
                     )
                     post_live_envelope(env_live)
                 except Exception as e:

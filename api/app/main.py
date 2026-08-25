@@ -1381,7 +1381,7 @@ def build_camera_preview_ffmpeg_args(source: str, output_dir: Path) -> List[str]
         "-tune", "zerolatency", "-profile:v", "baseline", "-pix_fmt", "yuv420p",
         "-g", "16", "-keyint_min", "16", "-sc_threshold", "0", "-t", str(CAMERA_PREVIEW_TTL_SEC),
         "-f", "hls", "-hls_time", "1", "-hls_list_size", "4",
-        "-hls_flags", "delete_segments+independent_segments+omit_endlist", "-hls_segment_type", "fmp4",
+        "-hls_flags", "delete_segments+independent_segments+omit_endlist+program_date_time", "-hls_segment_type", "fmp4",
         "-hls_fmp4_init_filename", "init.mp4", "-hls_segment_filename", str(output_dir / "segment_%05d.m4s"),
         str(output_dir / "index.m3u8"),
     ]
@@ -2353,21 +2353,77 @@ def get_session_identity(x_authentik_username: Optional[str] = Header(None)) -> 
 
 ROAD_LIVE_MAX = 120
 ROAD_LIVE: deque = deque(maxlen=ROAD_LIVE_MAX)
+ROAD_LIVE_SEQ = 0
+ROAD_LIVE_LOCK = threading.Lock()
 
 def _validate_road_live_envelope(payload: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(payload, dict):
         raise HTTPException(status_code=400, detail="live envelope must be object")
+    if payload.get("schema") not in {"sea_speed_road_live_v1", "sea_speed_road_live_v2"}:
+        raise HTTPException(status_code=400, detail="schema must be sea_speed_road_live_v1/v2")
     if payload.get("camera_id") != "road1":
         raise HTTPException(status_code=400, detail="camera_id must be road1")
     if payload.get("analytics_profile") != "road-v1":
         raise HTTPException(status_code=400, detail="analytics_profile must be road-v1")
+    if payload.get("domain") != "road":
+        raise HTTPException(status_code=400, detail="domain must be road")
+    for field in ("frame_no", "generation", "frame_width", "frame_height"):
+        if not isinstance(payload.get(field), int):
+            raise HTTPException(status_code=400, detail=f"{field} must be int")
+    # v2 timing contract
+    if payload.get("schema") == "sea_speed_road_live_v2":
+        for field in ("capture_time_unix_ms", "processed_time_unix_ms"):
+            if not isinstance(payload.get(field), int):
+                raise HTTPException(status_code=400, detail=f"{field} must be int")
+        if payload.get("timestamp_semantics") != "worker_receive_utc":
+            raise HTTPException(status_code=400, detail="timestamp_semantics must be worker_receive_utc")
+    else:
+        if not isinstance(payload.get("observed_mono"), (int, float)):
+            raise HTTPException(status_code=400, detail="observed_mono must be number")
+    detections = payload.get("detections")
+    if not isinstance(detections, list):
+        raise HTTPException(status_code=400, detail="detections must be list")
+    if len(detections) > 64:
+        raise HTTPException(status_code=400, detail="too many detections")
+    for det in detections:
+        if not isinstance(det, dict):
+            raise HTTPException(status_code=400, detail="detection must be object")
+        for coord in ("x1_norm", "y1_norm", "x2_norm", "y2_norm"):
+            val = det.get(coord)
+            if not isinstance(val, (int, float)) or not (0.0 <= float(val) <= 1.0):
+                raise HTTPException(status_code=400, detail=f"{coord} must be 0..1")
+        try:
+            if float(det.get("x2_norm")) <= float(det.get("x1_norm")) or float(det.get("y2_norm")) <= float(det.get("y1_norm")):
+                raise HTTPException(status_code=400, detail="invalid box")
+        except Exception:
+            raise HTTPException(status_code=400, detail="invalid box")
+    if payload.get("crossings") is not None and not isinstance(payload.get("crossings"), dict):
+        raise HTTPException(status_code=400, detail="crossings must be object")
+    # size guard
+    try:
+        raw = json.dumps(payload, ensure_ascii=False)
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid json")
+    if len(raw) > 64 * 1024:
+        raise HTTPException(status_code=400, detail="payload too large")
     return payload
 
 @app.post("/api/analytics/road1/live")
-async def post_road_live(payload: Dict[str, Any]) -> Dict[str, Any]:
+async def post_road_live(payload: Dict[str, Any], authorization: Optional[str] = Header(None)) -> Dict[str, Any]:
+    require_auth(authorization)
     env = _validate_road_live_envelope(payload)
-    ROAD_LIVE.append(env)
-    return {"ok": True, "queued": len(ROAD_LIVE)}
+    # deep copy and enrich with server receipt
+    import copy as _copy
+    stored = _copy.deepcopy(env)
+    global ROAD_LIVE_SEQ
+    with ROAD_LIVE_LOCK:
+        ROAD_LIVE_SEQ += 1
+        stored["_live_seq"] = ROAD_LIVE_SEQ
+        stored["_received_at"] = datetime.now(timezone.utc).isoformat()
+        ROAD_LIVE.append(stored)
+        seq = ROAD_LIVE_SEQ
+        queued = len(ROAD_LIVE)
+    return {"ok": True, "queued": queued, "live_seq": seq}
 
 @app.get("/api/analytics/road1/live")
 def get_road_live(limit: int = 20) -> Dict[str, Any]:
@@ -2375,21 +2431,34 @@ def get_road_live(limit: int = 20) -> Dict[str, Any]:
     items = list(ROAD_LIVE)[-lim:]
     return {"camera_id": "road1", "items": items}
 
+def _road_live_stream_gen(last_seq: int):
+    import time as _time, json as _json
+    yield "data: {}\n\n"
+    cursor = last_seq
+    while True:
+        with ROAD_LIVE_LOCK:
+            items = [e for e in list(ROAD_LIVE) if int(e.get("_live_seq", 0)) > cursor]
+            if items:
+                cursor = int(items[-1].get("_live_seq", cursor))
+        if items:
+            for env in items:
+                yield f"id: {env.get('_live_seq')}\ndata: {_json.dumps(env, ensure_ascii=False)}\n\n"
+        else:
+            yield ": keepalive\n\n"
+        _time.sleep(0.1)
+
+@app.get("/api/analytics/road1/live/stream")
+def road_live_stream_internal():
+    with ROAD_LIVE_LOCK:
+        last = ROAD_LIVE_SEQ
+    return StreamingResponse(_road_live_stream_gen(last), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
 @app.get("/sea-speed/api/analytics/road1/live/stream")
 def road_live_stream():
-    def gen():
-        last_idx = len(ROAD_LIVE)
-        yield "data: {}\n\n"
-        import time as _time, json as _json
-        while True:
-            if len(ROAD_LIVE) > last_idx:
-                for env in list(ROAD_LIVE)[last_idx:]:
-                    yield f"data: {_json.dumps(env, ensure_ascii=False)}\n\n"
-                last_idx = len(ROAD_LIVE)
-            else:
-                yield ": keepalive\n\n"
-            _time.sleep(0.1)
-    return StreamingResponse(gen(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+    # public Authentik-protected alias — same sequence-aware stream
+    with ROAD_LIVE_LOCK:
+        last = ROAD_LIVE_SEQ
+    return StreamingResponse(_road_live_stream_gen(last), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 @app.get("/api/health")
 def health() -> Dict[str, Any]:
