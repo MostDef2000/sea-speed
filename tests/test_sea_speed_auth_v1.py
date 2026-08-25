@@ -192,6 +192,7 @@ class SeaSpeedAuthV1Tests(unittest.TestCase):
             ("/api/analytics/road1/crossing-line", "GET"),
             ("/api/analytics/road1/crossings", "POST"),
             ("/api/analytics/road1/live", "POST"),
+            ("/api/cam1/live", "POST"),
         )
         self.assertEqual(nginxauth.WORKER_PRIVATE_ENDPOINTS, expected)
         for path, method in expected:

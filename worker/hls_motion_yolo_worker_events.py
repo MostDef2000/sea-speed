@@ -25,6 +25,8 @@ except Exception:
 
 ROAD_LIVE_SCHEMA = "sea_speed_road_live_v2"
 ROAD_LIVE_GENERATION = int(time.time() * 1000)
+WATER_LIVE_SCHEMA = "sea_speed_water_live_v2"
+WATER_LIVE_GENERATION = int(time.time() * 1000)
 _LAST_FRAME_CAPTURE_MS: int | None = None
 _LIVE_PUBLISH_QUEUE = queue.Queue(maxsize=1)
 _LIVE_PUBLISH_LOCK = threading.Lock()
@@ -55,6 +57,32 @@ def build_road_live_envelope(frame_no: int, generation: int, observed_mono: floa
     if processed_time_unix_ms is None:
         processed_time_unix_ms = now_ms
     env = {"schema": ROAD_LIVE_SCHEMA, "camera_id": "road1", "analytics_profile": "road-v1", "domain": "road", "frame_no": int(frame_no), "generation": int(generation), "observed_mono": float(observed_mono), "capture_time_unix_ms": int(capture_time_unix_ms), "processed_time_unix_ms": int(processed_time_unix_ms), "timestamp_semantics": "worker_receive_utc", "frame_width": int(frame_w), "frame_height": int(frame_h), "worker_source_commit": worker_commit, "detections": boxes, "crossings": copy.deepcopy(crossing_overlay_summary()) if "crossing_overlay_summary" in globals() else {}}
+    return copy.deepcopy(env)
+
+def build_water_live_envelope(frame_no: int, generation: int, observed_mono: float, detections, frame_w: int, frame_h: int, worker_commit: str, capture_time_unix_ms: int | None = None, processed_time_unix_ms: int | None = None):
+    import copy
+    boxes = []
+    for d in detections or []:
+        try:
+            coords = d.get("bbox_xyxy")
+            if not isinstance(coords, (list, tuple)) or len(coords) != 4:
+                coords = [d.get("x1", 0), d.get("y1", 0), d.get("x2", 0), d.get("y2", 0)]
+            x1, y1, x2, y2 = [float(value) for value in coords]
+            x1 = min(1.0, max(0.0, x1 / max(1, frame_w)))
+            y1 = min(1.0, max(0.0, y1 / max(1, frame_h)))
+            x2 = min(1.0, max(0.0, x2 / max(1, frame_w)))
+            y2 = min(1.0, max(0.0, y2 / max(1, frame_h)))
+            if x2 <= x1 or y2 <= y1:
+                continue
+            boxes.append({"track_id": d.get("track_id"), "class_name": d.get("class_name"), "confidence": d.get("confidence"), "x1_norm": x1, "y1_norm": y1, "x2_norm": x2, "y2_norm": y2, "speed_kmh": d.get("speed_kmh"), "passage_id": d.get("passage_id")})
+        except Exception:
+            continue
+    now_ms = int(time.time() * 1000)
+    if capture_time_unix_ms is None:
+        capture_time_unix_ms = now_ms
+    if processed_time_unix_ms is None:
+        processed_time_unix_ms = now_ms
+    env = {"schema": WATER_LIVE_SCHEMA, "camera_id": "cam1", "analytics_profile": "water-v1", "domain": "water", "frame_no": int(frame_no), "generation": int(generation), "observed_mono": float(observed_mono), "capture_time_unix_ms": int(capture_time_unix_ms), "processed_time_unix_ms": int(processed_time_unix_ms), "timestamp_semantics": "worker_receive_utc", "frame_width": int(frame_w), "frame_height": int(frame_h), "worker_source_commit": worker_commit, "detections": boxes}
     return copy.deepcopy(env)
 
 VEHICLE_CLASSES = {"car", "truck", "bus", "motorcycle", "bicycle"}
@@ -1732,6 +1760,32 @@ def main():
                     post_live_envelope(env_live)
                 except Exception as e:
                     print(f"live envelope post skipped: {e}")
+            else:
+                try:
+                    h, w = frame.shape[:2]
+                    wc = os.environ.get("SEA_SPEED_SOURCE_COMMIT", "unknown")
+                    ct_ms = int(time.time() * 1000)
+                    try:
+                        _last_cap = globals().get("_LAST_FRAME_CAPTURE_MS")
+                        if isinstance(_last_cap, int):
+                            ct_ms = _last_cap
+                    except Exception:
+                        pass
+                    pt_ms = int(time.time() * 1000)
+                    env_live = build_water_live_envelope(
+                        frame_no,
+                        WATER_LIVE_GENERATION,
+                        time.monotonic(),
+                        detections,
+                        w,
+                        h,
+                        wc,
+                        capture_time_unix_ms=ct_ms,
+                        processed_time_unix_ms=pt_ms,
+                    )
+                    post_live_envelope(env_live)
+                except Exception as e:
+                    print(f"water live envelope post skipped: {e}")
 
             crossing_snapshot = crossing_overlay_summary()
             overlay = draw_overlay(frame=frame, motion_now=motion_now, motion_area=motion_area, ai_active=ai_active, detections=detections, motion_boxes=motion_boxes, crossing_summary=crossing_snapshot)

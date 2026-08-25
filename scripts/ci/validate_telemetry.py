@@ -79,20 +79,55 @@ def validate_road_live(payload):
             fail("invalid box")
     validate_commit(payload.get("worker_source_commit"))
 
+def validate_water_live(payload):
+    schema = payload.get("schema")
+    if schema not in {"sea_speed_water_live_v1", "sea_speed_water_live_v2"}:
+        fail("schema must be sea_speed_water_live_v1/v2")
+    if payload.get("camera_id") != "cam1":
+        fail("camera_id must be cam1")
+    if payload.get("analytics_profile") != "water-v1":
+        fail("analytics_profile must be water-v1")
+    if payload.get("domain") != "water":
+        fail("domain must be water")
+    for field in ("frame_no", "generation", "frame_width", "frame_height"):
+        if not isinstance(payload.get(field), int) or isinstance(payload.get(field), bool) or payload[field] < 0:
+            fail(f"{field} must be non-negative int")
+    if schema == "sea_speed_water_live_v2":
+        for field in ("capture_time_unix_ms", "processed_time_unix_ms"):
+            if not isinstance(payload.get(field), int) or payload[field] < 0:
+                fail(f"{field} must be non-negative int")
+        if payload.get("timestamp_semantics") != "worker_receive_utc":
+            fail("timestamp_semantics must be worker_receive_utc")
+    detections = payload.get("detections")
+    if not isinstance(detections, list) or len(detections) > 64:
+        fail("detections must be list max 64")
+    for det in detections:
+        if not isinstance(det, dict):
+            fail("detection must be object")
+        for coord in ("x1_norm", "y1_norm", "x2_norm", "y2_norm"):
+            v = det.get(coord)
+            if not isinstance(v, (int, float)) or isinstance(v, bool) or not 0 <= float(v) <= 1:
+                fail(f"{coord} must be 0..1")
+        if float(det.get("x2_norm")) <= float(det.get("x1_norm")) or float(det.get("y2_norm")) <= float(det.get("y1_norm")):
+            fail("invalid box")
+    validate_commit(payload.get("worker_source_commit"))
+
 def validate_payload(payload,kind="auto"):
     resolved=kind
     if resolved=="auto":
         if "state_schema" in payload: resolved="state"
         elif "event_schema" in payload: resolved="event"
         elif payload.get("schema") in {"sea_speed_road_live_v1", "sea_speed_road_live_v2"}: resolved="road_live"
+        elif payload.get("schema") in {"sea_speed_water_live_v1", "sea_speed_water_live_v2"}: resolved="water_live"
         else: fail("cannot infer telemetry kind")
     if resolved=="state": validate_state(payload)
     elif resolved=="event": validate_event(payload)
     elif resolved=="road_live": validate_road_live(payload)
+    elif resolved=="water_live": validate_water_live(payload)
     else: fail(f"unsupported telemetry kind: {resolved}")
     return resolved
 def main():
-    p=argparse.ArgumentParser(description=__doc__); p.add_argument("payload",type=Path); p.add_argument("--kind",choices=("auto","state","event","road_live"),default="auto"); a=p.parse_args()
+    p=argparse.ArgumentParser(description=__doc__); p.add_argument("payload",type=Path); p.add_argument("--kind",choices=("auto","state","event","road_live","water_live"),default="auto"); a=p.parse_args()
     try:
         payload=json.loads(a.payload.read_text(encoding="utf-8"));
         if not isinstance(payload,dict): fail("payload root must be an object")
