@@ -1,6 +1,6 @@
 # Sea Speed Governance
 
-Version: 1.18.0
+Version: 1.19.0
 Status: Active
 Source of truth: GitHub `main`
 
@@ -15,6 +15,7 @@ Source of truth: GitHub `main`
 - Before asking for `OUTCOME APPROVED`, the Delivery Orchestrator presents the complete six-field visible Scope as the last substantive assistant content; approval must be the immediately following user decision.
 - Source admission is fail closed: before first repository write require `VISIBLE_SCOPE_PRESENTED=YES`, `SCOPE_IMMEDIATELY_PRECEDES_APPROVAL=YES`, `SOURCE_AUTHORIZATION_ADMISSION=OPEN`.
 - After valid admission, persist a durable source-authorization receipt plus machine-readable `Sea Speed Delivery Checkpoint v2` in the canonical Issue.
+- Maintain a structured todo list for significant, multi-step and resumed delivery as a current visible transient projection of the durable Issue checkpoint; todo never creates authority or replaces the checkpoint.
 - `skills/**` additionally requires `SKILL UPDATE APPROVED`.
 - Every task uses a fresh branch from current `main`.
 - Material scope expansion, destructive action, security-boundary/secret redesign, protected behavior change, incompatible schema change, data migration or behavior redesign requires fresh source authorization.
@@ -53,7 +54,7 @@ Sea Speed separates three truth classes:
 
 - **Repository/product truth**: current `main`, committed contracts/specs/source and accepted runtime evidence.
 - **Delivery-control truth**: canonical Issue Outcome, source-authorization receipt, `Sea Speed Delivery Checkpoint v2`, exact branch/PR/head, completed gates and evidence cursors.
-- **Transient interaction state**: live conversation used to present a new Scope and receive the immediately-following `OUTCOME APPROVED`.
+- **Transient interaction state**: live conversation used to present a new Scope and receive the immediately-following `OUTCOME APPROVED`, plus the structured todo projection used to expose current synchronous execution.
 
 A known task with a valid checkpoint uses a bounded **Resume Probe** before any full project recovery. The probe reads current `main`, the canonical Issue checkpoint, exact referenced PR/head/status or other evidence whose cursor may have changed, and `Next admissible action`.
 
@@ -69,9 +70,17 @@ Connector retrieval after task resolution follows:
 known object -> metadata -> targeted detail -> failure fragment
 ```
 
-A read is admissible only when it advances delivery, validates a mandatory gate, or resolves an explicit evidence gap. Repeating an equivalent read for the same question with the same evidence identity is forbidden unless a canonical gate requires a fresh read.
+A read is admissible only when it advances the task, validates a mandatory gate, or resolves an explicit evidence gap. Repeating an equivalent read for the same question with the same evidence identity is forbidden unless a canonical gate requires a fresh read.
 
-### 4.1 Synchronous external wait
+### 4.1 Execution todo projection
+
+For significant, multi-step or resumed work the Orchestrator maintains a structured todo list and updates it immediately when user instructions, lifecycle state, evidence cursor, blocker, session disposition or `Next admissible action` changes. While work remains, exactly one item truthfully identifies the current lifecycle concern. `ACTIVE` identifies executable work; wait/blocker/decision items explicitly identify their non-executable prerequisite and never claim background execution. `DONE` leaves no incomplete current item.
+
+Todo is transient interaction/presentation state. It is reconstructed from the valid Checkpoint during Resume Probe, may be replaced when the operator switches active tasks, and cannot create source authorization, production authority, completed-gate evidence or durable continuation. The canonical Issue checkpoint wins every disagreement.
+
+Every startup status and every user-visible `WAITING_EXTERNAL`, blocker, decision or terminal result includes the current todo item, items completed since the previous visible transition, and remaining/waiting work. A meaningful checkpoint transition updates todo before the corresponding user-visible result; individual tool calls do not require todo churn.
+
+### 4.2 Synchronous external wait
 
 `WAITING_EXTERNAL` is a nonterminal session disposition for synchronous execution. It is legal only when no safe authorized action is executable now and progress depends solely on a named machine-observable external condition. The v2 checkpoint records the condition, resume trigger, exact evidence cursor and next admissible action. A human decision uses `HUMAN DECISION REQUIRED`; a concrete external blocker uses `BLOCKED`.
 
@@ -118,7 +127,7 @@ Source authorization is not runtime authority. Every runtime execution must be a
 
 The effective standing delegation is independently administered GitHub `production` environment state, exposed to protected workflows as `SEA_SPEED_PRODUCTION_DELEGATION_V1`. Repository content defines constraints only. Repository policy can narrow but cannot widen trusted permissions.
 
-The delegation binds: delegation ID, principal, repository, `production` environment, sorted unique permissions, autonomous mode, policy hash and enabled state. The active standing actions are only `deploy` and `rollback`. IAM, secrets, environment/settings administration, branch protection and arbitrary infrastructure mutation remain outside delegated authority.
+The delegation binds: delegation ID, principal, repository, `production` environment, sorted unique permissions, autonomous mode, policy hash and enabled state. The active standing actions are only `deploy` and `rollback`. IAM, secret management, environment/settings administration, branch protection and arbitrary infrastructure mutation remain outside delegated authority.
 
 GitHub Issue/PR/comment/README/repository text is not production authority. Historical `PRODUCTION APPROVED`, authorization fingerprints, execution-intent and `DEPLOY VPS` text remains audit history only. Policy hashes and decision IDs are integrity identifiers, not bearer credentials.
 
@@ -170,7 +179,7 @@ For historical audit vocabulary, the former per-release production hard gate use
 | Public Sea Speed HTTP verification | Read-only HTTP/web | One bounded read-only `curl`/PowerShell operator command |
 | External technical documentation | Read-only web against primary/official sources | NONE |
 | User-provided logs/screenshots/config/files | Direct read | NONE |
-| Standing delegation administration | Independently controlled GitHub `production` environment settings by human administrator | NONE; Orchestrator cannot create/change its trusted delegation |
+| Standing delegation administration | Independently controlled GitHub `production` environment settings by human administrator | NONE; Orchestrator cannot create/change trusted delegation |
 | Production policy evaluation | Repository-owned evaluator in protected GitHub Actions | NONE |
 | VPS deployment | GitHub Actions -> `.github/workflows/deploy-vps.yml` | Repository-owned VPS action explicitly exposed by canonical path only |
 | Ubuntu deployment | GitHub Actions -> `.github/workflows/deploy-ubuntu-worker.yml` -> `deploy/worker/ubuntu/deploy-authorized.sh` | Repository-owned sudo/root bootstrap emitted by canonical path only |
