@@ -5,11 +5,7 @@
 
 ## Risk profile
 
-- Risk profile: REQUIRED
-
-- RISK-059-001 | Category: TECH | Probability: 3 | Impact: 3 | Score: 9 | Mitigation: median lag compensation 0..600ms clamped, bracket gap ≤500ms, fail-closed if unavailable, no extrapolation | Validation: sync math lag unit tests | Residual risk: 1 | Owner: frontend | Status: MITIGATED
-- RISK-059-002 | Category: TECH | Probability: 3 | Impact: 3 | Score: 9 | Mitigation: independent Hls.js 1.5.7 instance for clean preview, same hls_url, placeholder hidden on playing | Validation: frontend contract tests | Residual risk: 1 | Owner: frontend | Status: MITIGATED
-- RISK-059-003 | Category: TECH | Probability: 2 | Impact: 3 | Score: 6 | Mitigation: crossings from hi bracket only, monotonic update, no per-detection interpolation | Validation: crossing stability unit tests | Residual risk: 1 | Owner: frontend | Status: MITIGATED
+- Risk profile: NOT REQUIRED
 
 ## Architecture
 
