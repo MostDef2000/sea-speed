@@ -11,15 +11,17 @@
 - [x] T003 Update the local Delivery Orchestrator prompt and remove the contradictory `gh` PR fallback.
 - [x] T004 Add deterministic static contract coverage.
 - [x] T005 Verify exact scope and run all required local validators/tests.
-- [ ] T006 Open the exact Change Contract PR and obtain exact-head required CI.
-- [ ] T007 Merge exact green head, verify exact-main Quality and record terminal Issue evidence.
+- [x] T006 Admit only the canonical agent path in repository validation with deterministic rejection of other `.opencode` paths.
+- [ ] T007 Open the exact Change Contract PR and obtain exact-head required CI.
+- [ ] T008 Merge exact green head, verify exact-main Quality and record terminal Issue evidence.
 
 ## Requirements traceability
 
 - AC-001 | Task: T002 | Evidence: TEST-056-001 / tests/test_delivery_todo_contract.py | Coverage: COVERED
 - AC-002 | Task: T002 | Evidence: TEST-056-002 / tests/test_delivery_todo_contract.py | Coverage: COVERED
 - AC-003 | Task: T003 | Evidence: TEST-056-003 / tests/test_delivery_todo_contract.py | Coverage: COVERED
-- AC-004 | Task: T005,T006,T007 | Evidence: TEST-056-004 / local validation + GitHub required checks | Coverage: COVERED
+- AC-004 | Task: T005,T007,T008 | Evidence: TEST-056-004 / local validation + GitHub required checks | Coverage: COVERED
+- AC-005 | Task: T006 | Evidence: TEST-056-005 / tests/test_delivery_todo_contract.py + scripts/ci/validate_repo.py | Coverage: COVERED
 
 ## Definition of Done
 

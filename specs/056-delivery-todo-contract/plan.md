@@ -28,6 +28,12 @@ Keep the canonical Issue `Sea Speed Delivery Checkpoint v2` as durable delivery-
 - Reason: Availability cannot widen the deny-by-default allowlist.
 - Alternatives rejected: `gh` or bash API publication bypasses the canonical Connector route.
 
+### D-004 - Exact-path admission for local agent tooling
+
+- Decision: Repository validation admits exactly `.opencode/agents/sea-speed-delivery-orchestrator.md` and rejects every other `.opencode/**` path.
+- Reason: The canonical agent prompt must live in protected source without turning local opencode state (dependencies, config, credentials) into repository content.
+- Alternatives rejected: allowing all of `.opencode/**` would admit local runtime state; rejecting the agent file would contradict the approved outcome.
+
 ## Affected contours
 
 - Repository: governance/runtime contracts, compatibility bootstrap paths, local agent prompt, SDD and deterministic contract test.
@@ -56,16 +62,17 @@ Keep the canonical Issue `Sea Speed Delivery Checkpoint v2` as durable delivery-
 - TEST-056-002 | Covers: AC-002 | Level: unit | Priority: P0 | Evidence: tests/test_delivery_todo_contract.py visible status-field assertions
 - TEST-056-003 | Covers: AC-003 | Level: unit | Priority: P0 | Evidence: tests/test_delivery_todo_contract.py Connector-only routing assertions
 - TEST-056-004 | Covers: AC-004 | Level: integration | Priority: P0 | Evidence: canonical validators and full unittest discovery
+- TEST-056-005 | Covers: AC-005 | Level: unit | Priority: P0 | Evidence: tests/test_delivery_todo_contract.py exact-path admission/rejection assertions
 
 ## Correct-course check
 
-- Trigger: NONE
-- Issue impact: NONE
-- Specification impact: NONE
-- Plan impact: NONE
-- Tasks impact: NONE
-- Authorization impact: NONE
-- Follow-up: NONE
+- Trigger: MATERIAL_SCOPE_CHANGE
+- Issue impact: canonical Issue #308 records the bounded extension and fresh approval in the durable checkpoint
+- Specification impact: R8/AC-005 added to specs/056-delivery-todo-contract/spec.md
+- Plan impact: D-004 and TEST-056-005 added to this plan
+- Tasks impact: T008 added for the validator change
+- Authorization impact: fresh `OUTCOME APPROVED` received immediately after the extended six-field Scope
+- Follow-up: continue PR/CI/merge under the same extended scope
 
 ## Deployment transaction audit
 

@@ -5,7 +5,8 @@ import re,subprocess,sys,tempfile
 from html.parser import HTMLParser
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[2]
-ALLOWED_TOP_LEVEL={".github",".gitignore",".specify","AGENTS.md","README.md","api","contracts","data","deploy","docs","frontend","schemas","scripts","skills","specs","tests","worker"}
+ALLOWED_TOP_LEVEL={".github",".gitignore",".specify",".opencode","AGENTS.md","README.md","api","contracts","data","deploy","docs","frontend","schemas","scripts","skills","specs","tests","worker"}
+ALLOWED_EXACT_PATHS={".opencode/agents/sea-speed-delivery-orchestrator.md"}
 REQUIRED_FILES={
 "AGENTS.md","README.md","api/app/main.py","frontend/root/index.html","frontend/sea-speed/index.html","frontend/sea-speed/objects/index.html","frontend/sea-speed/cameras/index.html","frontend/sea-speed/road/index.html",
 "worker/analytics_profiles.py","worker/hls_motion_yolo_worker_events.py","worker/hls_motion_yolo_runtime.py",
@@ -39,7 +40,9 @@ def validate_paths(files):
  if missing: fail("required files are missing: "+", ".join(missing))
  for path in files:
   if path.parts[0] not in ALLOWED_TOP_LEVEL: fail(f"unexpected top-level path: {path}")
-  normalized=path.as_posix().lower(); dirs={part.lower() for part in path.parts[:-1]}
+  normalized=path.as_posix().lower()
+  if path.parts[0]==".opencode" and normalized not in ALLOWED_EXACT_PATHS: fail(f"unexpected .opencode path: {path}")
+  dirs={part.lower() for part in path.parts[:-1]}
   if path.name.lower() in FORBIDDEN_FILENAMES: fail(f"local environment file is tracked: {path}")
   if dirs & FORBIDDEN_DIRECTORY_NAMES: fail(f"runtime or local directory is tracked: {path}")
   if any(normalized==prefix or normalized.startswith(prefix+"/") for prefix in FORBIDDEN_PATH_PREFIXES): fail(f"runtime data path is tracked: {path}")

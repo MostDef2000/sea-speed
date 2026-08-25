@@ -31,6 +31,7 @@ Given a valid canonical Issue checkpoint, when delivery resumes, then the todo p
 - R5: Startup/status and user-visible wait/terminal results expose a concise todo summary: current, newly completed and remaining/waiting work.
 - R6: Todo never becomes source authorization, production authority or durable delivery-control truth.
 - R7: GitHub routing is unambiguous: Issue/PR/API lifecycle uses Connector only; `gh` is not a fallback.
+- R8: Repository validation admits exactly `.opencode/agents/sea-speed-delivery-orchestrator.md` under `.opencode/**` and rejects every other path there.
 
 ## NFR assessment
 
@@ -44,10 +45,11 @@ Given a valid canonical Issue checkpoint, when delivery resumes, then the todo p
 - AC-002: Required status output includes current todo, newly completed work and pending/waiting work.
 - AC-003: The local Delivery Orchestrator prompt requires todo lifecycle updates and contains no `gh` PR fallback contradiction.
 - AC-004: Static contract test, SDD/repository/contract/quality validators and full unittest discovery pass.
+- AC-005: `scripts/ci/validate_repo.py` admits only the canonical agent file under `.opencode/**` and deterministically rejects every other `.opencode` path.
 
 ## Out of scope
 
-Application/runtime behavior, deployment workflows, production settings, Docker credentials, `opencode.json`, Issue #305 implementation and PR #307 source are unchanged.
+Application/runtime behavior, deployment workflows, production settings, Docker credentials, `opencode.json`, every other `.opencode/**` path, Issue #305 implementation and PR #307 source are unchanged.
 
 ## Runtime feedback
 

@@ -72,6 +72,30 @@ class DeliveryTodoContractTests(unittest.TestCase):
         self.assertIn("`gh`", agent)
         self.assertIn("запрещены", agent)
 
+    def test_repository_validation_admits_only_canonical_agent_path(self):
+        import importlib.util
+
+        module_path = ROOT / "scripts" / "ci" / "validate_repo.py"
+        module_spec = importlib.util.spec_from_file_location(
+            "validate_repo_under_test", module_path
+        )
+        assert module_spec is not None
+        loader = module_spec.loader
+        assert loader is not None
+        module = importlib.util.module_from_spec(module_spec)
+        loader.exec_module(module)
+        canonical = ".opencode/agents/sea-speed-delivery-orchestrator.md"
+        self.assertEqual(module.ALLOWED_EXACT_PATHS, {canonical})
+        module.validate_paths([Path(canonical)])
+        for rejected in (
+            ".opencode/agents/other-agent.md",
+            ".opencode/settings.json",
+            ".opencode/node_modules/pkg/index.js",
+        ):
+            with self.subTest(path=rejected):
+                with self.assertRaises(SystemExit):
+                    module.validate_paths([Path(rejected)])
+
 
 if __name__ == "__main__":
     unittest.main()
