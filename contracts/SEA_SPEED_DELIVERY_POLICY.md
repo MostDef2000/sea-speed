@@ -1,6 +1,6 @@
 # Sea Speed Delivery Policy
 
-Version: 1.22.0
+Version: 1.23.0
 Status: Active
 
 ## 1. Purpose
@@ -65,6 +65,14 @@ known object -> metadata -> targeted detail -> failure fragment
 ```
 
 A read must advance the task, validate a mandatory gate, or resolve an explicit evidence gap. Repeating an equivalent read for the same question with the same evidence identity is forbidden unless a canonical gate explicitly requires a fresh read.
+
+### 4.1 Actions capability and mutation boundary
+
+The canonical OpenCode project configuration uses GitHub's official remote MCP endpoint, the least-context `context,repos,issues,pull_requests,actions` toolsets, and only the secret reference `{env:GH_TOKEN}`. Startup capability preflight requires `actions_list`, `actions_get`, `get_job_logs`, and `actions_run_trigger`; availability of Issue/PR tools alone is insufficient.
+
+The Actions Connector may read workflow/run/job/artifact state and bounded failure logs. It may invoke `run_workflow`, `rerun_workflow_run`, or `rerun_failed_jobs` only when the durable checkpoint identifies that exact operation as the next admissible action. `cancel_workflow_run` and `delete_workflow_run_logs` are outside standing delivery authority and require fresh destructive source authorization. No Actions operation creates production authority, and dispatch/rerun cannot bypass protected source, exact-main Quality, standing delegation, deterministic policy, or runtime acceptance.
+
+If the live OpenCode process lacks the required tool surface, the Orchestrator first resolves the checked-in configuration. Missing source configuration is remediated through the authorized source lifecycle. A stale process after current-main configuration is correct records an exact restart/capability-probe prerequisite; it does not delegate workflow mutation to a manual web action, `gh`, or an ad-hoc API client.
 
 ## 5. Release identity
 
@@ -210,7 +218,7 @@ Sea Speed is DENY BY DEFAULT.
 | Task class | Allowed primary route | Allowed fallback |
 |---|---|---|
 | Repository/Issue/PR/comment/branch/source/merge lifecycle | GitHub Connector | NONE |
-| CI status/jobs/logs/artifacts | GitHub Connector | One bounded read-only GitHub API/PowerShell operator command when exact endpoint unavailable |
+| CI status/jobs/logs/artifacts and bounded workflow rerun/dispatch | GitHub Connector Actions tools | One bounded read-only GitHub API/PowerShell operator command for read evidence when the exact endpoint is unavailable; no mutation fallback |
 | Patch/build/test/hash/static analysis | Ephemeral local tooling/container | User checkout for preparation/validation only |
 | Public Sea Speed HTTP verification | Read-only HTTP/web | One bounded read-only curl/PowerShell operator command |
 | External technical documentation | Read-only web, primary/official sources | NONE |

@@ -5,10 +5,10 @@ import re,subprocess,sys,tempfile
 from html.parser import HTMLParser
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[2]
-ALLOWED_TOP_LEVEL={".github",".gitignore",".specify",".opencode","AGENTS.md","README.md","api","contracts","data","deploy","docs","frontend","schemas","scripts","skills","specs","tests","worker"}
+ALLOWED_TOP_LEVEL={".github",".gitignore",".specify",".opencode","AGENTS.md","README.md","api","contracts","data","deploy","docs","frontend","opencode.json","schemas","scripts","skills","specs","tests","worker"}
 ALLOWED_EXACT_PATHS={".opencode/agents/sea-speed-delivery-orchestrator.md"}
 REQUIRED_FILES={
-"AGENTS.md","README.md","api/app/main.py","frontend/root/index.html","frontend/sea-speed/index.html","frontend/sea-speed/objects/index.html","frontend/sea-speed/cameras/index.html","frontend/sea-speed/road/index.html",
+"AGENTS.md","README.md","opencode.json","api/app/main.py","frontend/root/index.html","frontend/sea-speed/index.html","frontend/sea-speed/objects/index.html","frontend/sea-speed/cameras/index.html","frontend/sea-speed/road/index.html",
 "worker/analytics_profiles.py","worker/hls_motion_yolo_worker_events.py","worker/hls_motion_yolo_runtime.py",
 "contracts/SEA_SPEED_GOVERNANCE.md","contracts/SEA_SPEED_DELIVERY_POLICY.md","contracts/runtime/SEA_SPEED_TASK_RUNTIME.md","contracts/runtime/RELEASE_READINESS_GATE.md",
 ".specify/memory/constitution.md",".specify/templates/overrides/spec-template.md",".specify/templates/overrides/plan-template.md",".specify/templates/overrides/tasks-template.md","specs/README.md","specs/001-camera-live-pipeline/spec.md","specs/002-sdd-adoption/spec.md","specs/018-water-road-analytics-profiles/spec.md",
@@ -66,6 +66,7 @@ def validate_frontend():
 def validate_secrets(files):
  for path in files:
   if path.suffix.lower() not in TEXT_SUFFIXES and path.name not in {"README.md",".gitignore"}: continue
+  content=""
   try: content=(ROOT/path).read_text(encoding="utf-8-sig")
   except UnicodeDecodeError: fail(f"text file is not valid UTF-8: {path}")
   for label,pattern in SECRET_PATTERNS.items():

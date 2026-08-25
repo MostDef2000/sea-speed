@@ -1,6 +1,6 @@
 # Sea Speed Task Runtime
 
-Version: 1.15.0
+Version: 1.16.0
 Status: Active
 
 ## Active phases
@@ -58,6 +58,8 @@ HUMAN DECISION REQUIRED
 - `ACTIONS_RUNNING` / `ACTIONS_COMPLETED`: runtime operation phases.
 - `RUNTIME_ACCEPTANCE`: runtime identity, health/freshness/product evidence is being verified.
 
+GitHub Actions capability is orthogonal to runtime contour capability. Before a phase depends on workflow evidence or control, verify the live Connector exposes `actions_list`, `actions_get`, `get_job_logs`, and `actions_run_trigger`; Issue/PR tools alone do not satisfy this preflight.
+
 ## Truth classes
 
 - **Repository/product truth**: current `main`, committed contracts/specs/source and accepted runtime evidence.
@@ -93,6 +95,23 @@ Todo / pending or waiting
 ```
 
 Meaningful transitions update todo before the corresponding visible status/result. Individual tool calls do not require synthetic todo updates.
+
+## GitHub Actions capability preflight
+
+The canonical project `opencode.json` uses GitHub's official remote MCP endpoint, `{env:GH_TOKEN}`, and the bounded `context,repos,issues,pull_requests,actions` toolset set. OpenCode loads this configuration only at process startup.
+
+Preflight state is explicit:
+
+```text
+Actions read capability: AVAILABLE/MISSING
+Actions failure-log capability: AVAILABLE/MISSING
+Actions rerun/dispatch capability: AVAILABLE/MISSING/NOT REQUIRED
+Exact admitted trigger method: NONE/run_workflow/rerun_workflow_run/rerun_failed_jobs
+```
+
+`actions_list`, `actions_get`, and `get_job_logs` satisfy read/failure evidence. `actions_run_trigger` satisfies trigger transport only for `run_workflow`, `rerun_workflow_run`, or `rerun_failed_jobs` when the checkpoint names that exact method and target. `cancel_workflow_run` and `delete_workflow_run_logs` are destructive, never implicit continuation, and require fresh method-specific Scope and authorization.
+
+If source configuration is missing and an admitted repair is executable, remain `ACTIVE` and repair it. If current `main` is correct but the live process has not reloaded it, persist the exact OpenCode restart and post-restart tool discovery as the prerequisite. Never translate a missing mutation tool into a manual Actions-button handoff. A rerun or dispatch remains transport only and does not alter production-policy authority.
 
 ## Sea Speed Delivery Checkpoint v2
 
@@ -239,6 +258,10 @@ Sea Speed Task Runtime
 - Evidence cursor / Issue:
 - Evidence cursor / PR:
 - Evidence cursor / CI:
+- Actions read capability: AVAILABLE/MISSING
+- Actions failure-log capability: AVAILABLE/MISSING
+- Actions rerun/dispatch capability: AVAILABLE/MISSING/NOT REQUIRED
+- Exact admitted trigger method: NONE/run_workflow/rerun_workflow_run/rerun_failed_jobs
 - Todo / current:
 - Todo / completed since prior visible transition:
 - Todo / pending or waiting:

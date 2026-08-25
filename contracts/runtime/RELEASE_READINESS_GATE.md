@@ -1,6 +1,6 @@
 # Sea Speed Release Readiness Gate
 
-Version: 1.15.0
+Version: 1.16.0
 Status: Active
 
 ## Gate
@@ -30,6 +30,9 @@ Release Readiness Gate
 - Quality verdict: PASS/CONCERNS/WAIVED/NOT APPLICABLE
 - Secrets/runtime artifacts absent: YES/NO
 - Tool routing allowlist respected: YES/NO
+- GitHub Actions Connector read/log capability available: YES/NO
+- GitHub Actions Connector rerun/dispatch capability: YES/NO/NOT REQUIRED
+- Exact admitted Actions trigger method: NONE/run_workflow/rerun_workflow_run/rerun_failed_jobs
 - Exact artifact inventory and SHA-256 valid: YES/NO/NOT APPLICABLE
 - Quality evidence valid: YES/NO/NOT APPLICABLE
 - Release manifest v3 valid: YES/NO/NOT APPLICABLE
@@ -75,9 +78,13 @@ Changing repository visibility to private, removing main protection or removing 
 
 Active production contours are VPS and Ubuntu Worker/relay. After zero-touch activation the normal Ubuntu capability is `CONNECTOR` with `Operator actions expected: 0`. Historical `ONE_COMMAND_FALLBACK` declarations remain valid audit history but are not the target steady state.
 
+Before relying on workflow evidence or continuation, the live official GitHub Connector MUST expose `actions_list`, `actions_get`, `get_job_logs`, and, when rerun/dispatch is required, `actions_run_trigger`. The exact admitted trigger method is one of `run_workflow`, `rerun_workflow_run`, or `rerun_failed_jobs` and must match the checkpoint target. Generic repository/Issue/PR capability is insufficient.
+
+`cancel_workflow_run` and `delete_workflow_run_logs` are destructive and fail closed without a fresh method-specific Scope and authorization. A rerun/dispatch call is not production authority and cannot bypass this gate's protected-source, exact-main Quality, delegation, policy, provenance, rollback, or acceptance requirements.
+
 ## Tool routing admission
 
-Tool capability is not self-authorizing. GitHub lifecycle uses GitHub Connector only. Runtime policy evaluation and protected deployment use repository-owned GitHub Actions. Standing delegation and branch/ruleset administration use independently controlled GitHub settings by a human administrator and have no agent fallback. Protected credential entry remains operator-local.
+Tool capability is not self-authorizing. GitHub lifecycle and bounded Actions read/rerun/dispatch use GitHub Connector only. Runtime policy evaluation and protected deployment use repository-owned GitHub Actions. Standing delegation and branch/ruleset administration use independently controlled GitHub settings by a human administrator and have no agent fallback. Protected credential entry remains operator-local.
 
 If the required route is unavailable and no exact approved fallback exists, return `HUMAN DECISION REQUIRED`; do not discover another service.
 
