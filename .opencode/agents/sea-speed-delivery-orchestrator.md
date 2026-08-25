@@ -22,10 +22,10 @@ permission:
 
 ## Каноничные источники (читай при старте, не угадывай)
 - `AGENTS.md` — краткий адаптер, Tool Routing Allowlist Variant A (`GitHub Connector | Push from opencode terminal when explicitly authorized`)
-- `contracts/SEA_SPEED_GOVERNANCE.md` v1.19.0
-- `contracts/SEA_SPEED_DELIVERY_POLICY.md` v1.22.0
-- `contracts/runtime/SEA_SPEED_TASK_RUNTIME.md` v1.15.0
-- `contracts/runtime/RELEASE_READINESS_GATE.md` v1.15.0
+- `contracts/SEA_SPEED_GOVERNANCE.md` v1.20.0
+- `contracts/SEA_SPEED_DELIVERY_POLICY.md` v1.23.0
+- `contracts/runtime/SEA_SPEED_TASK_RUNTIME.md` v1.16.0
+- `contracts/runtime/RELEASE_READINESS_GATE.md` v1.16.0
 - `contracts/branches/project-manager.md` / `docs/agents/PM_BOOTSTRAP.md` — compatibility path
 - `.specify/memory/constitution.md` + `specs/README.md` + `specs/<feature>/{spec,plan,tasks}.md`
 - `.github/workflows/quality-integration.yml`, `pr-validation.yml`, `deploy-runtime-autonomous.yml`, `deploy-vps.yml`, `deploy-ubuntu-worker.yml`
@@ -112,12 +112,21 @@ GitHub API operations — GitHub Connector (MCP, primary route по AGENTS.md:10
 ## Tool Routing DENY BY DEFAULT (Variant A — локальный opencode)
 - Git lifecycle (clone/fetch/push) — **SSH key via `git@github.com`**, primary. Проверено: `git fetch`/`git push` работают (branch `agent/auth-outage-fallback-503` push `8422234` успешен).
 - GitHub API lifecycle (branch/Issue/PR/merge/source publication via API) — primary **GitHub Connector**, **fallback = Push from opencode terminal when explicitly authorized by user (OUTCOME APPROVED + allow push)** только для git-push. PR/Issue API через `gh` запрещены. Без Connector — не создавать PR через bash.
-- CI status/logs — Connector, fallback один bounded read-only GitHub API если endpoint недоступен.
+- CI status/jobs/logs/artifacts и bounded workflow rerun/dispatch — только official GitHub Connector Actions tools. Read-only fallback допустим только для evidence; mutation fallback отсутствует.
 - Patch/build/test/hash — ephemeral local tooling.
 - Standing delegation — только independently controlled GitHub production environment settings (human admin).
 - Production policy — только `evaluate_production_policy.py` внутри protected Actions.
 - VPS — `deploy-vps.yml`; Ubuntu — `deploy-ubuntu-worker.yml -> deploy/worker/ubuntu/deploy-authorized.sh` через VPS ProxyJump + `restrict` forced command `sea-speed-ubuntu-zero-touch-gate` (`sea-speed-ubuntu-deploy-v1 <sha> <issue> <artifact-sha256>`).
 Запрещенные фолбэки: `gh`, Gmail/Drive/Notion, ручная веб-публикация, ad-hoc SSH/DB/cloud mutation.
+
+## GitHub Actions Connector capability
+
+- Repository-owned `opencode.json` использует `https://api.githubcopilot.com/mcp/`, `{env:GH_TOKEN}` и только `context,repos,issues,pull_requests,actions`.
+- При startup и перед зависимостью от CI/runtime continuation проверь exact tools: `actions_list`, `actions_get`, `get_job_logs`, `actions_run_trigger`. Issue/PR tools сами по себе capability не доказывают.
+- `actions_run_trigger` допустим только для exact checkpoint-admitted `run_workflow`, `rerun_workflow_run` или `rerun_failed_jobs` и exact workflow/run cursor.
+- `cancel_workflow_run` и `delete_workflow_run_logs` destructive: запрещены без нового Scope, явно называющего метод, и fresh immediately-following `OUTCOME APPROVED`.
+- Rerun/dispatch — transport, не production authority; protected source, exact-main Quality, standing delegation, policy ALLOW, provenance/rollback и runtime acceptance остаются обязательными.
+- OpenCode загружает config только при старте. Если current `main` уже содержит правильный config, но tools отсутствуют, зафиксируй exact restart + post-restart discovery prerequisite; не передавай пользователю ручную Actions-кнопку и не используй `gh`/ad-hoc API.
 
 ## Локальный режим opencode
 - Пиши код локально, валидируй `scripts/ci/validate_change_contract.py`, `validate_sdd.py`, `validate_repo.py`, `validate_contracts.py`, `scripts/quality/validate_*.py`, `build_exact_artifacts.py`.

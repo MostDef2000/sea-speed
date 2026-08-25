@@ -47,6 +47,8 @@ The active orchestration role is **Sea Speed Delivery Orchestrator**. It retains
 26. While work remains, keep exactly one truthful current todo item. `ACTIVE` identifies executable work; `WAITING_EXTERNAL`, `BLOCKED` and `HUMAN DECISION REQUIRED` identify the exact non-executable prerequisite without claiming background execution. `DONE` has no incomplete current item.
 27. Reconstruct todo state from the valid Checkpoint v2 during Resume Probe; never use todo as source authorization, production authority or durable delivery-control truth.
 28. Every startup status block and every user-visible wait, blocker, decision or terminal result includes a concise todo summary: current item, items completed since the prior visible transition, and remaining/waiting items.
+29. At startup and before depending on CI/runtime continuation, verify the official GitHub Connector exposes `actions_list`, `actions_get`, `get_job_logs`, and `actions_run_trigger`; do not infer Actions capability from generic Issue/PR tools.
+30. GitHub Actions reads and the exact `run_workflow`, `rerun_workflow_run`, or `rerun_failed_jobs` continuation recorded by the checkpoint use the Connector. `cancel_workflow_run` and `delete_workflow_run_logs` are destructive and forbidden without a fresh Scope that explicitly authorizes that method.
 
 ## Resumable delivery contract
 
@@ -63,6 +65,10 @@ A known task Resume Probe is bounded to current `main`, the canonical Issue chec
 Lifecycle state is monotonic. Backward/source-reauthorization transition requires a concrete recorded invalidation such as `MATERIAL_SCOPE_CHANGE`, `PROTECTED_BOUNDARY_CHANGE`, `USER_CHANGED_OUTCOME`, `MATERIAL_MAIN_DIVERGENCE`, or `EVIDENCE_CONTRADICTION`. `CONTEXT_LOSS` is not an invalidation reason.
 
 A Connector read is admissible only to advance the task, validate a mandatory gate, or resolve an explicit evidence gap. A mandatory fresh read, such as exact pre-merge base/head verification, is not considered an equivalent-read loop.
+
+The repository-owned `opencode.json` configures GitHub's official remote MCP endpoint with only the `context`, `repos`, `issues`, `pull_requests`, and `actions` toolsets and a secret-free `{env:GH_TOKEN}` reference. OpenCode loads configuration only at process startup. If the exact Actions tools are absent, first resolve whether current `main` already contains the required configuration: perform an authorized in-scope source repair when it does not; when it does, record a concrete restart prerequisite rather than handing the operator a manual Actions button.
+
+`actions_run_trigger` is a capability envelope, not authority. Its admissible methods are limited to `run_workflow`, `rerun_workflow_run`, and `rerun_failed_jobs` when that exact operation is the checkpoint's next admissible action. Workflow dispatch and rerun never bypass source authorization, protected-source checks, exact-main Quality, standing delegation, production policy, or runtime acceptance.
 
 ## Execution todo contract
 
@@ -114,7 +120,7 @@ Standing delegation administration is a protected settings operation outside the
 | Task class | Allowed primary route | Allowed fallback |
 |---|---|---|
 | GitHub repository lifecycle: repo/Issue/PR/comments/branches/source publication/merge | GitHub Connector | NONE |
-| CI status/jobs/logs/artifacts | GitHub Connector | One bounded read-only GitHub API/PowerShell command to the operator only when the exact Connector endpoint is unavailable |
+| CI status/jobs/logs/artifacts and bounded workflow rerun/dispatch | GitHub Connector Actions tools | One bounded read-only GitHub API/PowerShell command to the operator only for read evidence when the exact Connector endpoint is unavailable; no mutation fallback |
 | Patch/build/test/hash/static analysis | Ephemeral local tooling/container | User checkout when required for preparation/validation; never publication or production mutation |
 | Public `mostdef.ru` / Sea Speed HTTP verification | Read-only HTTP/web | One bounded read-only `curl`/PowerShell command to the operator |
 | External technical documentation | Read-only web using primary/official sources only | NONE |

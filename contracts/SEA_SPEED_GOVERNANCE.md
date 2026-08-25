@@ -1,6 +1,6 @@
 # Sea Speed Governance
 
-Version: 1.19.0
+Version: 1.20.0
 Status: Active
 Source of truth: GitHub `main`
 
@@ -21,6 +21,7 @@ Source of truth: GitHub `main`
 - Material scope expansion, destructive action, security-boundary/secret redesign, protected behavior change, incompatible schema change, data migration or behavior redesign requires fresh source authorization.
 - Secrets, credentials, runtime logs, snapshots, overlays, media, model binaries, `.env` and virtual environments are never committed.
 - Tool selection is fail closed and deny by default.
+- The canonical OpenCode environment uses GitHub's official MCP endpoint and performs an exact Actions capability preflight; generic Connector availability does not prove status/log/rerun/dispatch capability.
 
 ## 2. Delivery Orchestrator ownership
 
@@ -72,7 +73,15 @@ known object -> metadata -> targeted detail -> failure fragment
 
 A read is admissible only when it advances the task, validates a mandatory gate, or resolves an explicit evidence gap. Repeating an equivalent read for the same question with the same evidence identity is forbidden unless a canonical gate requires a fresh read.
 
-### 4.1 Execution todo projection
+### 4.1 GitHub Actions Connector control
+
+The repository-owned `opencode.json` MUST remain secret-free and configure `https://api.githubcopilot.com/mcp/` with `{env:GH_TOKEN}` plus only the `context`, `repos`, `issues`, `pull_requests`, and `actions` toolsets. The deprecated `@modelcontextprotocol/server-github` package is not an admitted delivery dependency.
+
+Capability preflight requires exact tools `actions_list`, `actions_get`, `get_job_logs`, and `actions_run_trigger`. Allowed read operations cover workflow/run/job/artifact metadata and bounded job-log retrieval. Allowed trigger methods are only `run_workflow`, `rerun_workflow_run`, and `rerun_failed_jobs`, and only when the exact operation is the durable checkpoint's next admissible action. `cancel_workflow_run` and `delete_workflow_run_logs` are destructive and require a new six-field Scope that names the method followed by fresh `OUTCOME APPROVED`.
+
+OpenCode configuration is loaded at process startup. Missing Actions tools are a concrete capability gap, not justification for a manual web button or another API client. Repair missing source configuration inside an admitted scope when possible; if current `main` is already correct but the live process is stale, record the restart prerequisite and exact post-restart capability probe.
+
+### 4.2 Execution todo projection
 
 For significant, multi-step or resumed work the Orchestrator maintains a structured todo list and updates it immediately when user instructions, lifecycle state, evidence cursor, blocker, session disposition or `Next admissible action` changes. While work remains, exactly one item truthfully identifies the current lifecycle concern. `ACTIVE` identifies executable work; wait/blocker/decision items explicitly identify their non-executable prerequisite and never claim background execution. `DONE` leaves no incomplete current item.
 
@@ -80,7 +89,7 @@ Todo is transient interaction/presentation state. It is reconstructed from the v
 
 Every startup status and every user-visible `WAITING_EXTERNAL`, blocker, decision or terminal result includes the current todo item, items completed since the previous visible transition, and remaining/waiting work. A meaningful checkpoint transition updates todo before the corresponding user-visible result; individual tool calls do not require todo churn.
 
-### 4.2 Synchronous external wait
+### 4.3 Synchronous external wait
 
 `WAITING_EXTERNAL` is a nonterminal session disposition for synchronous execution. It is legal only when no safe authorized action is executable now and progress depends solely on a named machine-observable external condition. The v2 checkpoint records the condition, resume trigger, exact evidence cursor and next admissible action. A human decision uses `HUMAN DECISION REQUIRED`; a concrete external blocker uses `BLOCKED`.
 
@@ -174,7 +183,7 @@ For historical audit vocabulary, the former per-release production hard gate use
 | Task class | Primary route | Allowed fallback |
 |---|---|---|
 | GitHub repository lifecycle | GitHub Connector | NONE |
-| CI status/jobs/logs/artifacts | GitHub Connector | One bounded read-only GitHub API/PowerShell operator command when exact Connector endpoint is unavailable |
+| CI status/jobs/logs/artifacts and bounded workflow rerun/dispatch | GitHub Connector Actions tools | One bounded read-only GitHub API/PowerShell operator command for read evidence when the exact Connector endpoint is unavailable; no mutation fallback |
 | Patch/build/test/hash/static analysis | Ephemeral local tooling/container | User checkout for preparation/validation only; never publication or production mutation |
 | Public Sea Speed HTTP verification | Read-only HTTP/web | One bounded read-only `curl`/PowerShell operator command |
 | External technical documentation | Read-only web against primary/official sources | NONE |

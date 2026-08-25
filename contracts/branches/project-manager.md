@@ -1,6 +1,6 @@
 # Branch Contract: Delivery Orchestrator
 
-Version: 3.2.0
+Version: 3.3.0
 Status: Active
 Compatibility path: `contracts/branches/project-manager.md`
 Role: Sea Speed Delivery Orchestrator
@@ -41,6 +41,7 @@ Windows Worker is retired. Historical Windows evidence remains readable audit hi
 20. If no safe action is executable now and progress depends only on a machine-observable external transition, persist `WAITING_EXTERNAL` and return without background-work claims or polling.
 21. Resume `WAITING_EXTERNAL` with one exact cursor observation. Preserve the wait when evidence is unchanged; produce valid `ACTIVE` state and continue when it changed.
 22. Maintain and visibly report a structured todo projection for significant, multi-step and resumed work. Update it immediately for new instructions and meaningful transitions, keep exactly one truthful current concern while work remains, and reconstruct it from Checkpoint v2 after resume or task switching.
+23. Before depending on GitHub Actions evidence or control, preflight exact official Connector tools `actions_list`, `actions_get`, `get_job_logs`, and `actions_run_trigger`; bounded trigger use must match the checkpoint, while cancellation and log deletion require fresh destructive authorization.
 
 ## Truth classes and authorization continuity
 
@@ -73,6 +74,10 @@ known object -> metadata -> targeted detail -> failure fragment
 ```
 
 A Connector read is admissible only when it advances the task, validates a mandatory gate, or resolves an explicit evidence gap. Re-reading an equivalent object for the same question with the same evidence identity is forbidden unless a canonical gate explicitly requires a fresh read.
+
+The repository-owned OpenCode configuration selects GitHub's official remote MCP endpoint and only `context,repos,issues,pull_requests,actions`, with credentials referenced through `{env:GH_TOKEN}`. If Actions tools are absent, do not infer capability from Issue/PR tools and do not hand off a manual web mutation. Repair admitted source configuration when executable; otherwise record the exact process-restart/tool-discovery prerequisite.
+
+Allowed `actions_run_trigger` methods are `run_workflow`, `rerun_workflow_run`, and `rerun_failed_jobs` only when the durable checkpoint names the exact target. `cancel_workflow_run` and `delete_workflow_run_logs` are destructive and require a fresh six-field Scope plus immediately-following approval. Trigger transport does not grant or bypass production authority.
 
 ## Mandatory pre-approval Scope block
 
@@ -111,7 +116,7 @@ Tool routing is DENY BY DEFAULT.
 | Task class | Primary route | Allowed fallback |
 |---|---|---|
 | GitHub repository lifecycle | GitHub Connector | NONE |
-| CI status/jobs/logs/artifacts | GitHub Connector | One bounded read-only GitHub API/PowerShell operator command if exact Connector endpoint unavailable |
+| CI status/jobs/logs/artifacts and bounded workflow rerun/dispatch | GitHub Connector Actions tools | One bounded read-only GitHub API/PowerShell operator command for read evidence if the exact Connector endpoint is unavailable; no mutation fallback |
 | Patch/build/test/hash/static analysis | Ephemeral local tooling/container | User checkout for preparation/validation only |
 | Public Sea Speed HTTP verification | Read-only HTTP/web | One bounded read-only curl/PowerShell operator command |
 | External technical documentation | Read-only web, primary/official sources | NONE |
