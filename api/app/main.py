@@ -2460,6 +2460,105 @@ def road_live_stream():
         last = ROAD_LIVE_SEQ
     return StreamingResponse(_road_live_stream_gen(last), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
+WATER_LIVE_MAX = 120
+WATER_LIVE: deque = deque(maxlen=WATER_LIVE_MAX)
+WATER_LIVE_SEQ = 0
+WATER_LIVE_LOCK = threading.Lock()
+
+def _validate_water_live_envelope(payload: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="live envelope must be object")
+    if payload.get("schema") not in {"sea_speed_water_live_v1", "sea_speed_water_live_v2"}:
+        raise HTTPException(status_code=400, detail="schema must be sea_speed_water_live_v1/v2")
+    if payload.get("camera_id") != "cam1":
+        raise HTTPException(status_code=400, detail="camera_id must be cam1")
+    if payload.get("analytics_profile") != "water-v1":
+        raise HTTPException(status_code=400, detail="analytics_profile must be water-v1")
+    if payload.get("domain") != "water":
+        raise HTTPException(status_code=400, detail="domain must be water")
+    for field in ("frame_no", "generation", "frame_width", "frame_height"):
+        if not isinstance(payload.get(field), int):
+            raise HTTPException(status_code=400, detail=f"{field} must be int")
+    if payload.get("schema") == "sea_speed_water_live_v2":
+        for field in ("capture_time_unix_ms", "processed_time_unix_ms"):
+            if not isinstance(payload.get(field), int):
+                raise HTTPException(status_code=400, detail=f"{field} must be int")
+        if payload.get("timestamp_semantics") != "worker_receive_utc":
+            raise HTTPException(status_code=400, detail="timestamp_semantics must be worker_receive_utc")
+    else:
+        if not isinstance(payload.get("observed_mono"), (int, float)):
+            raise HTTPException(status_code=400, detail="observed_mono must be number")
+    detections = payload.get("detections")
+    if not isinstance(detections, list):
+        raise HTTPException(status_code=400, detail="detections must be list")
+    if len(detections) > 64:
+        raise HTTPException(status_code=400, detail="too many detections")
+    for det in detections:
+        if not isinstance(det, dict):
+            raise HTTPException(status_code=400, detail="detection must be object")
+        for coord in ("x1_norm", "y1_norm", "x2_norm", "y2_norm"):
+            val = det.get(coord)
+            if not isinstance(val, (int, float)) or not (0.0 <= float(val) <= 1.0):
+                raise HTTPException(status_code=400, detail=f"{coord} must be 0..1")
+        try:
+            if float(det.get("x2_norm")) <= float(det.get("x1_norm")) or float(det.get("y2_norm")) <= float(det.get("y1_norm")):
+                raise HTTPException(status_code=400, detail="invalid box")
+        except Exception:
+            raise HTTPException(status_code=400, detail="invalid box")
+    if len(json.dumps(payload, ensure_ascii=False)) > 64 * 1024:
+        raise HTTPException(status_code=400, detail="payload too large")
+    return payload
+
+@app.post("/api/cam1/live")
+async def post_water_live(payload: Dict[str, Any], authorization: Optional[str] = Header(None)) -> Dict[str, Any]:
+    require_auth(authorization)
+    env = _validate_water_live_envelope(payload)
+    import copy as _copy
+    stored = _copy.deepcopy(env)
+    global WATER_LIVE_SEQ
+    with WATER_LIVE_LOCK:
+        WATER_LIVE_SEQ += 1
+        stored["_live_seq"] = WATER_LIVE_SEQ
+        stored["_received_at"] = datetime.now(timezone.utc).isoformat()
+        WATER_LIVE.append(stored)
+        seq = WATER_LIVE_SEQ
+        queued = len(WATER_LIVE)
+    return {"ok": True, "queued": queued, "live_seq": seq}
+
+@app.get("/api/cam1/live")
+def get_water_live(limit: int = 20) -> Dict[str, Any]:
+    lim = max(1, min(int(limit), WATER_LIVE_MAX))
+    items = list(WATER_LIVE)[-lim:]
+    return {"camera_id": "cam1", "items": items}
+
+def _water_live_stream_gen(last_seq: int):
+    import time as _time, json as _json
+    yield "data: {}\n\n"
+    cursor = last_seq
+    while True:
+        with WATER_LIVE_LOCK:
+            items = [e for e in list(WATER_LIVE) if int(e.get("_live_seq", 0)) > cursor]
+            if items:
+                cursor = int(items[-1].get("_live_seq", cursor))
+        if items:
+            for env in items:
+                yield f"id: {env.get('_live_seq')}\ndata: {_json.dumps(env, ensure_ascii=False)}\n\n"
+        else:
+            yield ": keepalive\n\n"
+        _time.sleep(0.1)
+
+@app.get("/api/cam1/live/stream")
+def water_live_stream_internal():
+    with WATER_LIVE_LOCK:
+        last = WATER_LIVE_SEQ
+    return StreamingResponse(_water_live_stream_gen(last), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+@app.get("/sea-speed/api/cam1/live/stream")
+def water_live_stream():
+    with WATER_LIVE_LOCK:
+        last = WATER_LIVE_SEQ
+    return StreamingResponse(_water_live_stream_gen(last), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
 @app.get("/api/health")
 def health() -> Dict[str, Any]:
     return {"ok": True, "service": "sea-speed-api", "api_schema": API_SCHEMA,
