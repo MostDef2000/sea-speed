@@ -1,6 +1,8 @@
 import json
 import os
+import queue
 import subprocess
+import threading
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -22,6 +24,10 @@ except Exception:
 
 
 ROAD_LIVE_SCHEMA = "sea_speed_road_live_v1"
+ROAD_LIVE_GENERATION = int(time.time() * 1000)
+_LIVE_PUBLISH_QUEUE = queue.Queue(maxsize=1)
+_LIVE_PUBLISH_LOCK = threading.Lock()
+_LIVE_PUBLISH_THREAD = None
 
 def build_road_live_envelope(frame_no: int, generation: int, observed_mono: float, detections, frame_w: int, frame_h: int, worker_commit: str):
     # normalized boxes, immutable
@@ -29,10 +35,16 @@ def build_road_live_envelope(frame_no: int, generation: int, observed_mono: floa
     boxes = []
     for d in detections or []:
         try:
-            x1 = float(d.get("x1", 0)) / max(1, frame_w)
-            y1 = float(d.get("y1", 0)) / max(1, frame_h)
-            x2 = float(d.get("x2", 0)) / max(1, frame_w)
-            y2 = float(d.get("y2", 0)) / max(1, frame_h)
+            coords = d.get("bbox_xyxy")
+            if not isinstance(coords, (list, tuple)) or len(coords) != 4:
+                coords = [d.get("x1", 0), d.get("y1", 0), d.get("x2", 0), d.get("y2", 0)]
+            x1, y1, x2, y2 = [float(value) for value in coords]
+            x1 = min(1.0, max(0.0, x1 / max(1, frame_w)))
+            y1 = min(1.0, max(0.0, y1 / max(1, frame_h)))
+            x2 = min(1.0, max(0.0, x2 / max(1, frame_w)))
+            y2 = min(1.0, max(0.0, y2 / max(1, frame_h)))
+            if x2 <= x1 or y2 <= y1:
+                continue
             boxes.append({"track_id": d.get("track_id"), "class_name": d.get("class_name"), "confidence": d.get("confidence"), "x1_norm": x1, "y1_norm": y1, "x2_norm": x2, "y2_norm": y2, "speed_kmh": d.get("speed_kmh")})
         except Exception:
             continue
@@ -637,7 +649,7 @@ def draw_overlay(frame, motion_now, motion_area, ai_active, detections, motion_b
     out = frame.copy()
     # Road clean-overlay: do not bake AI boxes/IDs into JPEG, live canvas is sole source
     try:
-        _profile = get_profile()
+        _profile = get_profile(env_str("ANALYTICS_PROFILE", "water-v1"))
         _is_water = getattr(_profile, "name", "") == "water-v1"
     except Exception:
         _is_water = False
@@ -706,7 +718,7 @@ def draw_overlay(frame, motion_now, motion_area, ai_active, detections, motion_b
     return out
 
 
-def post_live_envelope(envelope):
+def _post_live_envelope_sync(envelope):
     live_url = env_str("SEA_SPEED_LIVE_API_URL")
     if not live_url:
         base = env_str("SEA_SPEED_API_URL")
@@ -725,6 +737,45 @@ def post_live_envelope(envelope):
     except Exception as e:
         print(f"POST live error: {e}")
         return False
+
+
+def _live_publisher_loop():
+    while True:
+        envelope = _LIVE_PUBLISH_QUEUE.get()
+        try:
+            _post_live_envelope_sync(envelope)
+        finally:
+            _LIVE_PUBLISH_QUEUE.task_done()
+
+
+def _ensure_live_publisher():
+    global _LIVE_PUBLISH_THREAD
+    with _LIVE_PUBLISH_LOCK:
+        if _LIVE_PUBLISH_THREAD is None or not _LIVE_PUBLISH_THREAD.is_alive():
+            _LIVE_PUBLISH_THREAD = threading.Thread(
+                target=_live_publisher_loop,
+                name="road-live-publisher",
+                daemon=True,
+            )
+            _LIVE_PUBLISH_THREAD.start()
+
+
+def post_live_envelope(envelope):
+    if not env_str("SEA_SPEED_LIVE_API_URL") and not env_str("SEA_SPEED_API_URL"):
+        return False
+    if not env_str("SEA_SPEED_API_TOKEN"):
+        return False
+    _ensure_live_publisher()
+    try:
+        _LIVE_PUBLISH_QUEUE.put_nowait(envelope)
+    except queue.Full:
+        try:
+            _LIVE_PUBLISH_QUEUE.get_nowait()
+            _LIVE_PUBLISH_QUEUE.task_done()
+        except queue.Empty:
+            pass
+        _LIVE_PUBLISH_QUEUE.put_nowait(envelope)
+    return True
 
 
 def post_state(metadata, overlay_path):
@@ -1583,16 +1634,6 @@ def main():
             now = time.time()
             active_track_ids = {int(det["track_id"]) for det in detections if det.get("track_id") is not None}
             update_crossing_counts(detections, now)
-            if not is_water:
-                try:
-                    h, w = frame.shape[:2]
-                    gen = int(time.monotonic() * 1000) % 10000000
-                    wc = os.environ.get("SEA_SPEED_SOURCE_COMMIT", "unknown")
-                    env_live = build_road_live_envelope(frame_no, gen, time.monotonic(), detections, w, h, wc)
-                    post_live_envelope(env_live)
-                except Exception as e:
-                    print(f"live envelope post skipped: {e}")
-
             passage_updates = []
             if is_water and passage_engine is not None:
                 # Inject per-detection sharpness for sharpness-aware best-frame selection.
@@ -1649,6 +1690,23 @@ def main():
                     det["_speed_info"] = speed_info
                     det["_line_speed_info"] = line_speed_info
                 prune_track_states(now)
+
+            if not is_water:
+                try:
+                    h, w = frame.shape[:2]
+                    wc = os.environ.get("SEA_SPEED_SOURCE_COMMIT", "unknown")
+                    env_live = build_road_live_envelope(
+                        frame_no,
+                        ROAD_LIVE_GENERATION,
+                        time.monotonic(),
+                        detections,
+                        w,
+                        h,
+                        wc,
+                    )
+                    post_live_envelope(env_live)
+                except Exception as e:
+                    print(f"live envelope post skipped: {e}")
 
             crossing_snapshot = crossing_overlay_summary()
             overlay = draw_overlay(frame=frame, motion_now=motion_now, motion_area=motion_area, ai_active=ai_active, detections=detections, motion_boxes=motion_boxes, crossing_summary=crossing_snapshot)

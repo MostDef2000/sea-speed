@@ -19,17 +19,17 @@
 
 ## Task records
 
-- TASK-055-01 | Worker clean overlay — Road JPEG without AI boxes/IDs/speeds | AC-001 | Evidence: worker/hls_motion_yolo_worker_events.py | Status: IN PROGRESS
-- TASK-055-02 | Frontend live canvas as sole box source — hide overlayImg when live, content-box ±1px, TTL | AC-002 | Evidence: frontend/sea-speed/road/index.html | Status: IN PROGRESS
-- TASK-055-03 | Backward compatibility and Water no-regression — events/ROI preserved | AC-003 | Evidence: tests/test_worker_tracking_overlay, tests/test_telemetry_contract | Status: IN PROGRESS
-- TASK-055-04 | Validation and MIXED deploy — validators, CI, manifests, visual | AC-001, AC-002, AC-003 | Evidence: validators, CI, manifests | Status: PENDING
+- TASK-055-01 | Worker clean overlay and valid nonblocking live envelope — Road JPEG without AI boxes/IDs/speeds; normalized boxes, stable generation, post-speed metadata | AC-001 | Evidence: worker/hls_motion_yolo_worker_events.py | Status: COMPLETE
+- TASK-055-02 | Primary HLS + live canvas as sole box source — shared content box, interpolation, TTL and SSE-rollover fallback | AC-002 | Evidence: frontend/sea-speed/road/index.html | Status: COMPLETE
+- TASK-055-03 | Backward compatibility and Water no-regression — events/ROI preserved | AC-003 | Evidence: full unittest discovery, tests/test_worker_tracking_overlay, tests/test_telemetry_contract | Status: COMPLETE
+- TASK-055-04 | Validation and MIXED redeploy — validators, CI, manifests, visual | AC-001, AC-002, AC-003 | Evidence: validators, CI, manifests | Status: IN PROGRESS
 
 ## Completion gate
 
-- [ ] All TASK-055 records COMPLETE or RUNTIME-MANUAL
-- [ ] Exact-head CI green
-- [ ] Exact-main Quality green
-- [ ] MIXED runtime_verified
+- [x] All source TASK-055 records COMPLETE
+- [ ] Remediation exact-head CI green
+- [ ] Remediation exact-main Quality green
+- [ ] Remediation MIXED runtime_verified
 
 ## Definition of Done
 

@@ -21,9 +21,9 @@ Switch Road to clean overlay: worker writes latest_overlay.jpg as clean frame wi
 
 ## NFR assessment
 
-- NFR-055-001 | Area: usability | Target: alignment ±1 CSS px content-box resize/fullscreen/DPR 1,2 | Validation: canvas unit + manual | Evidence: tests/test_frontend_contract.py | Status: PASS
-- NFR-055-002 | Area: reliability | Target: stale >1s clears <1s, no duplicate boxes | Validation: TTL unit | Evidence: tests/test_frontend_contract.py | Status: PASS
-- NFR-055-003 | Area: performance | Target: live canvas 60 FPS without blocking, overlay JPEG remains clean and light | Validation: frontend + worker | Evidence: tests/test_worker_tracking_overlay.py | Status: PASS
+- NFR-055-001 | Area: usability | Target: alignment ±1 CSS px content-box resize/fullscreen/DPR 1,2 | Validation: shared HLS/canvas container + syntax + runtime manual | Evidence: frontend/sea-speed/road/index.html | Status: PASS
+- NFR-055-002 | Area: reliability | Target: stale >1s clears <1s, no duplicate boxes, recover after SSE deque rollover | Validation: monotonic frame/generation guard + bounded snapshot fallback | Evidence: frontend/sea-speed/road/index.html | Status: PASS
+- NFR-055-003 | Area: performance | Target: live canvas 60 FPS without blocking, overlay JPEG remains clean and light | Validation: requestAnimationFrame + latest-only asynchronous publisher | Evidence: frontend/sea-speed/road/index.html, worker/hls_motion_yolo_worker_events.py | Status: PASS
 
 ## Acceptance criteria
 
@@ -34,3 +34,5 @@ Switch Road to clean overlay: worker writes latest_overlay.jpg as clean frame wi
 ## Runtime feedback
 
 - Prior 7240413 has live wiring but still bakes boxes into overlay.jpg, causing duplicate visual.
+- First 99eb45b deployment passed both runtime contours but acceptance inspection found that HLS stayed in the right preview while the primary-stage JPEG was hidden, producing a possible black primary background. It also exposed zero-size live boxes from reading legacy scalar coordinates instead of `bbox_xyxy`, per-frame generation churn, synchronous live POST, and SSE deque rollover starvation.
+- Same-scope remediation places HLS, fallback JPEG and all canvases in one primary/fullscreen container; normalizes `bbox_xyxy`, uses one process generation, publishes latest-only off the inference loop, interpolates on `requestAnimationFrame`, and uses a bounded authenticated snapshot fallback when SSE is stale.

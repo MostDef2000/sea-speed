@@ -13,8 +13,8 @@
 
 ## Architecture
 
-- Worker: draw_overlay for Road returns clean frame (ROI/lines only, no AI boxes/IDs/speeds) when ROAD_CLEAN_OVERLAY=1 (default for Road).
-- Frontend: liveOverlayCanvas is sole box source when live present; overlayImg hidden (opacity 0) while live active, shown clean otherwise; stale clears <1s.
+- Worker: draw_overlay for Road returns clean frame (ROI/lines only, no AI boxes/IDs/speeds) when ROAD_CLEAN_OVERLAY=1 (default for Road); live envelopes use normalized `bbox_xyxy`, one process generation, post-speed metadata, and a latest-only asynchronous publisher.
+- Frontend: the primary stage owns HLS video, clean overlay fallback and all canvases in one content box; `liveOverlayCanvas` is the sole box source, renders/interpolates on `requestAnimationFrame`, clears stale metadata within 1s, and uses bounded snapshot polling only after SSE silence.
 
 ## Decisions
 
@@ -52,6 +52,7 @@
 ## Runtime feedback
 
 - Prior 7240413 live wiring present but overlay still baked, duplicate visual.
+- Runtime attempt for 99eb45b reached MIXED deployment PASS, then same-scope acceptance inspection found a black-primary-stage risk and invalid zero-area envelope coordinates. Remediation remains inside the original five approved repository paths.
 
 ## Deployment transaction audit
 
