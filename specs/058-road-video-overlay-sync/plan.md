@@ -5,7 +5,7 @@
 
 ## Risk profile
 
-- Risk profile: REQUIRED (HIGH — media timing + private ingress boundary)
+- Risk profile: REQUIRED
 
 - RISK-058-001 | Category: TECH | Probability: 4 | Impact: 4 | Score: 16 | Mitigation: honest worker-receive timestamp at FFmpeg reader boundary, latest-complete-frame slot (producer drains partial bytes), immutable v2 envelope, sequence-aware SSE | Validation: worker frame-slot + envelope immutability tests | Residual risk: 1 | Owner: worker | Status: MITIGATED
 - RISK-058-002 | Category: TECH | Probability: 4 | Impact: 4 | Score: 16 | Mitigation: private exact-path `POST /api/analytics/road1/live` allowlist + `require_auth()` + full schema/size validation + bounded `deque(maxlen=120)` + monotonic `live_seq` | Validation: api/auth contract tests, size/generation tests | Residual risk: 1 | Owner: api | Status: MITIGATED
