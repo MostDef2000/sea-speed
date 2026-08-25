@@ -52,7 +52,7 @@
 
 ## Correct-course check
 
-- Trigger: follow-on from #305 clean overlay + #053 defects (404, unsynchronized arrival-time interpolation, SSE freeze, missing HLS PDT)
+- Trigger: NONE
 - Issue impact: additive Road live overlay sync without second stream
 - Specification impact: new v2 envelope/HLS PDT/browser PDT-bracket contract
 - Plan impact: adds MIXED timestamp-bound rendering + exact private ingress
