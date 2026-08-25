@@ -43,5 +43,6 @@
 - [ ] Exact-green-head merge complete
 - [ ] Deployment state resolved (VPS+Ubuntu runtime_verified)
 - [ ] Runtime acceptance resolved (synchronized clean HLS + AI canvas, no duplicate, ±1px, stale-clear)
+- [ ] Deferred work recorded (detector frequency benchmark separate)
 - [ ] Risks resolved or explicitly accepted (REQUIRED documented)
 - [ ] Waivers resolved or current (none expected)
