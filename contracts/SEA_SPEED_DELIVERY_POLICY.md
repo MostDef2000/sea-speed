@@ -1,6 +1,6 @@
 # Sea Speed Delivery Policy
 
-Version: 1.21.0
+Version: 1.22.0
 Status: Active
 
 ## 1. Purpose
@@ -40,13 +40,17 @@ Truth classes are distinct:
 
 - **Repository/product truth**: current `main`, committed source/contracts/specs and accepted runtime evidence.
 - **Delivery-control truth**: canonical Issue Outcome, authorization receipt, Delivery Checkpoint, exact branch/PR/head, completed gates and evidence cursors.
-- **Transient interaction state**: live conversation used for initial source-admission decisions.
+- **Transient interaction state**: live conversation used for initial source-admission decisions, plus the structured todo projection of current synchronous execution.
 
 A known task with a valid checkpoint resumes through a bounded **Resume Probe**: current `main`, canonical Issue checkpoint, exact referenced PR/head/status or other evidence whose cursor may have changed, then `Next admissible action`. Full project recovery is allowed only if the checkpoint is absent, task identity cannot be resolved, the checkpoint is invalid, or durable evidence materially contradicts it.
 
 Lifecycle state is monotonic. Backward/source-reauthorization transition requires one concrete material reason such as `MATERIAL_SCOPE_CHANGE`, `PROTECTED_BOUNDARY_CHANGE`, `USER_CHANGED_OUTCOME`, `MATERIAL_MAIN_DIVERGENCE`, or `EVIDENCE_CONTRADICTION`. `CONTEXT_LOSS` is not an invalidation reason.
 
 Checkpoint updates occur at meaningful lifecycle/evidence transitions, not after every tool call.
+
+Significant, multi-step and resumed delivery maintains a structured todo projection synchronized with the checkpoint phase, completed gates, disposition and next action. It updates immediately for new instructions and meaningful lifecycle/evidence transitions, and every startup/wait/blocker/decision/terminal result exposes current, newly completed and remaining/waiting work. While work remains exactly one item truthfully represents the current executable action or named non-executable prerequisite.
+
+Todo is never durable authority or evidence. Resume Probe reconstructs it from the canonical Issue checkpoint; task switching replaces the live projection without altering the paused task's durable cursor. A disagreement is resolved in favor of the Issue checkpoint before execution continues.
 
 `WAITING_EXTERNAL` is a nonterminal synchronous-session disposition. It is admissible only after all safe work executable now is exhausted and one machine-observable external condition is the sole prerequisite for continuation. The checkpoint records that condition, its resume trigger, exact evidence cursor and next action. No background execution or polling is implied.
 

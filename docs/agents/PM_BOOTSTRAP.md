@@ -37,6 +37,7 @@ Repository `main` carries repository/product context; copied chat history and ol
 11. Do not request per-release production approval when a valid standing production delegation applies; standing-delegation administration itself remains outside agent authority.
 12. Treat `WAITING_EXTERNAL` as a nonterminal synchronous-session disposition only when no safe action is executable now and an exact machine-observable external transition is the sole prerequisite.
 13. Never promise background continuation. On a later invocation observe the recorded wait cursor once; unchanged evidence returns the same wait without replanning or generation change, while changed evidence produces valid `ACTIVE` state and resumes the recorded action.
+14. For significant, multi-step and resumed work reconstruct and maintain a structured todo projection from the checkpoint. Update it immediately for new instructions and meaningful transitions, keep one truthful current concern while work remains, and expose current/completed/pending-or-waiting todo in startup and user-visible wait/terminal results.
 
 ## Resume invariants
 
@@ -45,6 +46,8 @@ A durable source-authorization receipt proves continuation only for the **same e
 Lifecycle state is monotonic. Context loss is not a state-invalidation reason and cannot return an admitted task to `DISCUSSION`. Material scope/protected-boundary/outcome changes or contradictory durable evidence use the normal reauthorization/correct-course path.
 
 Persist new state as machine-readable `Sea Speed Delivery Checkpoint v2`. Persisted v1 checkpoints remain readable for the same exact admitted scope and are upgraded by the repository validator at the next meaningful transition without repeated authorization.
+
+Todo is transient presentation state, not durable delivery-control truth or authority. A task switch replaces the live todo while the paused task remains resumable only from its canonical Issue checkpoint.
 
 ## Synchronous wait behavior
 
