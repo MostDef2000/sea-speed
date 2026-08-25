@@ -1,6 +1,6 @@
 # Sea Speed Task Runtime
 
-Version: 1.14.0
+Version: 1.15.0
 Status: Active
 
 ## Active phases
@@ -62,9 +62,37 @@ HUMAN DECISION REQUIRED
 
 - **Repository/product truth**: current `main`, committed contracts/specs/source and accepted runtime evidence.
 - **Delivery-control truth**: canonical Issue Outcome, source-authorization receipt, `Sea Speed Delivery Checkpoint v2`, branch/PR/head, completed gates and evidence cursors.
-- **Transient interaction state**: live conversation used for new visible-Scope -> immediately-following `OUTCOME APPROVED` admission.
+- **Transient interaction state**: live conversation used for new visible-Scope -> immediately-following `OUTCOME APPROVED` admission, plus the structured todo projection used to expose current synchronous execution.
 
 The initial adjacent Scope/approval creates source authority. A durable authorization receipt may continue only the **same exact admitted scope**. It cannot create, widen or replace source authority and never grants production authority.
+
+## Structured todo projection
+
+For every significant, multi-step or resumed delivery, maintain a structured todo list as the transient operational projection of the canonical Issue checkpoint. It mirrors current phase, completed gates, disposition and `Next admissible action`; it is not a fourth truth class, authorization receipt, production authority, evidence cursor or durable continuation record.
+
+Update todo immediately when:
+
+```text
+new user instruction or task switch
+lifecycle phase or exact source identity changes
+gate/evidence cursor materially changes
+blocker, decision requirement or disposition changes
+Next admissible action changes
+```
+
+While work remains exactly one item identifies the current lifecycle concern. Under `ACTIVE` it is executable work. Under `WAITING_EXTERNAL`, `BLOCKED` or `HUMAN DECISION REQUIRED` it names the exact non-executable wait/blocker/decision and MUST NOT imply background execution. `DONE` has no incomplete current item. Mark an item completed only after its required evidence exists.
+
+Resume Probe reconstructs the smallest useful todo plan from the valid checkpoint. A task switch preserves the paused task only in its canonical Issue and replaces the live todo projection; returning reconstructs it from that durable cursor. If todo and checkpoint disagree, checkpoint evidence wins and todo is corrected before another action.
+
+Every startup status block and every user-visible wait, blocker, human-decision or terminal result includes:
+
+```text
+Todo / current
+Todo / completed since prior visible transition
+Todo / pending or waiting
+```
+
+Meaningful transitions update todo before the corresponding visible status/result. Individual tool calls do not require synthetic todo updates.
 
 ## Sea Speed Delivery Checkpoint v2
 
@@ -211,6 +239,9 @@ Sea Speed Task Runtime
 - Evidence cursor / Issue:
 - Evidence cursor / PR:
 - Evidence cursor / CI:
+- Todo / current:
+- Todo / completed since prior visible transition:
+- Todo / pending or waiting:
 - Session disposition: ACTIVE/WAITING_EXTERNAL/TERMINAL
 - External wait condition: NONE/<machine-observable predicate>
 - External wait resume trigger: NONE/<bounded trigger>
