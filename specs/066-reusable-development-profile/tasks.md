@@ -22,6 +22,7 @@
 - PR #332 initial and `rerun_failed_jobs` attempts used the pre-repair `pull_request` event payload and failed Change Contract validation with `missing PR sections: Canonical task`.
 - The repaired PR body passes the repository's `validate_change_contract.py` locally as `CONTROL_PLANE` against the exact ten-file diff.
 - A bounded close/reopen preserved the source and PR metadata but produced no new check run IDs; this SDD evidence update creates the required fresh `synchronize` event without widening source scope.
+- Fresh exact-head runs `33011033810` and `33011033871` consumed the repaired Change Contract and exposed one source defect: the DoD text had changed the canonical `Required tests and evidence complete` marker by inserting `local`.
 - Canonical todo-contract verification remains green: 8 tests pass across current/update/reconstruction/visibility/authority and exact-path assertions.
 
 ## Requirements traceability
@@ -37,7 +38,7 @@
 
 - [x] Issue/spec/plan/tasks current.
 - [x] Exact changed-file scope verified: ten approved paths only.
-- [x] Required local tests and evidence complete.
+- [x] Required tests and evidence complete.
 - [ ] Required CI green.
 - [ ] Exact-green-head merge complete.
 - [x] Deployment state resolved: NOT REQUIRED.
