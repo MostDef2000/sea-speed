@@ -33,10 +33,17 @@ class LiveSyncModuleTests(unittest.TestCase):
             self.assertIn(marker, source)
 
     def test_both_pages_include_live_sync_before_main_script(self) -> None:
-        for html in (WATER_HTML, ROAD_HTML):
+        # Road is served from /sea-speed/road/, so it must reference the
+        # module by absolute path; Water is served from /sea-speed/ where
+        # the relative path resolves to the published module.
+        expected = {
+            WATER_HTML: '<script src="./live-sync.js"></script>',
+            ROAD_HTML: '<script src="/sea-speed/live-sync.js"></script>',
+        }
+        for html, include in expected.items():
             source = html.read_text(encoding="utf-8")
-            include_at = source.find('<script src="./live-sync.js"></script>')
-            self.assertGreaterEqual(include_at, 0, f"{html.name} missing include")
+            include_at = source.find(include)
+            self.assertGreaterEqual(include_at, 0, f"{html.name} missing include {include}")
             main_open = source.find("<script>", include_at)
             self.assertGreater(main_open, include_at, f"{html.name} include after main script")
 
