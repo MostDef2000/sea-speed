@@ -1761,6 +1761,17 @@ def main():
                 except Exception as e:
                     print(f"live envelope post skipped: {e}")
             else:
+                # Water per-pixel instantaneous for live (as Road) — keep passage for event, but live shows median
+                for _det in detections:
+                    try:
+                        _lsi = update_speed_lines_estimate(_det)
+                        _inst = _lsi.get("speed_kmh")
+                        if _inst is not None:
+                            _det["speed_kmh"] = _inst
+                            _det["speed_source"] = _lsi.get("speed_source")
+                            _det["_line_speed_info"] = _lsi
+                    except Exception:
+                        pass
                 try:
                     h, w = frame.shape[:2]
                     wc = os.environ.get("SEA_SPEED_SOURCE_COMMIT", "unknown")
