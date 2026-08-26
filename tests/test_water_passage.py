@@ -221,6 +221,76 @@ class PassageEngineTests(unittest.TestCase):
         return Observation(ts, 1, 50.0, y, (40.0, y - 10, 60.0, y), 0.8)
 
 
+class FastVesselStitchTests(unittest.TestCase):
+    """064: velocity-aware stitching keeps fast vessels in one passage."""
+
+    def make_estimator(self) -> TwoGateSpeedEstimator:
+        return TwoGateSpeedEstimator([(0, 20), (100, 20)], [(0, 80), (100, 80)], 60.0, True)
+
+    def test_fast_fragment_churn_forms_single_measured_passage(self) -> None:
+        engine = WaterPassageEngine(
+            self.make_estimator,
+            id_factory=lambda _ts: "P-TEST-FAST",
+            stitch_distance_px=120,
+        )
+        first = engine.update([det(101, 10)], 0.0)[-1]["passage"]
+        second = engine.update([det(102, 110)], 0.1)[-1]["passage"]
+        third = engine.update([det(103, 210)], 0.2)[-1]["passage"]
+        self.assertEqual(first["passage_id"], "P-TEST-FAST")
+        self.assertEqual(second["passage_id"], "P-TEST-FAST")
+        self.assertEqual(third["passage_id"], "P-TEST-FAST")
+        self.assertEqual(third["track_fragments"], [101, 102, 103])
+        self.assertEqual(engine.active_count, 1)
+        self.assertEqual(third["speed_status"], "measured")
+        self.assertGreater(third["speed_kmh"] or 0, 0)
+        self.assertEqual(third["direction"], "A->B")
+
+    def test_dynamic_radius_is_capped(self) -> None:
+        capped = WaterPassageEngine(
+            self.make_estimator,
+            id_factory=lambda _ts: "P-TEST-CAP",
+            stitch_window_sec=3.0,
+            reacquire_window_sec=10.0,
+            stitch_distance_px=100,
+            stitch_distance_max_px=500,
+            velocity_stitch_factor=2.5,
+        )
+        capped.update([det(1, 0)], 0.0)
+        capped.update([det(1, 2000)], 1.0)
+        inside = capped.update([det(2, 4400)], 2.0)[-1]["passage"]
+        self.assertEqual(inside["passage_id"], "P-TEST-CAP")
+        self.assertEqual(inside["track_fragments"], [1, 2])
+
+        split_ids = iter(["P-TEST-CAPA", "P-TEST-CAPB"])
+        beyond = WaterPassageEngine(
+            self.make_estimator,
+            id_factory=lambda _ts: next(split_ids),
+            stitch_window_sec=3.0,
+            reacquire_window_sec=10.0,
+            stitch_distance_px=100,
+            stitch_distance_max_px=500,
+            velocity_stitch_factor=2.5,
+        )
+        beyond.update([det(1, 0)], 0.0)
+        beyond.update([det(1, 2000)], 1.0)
+        outside = beyond.update([det(2, 4700)], 2.0)[-1]["passage"]
+        self.assertNotEqual(outside["passage_id"], "P-TEST-CAPA")
+        self.assertEqual(beyond.active_count, 2)
+
+    def test_same_batch_second_track_does_not_join_claimed_passage(self) -> None:
+        ids = iter(["P-TEST-B1", "P-TEST-B2"])
+        engine = WaterPassageEngine(
+            self.make_estimator,
+            id_factory=lambda _ts: next(ids),
+            stitch_distance_px=120,
+        )
+        updates = engine.update([det(1, 30), det(2, 32)], 1.0)
+        passages = [u["passage"] for u in updates if "passage" in u]
+        self.assertEqual(len(passages), 2)
+        self.assertNotEqual(passages[0]["passage_id"], passages[1]["passage_id"])
+        self.assertEqual(engine.active_count, 2)
+
+
 class PassageApiRetentionTests(unittest.TestCase):
     FUNCTIONS = {
         "optional_float", "optional_int", "open_passages_db", "cleanup_passage_media",
