@@ -21,9 +21,9 @@
 
 ## Task records
 
-- TASK-065-01 | Frontend deduplication — create live-sync.js, update Water + Road index.html to include it, keep per-page config minimal | AC-001 | Evidence: frontend/sea-speed/live-sync.js, both index.html, sync tests | Status: PENDING
-- TASK-065-02 | Worker unification — expose PassageEngine alias, instantiate for Water and for Road speed-line path | AC-002, AC-003, AC-004, AC-005 | Evidence: worker/water_passage.py, worker/hls_motion_yolo_worker_events.py, tests/test_water_passage.py | Status: PENDING
-- TASK-065-03 | Validation + MIXED deploy + acceptance — validators, CI, MIXED runtime | AC-001..AC-006 | Evidence: scripts/ci/validate_*.py, deployment manifests | Status: PENDING
+- TASK-065-01 | Frontend deduplication — create live-sync.js, update Water + Road index.html to include it, keep per-page config minimal | AC-001 | Evidence: frontend/sea-speed/live-sync.js, both index.html, sync tests | Status: COMPLETE
+- TASK-065-02 | Worker unification — expose PassageEngine alias, instantiate for Water and for Road speed-line path | AC-002, AC-003, AC-004, AC-005 | Evidence: worker/water_passage.py, worker/hls_motion_yolo_worker_events.py, tests/test_water_passage.py | Status: COMPLETE
+- TASK-065-03 | Validation + MIXED deploy + acceptance — validators, CI, MIXED runtime | AC-001..AC-006 | Evidence: scripts/ci/validate_*.py, deployment manifests | Status: RUNTIME-MANUAL
 
 ## Completion gate
 

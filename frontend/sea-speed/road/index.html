@@ -229,6 +229,7 @@ if(document.readyState==="loading"){document.addEventListener("DOMContentLoaded"
 <footer class="operator-footer">Sea Speed · Road computer vision profile</footer>
 <div id="liveFullscreenOverlay" role="dialog" aria-modal="true" aria-label="Полный экран видео"><button id="liveFullscreenClose" class="live-fullscreen-close" type="button" aria-label="Закрыть">×</button><div class="live-fullscreen-video" id="liveFullscreenVideoContainer"></div></div>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.7/dist/hls.min.js"></script>
+<script src="./live-sync.js"></script>
 <script>
 const CAMERA_ID="road1";
 const BASE="/sea-speed/api/analytics/road1";
@@ -327,10 +328,10 @@ function getCaptureMs(env){ const v=env.capture_time_unix_ms; if(Number.isFinite
 function pruneBuffer(nowMs){ const cutoff=nowMs-LIVE_BUFFER_MS; liveBuffer=liveBuffer.filter(e=>{const t=getCaptureMs(e);return t!=null&&t>=cutoff;}); if(liveBuffer.length>120) liveBuffer=liveBuffer.slice(-120); }
 function accept(env){if(!env||env.camera_id!=="road1")return;const gen=Number(env.generation),frame=Number(env.frame_no);if(!Number.isFinite(gen)||!Number.isFinite(frame))return;if(liveGen!==null&&gen<liveGen)return;if(liveGen===null||gen>liveGen){liveBuffer=[];lastFrameNo=-1;liveGen=gen;}if(frame<=lastFrameNo)return;lastFrameNo=frame;pruneBuffer(Date.now());liveBuffer.push(env);liveBuffer.sort((a,b)=> (getCaptureMs(a)||0)-(getCaptureMs(b)||0));if(liveBuffer.length>120) liveBuffer=liveBuffer.slice(-120);}
 function getMediaMs(){ try{ if(window.hls&&hls.media===video&&hls.playingDate) return hls.playingDate.getTime(); if(video&&typeof video.getStartDate==="function"){ const d=video.getStartDate(); if(d) return d.getTime()+video.currentTime*1000; } if(hls&&hls.playingDate) return hls.playingDate.getTime(); }catch(_){ } return null; }
-function median(arr){ const s=[...arr].sort((a,b)=>a-b); const n=s.length; if(n===0) return 0; return n%2? s[(n-1)/2] : (s[n/2-1]+s[n/2])/2; }
-function updateLagCompensation(mediaMs){ if(liveBuffer.length<5||mediaMs==null) return; const latest=Math.max(...liveBuffer.map(e=>getCaptureMs(e)||0)); if(!latest) return; const delta=mediaMs-latest; if(!Number.isFinite(delta)||delta<-200||delta>6000) return; lagSamples.push(delta); if(lagSamples.length>30) lagSamples.shift(); if(lagSamples.length>=20){ let m=median(lagSamples); m=Math.max(0,Math.min(600,m)); lagCompensationMs=m; } }
-function bracketForMedia(mediaMs){ return SeaSpeedLiveSync.bracketForMedia(mediaMs); }
-function renderForVideoFrame(){ const rawMedia=getMediaMs(); if(rawMedia==null){ clearLive(); return; } updateLagCompensation(rawMedia); const mediaMs=rawMedia - lagCompensationMs; if(Math.abs(rawMedia - (liveBuffer.length? Math.max(...liveBuffer.map(e=>getCaptureMs(e)||0)):0))>6000){ clearLive(); return; } const br=bracketForMedia(rawMedia); if(!br){ clearLive(); return; } const env=interpolate(br.lo,br.hi,br.t); env.crossings=br.hi.crossings; drawLive(env); }
+function updateLagCompensation(mediaMs){ if(liveBuffer.length<5||mediaMs==null) return; const latest=Math.max(...liveBuffer.map(e=>getCaptureMs(e)||0)); if(!latest) return; const delta=mediaMs-latest; if(!Number.isFinite(delta)||delta<-200||delta>6000) return; lagSamples.push(delta); if(lagSamples.length>30) lagSamples.shift(); if(lagSamples.length>=20){ lagCompensationMs=SeaSpeedLiveSync.clampLag(SeaSpeedLiveSync.median(lagSamples)); } }
+function closestEarlierEnvelope(compMs){ return SeaSpeedLiveSync.closestEarlierEnvelope(compMs,{liveBuffer,getCaptureMs}); }
+function bracketForMedia(mediaMs){ return SeaSpeedLiveSync.bracketForMedia(mediaMs,{liveBuffer,getCaptureMs,lagCompensationMs,maxGapMs:500}); }
+function renderForVideoFrame(){ const rawMedia=getMediaMs(); if(rawMedia==null){ clearLive(); return; } updateLagCompensation(rawMedia); const mediaMs=rawMedia - lagCompensationMs; if(Math.abs(rawMedia - (liveBuffer.length? Math.max(...liveBuffer.map(e=>getCaptureMs(e)||0)):0))>6000){ clearLive(); return; } const br=bracketForMedia(rawMedia); if(!br){ const near=closestEarlierEnvelope(mediaMs); if(near&&((getCaptureMs(near)||0)>=mediaMs-2000)){ drawLive(near); } else { clearLive(); } return; } const env=interpolate(br.lo,br.hi,br.t); env.crossings=br.hi.crossings; drawLive(env); }
 let _rvcbActive=false;
 function scheduleRender(){ if(_rvcbActive) return; _rvcbActive=true; const cb=()=>{_rvcbActive=false; renderForVideoFrame(); if(video&&video.readyState>=2&&!video.paused) { if(typeof video.requestVideoFrameCallback==="function") video.requestVideoFrameCallback(cb); else requestAnimationFrame(scheduleRender); } else { requestAnimationFrame(scheduleRender); } }; if(video&&typeof video.requestVideoFrameCallback==="function") video.requestVideoFrameCallback(cb); else requestAnimationFrame(cb); }
 (function startLoop(){ scheduleRender(); setInterval(()=>{ pruneBuffer(Date.now()); renderForVideoFrame(); }, 1000); })();
@@ -338,7 +339,6 @@ setInterval(async()=>{if(polling) return; const need=liveBuffer.length===0||getM
 window.addEventListener("resize",()=>{ renderForVideoFrame(); });
 try{ const es=new EventSource(LIVE_URL); es.onmessage=e=>{ try{ accept(JSON.parse(e.data)); }catch(_){} }; es.onerror=()=>{}; }catch(_){}
 })();
-<script src="./live-sync.js"></script>
 </script>
 </body>
 </html>

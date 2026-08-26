@@ -19,7 +19,13 @@ ARTIFACT_SOURCE = ROOT / "scripts" / "quality" / "build_exact_artifacts.py"
 
 import sys
 sys.path.insert(0, str(ROOT / "worker"))
-from water_passage import MeasurementResult, SpeedEstimator, TwoGateSpeedEstimator, WaterPassageEngine
+from water_passage import (
+    MeasurementResult,
+    PassageEngine,
+    SpeedEstimator,
+    TwoGateSpeedEstimator,
+    WaterPassageEngine,
+)
 
 
 class HTTPExceptionStub(Exception):
@@ -290,6 +296,32 @@ class FastVesselStitchTests(unittest.TestCase):
         self.assertNotEqual(passages[0]["passage_id"], passages[1]["passage_id"])
         self.assertEqual(engine.active_count, 2)
 
+    def test_road_profile_fast_fragment_churn_forms_single_measured_passage(self) -> None:
+        """065 AC-003: same fast churn scenario parameterized as Road.
+
+        Road speed lines run left-to-right across the frame; the generic
+        PassageEngine must stitch ByteTrack fragment churn into one
+        measured passage exactly as it does for the Water profile.
+        """
+        road_estimator = TwoGateSpeedEstimator(
+            [(20, 0), (20, 100)], [(80, 0), (80, 100)], 45.0, True
+        )
+        engine = PassageEngine(
+            lambda: road_estimator,
+            id_factory=lambda _ts: "P-TEST-ROAD",
+            stitch_distance_px=120,
+        )
+        first = engine.update([det(201, 50, x=10)], 0.0)[-1]["passage"]
+        second = engine.update([det(202, 50, x=110)], 0.1)[-1]["passage"]
+        third = engine.update([det(203, 50, x=210)], 0.2)[-1]["passage"]
+        self.assertEqual(first["passage_id"], "P-TEST-ROAD")
+        self.assertEqual(second["passage_id"], "P-TEST-ROAD")
+        self.assertEqual(third["passage_id"], "P-TEST-ROAD")
+        self.assertEqual(third["track_fragments"], [201, 202, 203])
+        self.assertEqual(engine.active_count, 1)
+        self.assertEqual(third["speed_status"], "measured")
+        self.assertGreater(third["speed_kmh"] or 0, 0)
+
 
 class PassageApiRetentionTests(unittest.TestCase):
     FUNCTIONS = {
@@ -386,7 +418,8 @@ class IntegrationContractTests(unittest.TestCase):
     def test_worker_uses_passage_engine_but_preserves_road_event_path(self) -> None:
         source = WORKER_SOURCE.read_text(encoding="utf-8")
         for marker in (
-            "from water_passage import WaterPassageEngine, build_two_gate_estimator",
+            "from water_passage import PassageEngine, build_two_gate_estimator",
+            "passage_engine = PassageEngine(",
             "passage_engine.update(detections, now)",
             "def post_passage(",
             'profile.domain == "water":\n                for vessel in water_event_candidates',

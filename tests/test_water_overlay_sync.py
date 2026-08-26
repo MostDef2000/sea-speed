@@ -61,7 +61,7 @@ class WaterOverlaySyncTest(unittest.TestCase):
     def test_frontend_source_contains_sync_markers(self):
         source = FRONTEND_SOURCE.read_text(encoding="utf-8")
         for marker in (
-            "Math.min(1200,m)",
+            "SeaSpeedLiveSync.clampLag(",
             "function closestEarlierEnvelope(compMs)",
             "mediaMs-2000",
         ):
