@@ -10,7 +10,7 @@
 - AC-002 | Task: TASK-064-01 | Evidence: tests/test_water_passage.py::FastVesselStitchTests | Coverage: COVERED
 - AC-003 | Task: TASK-064-01 | Evidence: existing PassageEngineTests unchanged | Coverage: COVERED
 - AC-004 | Task: TASK-064-02 | Evidence: tests/test_water_overlay_sync.py | Coverage: COVERED
-- AC-005 | Task: TASK-064-03 | Evidence: MIXED deployment manifests + execution audit | Coverage: RUNTIME-MANUAL
+- AC-005 | Task: TASK-064-03 | Evidence: MIXED deployment manifests + execution audit | Coverage: RUNTIME-MANUAL | Reason: protected hardware runtime acceptance
 
 ## Delivery tasks
 
