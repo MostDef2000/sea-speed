@@ -256,6 +256,8 @@ class WaterPassageEngine:
         id_factory: Callable[[float], str] = default_passage_id,
         stitch_window_sec: float = 3.0,
         stitch_distance_px: float = 120.0,
+        stitch_distance_max_px: float = 1200.0,
+        velocity_stitch_factor: float = 2.5,
         passage_end_gap_sec: float = 8.0,
         max_observations: int = 256,
         max_active_passages: int = 32,
@@ -268,6 +270,8 @@ class WaterPassageEngine:
         self.stitch_window_sec = max(0.1, float(stitch_window_sec))
         self.reacquire_window_sec = max(self.stitch_window_sec, float(reacquire_window_sec))
         self.stitch_distance_px = max(1.0, float(stitch_distance_px))
+        self.stitch_distance_max_px = max(self.stitch_distance_px, float(stitch_distance_max_px))
+        self.velocity_stitch_factor = max(0.0, float(velocity_stitch_factor))
         self.passage_end_gap_sec = max(self.reacquire_window_sec + 2.0, float(passage_end_gap_sec))
         self.max_observations = max(8, int(max_observations))
         self.max_active_passages = max(1, int(max_active_passages))
@@ -330,6 +334,24 @@ class WaterPassageEngine:
         oldest = min(candidates, key=lambda state: (state.last_seen_at, state.passage_id))
         return [self._finalize(oldest.passage_id, ts)]
 
+    def _predicted_anchor(self, state: "_PassageState", ts: float) -> Tuple[Point, float]:
+        """Extrapolate the passage anchor to ts; return (predicted, speed_px_s)."""
+        obs = state.observations
+        last = state.last_anchor
+        if last is None:
+            return ((0.0, 0.0), 0.0)
+        if len(obs) < 2:
+            return last, 0.0
+        a, b = obs[-2], obs[-1]
+        dt = b.ts - a.ts
+        if dt <= 0:
+            return last, 0.0
+        vx = (b.anchor_x - a.anchor_x) / dt
+        vy = (b.anchor_y - a.anchor_y) / dt
+        speed = math.hypot(vx, vy)
+        lead = max(0.0, ts - b.ts)
+        return (b.anchor_x + vx * lead, b.anchor_y + vy * lead), speed
+
     def _resolve(self, track_id: int, anchor: Point, ts: float, claimed: set[str]) -> Tuple[_PassageState, bool, List[Dict[str, object]]]:
         passage_id = self._track_to_passage.get(track_id)
         if passage_id in self._active:
@@ -343,8 +365,14 @@ class WaterPassageEngine:
                 continue
             if gap > self.stitch_window_sec and len(state.observations) < 2:
                 continue
-            distance = math.dist(anchor, state.last_anchor)
-            if distance <= self.stitch_distance_px:
+            predicted, speed = self._predicted_anchor(state, ts)
+            distance = math.dist(anchor, predicted)
+            effective_gap = min(gap, self.stitch_window_sec)
+            dynamic_radius = min(
+                self.stitch_distance_max_px,
+                max(self.stitch_distance_px, speed * effective_gap * self.velocity_stitch_factor),
+            )
+            if distance <= dynamic_radius:
                 candidates.append((distance, state))
         if candidates:
             _distance, state = min(candidates, key=lambda item: (item[0], item[1].last_seen_at, item[1].passage_id))
