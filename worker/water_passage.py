@@ -464,3 +464,9 @@ class WaterPassageEngine:
         now = time.time() if ts is None else float(ts)
         passage_ids = sorted(self._active, key=lambda passage_id: (self._active[passage_id].last_seen_at, passage_id))
         return [self._finalize(passage_id, now) for passage_id in passage_ids]
+
+
+# 065: generic name for the unified passage engine. Water and Road share
+# the same implementation; the historical class name remains as the
+# canonical definition for backward compatibility.
+PassageEngine = WaterPassageEngine

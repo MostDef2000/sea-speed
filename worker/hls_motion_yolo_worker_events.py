@@ -15,7 +15,7 @@ import requests
 from ultralytics import YOLO
 
 from analytics_profiles import get_profile, normalize_model_class
-from water_passage import WaterPassageEngine, build_two_gate_estimator
+from water_passage import PassageEngine, build_two_gate_estimator
 
 try:
     from detection_performance import PerformanceTracker
@@ -1626,7 +1626,7 @@ def main():
     passage_pending_snapshot = set()
     passage_post_interval = max(0.2, env_float("PASSAGE_POST_INTERVAL_SEC", 1.0))
     if is_water:
-        passage_engine = WaterPassageEngine(
+        passage_engine = PassageEngine(
             lambda: build_two_gate_estimator(fetch_speed_lines_config()),
             max_observations=env_int("WATER_PASSAGE_MAX_OBSERVATIONS", 256),
             max_active_passages=env_int("WATER_PASSAGE_MAX_ACTIVE", 32),
