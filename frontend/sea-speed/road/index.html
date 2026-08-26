@@ -329,7 +329,7 @@ function accept(env){if(!env||env.camera_id!=="road1")return;const gen=Number(en
 function getMediaMs(){ try{ if(window.hls&&hls.media===video&&hls.playingDate) return hls.playingDate.getTime(); if(video&&typeof video.getStartDate==="function"){ const d=video.getStartDate(); if(d) return d.getTime()+video.currentTime*1000; } if(hls&&hls.playingDate) return hls.playingDate.getTime(); }catch(_){ } return null; }
 function median(arr){ const s=[...arr].sort((a,b)=>a-b); const n=s.length; if(n===0) return 0; return n%2? s[(n-1)/2] : (s[n/2-1]+s[n/2])/2; }
 function updateLagCompensation(mediaMs){ if(liveBuffer.length<5||mediaMs==null) return; const latest=Math.max(...liveBuffer.map(e=>getCaptureMs(e)||0)); if(!latest) return; const delta=mediaMs-latest; if(!Number.isFinite(delta)||delta<-200||delta>6000) return; lagSamples.push(delta); if(lagSamples.length>30) lagSamples.shift(); if(lagSamples.length>=20){ let m=median(lagSamples); m=Math.max(0,Math.min(600,m)); lagCompensationMs=m; } }
-function bracketForMedia(mediaMs){ if(liveBuffer.length===0) return null; const comp=mediaMs - lagCompensationMs; let lo=null,hi=null; for(let i=0;i<liveBuffer.length;i++){ const t=getCaptureMs(liveBuffer[i]); if(t==null) continue; if(t<=comp) lo=liveBuffer[i]; else { hi=liveBuffer[i]; break; } } if(!lo||!hi) return null; if(lo.generation!==hi.generation) return null; const gap=Number(getCaptureMs(hi))-Number(getCaptureMs(lo)); if(!Number.isFinite(gap)||gap<=0||gap>500) return null; const t=(comp-Number(getCaptureMs(lo)))/gap; if(t<0||t>1) return null; return {lo,hi,t}; }
+function bracketForMedia(mediaMs){ return SeaSpeedLiveSync.bracketForMedia(mediaMs); }
 function renderForVideoFrame(){ const rawMedia=getMediaMs(); if(rawMedia==null){ clearLive(); return; } updateLagCompensation(rawMedia); const mediaMs=rawMedia - lagCompensationMs; if(Math.abs(rawMedia - (liveBuffer.length? Math.max(...liveBuffer.map(e=>getCaptureMs(e)||0)):0))>6000){ clearLive(); return; } const br=bracketForMedia(rawMedia); if(!br){ clearLive(); return; } const env=interpolate(br.lo,br.hi,br.t); env.crossings=br.hi.crossings; drawLive(env); }
 let _rvcbActive=false;
 function scheduleRender(){ if(_rvcbActive) return; _rvcbActive=true; const cb=()=>{_rvcbActive=false; renderForVideoFrame(); if(video&&video.readyState>=2&&!video.paused) { if(typeof video.requestVideoFrameCallback==="function") video.requestVideoFrameCallback(cb); else requestAnimationFrame(scheduleRender); } else { requestAnimationFrame(scheduleRender); } }; if(video&&typeof video.requestVideoFrameCallback==="function") video.requestVideoFrameCallback(cb); else requestAnimationFrame(cb); }
@@ -338,6 +338,7 @@ setInterval(async()=>{if(polling) return; const need=liveBuffer.length===0||getM
 window.addEventListener("resize",()=>{ renderForVideoFrame(); });
 try{ const es=new EventSource(LIVE_URL); es.onmessage=e=>{ try{ accept(JSON.parse(e.data)); }catch(_){} }; es.onerror=()=>{}; }catch(_){}
 })();
+<script src="./live-sync.js"></script>
 </script>
 </body>
 </html>
