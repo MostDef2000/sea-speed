@@ -89,5 +89,5 @@ Not required: no `deploy/**`, `scripts/release/**`, deployment workflow, runtime
 ## Runtime feedback
 
 - Actual architecture after acceptance: pre-merge fresh process preserved the Sea Speed primary agent configuration and exposed all six dynamically configured workers; exact-main verification remains pending.
-- Differences from plan: NONE YET.
+- Differences from plan: GitHub `rerun_failed_jobs` preserves the original `pull_request` event payload, and a bounded close/reopen did not create new check runs for the unchanged source SHA. After PR metadata repair, an in-scope source synchronization is required to validate the current Change Contract against a fresh event payload.
 - Deferred cleanup: NONE.

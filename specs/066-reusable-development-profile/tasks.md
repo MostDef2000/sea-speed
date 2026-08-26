@@ -17,6 +17,13 @@
 - [ ] T009 Open one bounded Change Contract PR and obtain exact-head required CI.
 - [ ] T010 Merge exact green head, verify exact-main Quality and restart OpenCode for control-plane acceptance.
 
+## Delivery evidence
+
+- PR #332 initial and `rerun_failed_jobs` attempts used the pre-repair `pull_request` event payload and failed Change Contract validation with `missing PR sections: Canonical task`.
+- The repaired PR body passes the repository's `validate_change_contract.py` locally as `CONTROL_PLANE` against the exact ten-file diff.
+- A bounded close/reopen preserved the source and PR metadata but produced no new check run IDs; this SDD evidence update creates the required fresh `synchronize` event without widening source scope.
+- Canonical todo-contract verification remains green: 8 tests pass across current/update/reconstruction/visibility/authority and exact-path assertions.
+
 ## Requirements traceability
 
 - AC-001 | Task: T003,T007 | Evidence: TEST-066-001 / project doctor | Coverage: COVERED
