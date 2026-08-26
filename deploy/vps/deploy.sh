@@ -14,6 +14,7 @@ FRONTEND_TARGET="${SEA_SPEED_FRONTEND_TARGET:-/var/www/mostdef.ru/sea-speed/inde
 OBJECTS_FRONTEND_TARGET="${SEA_SPEED_OBJECTS_FRONTEND_TARGET:-/var/www/mostdef.ru/sea-speed/objects/index.html}"
 CAMERAS_FRONTEND_TARGET="${SEA_SPEED_CAMERAS_FRONTEND_TARGET:-/var/www/mostdef.ru/sea-speed/cameras/index.html}"
 ROAD_FRONTEND_TARGET="${SEA_SPEED_ROAD_FRONTEND_TARGET:-/var/www/mostdef.ru/sea-speed/road/index.html}"
+LIVE_SYNC_TARGET="${SEA_SPEED_LIVE_SYNC_TARGET:-/var/www/mostdef.ru/sea-speed/live-sync.js}"
 ROOT_FRONTEND_TARGET="${SEA_SPEED_ROOT_FRONTEND_TARGET:-/var/www/mostdef.ru/index.html}"
 FALLBACK_FRONTEND_TARGET="${SEA_SPEED_FALLBACK_FRONTEND_TARGET:-/var/www/mostdef.ru/sea-speed-unavailable.html}"
 SERVICE_NAME="sea-speed-api"
@@ -24,6 +25,7 @@ FRONTEND_URL="${SEA_SPEED_FRONTEND_URL:-https://mostdef.ru/sea-speed/}"
 OBJECTS_FRONTEND_URL="${SEA_SPEED_OBJECTS_FRONTEND_URL:-https://mostdef.ru/sea-speed/objects/}"
 CAMERAS_FRONTEND_URL="${SEA_SPEED_CAMERAS_FRONTEND_URL:-https://mostdef.ru/sea-speed/cameras/}"
 ROAD_FRONTEND_URL="${SEA_SPEED_ROAD_FRONTEND_URL:-https://mostdef.ru/sea-speed/road/}"
+LIVE_SYNC_URL="${SEA_SPEED_LIVE_SYNC_URL:-https://mostdef.ru/sea-speed/live-sync.js}"
 ROOT_FRONTEND_URL="${SEA_SPEED_ROOT_FRONTEND_URL:-https://mostdef.ru/}"
 AUTH_BOUNDARY_REQUIRED="${SEA_SPEED_REQUIRE_AUTH_BOUNDARY:-0}"
 AUTHENTIK_UPSTREAM="${SEA_SPEED_AUTHENTIK_UPSTREAM:-}"
@@ -186,7 +188,8 @@ ensure_layout() {
     "$STATE_DIR" \
     "$(dirname "$OBJECTS_FRONTEND_TARGET")" \
     "$(dirname "$CAMERAS_FRONTEND_TARGET")" \
-    "$(dirname "$ROAD_FRONTEND_TARGET")"
+    "$(dirname "$ROAD_FRONTEND_TARGET")" \
+    "$(dirname "$LIVE_SYNC_TARGET")"
 }
 
 release_complete() {
@@ -196,6 +199,7 @@ release_complete() {
      -f "$root/frontend/sea-speed/objects/index.html" && \
      -f "$root/frontend/sea-speed/cameras/index.html" && \
      -f "$root/frontend/sea-speed/road/index.html" && \
+     -f "$root/frontend/sea-speed/live-sync.js" && \
      -f "$root/frontend/root/index.html" && \
      -f "$root/frontend/sea-speed/unavailable.html" && \
      -f "$root/deploy/vps/sea-speed-auth-cutover.sh" && \
@@ -230,6 +234,7 @@ download_release() {
     frontend/sea-speed/objects/index.html \
     frontend/sea-speed/cameras/index.html \
     frontend/sea-speed/road/index.html \
+    frontend/sea-speed/live-sync.js \
     frontend/root/index.html \
     frontend/sea-speed/unavailable.html \
     deploy/vps/sea-speed-auth-cutover.sh \
@@ -254,6 +259,7 @@ download_release() {
   install -m 0644 "$extracted/frontend/sea-speed/objects/index.html" "$TARGET_RELEASE/frontend/sea-speed/objects/index.html"
   install -m 0644 "$extracted/frontend/sea-speed/cameras/index.html" "$TARGET_RELEASE/frontend/sea-speed/cameras/index.html"
   install -m 0644 "$extracted/frontend/sea-speed/road/index.html" "$TARGET_RELEASE/frontend/sea-speed/road/index.html"
+  install -m 0644 "$extracted/frontend/sea-speed/live-sync.js" "$TARGET_RELEASE/frontend/sea-speed/live-sync.js"
   install -m 0644 "$extracted/frontend/root/index.html" "$TARGET_RELEASE/frontend/root/index.html"
   install -m 0644 "$extracted/frontend/sea-speed/unavailable.html" "$TARGET_RELEASE/frontend/sea-speed/unavailable.html"
   install -m 0755 "$extracted/deploy/vps/sea-speed-auth-cutover.sh" "$TARGET_RELEASE/deploy/vps/sea-speed-auth-cutover.sh"
@@ -440,6 +446,11 @@ bootstrap_current_release() {
   else
     touch "$bootstrap_release/frontend/sea-speed/road/.absent"
   fi
+  if [[ -f "$LIVE_SYNC_TARGET" ]]; then
+    install -m 0644 "$LIVE_SYNC_TARGET" "$bootstrap_release/frontend/sea-speed/live-sync.js"
+  else
+    touch "$bootstrap_release/frontend/sea-speed/live-sync.js.absent"
+  fi
   install -m 0644 "$ROOT_FRONTEND_TARGET" "$bootstrap_release/frontend/root/index.html"
   if [[ -f "$FALLBACK_FRONTEND_TARGET" ]]; then
     install -m 0644 "$FALLBACK_FRONTEND_TARGET" "$bootstrap_release/frontend/sea-speed/unavailable.html"
@@ -532,6 +543,7 @@ install_release() {
   [[ -f "$release_dir/frontend/sea-speed/objects/index.html" || -f "$release_dir/frontend/sea-speed/objects/.absent" ]] || { echo "Release ${release_name} has no objects frontend state" >&2; return 1; }
   [[ -f "$release_dir/frontend/sea-speed/cameras/index.html" || -f "$release_dir/frontend/sea-speed/cameras/.absent" ]] || { echo "Release ${release_name} has no cameras frontend state" >&2; return 1; }
   [[ -f "$release_dir/frontend/sea-speed/road/index.html" || -f "$release_dir/frontend/sea-speed/road/.absent" ]] || { echo "Release ${release_name} has no road frontend state" >&2; return 1; }
+  [[ -f "$release_dir/frontend/sea-speed/live-sync.js" || -f "$release_dir/frontend/sea-speed/live-sync.js.absent" ]] || { echo "Release ${release_name} has no live-sync module state" >&2; return 1; }
   [[ -f "$release_dir/frontend/root/index.html" ]] || { echo "Release ${release_name} has no root frontend file" >&2; return 1; }
   [[ -f "$release_dir/frontend/sea-speed/unavailable.html" || -f "$release_dir/frontend/sea-speed/unavailable.html.absent" ]] || { echo "Release ${release_name} has no fallback frontend state" >&2; return 1; }
 
@@ -546,6 +558,9 @@ install_release() {
   fi
   if [[ -f "$release_dir/frontend/sea-speed/road/index.html" ]]; then
     install -m 0644 "$release_dir/frontend/sea-speed/road/index.html" "${ROAD_FRONTEND_TARGET}.next"
+  fi
+  if [[ -f "$release_dir/frontend/sea-speed/live-sync.js" ]]; then
+    install -m 0644 "$release_dir/frontend/sea-speed/live-sync.js" "${LIVE_SYNC_TARGET}.next"
   fi
   if [[ -f "$release_dir/frontend/sea-speed/unavailable.html" ]]; then
     install -m 0644 "$release_dir/frontend/sea-speed/unavailable.html" "${FALLBACK_FRONTEND_TARGET}.next"
@@ -568,6 +583,11 @@ install_release() {
     mv -f "${ROAD_FRONTEND_TARGET}.next" "$ROAD_FRONTEND_TARGET"
   else
     rm -f "$ROAD_FRONTEND_TARGET" "${ROAD_FRONTEND_TARGET}.next"
+  fi
+  if [[ -f "$release_dir/frontend/sea-speed/live-sync.js" ]]; then
+    mv -f "${LIVE_SYNC_TARGET}.next" "$LIVE_SYNC_TARGET"
+  else
+    rm -f "$LIVE_SYNC_TARGET" "${LIVE_SYNC_TARGET}.next"
   fi
   if [[ -f "$release_dir/frontend/sea-speed/unavailable.html" ]]; then
     mv -f "${FALLBACK_FRONTEND_TARGET}.next" "$FALLBACK_FRONTEND_TARGET"
@@ -648,6 +668,12 @@ verify_frontends() {
     verify_public_url "Road frontend" "$ROAD_FRONTEND_URL"
   else
     log "Road frontend is absent in this rollback release"
+  fi
+  if [[ -f "$LIVE_SYNC_TARGET" ]]; then
+    [[ -s "$LIVE_SYNC_TARGET" ]] || { echo "Live sync module file is empty: ${LIVE_SYNC_TARGET}" >&2; return 1; }
+    verify_public_url "Live sync module" "$LIVE_SYNC_URL"
+  else
+    log "Live sync module is absent in this rollback release"
   fi
   verify_public_url "Root frontend" "$ROOT_FRONTEND_URL"
 }

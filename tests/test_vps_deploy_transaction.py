@@ -107,6 +107,7 @@ class VpsDeployTransactionTests(unittest.TestCase):
         self.objects = self.live / "frontend/sea-speed/objects/index.html"
         self.cameras = self.live / "frontend/sea-speed/cameras/index.html"
         self.road = self.live / "frontend/sea-speed/road/index.html"
+        self.live_sync = self.live / "frontend/sea-speed/live-sync.js"
         self.root_frontend = self.live / "frontend/root/index.html"
         self.fallback = self.live / "frontend/sea-speed-unavailable.html"
         for sha in (OLD, CANDIDATE, OLDER):
@@ -124,6 +125,7 @@ class VpsDeployTransactionTests(unittest.TestCase):
             "frontend/sea-speed/objects/index.html": f"objects {sha}\n",
             "frontend/sea-speed/cameras/index.html": f"cameras {sha}\n",
             "frontend/sea-speed/road/index.html": f"road {sha}\n",
+            "frontend/sea-speed/live-sync.js": f"live-sync {sha}\n",
             "frontend/root/index.html": f"root {sha}\n",
             "frontend/sea-speed/unavailable.html": f"fallback {sha}\n",
             "deploy/vps/sea-speed-auth-cutover.sh": "#!/usr/bin/env bash\nexit 0\n",
@@ -150,6 +152,7 @@ class VpsDeployTransactionTests(unittest.TestCase):
             self.objects: release / "frontend/sea-speed/objects/index.html",
             self.cameras: release / "frontend/sea-speed/cameras/index.html",
             self.road: release / "frontend/sea-speed/road/index.html",
+            self.live_sync: release / "frontend/sea-speed/live-sync.js",
             self.root_frontend: release / "frontend/root/index.html",
             self.fallback: release / "frontend/sea-speed/unavailable.html",
         }
@@ -276,6 +279,7 @@ if action == 'reconcile':
                 "SEA_SPEED_OBJECTS_FRONTEND_TARGET": str(self.objects),
                 "SEA_SPEED_CAMERAS_FRONTEND_TARGET": str(self.cameras),
                 "SEA_SPEED_ROAD_FRONTEND_TARGET": str(self.road),
+                "SEA_SPEED_LIVE_SYNC_TARGET": str(self.live_sync),
                 "SEA_SPEED_ROOT_FRONTEND_TARGET": str(self.root_frontend),
                 "SEA_SPEED_FALLBACK_FRONTEND_TARGET": str(self.fallback),
                 "SEA_SPEED_SYSTEMCTL_BIN": str(self.systemctl),
@@ -285,6 +289,7 @@ if action == 'reconcile':
                 "SEA_SPEED_OBJECTS_FRONTEND_URL": "https://example.invalid/sea-speed/objects/",
                 "SEA_SPEED_CAMERAS_FRONTEND_URL": "https://example.invalid/sea-speed/cameras/",
                 "SEA_SPEED_ROAD_FRONTEND_URL": "https://example.invalid/sea-speed/road/",
+                "SEA_SPEED_LIVE_SYNC_URL": "https://example.invalid/sea-speed/live-sync.js",
                 "SEA_SPEED_ROOT_FRONTEND_URL": "https://example.invalid/",
                 "SEA_SPEED_REQUIRE_AUTH_BOUNDARY": "1",
                 "SEA_SPEED_AUTHENTIK_UPSTREAM": "http://10.123.239.102:19000",
