@@ -67,7 +67,7 @@ Install one fixed no-argument helper and one nginx systemd drop-in through the e
 - TEST-068-001 | Covers: AC-001 | Level: unit | Priority: P0 | Evidence: immediate, delayed and timeout helper subprocess tests
 - TEST-068-002 | Covers: AC-002 | Level: unit | Priority: P0 | Evidence: exact systemd directive and forbidden-directive assertions
 - TEST-068-003 | Covers: AC-003 | Level: integration | Priority: P0 | Evidence: test-root installer success and injected rollback tests
-- TEST-068-004 | Covers: AC-004,AC-005 | Level: integration | Priority: P0 | Evidence: deterministic exact artifact build/validation, repository validators and full unittest
+- TEST-068-004 | Covers: AC-004,AC-005 | Level: integration | Priority: P0 | Evidence: deterministic artifact build/validation, repository validators and full unittest
 - TEST-068-005 | Covers: AC-006 | Level: end-to-end | Priority: P0 | Evidence: exact-source bootstrap, systemd state and public/protected HTTP probes
 - TEST-068-006 | Covers: AC-007 | Level: runtime-manual | Priority: P0 | Evidence: deployment manifest/execution audit and authenticated browser Network/canvas observation
 
