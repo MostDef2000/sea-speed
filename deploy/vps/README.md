@@ -220,6 +220,65 @@ Relevant VPS source contours include:
 
 Worker-only and documentation-only changes do not imply a normal VPS code deployment.
 
+## nginx / ZeroTier startup resilience
+
+The Auth v1 boundary binds the private Worker ingress to the fixed VPS ZeroTier address:
+
+```text
+10.123.239.101:18080
+```
+
+If nginx starts before ZeroTier assigns `10.123.239.101`, the inherited nginx `ExecStartPre` (`nginx -t`) fails with `EADDRNOTAVAIL` and systemd may leave nginx permanently failed even after ZeroTier recovers.
+
+Two repository-owned assets fix this without changing the private listener, auth renderer or sudo surface:
+
+```text
+deploy/vps/sea-speed-nginx-zerotier-wait.sh
+deploy/vps/sea-speed-nginx-zerotier.conf
+```
+
+The helper is installed as:
+
+```text
+/usr/local/sbin/sea-speed-nginx-zerotier-wait
+```
+
+It accepts no arguments, checks only `10.123.239.101`, and succeeds as soon as the address is locally assigned. After 24 attempts at five-second intervals it exits with a service-failure status.
+
+The systemd drop-in is installed as:
+
+```text
+/etc/systemd/system/nginx.service.d/sea-speed-nginx-zerotier.conf
+```
+
+It orders nginx after and wants `zerotier-one.service`, runs the helper as `ExecCondition` before inherited nginx preflight commands, and configures controlled retry:
+
+```text
+Restart=on-failure
+RestartSec=10s
+StartLimitIntervalSec=0
+TimeoutStartSec=130s
+```
+
+`Requires=` is intentionally absent so a ZeroTier lifecycle event does not stop an already-serving public nginx.
+
+### Bootstrap
+
+Run the exact-source privilege-boundary installer once as root from an exact checkout:
+
+```bash
+bash deploy/vps/install-auth-privilege-boundary.sh \
+  <full-40-char-sha> sea-speed-deploy
+```
+
+Before root-owned mutation, the installer runs the same bounded fixed-address wait. If ZeroTier does not restore `10.123.239.101`, the transaction fails before changing installed files and must be retried after network recovery.
+
+The installer transactionally backs up any prior helper/drop-in, installs the new assets, reloads systemd, restarts nginx and verifies it is active. The restart causes a short public-ingress interruption when nginx was previously active. It also preserves all existing Auth v1 behavior (privileged helper, bundle, sudoers and camera freshness watchdog).
+
+### Rollback
+
+If the installer fails after mutation, its EXIT trap restores the previous helper/drop-in bytes and the previous nginx service state (enabled/disabled, active/inactive). After a successful bootstrap, rolling back the runtime boundary follows the normal exact-source deployment rollback to the previous runtime-verified release.
+
 ## Acceptance checks
 
 For a normal code deployment, verify at minimum:
