@@ -33,7 +33,7 @@ class WaitHelperTests(unittest.TestCase):
         env = os.environ.copy()
         env["PATH"] = str(self.fake_bin) + os.pathsep + env.get("PATH", "")
         return subprocess.run(
-            [str(HELPER), *args],
+            [shutil.which("bash") or "/bin/bash", str(HELPER), *args],
             env=env,
             text=True,
             stdout=subprocess.PIPE,
@@ -286,7 +286,7 @@ esac
 
     def test_production_path_reloads_restarts_and_verifies_nginx(self) -> None:
         text = INSTALLER.read_text(encoding="utf-8")
-        preflight = text.index('"$NGINX_WAIT_SOURCE"')
+        preflight = text.index('bash "$NGINX_WAIT_SOURCE"')
         mutation = text.index("MUTATED=1")
         self.assertLess(preflight, mutation)
         self.assertIn("NGINX_ZEROTIER_PREMUTATION=PASS", text)
