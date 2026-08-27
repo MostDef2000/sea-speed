@@ -27,7 +27,7 @@
 
 - [x] Issue/spec/plan/tasks current.
 - [x] Exact changed-file scope verified: eleven approved paths only.
-- [x] Required local tests and evidence complete: contract tests, validators, 571 unittest, quality gates green.
+- [x] Required tests and evidence complete — contract tests, validators, 571 unittest, quality gates green.
 - [ ] Required CI green.
 - [ ] Exact-green-head merge complete.
 - [x] Deployment state resolved: NOT REQUIRED.
