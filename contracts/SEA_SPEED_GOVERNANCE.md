@@ -87,7 +87,7 @@ For significant, multi-step or resumed work the Orchestrator maintains a structu
 
 Todo is transient interaction/presentation state. It is reconstructed from the valid Checkpoint during Resume Probe, may be replaced when the operator switches active tasks, and cannot create source authorization, production authority, completed-gate evidence or durable continuation. The canonical Issue checkpoint wins every disagreement.
 
-Every startup status and every user-visible `WAITING_EXTERNAL`, blocker, decision or terminal result includes the current todo item, items completed since the previous visible transition, and remaining/waiting work. A meaningful checkpoint transition updates todo before the corresponding user-visible result; individual tool calls do not require todo churn.
+Every startup status and every user-visible `WAITING_EXTERNAL`, blocker, decision or terminal result includes the current todo item, items completed since the previous visible transition, remaining/waiting work, `Model / orchestrator` and `Model / active worker` directly under the todo lines. A meaningful checkpoint transition updates todo and the two model lines before the corresponding user-visible result; individual tool calls do not require todo churn.
 
 ### 4.3 Synchronous external wait
 

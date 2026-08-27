@@ -60,6 +60,26 @@ class DeliveryTodoContractTests(unittest.TestCase):
         self.assertIn("Resume Probe reconstructs", runtime)
         self.assertIn("checkpoint evidence wins", runtime)
 
+    def test_todo_status_includes_model_lines(self):
+        model_markers = ("Model / orchestrator", "Model / active worker")
+        entrypoints = (
+            "AGENTS.md",
+            "contracts/SEA_SPEED_GOVERNANCE.md",
+            "contracts/SEA_SPEED_DELIVERY_POLICY.md",
+            "contracts/runtime/SEA_SPEED_TASK_RUNTIME.md",
+            "contracts/branches/project-manager.md",
+            "docs/agents/PM_BOOTSTRAP.md",
+            ".opencode/agents/sea-speed-delivery-orchestrator.md",
+        )
+        for relative in entrypoints:
+            with self.subTest(path=relative):
+                text = self.read(relative)
+                for marker in model_markers:
+                    self.assertIn(marker, text)
+        runtime = self.read("contracts/runtime/SEA_SPEED_TASK_RUNTIME.md")
+        self.assertIn("Model / orchestrator:", runtime)
+        self.assertIn("Model / active worker:", runtime)
+
     def test_agent_has_no_gh_repository_lifecycle_fallback(self):
         agent = self.read(
             ".opencode/agents/sea-speed-delivery-orchestrator.md"

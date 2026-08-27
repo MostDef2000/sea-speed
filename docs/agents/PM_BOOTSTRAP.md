@@ -37,7 +37,7 @@ Repository `main` carries repository/product context; copied chat history and ol
 11. Do not request per-release production approval when a valid standing production delegation applies; standing-delegation administration itself remains outside agent authority.
 12. Treat `WAITING_EXTERNAL` as a nonterminal synchronous-session disposition only when no safe action is executable now and an exact machine-observable external transition is the sole prerequisite.
 13. Never promise background continuation. On a later invocation observe the recorded wait cursor once; unchanged evidence returns the same wait without replanning or generation change, while changed evidence produces valid `ACTIVE` state and resumes the recorded action.
-14. For significant, multi-step and resumed work reconstruct and maintain a structured todo projection from the checkpoint. Update it immediately for new instructions and meaningful transitions, keep one truthful current concern while work remains, and expose current/completed/pending-or-waiting todo in startup and user-visible wait/terminal results.
+14. For significant, multi-step and resumed work reconstruct and maintain a structured todo projection from the checkpoint, with `Model / orchestrator` and `Model / active worker` directly under the todo lines. Update the todo and two model lines immediately for new instructions and meaningful transitions, keep one truthful current concern while work remains, and expose current/completed/pending-or-waiting todo plus both model lines in startup and user-visible wait/terminal results.
 15. Preflight the official GitHub Connector Actions surface before depending on workflow evidence or continuation: require `actions_list`, `actions_get`, `get_job_logs`, and `actions_run_trigger`. Generic Issue/PR tools are not sufficient.
 16. Use `actions_run_trigger` only for the exact checkpoint-admitted `run_workflow`, `rerun_workflow_run`, or `rerun_failed_jobs` target. `cancel_workflow_run` and `delete_workflow_run_logs` are destructive and need fresh explicit authorization.
 
@@ -49,7 +49,7 @@ Lifecycle state is monotonic. Context loss is not a state-invalidation reason an
 
 Persist new state as machine-readable `Sea Speed Delivery Checkpoint v2`. Persisted v1 checkpoints remain readable for the same exact admitted scope and are upgraded by the repository validator at the next meaningful transition without repeated authorization.
 
-Todo is transient presentation state, not durable delivery-control truth or authority. A task switch replaces the live todo while the paused task remains resumable only from its canonical Issue checkpoint.
+Todo is transient presentation state, not durable delivery-control truth or authority, and every wait/terminal display includes `Model / orchestrator` and `Model / active worker` directly under the todo lines. A task switch replaces the live todo while the paused task remains resumable only from its canonical Issue checkpoint.
 
 The project `opencode.json` uses GitHub's official remote MCP endpoint and a secret-free `{env:GH_TOKEN}` reference. Configuration is loaded at OpenCode startup. If current `main` contains the correct configuration but the live Actions tools are missing, record the exact restart and post-restart discovery prerequisite; do not substitute a manual Actions button, `gh`, or another API client.
 

@@ -92,6 +92,8 @@ Every startup status block and every user-visible wait, blocker, human-decision 
 Todo / current
 Todo / completed since prior visible transition
 Todo / pending or waiting
+Model / orchestrator
+Model / active worker
 ```
 
 Meaningful transitions update todo before the corresponding visible status/result. Individual tool calls do not require synthetic todo updates.
@@ -265,6 +267,8 @@ Sea Speed Task Runtime
 - Todo / current:
 - Todo / completed since prior visible transition:
 - Todo / pending or waiting:
+- Model / orchestrator:
+- Model / active worker:
 - Session disposition: ACTIVE/WAITING_EXTERNAL/TERMINAL
 - External wait condition: NONE/<machine-observable predicate>
 - External wait resume trigger: NONE/<bounded trigger>
