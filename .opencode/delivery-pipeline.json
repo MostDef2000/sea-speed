@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "gates": [
+    {
+      "id": "repository",
+      "argv": ["python3", "scripts/ci/validate_repo.py"],
+      "cwd": ".",
+      "timeoutSeconds": 300
+    },
+    {
+      "id": "contracts",
+      "argv": ["python3", "scripts/ci/validate_contracts.py"],
+      "cwd": ".",
+      "timeoutSeconds": 300
+    },
+    {
+      "id": "sdd",
+      "argv": ["python3", "scripts/ci/validate_sdd.py"],
+      "cwd": ".",
+      "timeoutSeconds": 300
+    },
+    {
+      "id": "quality-contracts",
+      "argv": ["python3", "scripts/quality/validate_quality_contracts.py"],
+      "cwd": ".",
+      "timeoutSeconds": 300
+    },
+    {
+      "id": "workflow-policy",
+      "argv": ["python3", "scripts/quality/validate_workflow_policy.py"],
+      "cwd": ".",
+      "timeoutSeconds": 300
+    },
+    {
+      "id": "unittest",
+      "argv": ["python3", "-W", "error::ResourceWarning", "-m", "unittest", "discover", "-s", "tests", "-p", "test_*.py", "-v"],
+      "cwd": ".",
+      "timeoutSeconds": 1800
+    },
+    {
+      "id": "property",
+      "argv": ["python3", "scripts/quality/test_properties.py"],
+      "cwd": ".",
+      "timeoutSeconds": 600
+    },
+    {
+      "id": "fuzz-recovery",
+      "argv": ["python3", "scripts/quality/test_fuzz_recovery.py"],
+      "cwd": ".",
+      "timeoutSeconds": 600
+    },
+    {
+      "id": "quality-architecture",
+      "argv": ["python3", "-W", "error::ResourceWarning", "-m", "unittest", "tests.quality.test_quality_architecture", "-v"],
+      "cwd": ".",
+      "timeoutSeconds": 600
+    }
+  ]
+}

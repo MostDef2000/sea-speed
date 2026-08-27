@@ -1,3 +1,4 @@
+import json
 import unittest
 from pathlib import Path
 
@@ -92,7 +93,7 @@ class DeliveryTodoContractTests(unittest.TestCase):
         self.assertIn("`gh`", agent)
         self.assertIn("запрещены", agent)
 
-    def test_repository_validation_admits_only_canonical_agent_path(self):
+    def test_repository_validation_admits_only_canonical_opencode_paths(self):
         import importlib.util
 
         module_path = ROOT / "scripts" / "ci" / "validate_repo.py"
@@ -104,9 +105,13 @@ class DeliveryTodoContractTests(unittest.TestCase):
         assert loader is not None
         module = importlib.util.module_from_spec(module_spec)
         loader.exec_module(module)
-        canonical = ".opencode/agents/sea-speed-delivery-orchestrator.md"
-        self.assertEqual(module.ALLOWED_EXACT_PATHS, {canonical})
-        module.validate_paths([Path(canonical)])
+        canonical = {
+            ".opencode/agents/sea-speed-delivery-orchestrator.md",
+            ".opencode/project-profile.json",
+            ".opencode/delivery-pipeline.json",
+        }
+        self.assertEqual(module.ALLOWED_EXACT_PATHS, canonical)
+        module.validate_paths([Path(path) for path in canonical])
         for rejected in (
             ".opencode/agents/other-agent.md",
             ".opencode/settings.json",
@@ -115,6 +120,68 @@ class DeliveryTodoContractTests(unittest.TestCase):
             with self.subTest(path=rejected):
                 with self.assertRaises(SystemExit):
                     module.validate_paths([Path(rejected)])
+
+    def test_reusable_profile_preserves_primary_and_bounded_workers(self):
+        profile = json.loads(self.read(
+            ".opencode/project-profile.json"
+        ))
+        self.assertEqual(profile, {
+            "version": 1,
+            "stack": "auto",
+            "delivery": True,
+            "sdd": True,
+            "github": True,
+            "githubOwner": "MostDef2000",
+        })
+        self.assertEqual(
+            json.loads(self.read("opencode.json"))["default_agent"],
+            "sea-speed-delivery-orchestrator",
+        )
+        entrypoints = (
+            self.read("AGENTS.md"),
+            self.read(".opencode/agents/sea-speed-delivery-orchestrator.md"),
+        )
+        roles = (
+            "profile-worker-explore",
+            "profile-worker-architect",
+            "profile-worker-code",
+            "profile-worker-test",
+            "profile-worker-review",
+            "profile-worker-ui",
+        )
+        for text in entrypoints:
+            with self.subTest(entrypoint=text[:20]):
+                for role in roles:
+                    self.assertIn(role, text)
+                self.assertIn("primary orchestrator", text)
+                self.assertIn("authority boundary", text)
+                self.assertIn("SOURCE_AUTHORIZATION_ADMISSION=OPEN", text)
+                self.assertNotIn("free-openrouter/", text)
+                self.assertNotIn("free-sprutdock/", text)
+
+    def test_delivery_pipeline_matches_local_quality_domains(self):
+        manifest = json.loads(self.read(
+            ".opencode/delivery-pipeline.json"
+        ))
+        self.assertEqual(manifest["version"], 1)
+        self.assertEqual(
+            [gate["id"] for gate in manifest["gates"]],
+            [
+                "repository",
+                "contracts",
+                "sdd",
+                "quality-contracts",
+                "workflow-policy",
+                "unittest",
+                "property",
+                "fuzz-recovery",
+                "quality-architecture",
+            ],
+        )
+        for gate in manifest["gates"]:
+            self.assertEqual(gate["cwd"], ".")
+            self.assertEqual(gate["argv"][0], "python3")
+            self.assertGreater(gate["timeoutSeconds"], 0)
 
 
 if __name__ == "__main__":

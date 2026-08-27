@@ -101,7 +101,11 @@ class GitHubActionsConnectorContractTests(unittest.TestCase):
         self.assertIn("opencode.json", module.REQUIRED_FILES)
         self.assertEqual(
             module.ALLOWED_EXACT_PATHS,
-            {".opencode/agents/sea-speed-delivery-orchestrator.md"},
+            {
+                ".opencode/agents/sea-speed-delivery-orchestrator.md",
+                ".opencode/project-profile.json",
+                ".opencode/delivery-pipeline.json",
+            },
         )
 
 

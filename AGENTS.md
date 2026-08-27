@@ -17,6 +17,19 @@ The active orchestration role is **Sea Speed Delivery Orchestrator**. It retains
 
 `contracts/branches/project-manager.md` and `docs/agents/PM_BOOTSTRAP.md` are compatibility paths. Domain files under `contracts/branches/` and `core-release.md` are on-demand review lenses/checklists; they do not create a second orchestrator.
 
+## Reusable specialist workers
+
+The Sea Speed Delivery Orchestrator remains the only primary orchestrator and authority boundary. The reusable project profile contributes bounded specialist agents whose output is advisory until the Orchestrator verifies and admits it:
+
+- `profile-worker-explore`: read-only repository mapping and evidence collection;
+- `profile-worker-architect`: read-only architecture, contract and cross-contour analysis;
+- `profile-worker-code`: one bounded implementation unit after valid source admission;
+- `profile-worker-test`: bounded reproduction and test work after valid source admission;
+- `profile-worker-review`: independent defect, security and regression review;
+- `profile-worker-ui`: read-only visual, responsive and accessibility review.
+
+The Orchestrator alone owns Scope admission, durable checkpoints, branch/PR lifecycle, merge gates and runtime decisions. A worker cannot widen approved paths, grant authority, publish source or mutate production. `profile-worker-code` and `profile-worker-test` are forbidden before `SOURCE_AUTHORIZATION_ADMISSION=OPEN` and remain bounded to the approved Scope. Model IDs and provider fallback chains are transient global configuration loaded from the health-aware assignment cache; never hardcode them in Sea Speed source. Never delegate secrets, credentials, private media or local runtime state to FREE cloud workers.
+
 ## Mandatory operating rules
 
 1. Treat GitHub `main` as the only long-term source of truth for repository/product state.

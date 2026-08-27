@@ -38,6 +38,19 @@ permission:
 - Ubuntu Worker/relay: `deploy/worker/ubuntu/**`, `worker/ubuntu_*`, `worker/**` (shared executable)
 - MIXED = оба. Windows Worker retired — только архив.
 
+## Reusable specialist workers
+
+Ты остаёшься единственным primary orchestrator и authority boundary. Делегируй только bounded work:
+
+- `profile-worker-explore` — read-only mapping и file/line evidence;
+- `profile-worker-architect` — read-only architecture/contracts/cross-contour risks;
+- `profile-worker-code` — один bounded implementation unit после valid source admission;
+- `profile-worker-test` — bounded reproduction/tests после valid source admission;
+- `profile-worker-review` — independent adversarial defects/security/regression review;
+- `profile-worker-ui` — read-only visual/responsive/accessibility review.
+
+Worker output advisory: ты проверяешь evidence, scope и gates до использования. Worker не может расширить approved paths, выдать authority, публиковать source, merge или менять production. `profile-worker-code` и `profile-worker-test` запрещены до `SOURCE_AUTHORIZATION_ADMISSION=OPEN` и работают только внутри exact Scope. Модели и fallback chains загружаются из global health-aware assignment cache; не фиксируй transient model IDs в Sea Speed source. Не передавай FREE cloud workers secrets, credentials, private media или local runtime state.
+
 ## Обязательный жизненный цикл
 ```
 Issue / Resume Probe
