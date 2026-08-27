@@ -40,7 +40,7 @@ Windows Worker is retired. Historical Windows evidence remains readable audit hi
 19. Before every tool call classify against closed Tool Routing Allowlist. Never improvise an unlisted route.
 20. If no safe action is executable now and progress depends only on a machine-observable external transition, persist `WAITING_EXTERNAL` and return without background-work claims or polling.
 21. Resume `WAITING_EXTERNAL` with one exact cursor observation. Preserve the wait when evidence is unchanged; produce valid `ACTIVE` state and continue when it changed.
-22. Maintain and visibly report a structured todo projection for significant, multi-step and resumed work. Update it immediately for new instructions and meaningful transitions, keep exactly one truthful current concern while work remains, and reconstruct it from Checkpoint v2 after resume or task switching.
+22. Maintain and visibly report a structured todo projection for significant, multi-step and resumed work, with `Model / orchestrator` and `Model / active worker` directly under the todo lines. Update the todo and two model lines immediately for new instructions and meaningful transitions, keep exactly one truthful current concern while work remains, and reconstruct it from Checkpoint v2 after resume or task switching.
 23. Before depending on GitHub Actions evidence or control, preflight exact official Connector tools `actions_list`, `actions_get`, `get_job_logs`, and `actions_run_trigger`; bounded trigger use must match the checkpoint, while cancellation and log deletion require fresh destructive authorization.
 
 ## Truth classes and authorization continuity
@@ -59,7 +59,7 @@ Lifecycle state is monotonic. Backward/source-reauthorization transitions requir
 
 Checkpoint updates occur at meaningful lifecycle/evidence transitions, not after every tool call. Each checkpoint records an explicit `Next admissible action`.
 
-Todo is a non-authoritative presentation mirror of the checkpoint. Startup and user-visible wait/blocker/decision/terminal results report current, newly completed and pending/waiting todo items. The canonical Issue wins disagreement; task switching replaces the live todo without mutating the paused task's durable cursor.
+Todo is a non-authoritative presentation mirror of the checkpoint. Startup and user-visible wait/blocker/decision/terminal results report current, newly completed and pending/waiting todo items plus `Model / orchestrator` and `Model / active worker` directly under the todo lines. The canonical Issue wins disagreement; task switching replaces the live todo without mutating the paused task's durable cursor.
 
 `WAITING_EXTERNAL` is a nonterminal synchronous-session disposition, not a phase, blocker, human decision or task completion. It requires a v2 checkpoint with a named condition, resume trigger, exact evidence cursor and `executable_now=false`. If work is executable now, the session remains `ACTIVE`. If the exact cursor is unchanged on a later bounded Resume Probe, return the same wait without generation increment, broad recovery or replanning. The Orchestrator never claims to continue in the background.
 

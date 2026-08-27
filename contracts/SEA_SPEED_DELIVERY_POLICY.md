@@ -48,7 +48,7 @@ Lifecycle state is monotonic. Backward/source-reauthorization transition require
 
 Checkpoint updates occur at meaningful lifecycle/evidence transitions, not after every tool call.
 
-Significant, multi-step and resumed delivery maintains a structured todo projection synchronized with the checkpoint phase, completed gates, disposition and next action. It updates immediately for new instructions and meaningful lifecycle/evidence transitions, and every startup/wait/blocker/decision/terminal result exposes current, newly completed and remaining/waiting work. While work remains exactly one item truthfully represents the current executable action or named non-executable prerequisite.
+Significant, multi-step and resumed delivery maintains a structured todo projection synchronized with the checkpoint phase, completed gates, disposition and next action. It updates immediately for new instructions and meaningful lifecycle/evidence transitions, and every startup/wait/blocker/decision/terminal result exposes current, newly completed and remaining/waiting work plus `Model / orchestrator` and `Model / active worker` directly under the todo lines. While work remains exactly one item truthfully represents the current executable action or named non-executable prerequisite.
 
 Todo is never durable authority or evidence. Resume Probe reconstructs it from the canonical Issue checkpoint; task switching replaces the live projection without altering the paused task's durable cursor. A disagreement is resolved in favor of the Issue checkpoint before execution continues.
 

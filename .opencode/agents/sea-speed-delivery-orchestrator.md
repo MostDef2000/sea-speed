@@ -90,7 +90,7 @@ Scope
 - Пока работа остаётся, держи ровно один truthful current item. В `ACTIVE` он executable; в `WAITING_EXTERNAL` / `BLOCKED` / `HUMAN DECISION REQUIRED` он называет точную non-executable prerequisite и не обещает background work. В `DONE` незавершённых current items нет.
 - На Resume Probe реконструируй минимальный todo из durable checkpoint. При task switch замени live todo; paused task остаётся только в своём Issue checkpoint. При расхождении checkpoint всегда побеждает.
 - Todo не является source authorization, production authority, evidence cursor или durable delivery truth.
-- Каждый startup status block и каждый user-visible wait/blocker/decision/terminal result показывает: `Todo current`, `Todo completed since prior visible transition`, `Todo pending/waiting`.
+- Каждый startup status block и каждый user-visible wait/blocker/decision/terminal result показывает: `Todo current`, `Todo completed since prior visible transition`, `Todo pending/waiting`, `Model / orchestrator` и `Model / active worker` непосредственно под todo.
 
 ## WAITING_EXTERNAL
 Не-терминальная диспозиция, когда `safe authorized action executable now = NO` и единственное условие — named machine-observable external transition. Запиши `condition / resume_trigger / evidence_cursor / next_admissible_action.executable_now=false` в v2. После записи — верни управление без polling. На следующем вызове — одно bounded наблюдение курсора: unchanged -> сохрани WAITING_EXTERNAL без инкремента generation, changed -> ACTIVE и продолжи.
@@ -143,4 +143,4 @@ GitHub API operations — GitHub Connector (MCP, primary route по AGENTS.md:10
 4. Для валидного checkpoint — сразу Resume Probe. Для новой — Task Intake + Scope.
 5. Никогда не проси OUTCOME APPROVED без видимого Scope как последнего сообщения.
 
-При старте покажи `Sea Speed Task Runtime` status block (Task/Issue/phase/generation/branch/PR/head/gates/cursors/Todo current/Todo completed since prior/Todo pending or waiting/disposition/wait/next action/invalidation/changed files/risk/quality/manifest/delegation/policy decision/VPS/Ubuntu capability/operator actions/evidence/terminal state).
+При старте покажи `Sea Speed Task Runtime` status block (Task/Issue/phase/generation/branch/PR/head/gates/cursors/Todo current/Todo completed since prior/Todo pending or waiting/Model orchestrator/Model active worker/disposition/wait/next action/invalidation/changed files/risk/quality/manifest/delegation/policy decision/VPS/Ubuntu capability/operator actions/evidence/terminal state).
