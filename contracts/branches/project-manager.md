@@ -38,8 +38,8 @@ Windows Worker is retired. Historical Windows evidence remains readable audit hi
 17. After runtime failure resolve actual state, audit adjacent transaction stages and remediate under current authorized scope where possible.
 18. Persist accepted evidence or blocker detail in canonical Issue and continue until a terminal interaction state is justified.
 19. Before every tool call classify against closed Tool Routing Allowlist. Never improvise an unlisted route.
-20. If no safe action is executable now and progress depends only on a machine-observable external transition, persist `WAITING_EXTERNAL` and return without background-work claims or polling.
-21. Resume `WAITING_EXTERNAL` with one exact cursor observation. Preserve the wait when evidence is unchanged; produce valid `ACTIVE` state and continue when it changed.
+20. If no safe action is executable now and progress depends only on a machine-observable external transition other than a known GitHub Actions run/check that is `queued` or `in_progress`, persist `WAITING_EXTERNAL` and return without background-work claims or polling. A known GitHub Actions run/check that is `queued` or `in_progress` remains `ACTIVE`, foreground-waits on only its exact Connector cursor, and is observed no sooner than at least 30 seconds after the previous equivalent status read. No observation count or deadline may hand control back; no busy/tight polling or checkpoint-generation churn occurs per observation. Success continues; failure immediately narrows to failed job/log remediation. A Connector/provider capability outage is `BLOCKED` or `HUMAN DECISION REQUIRED`, not CI pending.
+21. Resume non-CI `WAITING_EXTERNAL` with one exact cursor observation. Preserve the wait when evidence is unchanged; produce valid `ACTIVE` state and continue when it changed. A persisted pre-amendment CI wait upgrades to `ACTIVE` after its one exact Resume Probe observation even if the run remains queued/in-progress.
 22. Maintain and visibly report a structured todo projection for significant, multi-step and resumed work, with `Model / orchestrator` and `Model / active worker` directly under the todo lines. Update the todo and two model lines immediately for new instructions and meaningful transitions, keep exactly one truthful current concern while work remains, and reconstruct it from Checkpoint v2 after resume or task switching.
 23. Before depending on GitHub Actions evidence or control, preflight exact official Connector tools `actions_list`, `actions_get`, `get_job_logs`, and `actions_run_trigger`; bounded trigger use must match the checkpoint, while cancellation and log deletion require fresh destructive authorization.
 
@@ -61,7 +61,7 @@ Checkpoint updates occur at meaningful lifecycle/evidence transitions, not after
 
 Todo is a non-authoritative presentation mirror of the checkpoint. Startup and user-visible wait/blocker/decision/terminal results report current, newly completed and pending/waiting todo items plus `Model / orchestrator` and `Model / active worker` directly under the todo lines. The canonical Issue wins disagreement; task switching replaces the live todo without mutating the paused task's durable cursor.
 
-`WAITING_EXTERNAL` is a nonterminal synchronous-session disposition, not a phase, blocker, human decision or task completion. It requires a v2 checkpoint with a named condition, resume trigger, exact evidence cursor and `executable_now=false`. If work is executable now, the session remains `ACTIVE`. If the exact cursor is unchanged on a later bounded Resume Probe, return the same wait without generation increment, broad recovery or replanning. The Orchestrator never claims to continue in the background.
+`WAITING_EXTERNAL` is a nonterminal synchronous-session disposition, not a phase, blocker, human decision or task completion. It requires a v2 checkpoint with a named condition, resume trigger, exact evidence cursor and `executable_now=false`; the condition must not be a known GitHub Actions run/check that is `queued` or `in_progress`. If work is executable now, the session remains `ACTIVE`. A known queued/in-progress run remains `ACTIVE` with foreground exact-cursor observation at least 30 seconds apart, without observation-count/deadline handoff or checkpoint-generation churn. If the exact non-CI cursor is unchanged on a later bounded Resume Probe, return the same wait without generation increment, broad recovery or replanning. The Orchestrator never claims to continue in the background.
 
 Persisted v1 checkpoints remain readable for their exact admitted scopes and are upgraded by the repository validator to v2 at the next meaningful transition without another source authorization.
 
@@ -73,7 +73,7 @@ After task identity is resolved, use progressive retrieval:
 known object -> metadata -> targeted detail -> failure fragment
 ```
 
-A Connector read is admissible only when it advances the task, validates a mandatory gate, or resolves an explicit evidence gap. Re-reading an equivalent object for the same question with the same evidence identity is forbidden unless a canonical gate explicitly requires a fresh read.
+A Connector read is admissible only to advance the task, validate a mandatory gate, or resolve an explicit evidence gap. Re-reading an equivalent object for the same question with the same evidence identity is forbidden unless a canonical gate explicitly requires a fresh read.
 
 The repository-owned OpenCode configuration selects GitHub's official remote MCP endpoint and only `context,repos,issues,pull_requests,actions`, with credentials referenced through `{env:GH_TOKEN}`. If Actions tools are absent, do not infer capability from Issue/PR tools and do not hand off a manual web mutation. Repair admitted source configuration when executable; otherwise record the exact process-restart/tool-discovery prerequisite.
 
@@ -143,7 +143,7 @@ intermediate confirmations: 0
 
 ## Session disposition and terminal interaction contract
 
-Return control only as nonterminal `WAITING_EXTERNAL`, or as terminal `DONE`, `BLOCKED`, `HUMAN DECISION REQUIRED`. `FAILED` is not a terminal interaction state. `BLOCKED` requires a concrete external blocker, blocker evidence, an explicit unblock condition, and the next admissible action. A remediable in-scope failure is not a blocker. Progress is not terminal while a safe authorized next action is executable now; an exclusively external pending transition uses `WAITING_EXTERNAL`.
+Return control only as nonterminal `WAITING_EXTERNAL`, or as terminal `DONE`, `BLOCKED`, `HUMAN DECISION REQUIRED`. `FAILED` is not a terminal interaction state. `BLOCKED` requires a concrete external blocker, blocker evidence, an explicit unblock condition, and the next admissible action. A remediable in-scope failure is not a blocker. Progress is not terminal while a safe authorized next action is executable now. A known GitHub Actions run/check that is `queued` or `in_progress` remains `ACTIVE` with foreground rate-limited exact-cursor observation and is not a reason to return `WAITING_EXTERNAL`; an exclusively non-CI external pending transition uses `WAITING_EXTERNAL`.
 
 ## Review lenses
 

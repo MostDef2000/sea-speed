@@ -1,6 +1,6 @@
 # Sea Speed Delivery Policy
 
-Version: 1.23.0
+Version: 1.24.0
 Status: Active
 
 ## 1. Purpose
@@ -38,8 +38,8 @@ Context compaction, session restart, response truncation, Connector truncation, 
 
 Truth classes are distinct:
 
-- **Repository/product truth**: current `main`, committed source/contracts/specs and accepted runtime evidence.
-- **Delivery-control truth**: canonical Issue Outcome, authorization receipt, Delivery Checkpoint, exact branch/PR/head, completed gates and evidence cursors.
+- **Repository/product truth**: current `main`, committed contracts/specs/source and accepted runtime evidence.
+- **Delivery-control truth**: canonical Issue Outcome, source-authorization receipt, Delivery Checkpoint, exact branch/PR/head, completed gates and evidence cursors.
 - **Transient interaction state**: live conversation used for initial source-admission decisions, plus the structured todo projection of current synchronous execution.
 
 A known task with a valid checkpoint resumes through a bounded **Resume Probe**: current `main`, canonical Issue checkpoint, exact referenced PR/head/status or other evidence whose cursor may have changed, then `Next admissible action`. Full project recovery is allowed only if the checkpoint is absent, task identity cannot be resolved, the checkpoint is invalid, or durable evidence materially contradicts it.
@@ -52,9 +52,13 @@ Significant, multi-step and resumed delivery maintains a structured todo project
 
 Todo is never durable authority or evidence. Resume Probe reconstructs it from the canonical Issue checkpoint; task switching replaces the live projection without altering the paused task's durable cursor. A disagreement is resolved in favor of the Issue checkpoint before execution continues.
 
-`WAITING_EXTERNAL` is a nonterminal synchronous-session disposition. It is admissible only after all safe work executable now is exhausted and one machine-observable external condition is the sole prerequisite for continuation. The checkpoint records that condition, its resume trigger, exact evidence cursor and next action. No background execution or polling is implied.
+`WAITING_EXTERNAL` is a nonterminal synchronous-session disposition. It is admissible only after all safe work executable now is exhausted and one machine-observable external condition other than a known GitHub Actions run/check that is `queued` or `in_progress` is the sole prerequisite for continuation. The checkpoint records that condition, its resume trigger, exact evidence cursor and next action. No background execution or polling is implied.
 
-On a later invocation the Resume Probe observes that exact cursor once. Unchanged evidence preserves the wait without repeated planning, equivalent reads or checkpoint-generation change. Changed evidence produces valid `ACTIVE` state and resumes execution. Human/protected input is `HUMAN DECISION REQUIRED`, and a concrete external blocker is `BLOCKED`; neither may be represented as `WAITING_EXTERNAL`.
+A known GitHub Actions run/check that is `queued` or `in_progress` is never represented as `WAITING_EXTERNAL`. The invocation remains `ACTIVE`, foreground-waits, and re-observes only the exact run/check cursor through the official Connector at least 30 seconds after the previous equivalent status observation, with no observation count or deadline that itself hands control back, no busy/tight polling, and no checkpoint-generation churn per observation. Success continues automatically to the next gate; failure immediately narrows to failed job/log remediation. A Connector/provider capability outage that prevents this observation is `BLOCKED` or `HUMAN DECISION REQUIRED`, not CI pending.
+
+A persisted pre-amendment CI `WAITING_EXTERNAL` checkpoint upgrades to `ACTIVE` after its one exact Resume Probe observation even if the run remains queued/in-progress; foreground observation then continues in the same invocation without new source authorization.
+
+On a later invocation the Resume Probe observes a non-CI wait cursor once. Unchanged evidence preserves the wait without repeated planning, equivalent reads or checkpoint-generation change. Changed evidence produces valid `ACTIVE` state and resumes execution. Human/protected input is `HUMAN DECISION REQUIRED`, and a concrete external blocker is `BLOCKED`; neither may be represented as `WAITING_EXTERNAL`.
 
 Persisted v1 checkpoints remain readable for their exact admitted scopes and are upgraded by the repository validator at the next meaningful transition without source reauthorization.
 
@@ -76,7 +80,7 @@ If the live OpenCode process lacks the required tool surface, the Orchestrator f
 
 ## 5. Release identity
 
-New deployable releases use `sea_speed_release_manifest_v3`. The manifest binds Issue, merged PR, exact source/base, Outcome/Change Contract hashes, approved/actual files, scope hash, artifacts, exact-artifact/quality evidence, delegation ID, policy version/hash and policy decision ID.
+New deployable releases use `sea_speed_release_manifest_v3`. The manifest binds Issue, merged PR, exact source/base, Outcome/Change Contract hashes, approved/actual files, scope hash, artifacts, quality evidence, delegation ID, policy version/hash and policy decision ID.
 
 Historical v1/v2 and Windows records remain readable but cannot authorize new execution.
 
@@ -201,7 +205,7 @@ Windows has no active runtime gate. Historical Windows manifests remain readable
 
 Merge is not release. Release is not deployment. Deployment is not acceptance.
 
-Return control only as nonterminal `WAITING_EXTERNAL`, or as terminal `DONE`, `BLOCKED`, `HUMAN DECISION REQUIRED`. `FAILED` is not a terminal interaction state; it is an internal observation that must be remediated or classified at the actual boundary. `BLOCKED` requires a concrete external blocker, evidence, unblock condition and next admissible action. Progress is not terminal while a safe authorized next action is executable now. If progress depends only on an external pending transition, persist `WAITING_EXTERNAL` instead of polling or replanning.
+Return control only as nonterminal `WAITING_EXTERNAL`, or as terminal `DONE`, `BLOCKED`, `HUMAN DECISION REQUIRED`. `FAILED` is not a terminal interaction state; it is an internal observation that must be remediated or classified at the actual boundary. `BLOCKED` requires a concrete external blocker, evidence, unblock condition and next admissible action. Progress is not terminal while a safe authorized next action is executable now. A known GitHub Actions run/check that is `queued` or `in_progress` remains `ACTIVE` with foreground rate-limited exact-cursor observation and is not a reason to return `WAITING_EXTERNAL`. Non-CI external pending transitions use `WAITING_EXTERNAL` instead of polling or replanning.
 
 ## 18. Delivery quality admission
 

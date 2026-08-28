@@ -90,7 +90,15 @@ def test_human_decision_required_is_structured_and_resumable() -> None:
 def test_progress_only_statuses_are_not_terminal_handoffs() -> None:
     combined = "\n".join(_read(path).lower() for path in CONTRACT_PATHS)
     assert "pr created" in combined or "pr creation" in combined
-    assert "ci running" in combined or "ci is running" in combined or "queued/running ci" in combined or "queued/running" in combined
+    assert (
+        "ci running" in combined
+        or "ci is running" in combined
+        or "queued/running ci" in combined
+        or "queued/running" in combined
+        or ("queued" in combined and "in_progress" in combined)
+    )
+    assert "remains `active`" in combined
+    assert "not a reason to return `waiting_external`" in combined or "never represented as `waiting_external`" in combined
     assert "while a safe authorized next action is executable now" in combined
 
 
@@ -110,6 +118,16 @@ def test_waiting_external_does_not_claim_background_polling() -> None:
     assert "no background" in combined
     assert "unchanged" in combined
     assert "generation" in combined
+
+
+def test_known_pending_ci_is_foreground_active_not_waiting_external() -> None:
+    combined = "\n".join(_read(path) for path in CONTRACT_PATHS)
+    lowered = combined.lower()
+    for marker in ("queued", "in_progress", "foreground", "at least 30 seconds"):
+        assert marker in lowered
+    assert "no observation count or deadline" in lowered
+    assert "no checkpoint-generation churn" in lowered
+    assert "failure immediately narrows to failed job/log remediation" in lowered
 
 
 def test_checkpoint_update_is_not_a_terminal_handoff() -> None:
@@ -154,6 +172,9 @@ class DeliveryTerminalStateTests(unittest.TestCase):
 
     def test_no_background(self) -> None:
         test_waiting_external_does_not_claim_background_polling()
+
+    def test_ci_foreground(self) -> None:
+        test_known_pending_ci_is_foreground_active_not_waiting_external()
 
     def test_checkpoint(self) -> None:
         test_checkpoint_update_is_not_a_terminal_handoff()

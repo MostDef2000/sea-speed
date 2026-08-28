@@ -121,6 +121,18 @@ def test_synchronous_external_wait_has_bounded_replay_semantics() -> None:
     assert "one bounded" in lowered or "once" in lowered
 
 
+def test_known_pending_ci_stays_active_in_current_invocation() -> None:
+    combined = "\n".join(_read(path) for path in ACTIVE_CONTRACTS)
+    lowered = combined.lower()
+    assert "queued" in lowered and "in_progress" in lowered
+    assert "remains `active`" in lowered
+    assert "at least 30 seconds" in lowered
+    assert "no observation count or deadline" in lowered
+    assert "no checkpoint-generation churn" in lowered
+    assert "persisted pre-amendment" in lowered
+    assert "upgrades to `active`" in lowered or "upgrade the disposition to `active`" in lowered
+
+
 def test_resume_model_preserves_terminal_interaction_contract() -> None:
     combined = "\n".join(_read(path) for path in ACTIVE_CONTRACTS)
     for state in ("DONE", "BLOCKED", "HUMAN DECISION REQUIRED"):
@@ -159,6 +171,9 @@ class DeliveryResumeContractTests(unittest.TestCase):
 
     def test_wait_replay(self) -> None:
         test_synchronous_external_wait_has_bounded_replay_semantics()
+
+    def test_ci_foreground(self) -> None:
+        test_known_pending_ci_stays_active_in_current_invocation()
 
     def test_terminal(self) -> None:
         test_resume_model_preserves_terminal_interaction_contract()
