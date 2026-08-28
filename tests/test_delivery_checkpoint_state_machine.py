@@ -4,6 +4,7 @@ import json
 import unittest
 from copy import deepcopy
 from pathlib import Path
+from typing import Any
 
 from scripts.ci.validate_delivery_checkpoint import (
     CheckpointValidationError,
@@ -16,7 +17,7 @@ from scripts.ci.validate_delivery_checkpoint import (
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def checkpoint(*, disposition: str = "ACTIVE") -> dict[str, object]:
+def checkpoint(*, disposition: str = "ACTIVE") -> dict[str, Any]:
     waiting = disposition == "WAITING_EXTERNAL"
     terminal = disposition == "TERMINAL"
     return {
@@ -58,6 +59,14 @@ def checkpoint(*, disposition: str = "ACTIVE") -> dict[str, object]:
     }
 
 
+def non_ci_wait_checkpoint() -> dict[str, Any]:
+    value = checkpoint(disposition="WAITING_EXTERNAL")
+    value["evidence_cursors"]["ci"] = None
+    value["evidence_cursors"]["runtime"] = "runtime:external-transition@pending"
+    value["external_wait"]["evidence_cursor"] = "runtime:external-transition@pending"
+    return value
+
+
 V1_CHECKPOINT = """Sea Speed Delivery Checkpoint v1
 - Task: #240
 - Checkpoint generation: 7
@@ -88,10 +97,26 @@ class DeliveryCheckpointStateMachineTests(unittest.TestCase):
             for rule in schema["allOf"]
         }
         self.assertEqual(dispositions, {"ACTIVE", "WAITING_EXTERNAL", "TERMINAL"})
-        validate_checkpoint(checkpoint(disposition="WAITING_EXTERNAL"))
+        validate_checkpoint(non_ci_wait_checkpoint())
 
-    def test_pending_ci_without_executable_work_returns_waiting_external(self) -> None:
+    def test_new_ci_wait_checkpoint_is_rejected(self) -> None:
+        with self.assertRaisesRegex(CheckpointValidationError, "known CI pending must remain ACTIVE"):
+            validate_checkpoint(checkpoint(disposition="WAITING_EXTERNAL"))
+
+    def test_legacy_ci_wait_checkpoint_remains_readable_for_replay(self) -> None:
+        validate_checkpoint(checkpoint(disposition="WAITING_EXTERNAL"), allow_legacy_ci_wait=True)
+
+    def test_pending_non_ci_condition_without_executable_work_returns_waiting_external(self) -> None:
         self.assertEqual(decide_session_disposition(external_condition_pending=True), ("WAITING_EXTERNAL", None))
+
+    def test_known_pending_ci_remains_active(self) -> None:
+        self.assertEqual(decide_session_disposition(ci_run_pending=True), ("ACTIVE", None))
+
+    def test_known_pending_ci_takes_precedence_over_non_ci_wait(self) -> None:
+        self.assertEqual(
+            decide_session_disposition(ci_run_pending=True, external_condition_pending=True),
+            ("ACTIVE", None),
+        )
 
     def test_immediately_executable_work_takes_precedence_over_waiting(self) -> None:
         self.assertEqual(
@@ -103,24 +128,56 @@ class DeliveryCheckpointStateMachineTests(unittest.TestCase):
         with self.assertRaisesRegex(CheckpointValidationError, "cannot coexist"):
             decide_session_disposition(external_blocker=True, safe_action_executable_now=True)
 
+    def test_terminal_condition_rejects_concurrent_ci_observation(self) -> None:
+        with self.assertRaisesRegex(CheckpointValidationError, "cannot coexist"):
+            decide_session_disposition(external_blocker=True, ci_run_pending=True)
+
     def test_unchanged_external_evidence_preserves_checkpoint_and_generation(self) -> None:
-        value = checkpoint(disposition="WAITING_EXTERNAL")
+        value = non_ci_wait_checkpoint()
         before = deepcopy(value)
-        result = replay_external_observation(value, "run:100@queued")
+        result = replay_external_observation(value, "runtime:external-transition@pending")
         self.assertEqual(result, before)
         self.assertEqual(value, before)
         self.assertEqual(result["generation"], 3)
 
     def test_changed_external_evidence_produces_valid_active_checkpoint(self) -> None:
+        value = non_ci_wait_checkpoint()
+        result = replay_external_observation(value, "runtime:external-transition@complete")
+        validate_checkpoint(result)
+        self.assertEqual(result["session_disposition"], "ACTIVE")
+        self.assertEqual(result["generation"], 4)
+        self.assertEqual(result["evidence_cursors"]["runtime"], "runtime:external-transition@complete")
+        self.assertIsNone(result["external_wait"])
+        self.assertTrue(result["next_admissible_action"]["executable_now"])
+        self.assertEqual(value["session_disposition"], "WAITING_EXTERNAL")
+
+    def test_legacy_pending_ci_wait_is_upgraded_to_active_even_when_cursor_is_unchanged(self) -> None:
+        value = checkpoint(disposition="WAITING_EXTERNAL")
+        result = replay_external_observation(value, "run:100@queued")
+        validate_checkpoint(result)
+        self.assertEqual(result["session_disposition"], "ACTIVE")
+        self.assertEqual(result["generation"], 4)
+        self.assertEqual(result["evidence_cursors"]["ci"], "run:100@queued")
+        self.assertIsNone(result["external_wait"])
+        self.assertTrue(result["next_admissible_action"]["executable_now"])
+        self.assertEqual(result["next_admissible_action"]["kind"], "OBSERVE_EXACT_CI")
+
+    def test_legacy_completed_ci_wait_is_upgraded_to_active_with_terminal_cursor(self) -> None:
         value = checkpoint(disposition="WAITING_EXTERNAL")
         result = replay_external_observation(value, "run:100@success")
         validate_checkpoint(result)
         self.assertEqual(result["session_disposition"], "ACTIVE")
         self.assertEqual(result["generation"], 4)
         self.assertEqual(result["evidence_cursors"]["ci"], "run:100@success")
-        self.assertIsNone(result["external_wait"])
-        self.assertTrue(result["next_admissible_action"]["executable_now"])
-        self.assertEqual(value["session_disposition"], "WAITING_EXTERNAL")
+        self.assertEqual(result["next_admissible_action"]["kind"], "MERGE_EXACT_GREEN_HEAD")
+
+    def test_legacy_failed_ci_wait_narrows_to_failed_log_inspection(self) -> None:
+        value = checkpoint(disposition="WAITING_EXTERNAL")
+        result = replay_external_observation(value, "run:100@failure")
+        validate_checkpoint(result)
+        self.assertEqual(result["session_disposition"], "ACTIVE")
+        self.assertEqual(result["next_admissible_action"]["kind"], "INSPECT_FAILED_CI")
+        self.assertIn("failure logs", result["next_admissible_action"]["description"])
 
     def test_terminal_conditions_remain_distinct_from_external_wait(self) -> None:
         cases = (
@@ -133,13 +190,13 @@ class DeliveryCheckpointStateMachineTests(unittest.TestCase):
                 self.assertEqual(decide_session_disposition(**condition), expected)
 
     def test_waiting_checkpoint_rejects_an_executable_action(self) -> None:
-        value = checkpoint(disposition="WAITING_EXTERNAL")
+        value = non_ci_wait_checkpoint()
         value["next_admissible_action"]["executable_now"] = True
         with self.assertRaisesRegex(CheckpointValidationError, "cannot coexist"):
             validate_checkpoint(value)
 
     def test_wait_cursor_must_reference_exactly_one_evidence_cursor(self) -> None:
-        value = checkpoint(disposition="WAITING_EXTERNAL")
+        value = non_ci_wait_checkpoint()
         value["external_wait"]["evidence_cursor"] = "unknown"
         with self.assertRaisesRegex(CheckpointValidationError, "exactly one"):
             validate_checkpoint(value)
@@ -155,7 +212,7 @@ class DeliveryCheckpointStateMachineTests(unittest.TestCase):
                 "evidence_cursor": "run:90@queued",
             },
         )
-        validate_checkpoint(result)
+        validate_checkpoint(result, allow_legacy_ci_wait=True)
         self.assertEqual(result["schema"], "sea_speed_delivery_checkpoint_v2")
         self.assertEqual(result["generation"], 8)
         self.assertEqual(result["session_disposition"], "WAITING_EXTERNAL")

@@ -114,6 +114,24 @@ RESUME_MARKERS = (
     "WAITING_EXTERNAL",
 )
 
+CI_FOREGROUND_CONTRACT_FILES = (
+    "AGENTS.md",
+    "contracts/SEA_SPEED_GOVERNANCE.md",
+    "contracts/SEA_SPEED_DELIVERY_POLICY.md",
+    "contracts/runtime/SEA_SPEED_TASK_RUNTIME.md",
+    "contracts/runtime/RELEASE_READINESS_GATE.md",
+    "contracts/branches/project-manager.md",
+)
+
+CI_FOREGROUND_MARKERS = (
+    "queued",
+    "in_progress",
+    "ACTIVE",
+    "foreground",
+    "WAITING_EXTERNAL",
+    "Connector/provider capability outage",
+)
+
 REPO_PATH_PATTERN = re.compile(r"`((?:contracts|data|docs|scripts|deploy|api|frontend|worker|tests|schemas|specs|\.github)/[^`\n]+)`")
 
 
@@ -148,6 +166,25 @@ def main() -> int:
         missing_markers = [marker for marker in RESUME_MARKERS if marker.lower() not in text.lower()]
         if missing_markers:
             fail(f"resumable delivery markers missing from {source_name}: {', '.join(missing_markers)}")
+
+    for source_name in CI_FOREGROUND_CONTRACT_FILES:
+        text = (ROOT / source_name).read_text(encoding="utf-8-sig")
+        missing_markers = [marker for marker in CI_FOREGROUND_MARKERS if marker.lower() not in text.lower()]
+        if missing_markers:
+            fail(f"foreground CI markers missing from {source_name}: {', '.join(missing_markers)}")
+
+    combined_ci_contracts = "\n".join(
+        (ROOT / source_name).read_text(encoding="utf-8-sig")
+        for source_name in CI_FOREGROUND_CONTRACT_FILES
+    ).lower()
+    for marker in (
+        "at least 30 seconds",
+        "no observation count or deadline",
+        "no checkpoint-generation churn",
+        "failure immediately narrows to failed job/log remediation",
+    ):
+        if marker not in combined_ci_contracts:
+            fail(f"foreground CI contract detail missing: {marker}")
 
     runtime = (ROOT / "contracts/runtime/SEA_SPEED_TASK_RUNTIME.md").read_text(encoding="utf-8-sig")
     for reason in (

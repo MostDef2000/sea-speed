@@ -138,6 +138,33 @@ class DeliveryContractConvergenceTests(unittest.TestCase):
             self.assertIn("background", lowered, path)
             self.assertIn("unchanged", lowered, path)
 
+    def test_pending_ci_foreground_observation_converges_across_canonical_contracts(self) -> None:
+        paths = (
+            "AGENTS.md",
+            "contracts/SEA_SPEED_GOVERNANCE.md",
+            "contracts/SEA_SPEED_DELIVERY_POLICY.md",
+            "contracts/runtime/SEA_SPEED_TASK_RUNTIME.md",
+            "contracts/runtime/RELEASE_READINESS_GATE.md",
+            "contracts/branches/project-manager.md",
+        )
+        combined = "\n".join(self.read(path) for path in paths)
+        lowered = combined.lower()
+        for path in paths:
+            text = self.read(path)
+            self.assertIn("queued", text, path)
+            self.assertIn("in_progress", text, path)
+            self.assertIn("ACTIVE", text, path)
+            self.assertIn("WAITING_EXTERNAL", text, path)
+            self.assertIn("foreground", text.lower(), path)
+            self.assertIn("Connector/provider capability outage", text, path)
+        for marker in (
+            "at least 30 seconds",
+            "no observation count or deadline",
+            "no checkpoint-generation churn",
+            "failure immediately narrows to failed job/log remediation",
+        ):
+            self.assertIn(marker, lowered)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -152,6 +152,7 @@ Persisted `Sea Speed Delivery Checkpoint v1` records remain readable continuatio
 ```text
 safe authorized action executable now = NO
 machine-observable external condition named = YES
+condition is NOT a known GitHub Actions run/check that is queued or in_progress = YES
 exact evidence cursor recorded = YES
 resume trigger recorded = YES
 terminal interaction state = NONE
@@ -159,7 +160,15 @@ terminal interaction state = NONE
 
 The `external_wait` object records `condition`, `resume_trigger`, and an `evidence_cursor` that identifies exactly one checkpoint evidence cursor. `next_admissible_action.executable_now` is `false` until that cursor changes. Waiting for authorization, protected input or settings administration is `HUMAN DECISION REQUIRED`; an objective external blocker is `BLOCKED`.
 
-Sea Speed sessions are synchronous. After persisting `WAITING_EXTERNAL`, return control and perform no background polling. On a later invocation, observe the exact wait cursor once:
+### CI pending foreground wait
+
+A known GitHub Actions run or check that is `queued` or `in_progress` is never represented as `WAITING_EXTERNAL`. The invocation remains `ACTIVE`, foreground-waits, and re-observes only the exact run/check cursor through the official Connector at least 30 seconds after the previous equivalent status observation, with no observation count or deadline that itself hands control back, no busy/tight polling, and no checkpoint-generation churn per observation. Success continues automatically to the next gate; failure immediately narrows to failed job/log remediation. A Connector/provider capability outage that prevents this observation is `BLOCKED` or `HUMAN DECISION REQUIRED`, not CI pending.
+
+A persisted pre-amendment checkpoint may still contain `WAITING_EXTERNAL` with the CI evidence cursor. Its one Resume Probe observation always produces a valid new `ACTIVE` checkpoint, including when the exact cursor remains queued/in-progress, and foreground observation continues in that invocation without repeated authorization.
+
+### Non-CI wait replay
+
+For non-CI external waits, Sea Speed sessions are synchronous. After persisting `WAITING_EXTERNAL`, return control and perform no background polling. On a later invocation, observe the exact wait cursor once:
 
 ```text
 cursor unchanged -> preserve WAITING_EXTERNAL and generation; do not replan or reread
@@ -180,7 +189,7 @@ For a known task with a valid checkpoint, recovery begins with the bounded Resum
 5. execute `Next admissible action`.
 ```
 
-For `WAITING_EXTERNAL`, step 3 is one exact cursor observation. An unchanged cursor ends the invocation in the same nonterminal disposition without full recovery or repeated planning.
+For a non-CI `WAITING_EXTERNAL`, step 3 is one exact cursor observation. An unchanged cursor ends the invocation in the same nonterminal disposition without full recovery or repeated planning. A historical CI wait instead upgrades to `ACTIVE` under the compatibility rule above even when its cursor is unchanged.
 
 Do not repeat Task Intake, broad Issue/PR searches, full project recovery, or source authorization merely because of context compaction, session restart, response truncation, Connector truncation, or model-memory loss.
 
@@ -317,7 +326,7 @@ Missing/stale/mismatched delegation produces `DENY` before transport. Protected 
 
 After valid `OUTCOME APPROVED`, continue automatically through implementation, integrity, PR, metadata repair, CI, in-scope remediation and exact-green-head merge. Material source scope/protected-boundary changes require fresh source authorization.
 
-Automatic continuation means execute every safe action available now. It does not mean busy-wait, repeatedly poll unchanged evidence, or claim background execution. When the only prerequisite is a machine-observable external transition, persist `WAITING_EXTERNAL`; a later synchronous invocation resumes through the bounded wait replay rule.
+Automatic continuation means execute every safe action available now. It does not mean busy-wait, repeatedly poll unchanged evidence, or claim background execution. A known GitHub Actions run or check that is `queued` or `in_progress` remains `ACTIVE` with foreground rate-limited exact-cursor observation and does not justify `WAITING_EXTERNAL`. When the only prerequisite is a non-CI machine-observable external transition, persist `WAITING_EXTERNAL`; a later synchronous invocation resumes through the bounded wait replay rule.
 
 After exact-main Quality, runtime-impacting releases continue automatically through standing-policy evaluation. An `ALLOW` routes applicable protected runtime contours without another per-release user prompt. A `DENY` caused by missing/invalid independently controlled delegation becomes `HUMAN DECISION REQUIRED` only when correcting that trusted settings state requires the administrator. A runtime transport fallback may expose one repository-owned action after machine-observable gates.
 

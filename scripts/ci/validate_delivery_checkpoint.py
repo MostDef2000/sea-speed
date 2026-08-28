@@ -113,11 +113,11 @@ def upgrade_v1_checkpoint(
         "state_invalidation_reason": _nullable_v1(fields["State invalidation reason"]),
         "terminal_interaction_state": terminal,
     }
-    validate_checkpoint(checkpoint)
+    validate_checkpoint(checkpoint, allow_legacy_ci_wait=True)
     return checkpoint
 
 
-def validate_checkpoint(checkpoint: dict[str, Any]) -> None:
+def validate_checkpoint(checkpoint: dict[str, Any], *, allow_legacy_ci_wait: bool = False) -> None:
     """Validate structural and cross-field v2 checkpoint invariants."""
     if set(checkpoint) != REQUIRED_KEYS:
         missing = sorted(REQUIRED_KEYS - set(checkpoint))
@@ -185,6 +185,12 @@ def validate_checkpoint(checkpoint: dict[str, Any]) -> None:
             _require_non_empty_string(wait[field], f"external_wait.{field}")
         if list(cursors.values()).count(wait["evidence_cursor"]) != 1:
             raise CheckpointValidationError("external_wait.evidence_cursor must identify exactly one evidence cursor")
+        if (
+            not allow_legacy_ci_wait
+            and cursors["ci"] is not None
+            and wait["evidence_cursor"] == cursors["ci"]
+        ):
+            raise CheckpointValidationError("known CI pending must remain ACTIVE, not WAITING_EXTERNAL")
     elif action["executable_now"] or wait is not None or terminal is None:
         raise CheckpointValidationError("TERMINAL requires one terminal state and no executable work or external wait")
 
@@ -192,13 +198,13 @@ def validate_checkpoint(checkpoint: dict[str, Any]) -> None:
 def decide_session_disposition(
     *, outcome_complete: bool = False, external_blocker: bool = False,
     human_decision_required: bool = False, safe_action_executable_now: bool = False,
-    external_condition_pending: bool = False,
+    external_condition_pending: bool = False, ci_run_pending: bool = False,
 ) -> tuple[str, str | None]:
-    """Return the only admissible disposition for the current synchronous invocation."""
+    """Return the admissible disposition; known pending CI stays ACTIVE."""
     terminal_flags = sum((outcome_complete, external_blocker, human_decision_required))
     if terminal_flags > 1:
         raise CheckpointValidationError("terminal conditions are mutually exclusive")
-    if terminal_flags and safe_action_executable_now:
+    if terminal_flags and (safe_action_executable_now or ci_run_pending):
         raise CheckpointValidationError("a terminal condition cannot coexist with executable work")
     if outcome_complete:
         return "TERMINAL", "DONE"
@@ -206,7 +212,7 @@ def decide_session_disposition(
         return "TERMINAL", "BLOCKED"
     if human_decision_required:
         return "TERMINAL", "HUMAN DECISION REQUIRED"
-    if safe_action_executable_now:
+    if safe_action_executable_now or ci_run_pending:
         return "ACTIVE", None
     if external_condition_pending:
         return "WAITING_EXTERNAL", None
@@ -215,15 +221,36 @@ def decide_session_disposition(
 
 def replay_external_observation(checkpoint: dict[str, Any], observed_cursor: str) -> dict[str, Any]:
     """Apply one bounded resume observation and return the resulting valid checkpoint."""
-    validate_checkpoint(checkpoint)
+    validate_checkpoint(checkpoint, allow_legacy_ci_wait=True)
     if checkpoint["session_disposition"] != "WAITING_EXTERNAL":
         raise CheckpointValidationError("external observation requires WAITING_EXTERNAL")
     _require_non_empty_string(observed_cursor, "observed_cursor")
     result = deepcopy(checkpoint)
     wait_cursor = checkpoint["external_wait"]["evidence_cursor"]
+    cursor_key = next(key for key, value in result["evidence_cursors"].items() if value == wait_cursor)
+    if cursor_key == "ci":
+        result["generation"] += 1
+        result["evidence_cursors"][cursor_key] = observed_cursor
+        result["session_disposition"] = "ACTIVE"
+        result["external_wait"] = None
+        ci_state = observed_cursor.rsplit("@", 1)[-1].lower()
+        if ci_state in {"queued", "in_progress", "pending", "requested", "waiting"}:
+            result["next_admissible_action"]["kind"] = "OBSERVE_EXACT_CI"
+            result["next_admissible_action"]["description"] = (
+                "Foreground-wait and re-observe the exact GitHub Actions cursor"
+            )
+        elif ci_state in {
+            "action_required", "cancelled", "failure", "skipped", "stale", "startup_failure", "timed_out"
+        }:
+            result["next_admissible_action"]["kind"] = "INSPECT_FAILED_CI"
+            result["next_admissible_action"]["description"] = (
+                "Inspect failed jobs and bounded failure logs for the exact GitHub Actions cursor"
+            )
+        result["next_admissible_action"]["executable_now"] = True
+        validate_checkpoint(result)
+        return result
     if observed_cursor == wait_cursor:
         return result
-    cursor_key = next(key for key, value in result["evidence_cursors"].items() if value == wait_cursor)
     result["generation"] += 1
     result["evidence_cursors"][cursor_key] = observed_cursor
     result["session_disposition"] = "ACTIVE"
