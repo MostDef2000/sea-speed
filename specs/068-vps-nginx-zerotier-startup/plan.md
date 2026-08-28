@@ -59,8 +59,8 @@ Install one fixed no-argument helper and one nginx systemd drop-in through the e
 - Risk profile: REQUIRED
 - RISK-068-001 | Category: SEC | Probability: 2 | Impact: 5 | Score: 10 | Mitigation: preserve exact bind; reject wildcard listener, nonlocal-bind sysctl, route/auth and sudo-surface changes | Validation: static tests and diff review | Residual risk: LOW | Owner: Sea Speed Delivery Orchestrator | Status: MITIGATED
 - RISK-068-002 | Category: OPS | Probability: 3 | Impact: 5 | Score: 15 | Mitigation: bounded 120-second wait, ten-second retry, no start-limit exhaustion, production service verification | Validation: deterministic timeout/recovery tests plus runtime evidence | Residual risk: MEDIUM | Owner: Sea Speed Delivery Orchestrator | Status: OPEN
-- RISK-068-003 | Category: ROLLBACK | Probability: 2 | Impact: 5 | Score: 10 | Mitigation: transactionally back up/restore both assets and prior nginx state | Validation: injected post-install failure | Residual risk: LOW | Owner: Sea Speed Delivery Orchestrator | Status: MITIGATED
-- RISK-068-004 | Category: REL | Probability: 2 | Impact: 4 | Score: 8 | Mitigation: `Wants`/`After` without `Requires` prevents a ZeroTier lifecycle event from directly stopping active public nginx | Validation: systemd directive test | Residual risk: LOW | Owner: Sea Speed Delivery Orchestrator | Status: MITIGATED
+- RISK-068-003 | Category: OPS | Probability: 2 | Impact: 5 | Score: 10 | Mitigation: transactionally back up/restore both assets and prior nginx state | Validation: injected post-install failure | Residual risk: LOW | Owner: Sea Speed Delivery Orchestrator | Status: MITIGATED
+- RISK-068-004 | Category: TECH | Probability: 2 | Impact: 4 | Score: 8 | Mitigation: `Wants`/`After` without `Requires` prevents a ZeroTier lifecycle event from directly stopping active public nginx | Validation: systemd directive test | Residual risk: LOW | Owner: Sea Speed Delivery Orchestrator | Status: MITIGATED
 
 ## Test design
 

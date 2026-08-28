@@ -49,9 +49,9 @@ Given the protected root installer applies the new startup boundary, when instal
 
 ## NFR assessment
 
-- NFR-068-001 | Area: RELIABILITY | Target: nginx automatically retries after a missing fixed ZeroTier address and becomes active within one bounded wait/retry cycle after address availability | Validation: helper/systemd tests plus production service evidence | Evidence: `tests/test_vps_nginx_zerotier_startup.py`, `systemctl` and HTTP probes | Status: PENDING
+- NFR-068-001 | Area: RELIABILITY | Target: nginx automatically retries after a missing fixed ZeroTier address and becomes active within one bounded wait/retry cycle after address availability | Validation: helper/systemd tests plus production service evidence | Evidence: `tests/test_vps_nginx_zerotier_startup.py`, `systemctl` and HTTP probes | Status: CONCERNS
 - NFR-068-002 | Area: SECURITY | Target: zero widening of the fixed private listener, peer/auth boundary or sudo command surface | Validation: static assertions, exact changed-file review and protected deployment | Evidence: helper/drop-in tests, existing Auth v1 tests and independent review | Status: PASS
-- NFR-068-003 | Area: OPERABILITY | Target: no permanent failed state after transient startup ordering and no retry interval below ten seconds | Validation: systemd directive assertions and production restart evidence | Evidence: `sea-speed-nginx-zerotier.conf` and runtime journal/service state | Status: PENDING
+- NFR-068-003 | Area: OPERABILITY | Target: no permanent failed state after transient startup ordering and no retry interval below ten seconds | Validation: systemd directive assertions and production restart evidence | Evidence: `sea-speed-nginx-zerotier.conf` and runtime journal/service state | Status: CONCERNS
 - NFR-068-004 | Area: ROLLBACK | Target: prior helper/drop-in bytes and nginx state restored after any failed installer transaction | Validation: injected-failure test and installer transaction review | Evidence: `tests/test_vps_nginx_zerotier_startup.py` | Status: PASS
 
 ## Compatibility and boundaries
