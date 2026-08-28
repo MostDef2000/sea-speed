@@ -24,9 +24,9 @@
 - AC-002 | Task: T004,T007 | Evidence: TEST-068-002 / systemd section and syntax checks | Coverage: COVERED
 - AC-003 | Task: T005,T007 | Evidence: TEST-068-003 / test-root install and injected rollback | Coverage: COVERED
 - AC-004 | Task: T006,T007 | Evidence: TEST-068-004 / deterministic exact artifact build and validation | Coverage: COVERED
-- AC-005 | Task: T008,T009 | Evidence: TEST-068-004 | Coverage: PLANNED
-- AC-006 | Task: T010,T011 | Evidence: TEST-068-005 | Coverage: PLANNED
-- AC-007 | Task: T010,T011 | Evidence: TEST-068-006 | Coverage: PLANNED
+- AC-005 | Task: T008,T009 | Evidence: TEST-068-004 | Coverage: COVERED
+- AC-006 | Task: T010,T011 | Evidence: TEST-068-005 | Coverage: COVERED
+- AC-007 | Task: T010,T011 | Evidence: TEST-068-006 | Coverage: COVERED
 
 ## Definition of Done
 
