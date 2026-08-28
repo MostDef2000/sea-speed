@@ -10,13 +10,31 @@ from pathlib import Path
 from typing import Any
 
 SCHEMA_ID = "sea_speed_delivery_checkpoint_v2"
-ACTIVE_PHASES = {"DISCUSSION", "READY_FOR_IMPLEMENTATION", "IMPLEMENTING", "SOURCE_INTEGRATED", "POLICY_PENDING", "ACTIONS_REQUIRED", "ACTIONS_RUNNING", "ACTIONS_COMPLETED", "RUNTIME_ACCEPTANCE"}
+ACTIVE_PHASES = {
+    "DISCUSSION", "READY_FOR_IMPLEMENTATION", "IMPLEMENTING", "SOURCE_INTEGRATED",
+    "POLICY_PENDING", "ACTIONS_REQUIRED", "ACTIONS_RUNNING", "ACTIONS_COMPLETED",
+    "RUNTIME_ACCEPTANCE",
+}
 SESSION_DISPOSITIONS = {"ACTIVE", "WAITING_EXTERNAL", "TERMINAL"}
 TERMINAL_INTERACTION_STATES = {"DONE", "BLOCKED", "HUMAN DECISION REQUIRED"}
-INVALIDATION_REASONS = {"MATERIAL_SCOPE_CHANGE", "PROTECTED_BOUNDARY_CHANGE", "USER_CHANGED_OUTCOME", "MATERIAL_MAIN_DIVERGENCE", "EVIDENCE_CONTRADICTION"}
+INVALIDATION_REASONS = {
+    "MATERIAL_SCOPE_CHANGE", "PROTECTED_BOUNDARY_CHANGE", "USER_CHANGED_OUTCOME",
+    "MATERIAL_MAIN_DIVERGENCE", "EVIDENCE_CONTRADICTION",
+}
 EVIDENCE_CURSOR_KEYS = {"issue", "pr", "ci", "policy", "runtime"}
-REQUIRED_KEYS = {"schema", "task", "generation", "approved_scope_identity", "authorization_receipt", "authorization_base_main", "current_phase", "branch", "pr", "exact_working_head", "completed_gates", "evidence_cursors", "next_admissible_action", "session_disposition", "external_wait", "state_invalidation_reason", "terminal_interaction_state"}
-V1_FIELDS = {"Task", "Checkpoint generation", "Approved scope identity", "Authorization receipt", "Authorization base main", "Current phase", "Branch", "PR", "Exact working head", "Completed gates", "Evidence cursor / Issue", "Evidence cursor / PR", "Evidence cursor / CI", "Evidence cursor / Policy", "Evidence cursor / Runtime", "Next admissible action", "State invalidation reason", "Terminal interaction state"}
+REQUIRED_KEYS = {
+    "schema", "task", "generation", "approved_scope_identity", "authorization_receipt",
+    "authorization_base_main", "current_phase", "branch", "pr", "exact_working_head",
+    "completed_gates", "evidence_cursors", "next_admissible_action", "session_disposition",
+    "external_wait", "state_invalidation_reason", "terminal_interaction_state",
+}
+V1_FIELDS = {
+    "Task", "Checkpoint generation", "Approved scope identity", "Authorization receipt",
+    "Authorization base main", "Current phase", "Branch", "PR", "Exact working head",
+    "Completed gates", "Evidence cursor / Issue", "Evidence cursor / PR",
+    "Evidence cursor / CI", "Evidence cursor / Policy", "Evidence cursor / Runtime",
+    "Next admissible action", "State invalidation reason", "Terminal interaction state",
+}
 
 
 class CheckpointValidationError(ValueError):
@@ -49,22 +67,51 @@ def parse_v1_checkpoint(text: str) -> dict[str, str]:
     return fields
 
 
-def upgrade_v1_checkpoint(text: str, *, next_action_kind: str, next_action_executable_now: bool, external_wait: dict[str, str] | None = None) -> dict[str, Any]:
+def upgrade_v1_checkpoint(
+    text: str,
+    *,
+    next_action_kind: str,
+    next_action_executable_now: bool,
+    external_wait: dict[str, str] | None = None,
+) -> dict[str, Any]:
     """Upgrade persisted same-scope v1 evidence at a meaningful state transition."""
     fields = parse_v1_checkpoint(text)
     terminal = _nullable_v1(fields["Terminal interaction state"])
-    disposition = "TERMINAL" if terminal is not None else "WAITING_EXTERNAL" if external_wait is not None else "ACTIVE"
+    if terminal is not None:
+        disposition = "TERMINAL"
+    elif external_wait is not None:
+        disposition = "WAITING_EXTERNAL"
+    else:
+        disposition = "ACTIVE"
     gates = [gate.strip() for gate in fields["Completed gates"].split(",") if gate.strip()]
     checkpoint = {
-        "schema": SCHEMA_ID, "task": fields["Task"], "generation": int(fields["Checkpoint generation"]) + 1,
-        "approved_scope_identity": fields["Approved scope identity"], "authorization_receipt": fields["Authorization receipt"],
-        "authorization_base_main": fields["Authorization base main"], "current_phase": fields["Current phase"],
-        "branch": _nullable_v1(fields["Branch"]), "pr": _nullable_v1(fields["PR"]), "exact_working_head": _nullable_v1(fields["Exact working head"]),
+        "schema": SCHEMA_ID,
+        "task": fields["Task"],
+        "generation": int(fields["Checkpoint generation"]) + 1,
+        "approved_scope_identity": fields["Approved scope identity"],
+        "authorization_receipt": fields["Authorization receipt"],
+        "authorization_base_main": fields["Authorization base main"],
+        "current_phase": fields["Current phase"],
+        "branch": _nullable_v1(fields["Branch"]),
+        "pr": _nullable_v1(fields["PR"]),
+        "exact_working_head": _nullable_v1(fields["Exact working head"]),
         "completed_gates": gates,
-        "evidence_cursors": {"issue": _nullable_v1(fields["Evidence cursor / Issue"]), "pr": _nullable_v1(fields["Evidence cursor / PR"]), "ci": _nullable_v1(fields["Evidence cursor / CI"]), "policy": _nullable_v1(fields["Evidence cursor / Policy"]), "runtime": _nullable_v1(fields["Evidence cursor / Runtime"])},
-        "next_admissible_action": {"kind": next_action_kind, "description": fields["Next admissible action"], "executable_now": next_action_executable_now},
-        "session_disposition": disposition, "external_wait": external_wait,
-        "state_invalidation_reason": _nullable_v1(fields["State invalidation reason"]), "terminal_interaction_state": terminal,
+        "evidence_cursors": {
+            "issue": _nullable_v1(fields["Evidence cursor / Issue"]),
+            "pr": _nullable_v1(fields["Evidence cursor / PR"]),
+            "ci": _nullable_v1(fields["Evidence cursor / CI"]),
+            "policy": _nullable_v1(fields["Evidence cursor / Policy"]),
+            "runtime": _nullable_v1(fields["Evidence cursor / Runtime"]),
+        },
+        "next_admissible_action": {
+            "kind": next_action_kind,
+            "description": fields["Next admissible action"],
+            "executable_now": next_action_executable_now,
+        },
+        "session_disposition": disposition,
+        "external_wait": external_wait,
+        "state_invalidation_reason": _nullable_v1(fields["State invalidation reason"]),
+        "terminal_interaction_state": terminal,
     }
     validate_checkpoint(checkpoint, allow_legacy_ci_wait=True)
     return checkpoint
@@ -73,7 +120,9 @@ def upgrade_v1_checkpoint(text: str, *, next_action_kind: str, next_action_execu
 def validate_checkpoint(checkpoint: dict[str, Any], *, allow_legacy_ci_wait: bool = False) -> None:
     """Validate structural and cross-field v2 checkpoint invariants."""
     if set(checkpoint) != REQUIRED_KEYS:
-        raise CheckpointValidationError(f"checkpoint keys mismatch: missing={sorted(REQUIRED_KEYS - set(checkpoint))}, extra={sorted(set(checkpoint) - REQUIRED_KEYS)}")
+        missing = sorted(REQUIRED_KEYS - set(checkpoint))
+        extra = sorted(set(checkpoint) - REQUIRED_KEYS)
+        raise CheckpointValidationError(f"checkpoint keys mismatch: missing={missing}, extra={extra}")
     if checkpoint["schema"] != SCHEMA_ID:
         raise CheckpointValidationError(f"schema must be {SCHEMA_ID}")
     if not isinstance(checkpoint["task"], str) or not re.fullmatch(r"#[1-9][0-9]*", checkpoint["task"]):
@@ -84,7 +133,8 @@ def validate_checkpoint(checkpoint: dict[str, Any], *, allow_legacy_ci_wait: boo
     _require_non_empty_string(checkpoint["approved_scope_identity"], "approved_scope_identity")
     if checkpoint["authorization_receipt"] != "OUTCOME APPROVED":
         raise CheckpointValidationError("authorization_receipt must be OUTCOME APPROVED")
-    if not isinstance(checkpoint["authorization_base_main"], str) or not re.fullmatch(r"[0-9a-f]{40}", checkpoint["authorization_base_main"]):
+    base = checkpoint["authorization_base_main"]
+    if not isinstance(base, str) or not re.fullmatch(r"[0-9a-f]{40}", base):
         raise CheckpointValidationError("authorization_base_main must be a lowercase 40-character SHA")
     if checkpoint["current_phase"] not in ACTIVE_PHASES:
         raise CheckpointValidationError("current_phase is not an active lifecycle phase")
@@ -93,14 +143,19 @@ def validate_checkpoint(checkpoint: dict[str, Any], *, allow_legacy_ci_wait: boo
             raise CheckpointValidationError(f"{field} must be a string or null")
     if checkpoint["pr"] is not None and not re.fullmatch(r"#[1-9][0-9]*", checkpoint["pr"]):
         raise CheckpointValidationError("pr must be null or a #<number> reference")
-    if checkpoint["exact_working_head"] is not None and not re.fullmatch(r"[0-9a-f]{40}", checkpoint["exact_working_head"]):
+    head = checkpoint["exact_working_head"]
+    if head is not None and not re.fullmatch(r"[0-9a-f]{40}", head):
         raise CheckpointValidationError("exact_working_head must be null or a lowercase 40-character SHA")
     gates = checkpoint["completed_gates"]
-    if not isinstance(gates, list) or any(not isinstance(gate, str) or not gate.strip() for gate in gates) or len(gates) != len(set(gates)):
-        raise CheckpointValidationError("completed_gates must contain unique non-empty strings")
+    if not isinstance(gates, list) or any(not isinstance(gate, str) or not gate.strip() for gate in gates):
+        raise CheckpointValidationError("completed_gates must contain non-empty strings")
+    if len(gates) != len(set(gates)):
+        raise CheckpointValidationError("completed_gates must be unique")
     cursors = checkpoint["evidence_cursors"]
-    if not isinstance(cursors, dict) or set(cursors) != EVIDENCE_CURSOR_KEYS or any(value is not None and not isinstance(value, str) for value in cursors.values()):
-        raise CheckpointValidationError("evidence_cursors must contain the five canonical cursor keys with string or null values")
+    if not isinstance(cursors, dict) or set(cursors) != EVIDENCE_CURSOR_KEYS:
+        raise CheckpointValidationError("evidence_cursors must contain the five canonical cursor keys")
+    if any(value is not None and not isinstance(value, str) for value in cursors.values()):
+        raise CheckpointValidationError("evidence cursor values must be strings or null")
     action = checkpoint["next_admissible_action"]
     if not isinstance(action, dict) or set(action) != {"kind", "description", "executable_now"}:
         raise CheckpointValidationError("next_admissible_action has invalid fields")
@@ -111,7 +166,8 @@ def validate_checkpoint(checkpoint: dict[str, Any], *, allow_legacy_ci_wait: boo
     disposition = checkpoint["session_disposition"]
     if disposition not in SESSION_DISPOSITIONS:
         raise CheckpointValidationError("session_disposition is invalid")
-    if checkpoint["state_invalidation_reason"] is not None and checkpoint["state_invalidation_reason"] not in INVALIDATION_REASONS:
+    invalidation = checkpoint["state_invalidation_reason"]
+    if invalidation is not None and invalidation not in INVALIDATION_REASONS:
         raise CheckpointValidationError("state_invalidation_reason is invalid")
     terminal = checkpoint["terminal_interaction_state"]
     if terminal is not None and terminal not in TERMINAL_INTERACTION_STATES:
@@ -129,24 +185,37 @@ def validate_checkpoint(checkpoint: dict[str, Any], *, allow_legacy_ci_wait: boo
             _require_non_empty_string(wait[field], f"external_wait.{field}")
         if list(cursors.values()).count(wait["evidence_cursor"]) != 1:
             raise CheckpointValidationError("external_wait.evidence_cursor must identify exactly one evidence cursor")
-        if not allow_legacy_ci_wait and cursors["ci"] is not None and wait["evidence_cursor"] == cursors["ci"]:
+        if (
+            not allow_legacy_ci_wait
+            and cursors["ci"] is not None
+            and wait["evidence_cursor"] == cursors["ci"]
+        ):
             raise CheckpointValidationError("known CI pending must remain ACTIVE, not WAITING_EXTERNAL")
     elif action["executable_now"] or wait is not None or terminal is None:
         raise CheckpointValidationError("TERMINAL requires one terminal state and no executable work or external wait")
 
 
-def decide_session_disposition(*, outcome_complete: bool = False, external_blocker: bool = False, human_decision_required: bool = False, safe_action_executable_now: bool = False, external_condition_pending: bool = False, ci_run_pending: bool = False) -> tuple[str, str | None]:
+def decide_session_disposition(
+    *, outcome_complete: bool = False, external_blocker: bool = False,
+    human_decision_required: bool = False, safe_action_executable_now: bool = False,
+    external_condition_pending: bool = False, ci_run_pending: bool = False,
+) -> tuple[str, str | None]:
     """Return the admissible disposition; known pending CI stays ACTIVE."""
     terminal_flags = sum((outcome_complete, external_blocker, human_decision_required))
     if terminal_flags > 1:
         raise CheckpointValidationError("terminal conditions are mutually exclusive")
     if terminal_flags and (safe_action_executable_now or ci_run_pending):
         raise CheckpointValidationError("a terminal condition cannot coexist with executable work")
-    if outcome_complete: return "TERMINAL", "DONE"
-    if external_blocker: return "TERMINAL", "BLOCKED"
-    if human_decision_required: return "TERMINAL", "HUMAN DECISION REQUIRED"
-    if safe_action_executable_now or ci_run_pending: return "ACTIVE", None
-    if external_condition_pending: return "WAITING_EXTERNAL", None
+    if outcome_complete:
+        return "TERMINAL", "DONE"
+    if external_blocker:
+        return "TERMINAL", "BLOCKED"
+    if human_decision_required:
+        return "TERMINAL", "HUMAN DECISION REQUIRED"
+    if safe_action_executable_now or ci_run_pending:
+        return "ACTIVE", None
+    if external_condition_pending:
+        return "WAITING_EXTERNAL", None
     raise CheckpointValidationError("no executable action, external wait, or terminal condition was supplied")
 
 
@@ -166,9 +235,17 @@ def replay_external_observation(checkpoint: dict[str, Any], observed_cursor: str
         result["external_wait"] = None
         ci_state = observed_cursor.rsplit("@", 1)[-1].lower()
         if ci_state in {"queued", "in_progress", "pending", "requested", "waiting"}:
-            result["next_admissible_action"].update(kind="OBSERVE_EXACT_CI", description="Foreground-wait and re-observe the exact GitHub Actions cursor")
-        elif ci_state in {"action_required", "cancelled", "failure", "skipped", "stale", "startup_failure", "timed_out"}:
-            result["next_admissible_action"].update(kind="INSPECT_FAILED_CI", description="Inspect failed jobs and bounded failure logs for the exact GitHub Actions cursor")
+            result["next_admissible_action"]["kind"] = "OBSERVE_EXACT_CI"
+            result["next_admissible_action"]["description"] = (
+                "Foreground-wait and re-observe the exact GitHub Actions cursor"
+            )
+        elif ci_state in {
+            "action_required", "cancelled", "failure", "skipped", "stale", "startup_failure", "timed_out"
+        }:
+            result["next_admissible_action"]["kind"] = "INSPECT_FAILED_CI"
+            result["next_admissible_action"]["description"] = (
+                "Inspect failed jobs and bounded failure logs for the exact GitHub Actions cursor"
+            )
         result["next_admissible_action"]["executable_now"] = True
         validate_checkpoint(result)
         return result
