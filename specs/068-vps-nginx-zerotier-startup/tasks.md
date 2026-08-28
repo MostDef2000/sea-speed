@@ -30,18 +30,16 @@
 
 ## Definition of Done
 
-- [x] Issue/spec/plan/tasks current for the admitted outcome.
-- [x] Exact changed-file scope verified: eleven approved paths only.
-- [x] Required local tests and validators pass: 588 tests OK (skipped=3), repository/SDD/contracts/quality/workflow validators PASS, exact artifacts PASS.
-- [x] Independent review has no unresolved blocking finding; runtime restart semantics remain an explicit acceptance item.
-- [ ] Exact-head required CI is green and exact green head is merged.
-- [ ] Exact-main Quality and protected-source policy evidence pass.
-- [ ] Exact-source privilege bootstrap and VPS deployment are runtime verified.
-- [ ] Public root and protected-route acceptance pass.
-- [ ] Authenticated Road loads the shared module and displays detection boxes.
-- [x] Deferred work recorded: process separation only if this bounded remediation is insufficient.
-- [ ] Risks resolved or explicitly accepted.
-- [x] Waivers resolved or current: NOT REQUIRED.
+- [x] Issue/spec/plan/tasks current — Issue #327 and SDD 068 define the approved VPS startup-resilience Outcome.
+- [x] Exact changed-file scope verified — eleven approved VPS paths only; no API/frontend/worker/Authentik/route changes.
+- [ ] Required tests and evidence complete — 588 local tests pass; exact-head CI and merged-main evidence remain pending.
+- [ ] Required CI green — exact-head PR Validation and aggregate Quality remain pending.
+- [ ] Exact-green-head merge complete — task branch is not yet merged.
+- [ ] Deployment state resolved — exact-source privilege bootstrap and protected VPS deployment remain pending.
+- [ ] Runtime acceptance resolved — public root, protected Auth flow and authenticated Road acceptance remain pending.
+- [x] Deferred work recorded — private-listener process separation only if this bounded remediation is insufficient.
+- [x] Risks resolved or explicitly accepted — full risk profile in plan.md; RISK-068-002 remains OPEN with bounded-retry mitigation.
+- [x] Waivers resolved or current — no waiver is active (Quality verdict CONCERNS, not WAIVED).
 
 ## Completion gate
 
