@@ -1,0 +1,46 @@
+name: Sync merged tasks.md
+
+on:
+  workflow_run:
+    workflows:
+      - Quality integration gate
+    types:
+      - completed
+
+permissions:
+  contents: write
+
+jobs:
+  sync-merged-tasks:
+    name: sync-merged-tasks
+    if: >-
+      github.event.workflow_run.event == 'push'
+      && github.event.workflow_run.head_branch == 'main'
+      && github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: main
+          token: ${{ github.token }}
+          fetch-depth: 2
+      - name: Sync tasks.md completion markers and verify freshness
+        env:
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          python scripts/ci/sync_tasks_md.py --base "${HEAD_SHA}^" --head "${HEAD_SHA}" --sha "${HEAD_SHA}"
+          python scripts/ci/validate_sdd.py --freshness --base "${HEAD_SHA}^" --head "${HEAD_SHA}"
+      - name: Commit and push if changed
+        run: |
+          set -euo pipefail
+          if [[ -n "$(git status --porcelain)" ]]; then
+            git config user.name "sea-speed-bot"
+            git config user.email "bot@sea-speed.invalid"
+            git add -A
+            git commit -m "chore(sdd): auto-sync tasks.md completion on merge to main"
+            git push
+          else
+            echo "tasks.md already current; nothing to sync"
+          fi

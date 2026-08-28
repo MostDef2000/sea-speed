@@ -98,6 +98,8 @@ Model / active worker
 
 Meaningful transitions update todo before the corresponding visible status/result. Individual tool calls do not require synthetic todo updates.
 
+The SDD `tasks.md` completion markers (T007/T008, the Definition of Done `Required CI green` / `Exact-green-head merge complete`, and the Completion gate CI/merge markers) are auto-synced to `[x]` by the `Main Quality status publisher` workflow after every green merge to `main` (`scripts/ci/sync_tasks_md.py`). Manual maintenance of those checkboxes is unnecessary: the read-only `validate_sdd.py --freshness` gate fails the post-merge job if any such marker remains unchecked, so `tasks.md` stays current automatically and never lags a merged PR.
+
 ## GitHub Actions capability preflight
 
 The canonical project `opencode.json` uses GitHub's official remote MCP endpoint, `{env:GH_TOKEN}`, and the bounded `context,repos,issues,pull_requests,actions` toolset set. OpenCode loads this configuration only at process startup.
