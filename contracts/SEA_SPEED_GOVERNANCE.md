@@ -1,6 +1,6 @@
 # Sea Speed Governance
 
-Version: 1.20.0
+Version: 1.21.0
 Status: Active
 Source of truth: GitHub `main`
 
@@ -63,7 +63,7 @@ Full project recovery / repeated Task Intake is allowed only when no checkpoint 
 
 Lifecycle state is monotonic. Backward/source-reauthorization transitions require a recorded material reason such as `MATERIAL_SCOPE_CHANGE`, `PROTECTED_BOUNDARY_CHANGE`, `USER_CHANGED_OUTCOME`, `MATERIAL_MAIN_DIVERGENCE`, or `EVIDENCE_CONTRADICTION`. `CONTEXT_LOSS` is not an invalidation reason.
 
-Checkpoint updates are event-driven at meaningful phase/evidence transitions, not after every tool call, and include an explicit `Next admissible action`.
+Checkpoint updates are event-driven at meaningful lifecycle/evidence transitions, not after every tool call, and include an explicit `Next admissible action`.
 
 Connector retrieval after task resolution follows:
 
@@ -93,7 +93,11 @@ Every startup status and every user-visible `WAITING_EXTERNAL`, blocker, decisio
 
 `WAITING_EXTERNAL` is a nonterminal session disposition for synchronous execution. It is legal only when no safe authorized action is executable now and progress depends solely on a named machine-observable external condition. The v2 checkpoint records the condition, resume trigger, exact evidence cursor and next admissible action. A human decision uses `HUMAN DECISION REQUIRED`; a concrete external blocker uses `BLOCKED`.
 
-The Orchestrator performs no background polling after returning `WAITING_EXTERNAL`. On a later invocation it observes the exact referenced evidence once. An unchanged cursor preserves `WAITING_EXTERNAL` without checkpoint-generation change, repeated planning, broad recovery or another equivalent read. A changed cursor produces a new valid `ACTIVE` checkpoint and resumes automatic execution.
+A known GitHub Actions run/check that is `queued` or `in_progress` is never represented as `WAITING_EXTERNAL`. The invocation remains `ACTIVE`, foreground-waits, and re-observes only the exact run/check cursor through the official Connector at least 30 seconds after the previous equivalent status observation, with no observation count or deadline that itself hands control back, no busy/tight polling, and no checkpoint-generation churn per observation. Success continues automatically to the next gate; failure immediately narrows to failed job/log remediation. A Connector/provider capability outage that prevents this observation is `BLOCKED` or `HUMAN DECISION REQUIRED`, not CI pending.
+
+A persisted pre-amendment CI `WAITING_EXTERNAL` checkpoint is readable compatibility evidence. Its one Resume Probe observation upgrades the disposition to `ACTIVE` even when the exact run is still queued/in-progress, then foreground CI observation continues without source reauthorization.
+
+The Orchestrator performs no background polling after returning a non-CI `WAITING_EXTERNAL`. On a later invocation it observes the exact referenced non-CI evidence once. An unchanged non-CI cursor preserves `WAITING_EXTERNAL` without checkpoint-generation change, repeated planning, broad recovery or another equivalent read. A changed cursor produces a new valid `ACTIVE` checkpoint and resumes automatic execution. The pre-amendment CI compatibility upgrade above is the sole unchanged-cursor exception.
 
 Persisted v1 checkpoints remain readable continuation evidence for their exact admitted scopes. `scripts/ci/validate_delivery_checkpoint.py` upgrades active v1 evidence to v2 at the next meaningful checkpoint transition without repeating source authorization.
 
@@ -156,7 +160,7 @@ Mandatory fresh reads at explicit merge/release gates are not Connector-loop vio
 
 ## 9. Provenance and historical compatibility
 
-New deployable provenance uses `sea_speed_release_manifest_v3`. It binds canonical Issue/PR, exact source/base commits, Outcome/Change Contract hashes, approved and actual files, scope hash, exact artifacts, quality evidence, delegation ID, policy version/hash and policy decision ID.
+New deployable provenance uses `sea_speed_release_manifest_v3`. It binds canonical Issue/PR, exact source/base commits, Outcome/Change Contract hashes, approved and actual files, scope hash, artifacts, quality evidence, delegation ID, policy version/hash and policy decision ID.
 
 Successful runtime execution also produces typed execution audit binding the policy decision to runtime-verified deployment evidence.
 
@@ -166,7 +170,7 @@ Persisted v1/v2 release/deployment evidence, including historical Windows record
 
 Normal delivery after standing delegation activation uses one source authorization and zero per-release production approvals. Runtime fallback operator commands remain zero target and at most one per required active fallback contour.
 
-Return control only as nonterminal `WAITING_EXTERNAL`, or as terminal `DONE`, `BLOCKED`, or `HUMAN DECISION REQUIRED`. `FAILED` is not a terminal interaction state; it is an internal event. `BLOCKED` requires a concrete external blocker, blocker evidence, unblock condition and next admissible action. A settings-administration step for standing delegation is `HUMAN DECISION REQUIRED` because the Orchestrator must not self-administer its authority. Deterministic stages cannot end an invocation while a safe next action is executable now; an exclusively external pending transition uses `WAITING_EXTERNAL` without polling.
+Return control only as nonterminal `WAITING_EXTERNAL`, or as terminal `DONE`, `BLOCKED`, or `HUMAN DECISION REQUIRED`. `FAILED` is not a terminal interaction state; it is an internal event. `BLOCKED` requires a concrete external blocker, blocker evidence, unblock condition and next admissible action. A settings-administration step for standing delegation is `HUMAN DECISION REQUIRED` because the Orchestrator must not self-administer its authority. Deterministic stages cannot end an invocation while a safe next action is executable now. A known GitHub Actions run/check that is `queued` or `in_progress` remains `ACTIVE` with foreground rate-limited exact-cursor observation and is not a reason to return `WAITING_EXTERNAL`; non-CI external pending transitions use `WAITING_EXTERNAL` without polling.
 
 ## 11. SDD and delivery quality
 
@@ -183,12 +187,12 @@ For historical audit vocabulary, the former per-release production hard gate use
 | Task class | Primary route | Allowed fallback |
 |---|---|---|
 | GitHub repository lifecycle | GitHub Connector | NONE |
-| CI status/jobs/logs/artifacts and bounded workflow rerun/dispatch | GitHub Connector Actions tools | One bounded read-only GitHub API/PowerShell operator command for read evidence when the exact Connector endpoint is unavailable; no mutation fallback |
+| CI status/jobs/logs/artifacts and bounded workflow rerun/dispatch | GitHub Connector Actions tools | One bounded read-only GitHub API/PowerShell operator command for read evidence when the exact endpoint is unavailable; no mutation fallback |
 | Patch/build/test/hash/static analysis | Ephemeral local tooling/container | User checkout for preparation/validation only; never publication or production mutation |
 | Public Sea Speed HTTP verification | Read-only HTTP/web | One bounded read-only `curl`/PowerShell operator command |
 | External technical documentation | Read-only web against primary/official sources | NONE |
 | User-provided logs/screenshots/config/files | Direct read | NONE |
-| Standing delegation administration | Independently controlled GitHub `production` environment settings by human administrator | NONE; Orchestrator cannot create/change trusted delegation |
+| Standing delegation administration | Independently controlled GitHub production-environment settings by human administrator | NONE; Orchestrator cannot create/change trusted delegation |
 | Production policy evaluation | Repository-owned evaluator in protected GitHub Actions | NONE |
 | VPS deployment | GitHub Actions -> `.github/workflows/deploy-vps.yml` | Repository-owned VPS action explicitly exposed by canonical path only |
 | Ubuntu deployment | GitHub Actions -> `.github/workflows/deploy-ubuntu-worker.yml` -> `deploy/worker/ubuntu/deploy-authorized.sh` | Repository-owned sudo/root bootstrap emitted by canonical path only |
