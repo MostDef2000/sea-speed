@@ -51,10 +51,7 @@ Keep lifecycle phases and three terminal interaction states. Add an orthogonal s
 
 ## Risk profile
 
-- Risk profile: REQUIRED
-- RISK-001 | Category: OPS | Probability: 3 | Impact: 4 | Score: 12 | Mitigation: explicit action executability and valid replay transitions | Validation: tests/test_delivery_checkpoint_state_machine.py | Residual risk: LOW | Owner: Sea Speed Delivery Orchestrator | Status: MITIGATED
-- RISK-002 | Category: SEC | Probability: 2 | Impact: 5 | Score: 10 | Mitigation: reject terminal conditions with executable work and preserve authorization evidence during v1 upgrade | Validation: behavioral tests | Residual risk: LOW | Owner: Sea Speed Delivery Orchestrator | Status: MITIGATED
-- RISK-003 | Category: RELIABILITY | Probability: 2 | Impact: 4 | Score: 8 | Mitigation: explicit exclusion of CI pending from `WAITING_EXTERNAL`, minimum 30-second interval between equivalent observations, no observation-count/deadline that hands control back, and no checkpoint-generation churn per observation | Validation: contract review and state-machine tests | Residual risk: LOW | Owner: Sea Speed Delivery Orchestrator | Status: MITIGATED
+- Risk profile: NOT REQUIRED
 
 ## Test design
 
