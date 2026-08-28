@@ -12,8 +12,8 @@
 - [x] T004 Update the exact contract test to require both model lines.
 - [x] T005 Run full local validation and resolve findings.
 - [x] T006 Verify exact changed-file scope and synchronize SDD evidence.
-- [ ] T007 Open one bounded Change Contract PR and obtain exact-head required CI.
-- [ ] T008 Merge exact green head, verify exact-main Quality and restart OpenCode for control-plane acceptance.
+- [x] T007 Open one bounded Change Contract PR and obtain exact-head required CI. — PR #334 merged, head bb3ae2a9
+- [x] T008 Merge exact green head, verify exact-main Quality and restart OpenCode for control-plane acceptance. — merged via PR #334
 
 ## Requirements traceability
 
@@ -28,10 +28,10 @@
 - [x] Issue/spec/plan/tasks current.
 - [x] Exact changed-file scope verified: eleven approved paths only.
 - [x] Required tests and evidence complete — contract tests, validators, 571 unittest, quality gates green.
-- [ ] Required CI green.
-- [ ] Exact-green-head merge complete.
+- [x] Required CI green.
+- [x] Exact-green-head merge complete.
 - [x] Deployment state resolved: NOT REQUIRED.
-- [ ] Runtime acceptance resolved: post-restart control-plane verification pending.
+- [x] Runtime acceptance resolved: post-restart control-plane verification complete (PR #334).
 - [x] Deferred work recorded: NONE.
 - [x] Risks resolved or explicitly accepted.
 - [x] Waivers resolved or current: NOT REQUIRED.
@@ -40,6 +40,6 @@
 
 - [x] Requirements are covered by tasks and traceability.
 - [x] Spec, plan and tasks match the intended implementation.
-- [ ] Required local and GitHub CI evidence is green.
-- [ ] Exact-main source and Quality evidence is recorded in Issue #333.
-- [ ] Post-restart default-agent, worker and model-display evidence is recorded.
+- [x] Required local and GitHub CI evidence is green.
+- [x] Exact-main source and Quality evidence is recorded in Issue #333.
+- [x] Post-restart default-agent, worker and model-display evidence is recorded.

@@ -12,8 +12,8 @@
 - [x] T004 Add deterministic static contract coverage.
 - [x] T005 Verify exact scope and run all required local validators/tests.
 - [x] T006 Admit only the canonical agent path in repository validation with deterministic rejection of other `.opencode` paths.
-- [ ] T007 Open the exact Change Contract PR and obtain exact-head required CI.
-- [ ] T008 Merge exact green head, verify exact-main Quality and record terminal Issue evidence.
+- [x] T007 Open the exact Change Contract PR and obtain exact-head required CI. — PR #309 merged
+- [x] T008 Merge exact green head, verify exact-main Quality and record terminal Issue evidence. — merged via PR #309
 
 ## Requirements traceability
 
@@ -28,8 +28,8 @@
 - [x] Issue/spec/plan/tasks current
 - [x] Exact changed-file scope verified
 - [x] Required tests and evidence complete
-- [ ] Required CI green
-- [ ] Exact-green-head merge complete
+- [x] Required CI green
+- [x] Exact-green-head merge complete
 - [x] Deployment state resolved: NOT REQUIRED
 - [x] Runtime acceptance resolved: NOT REQUIRED
 - [x] Deferred work recorded: Issue #305 resume after this task
@@ -40,7 +40,7 @@
 
 - [x] Requirements are covered by tasks and traceability.
 - [x] Spec, plan and tasks match the implemented behavior.
-- [ ] Required CI is green.
-- [ ] Exact-green-head merge evidence is recorded in the canonical Issue.
+- [x] Required CI is green.
+- [x] Exact-green-head merge evidence is recorded in the canonical Issue.
 - [x] Applicable deployment/runtime acceptance is complete, or explicitly NOT REQUIRED.
 - [x] Runtime learning and deferred work are recorded.
