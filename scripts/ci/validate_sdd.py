@@ -388,6 +388,42 @@ def git_changed_files(base_sha: str, head_sha: str, root: Path = ROOT) -> list[s
     return [line for line in result.stdout.splitlines() if line]
 
 
+# Completion markers that must be [x] once a PR is merged green to main.
+FRESHNESS_RE = re.compile(
+    r"^\s*-\s*\[\s*\]\s*(?:"
+    r"T007\b.*|"
+    r"T008\b.*|"
+    r"Required CI (green|is green).*|"
+    r"Exact-green-head merge (complete|evidence is recorded.*).*|"
+    r"Exact-main source and Quality evidence is recorded.*|"
+    r"Required local and GitHub CI evidence is green.*|"
+    r"Post-restart.*evidence is recorded.*|"
+    r"Runtime acceptance resolved: post-restart control-plane verification pending.*"
+    r")$"
+)
+
+
+def changed_spec_dirs(base_sha: str, head_sha: str, root: Path = ROOT) -> list[Path]:
+    dirs: set[Path] = set()
+    for path in git_changed_files(base_sha, head_sha, root):
+        match = FEATURE_DIR_RE.match(path.replace("\\", "/"))
+        if match:
+            candidate = root / "specs" / match.group(1)
+            if (candidate / "tasks.md").is_file():
+                dirs.add(candidate)
+    return sorted(dirs)
+
+
+def check_tasks_freshness(dirs: Iterable[Path]) -> list[str]:
+    stale: list[str] = []
+    for spec_dir in dirs:
+        tasks = spec_dir / "tasks.md"
+        for index, line in enumerate(tasks.read_text(encoding="utf-8").splitlines(), 1):
+            if FRESHNESS_RE.match(line):
+                stale.append(f"{tasks}:{index}: {line.strip()}")
+    return stale
+
+
 def event_contract(event_path: Path, root: Path = ROOT) -> tuple[str, list[str]]:
     event = json.loads(event_path.read_text(encoding="utf-8"))
     pull_request = event.get("pull_request")
@@ -399,18 +435,31 @@ def event_contract(event_path: Path, root: Path = ROOT) -> tuple[str, list[str]]
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--event", type=Path)
+    parser.add_argument("--freshness", action="store_true", help="Fail if changed specs still have unchecked completion markers after merge.")
+    parser.add_argument("--base", help="Base SHA for --freshness spec discovery.")
+    parser.add_argument("--head", help="Head SHA for --freshness spec discovery.")
     args = parser.parse_args()
     try:
         validate_repository(ROOT)
         if args.event:
             body, changed_files = event_contract(args.event, ROOT)
             validate_pr_link(body, changed_files, ROOT)
+        if args.freshness:
+            if not (args.base and args.head):
+                raise SddError("--freshness requires --base and --head")
+            stale = check_tasks_freshness(changed_spec_dirs(args.base, args.head, ROOT))
+            if stale:
+                for entry in stale:
+                    print(f"STALE: {entry}", file=sys.stderr)
+                raise SddError(f"{len(stale)} stale tasks.md completion marker(s) after merge")
     except (SddError, KeyError, json.JSONDecodeError, subprocess.CalledProcessError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
     print("Sea Speed SDD validation passed")
     if args.event:
         print("PR specification linkage and delivery quality layer valid")
+    if args.freshness:
+        print("tasks.md freshness check passed (no stale completion markers)")
     return 0
 
 
