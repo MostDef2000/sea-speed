@@ -88,9 +88,13 @@ Install one fixed no-argument helper and one nginx systemd drop-in through the e
 - TX-068-003 | Stage: MUTATION | Mutation: YES | Failure disposition: FATAL | State after failure: installer cleanup restores prior files | Retry: rerun exact-source installer after root cause correction | Rollback: restore helper, drop-in and existing privilege assets | Evidence: atomic `.next` installs and transaction backup
 - TX-068-004 | Stage: VERIFICATION | Mutation: NO | Failure disposition: FATAL | State after failure: cleanup restores prior files/service state | Retry: validate fixed address/systemd/nginx state then rerun | Rollback: transaction cleanup | Evidence: daemon-reload, nginx restart/is-active, modes and markers
 - TX-068-005 | Stage: STATE-COMMIT | Mutation: YES | Failure disposition: FATAL | State after failure: `SUCCESS` remains false and cleanup runs | Retry: complete all checks | Rollback: prior bytes and state | Evidence: `SUCCESS=1` only after service verification
-- TX-068-006 | Stage: HOUSEKEEPING | Mutation: YES | Failure disposition: BEST_EFFORT | State after failure: accepted assets remain; temporary directory cleanup retried | Retry: remove bounded temp files | Rollback: not required for temp cleanup | Evidence: installer EXIT trap
+- TX-068-006 | Stage: HOUSEKEEPING | Mutation: YES | Failure disposition: BEST-EFFORT | State after failure: accepted assets remain; temporary directory cleanup retried | Retry: remove bounded temp files | Rollback: not required for temp cleanup | Evidence: installer EXIT trap
 - TX-068-007 | Stage: EVIDENCE | Mutation: NO | Failure disposition: FATAL | State after failure: no runtime completion claim | Retry: rerun protected deployment/evidence collection | Rollback: source/runtime state unchanged | Evidence: exact artifacts, release manifest v3, deployment manifest and execution audit
 - TX-068-008 | Stage: ROLLBACK | Mutation: YES | Failure disposition: FATAL | State after failure: escalate with exact prior service/file evidence | Retry: repository-owned installer rollback or prior exact release | Rollback: restore previous helper/drop-in and nginx state | Evidence: injected rollback test and production rollback target
+
+- Adjacent-stage review: COMPLETE
+- Production-learning root cause: nginx failed because systemd left it failed after the private ZeroTier address was absent at start; later ZeroTier recovery did not restart nginx, so public HTTPS stayed down.
+- Production-learning adjacent-stage findings: 065b VPS delivery completed and public HTTPS worked until the 2026-08-27 ZeroTier startup race; the failure was isolated to the nginx systemd startup order, not to Auth v1, routes, or the Worker API.
 
 ## Rollout and rollback
 
