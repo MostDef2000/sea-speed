@@ -46,15 +46,68 @@ class FrontendContractTests(unittest.TestCase):
         for page in (self.source, self.objects, self.cameras):
             self.assertIn('/sea-speed/road/', page)
 
-    def test_water_and_road_navigation_toggle_is_reciprocal_and_highlighted(self) -> None:
-        water_to_road = '<a class="objects-link road-link active" href="/sea-speed/road/">Дорога</a>'
+    def test_water_and_road_navigation_is_reciprocal_without_false_water_active_state(self) -> None:
+        water_to_road = '<a class="objects-link road-link" href="/sea-speed/road/">Дорога</a>'
         road_to_water = '<a class="objects-link road-link active" href="/sea-speed/">Вода</a>'
         self.assertIn(water_to_road, self.source)
+        self.assertNotIn('<a class="objects-link road-link active" href="/sea-speed/road/">Дорога</a>', self.source)
         self.assertIn(road_to_water, self.road)
         self.assertEqual(self.source.count(water_to_road), 1)
         self.assertEqual(self.road.count(road_to_water), 1)
-        self.assertIn('.objects-link.active{', self.source)
         self.assertIn('.objects-link.active{', self.road)
+
+    def test_water_operator_matches_069_dashboard_layout(self) -> None:
+        for marker in (
+            'data-layout="single-row-header"', 'data-layout="water-operator-workspace"',
+            'data-layout="primary-camera"', 'data-layout="right-information-rail"',
+            'data-layout="crossing-stats"', 'data-layout="recent-passages"',
+            'data-layout="under-camera-controls"', 'data-layout="collapsible-state"',
+            'data-layout="collapsible-log"', 'id="waterMainVideo"', 'id="liveOverlayCanvas"',
+            'id="roiCanvas"', 'id="speedLinesCanvas"', 'id="stateJson"', 'id="debugLog"',
+        ):
+            self.assertIn(marker, self.source)
+        self.assertNotIn('data-layout="clean-live"', self.source)
+        self.assertNotIn('Чистый поток', self.source)
+        self.assertNotIn('id="cxSummary"', self.source)
+        self.assertEqual(self.source.count('id="video"'), 1)
+        self.assertIn('class="stream-probe"', self.source)
+        ids = re.findall(r'\bid="([^"]+)"', self.source)
+        self.assertEqual(len(ids), len(set(ids)))
+
+    def test_water_header_begins_with_clickable_lighthouse_and_compact_status(self) -> None:
+        header_start = self.source.index('<header class="operator-header" data-layout="single-row-header">')
+        header_end = self.source.index('</header>', header_start)
+        header = self.source[header_start:header_end]
+        self.assertLess(header.index('class="project-home"'), header.index('class="brand-inline"'))
+        self.assertLess(header.index('class="brand-inline"'), header.index('class="header-links"'))
+        self.assertIn('data-layout="compact-status"', header)
+        self.assertIn('class="session-bar"', header)
+        self.assertIn('.operator-header{display:flex;align-items:center;', self.source)
+
+    def test_water_crossings_and_recent_passages_use_existing_sources(self) -> None:
+        self.assertIn('const CROSSING_SUMMARY_URL="/sea-speed/api/analytics/cam1/crossings/summary"', self.source)
+        self.assertIn('href="/sea-speed/objects/?scope=water&view=crossings">История</a>', self.source)
+        self.assertIn('id="cxStatsIn"', self.source)
+        self.assertIn('id="cxStatsOut"', self.source)
+        self.assertIn('id="cxStatsTotal"', self.source)
+        self.assertIn('id="cxStatsRows"', self.source)
+        self.assertIn('Последнее пересечение:', self.source)
+        self.assertIn('const PASSAGES_URL="/sea-speed/api/cam1/passages?limit=3"', self.source)
+        self.assertIn('passages.slice(0,3)', self.source)
+        self.assertIn('ev.status||ev.speed_status||"tracking"', self.source)
+        self.assertIn('href="/sea-speed/objects/?scope=water">Все проходы</a>', self.source)
+
+    def test_water_controls_stay_under_camera_and_mobile_order_is_explicit(self) -> None:
+        for marker in (
+            'id="roiEditBtn"', 'id="roiUndoBtn"', 'id="roiClearBtn"', 'id="roiSaveBtn"',
+            'id="speedLineABtn"', 'id="speedLineBBtn"', 'id="speedLinesSaveBtn"',
+            'id="cxEditBtn"', 'id="cxUndoBtn"', 'id="cxSaveBtn"', 'id="cxOffBtn"',
+            'id="speedFactorInput"', 'id="speedSaveBtn"',
+        ):
+            self.assertEqual(self.source.count(marker), 1)
+        self.assertIn('grid-template-areas:"camera right" "controls right"', self.source)
+        self.assertIn('grid-template-areas:"camera" "right" "controls"', self.source)
+        self.assertIn('@media(max-width:430px)', self.source)
 
     def test_road_page_uses_logical_road1_and_generic_analytics_api(self) -> None:
         for marker in (
@@ -127,18 +180,24 @@ class FrontendContractTests(unittest.TestCase):
         for marker in ('method:"PATCH"', 'method:"DELETE"', 'credentials:"same-origin"', 'id="objectsGrid"'):
             self.assertIn(marker, self.objects)
 
-    def test_existing_operator_workspace_and_hls_recovery_markers_remain(self) -> None:
+    def test_water_hls_recovery_and_live_sync_markers_remain(self) -> None:
         for marker in (
-            'data-layout="three-column-workspace"', 'data-layout="primary-camera"', 'data-layout="clean-live"',
             'const STREAM_RETRY_DELAYS_MS=[1000,2000,4000,8000]', 'Hls.ErrorTypes.NETWORK_ERROR',
             'Hls.ErrorTypes.MEDIA_ERROR', 'function schedulePlaybackWatchdog', 'function disconnectStream(',
+            'SeaSpeedLiveSync.bracketForMedia(mediaMs,{',
+            'SeaSpeedLiveSync.closestEarlierEnvelope(compMs,{',
+            'SeaSpeedLiveSync.clampLag(SeaSpeedLiveSync.median(lagSamples))',
+            '<script src="./live-sync.js"></script>',
         ):
             self.assertIn(marker, self.source)
 
     def test_all_pages_keep_mobile_baseline(self) -> None:
-        for page in (self.source, self.objects, self.cameras, self.road):
+        for page in (self.objects, self.cameras, self.road):
             self.assertIn('@media(max-width:760px)', page)
             self.assertIn('viewport-fit=cover', page)
+        self.assertIn('@media(max-width:700px)', self.source)
+        self.assertIn('@media(max-width:430px)', self.source)
+        self.assertIn('viewport-fit=cover', self.source)
         self.assertIn('href="/sea-speed/"', self.root)
 
 
