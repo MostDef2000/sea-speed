@@ -32,27 +32,27 @@
 
 ## Requirements traceability
 
-- AC-001 | Tasks: T101,T107 | Evidence: one `waterMainVideo`, no `id="video"`/`stream-probe` | Coverage: COVERED
-- AC-002 | Tasks: T102,T107 | Evidence: one `new Hls(` and sole attach target | Coverage: COVERED
-- AC-003 | Tasks: T103,T107 | Evidence: Water video event/watchdog contract markers | Coverage: COVERED
-- AC-004 | Tasks: T104,T105,T110 | Evidence: worker inactive clear/gating + runtime continuity | Coverage: RUNTIME-MANUAL
-- AC-005 | Tasks: T106,T107 | Evidence: healthy playback guard and cached fallback URL | Coverage: COVERED
-- AC-006 | Tasks: T102,T105,T107,T108 | Evidence: unchanged live-sync algorithm markers, exact changed-file review, full CI | Coverage: COVERED
-- AC-007 | Tasks: T107,T108 | Evidence: existing dashboard/layout/mobile/Road contracts remain green | Coverage: COVERED
-- AC-008 | Tasks: T108,T109,T110 | Evidence: exact-head CI, merge, exact-main Quality, VPS runtime_verified and authenticated continuity | Coverage: RUNTIME-MANUAL
+- AC-001 | Task: T101,T107 | Evidence: one `waterMainVideo`, no `id="video"`/`stream-probe` | Coverage: COVERED
+- AC-002 | Task: T102,T107 | Evidence: one `new Hls(` and sole attach target | Coverage: COVERED
+- AC-003 | Task: T103,T107 | Evidence: Water video event/watchdog contract markers | Coverage: COVERED
+- AC-004 | Task: T104,T105,T110 | Evidence: worker inactive clear/gating plus production continuity observation | Coverage: RUNTIME-MANUAL | Reason: browser-authenticated continuity and visual overlay behavior cannot be proven by repository CI alone.
+- AC-005 | Task: T106,T107 | Evidence: healthy playback guard and cached fallback URL | Coverage: COVERED
+- AC-006 | Task: T102,T105,T107,T108 | Evidence: unchanged live-sync algorithm markers, exact changed-file review and full CI | Coverage: COVERED
+- AC-007 | Task: T107,T108 | Evidence: existing dashboard/layout/mobile/Road contracts remain green | Coverage: COVERED
+- AC-008 | Task: T108,T109,T110 | Evidence: exact-head CI, merge, exact-main Quality, VPS runtime_verified and authenticated continuity | Coverage: RUNTIME-MANUAL | Reason: final protected production deployment and authenticated Water continuity are runtime gates outside static CI.
 
 ## Definition of Done
 
-- Issue #326 contains the fresh single-HLS authorization receipt/checkpoints.
-- SDD 069 reflects the admitted lifecycle refinement and separate #335 follow-up.
-- Exact diff contains only `frontend/sea-speed/index.html`, `tests/test_frontend_contract.py`, and SDD 069 `spec.md` / `plan.md` / `tasks.md`.
-- Water page has one HLS media element/player; hidden legacy consumer is absent.
-- Worker OFF clears AI overlay without interrupting video; Worker ON resumes overlay without media reconnect.
-- Healthy HLS does not trigger periodic annotated snapshot downloads.
-- Existing layout, editor controls, crossings/passages, Road protection and live-sync timing markers remain green.
-- Required Repository validation / quality-integration green on exact PR head and exact main.
-- VPS exact release reaches runtime_verified; Ubuntu Worker deployment remains not required.
-- Authenticated production continuity check records Worker OFF→ON→OFF with uninterrupted advancing Water video before terminal DONE.
+- Issue/spec/plan/tasks current — #326 and SDD 069 reflect the single-HLS refinement authorization and implementation.
+- Exact changed-file scope verified — diff remains limited to the five admitted paths.
+- Required tests and evidence complete — frontend/repository contracts and runtime continuity evidence must be complete before terminal DONE.
+- Required CI green — exact PR head Repository validation and quality-integration, followed by exact-main Quality.
+- Exact-green-head merge complete — PR #342 may merge only after fresh base/head/scope/review verification.
+- Deployment state resolved — VPS exact-main runtime is either verified or explicitly rolled back; Ubuntu Worker deployment is not required.
+- Runtime acceptance resolved — authenticated Worker OFF→ON→OFF continuity is recorded before terminal DONE.
+- Deferred work recorded — VPS CPU/transcoding topology remains separate Issue #335.
+- Risks resolved or explicitly accepted — no full risk profile is required; runtime continuity concern must be resolved by production acceptance.
+- Waivers resolved or current — no waiver is currently required; any future waiver must satisfy the Change Contract.
 
 ## Completion gate
 
