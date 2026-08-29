@@ -520,7 +520,11 @@ class BoundedYoloSupervisor:
             data.extend(chunk)
         return bytes(data)
 
-    def _roundtrip(self, frame: np.ndarray, timeout_sec: float) -> list[dict[str, object]]:
+    def _roundtrip(
+        self,
+        frame: np.ndarray,
+        timeout_sec: float,
+    ) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
         if frame.ndim != 3 or frame.shape[2] != 3 or frame.dtype != np.uint8:
             raise ValueError("AI inference frame must be uint8 HxWx3")
 
@@ -554,7 +558,10 @@ class BoundedYoloSupervisor:
         detections = payload.get("detections")
         if not isinstance(detections, list):
             raise RuntimeError("AI inference detections response is invalid")
-        return detections
+        diagnostics = payload.get("diagnostics", [])
+        if not isinstance(diagnostics, list) or any(not isinstance(item, dict) for item in diagnostics):
+            raise RuntimeError("AI inference diagnostics response is invalid")
+        return detections, diagnostics
 
     def startup_self_test(self) -> None:
         height = worker.env_int("FRAME_HEIGHT", int(self.profile.frame_height))
@@ -566,7 +573,7 @@ class BoundedYoloSupervisor:
 
         for sequence, frame in enumerate(frames, start=1):
             timeout_sec = self.startup_timeout_sec if sequence == 1 else self.timeout_sec
-            detections = self._roundtrip(frame, timeout_sec)
+            detections, _diagnostics = self._roundtrip(frame, timeout_sec)
             self.child_warmed = True
             print(
                 f"AI inference self-test ok sequence={sequence}/2 "
@@ -575,14 +582,16 @@ class BoundedYoloSupervisor:
 
         print("AI inference ready self_test_sequence=2 child_reused=true")
 
-    def detect(self, frame: np.ndarray) -> list[dict[str, object]]:
+    def detect(self, frame: np.ndarray, diagnostics=None) -> list[dict[str, object]]:
         if time.monotonic() < self.degraded_until:
             return []
         try:
             timeout_sec = self.timeout_sec if self.child_warmed else self.startup_timeout_sec
             t0 = time.monotonic()
-            detections = self._roundtrip(frame, timeout_sec)
+            detections, diagnostic_records = self._roundtrip(frame, timeout_sec)
             self.child_warmed = True
+            if diagnostics is not None:
+                diagnostics.extend(diagnostic_records)
             dt_ms = (time.monotonic() - t0) * 1000.0
             # lightweight telemetry hook — never blocks inference
             if _perf_tracker is not None:
@@ -612,10 +621,10 @@ class _ModelSentinel:
 _supervisor: BoundedYoloSupervisor | None = None
 
 
-def supervised_detect_vehicles(_model, frame):
+def supervised_detect_vehicles(_model, frame, diagnostics=None):
     if _supervisor is None:
         raise RuntimeError("AI inference supervisor is not initialized")
-    return _supervisor.detect(frame)
+    return _supervisor.detect(frame, diagnostics=diagnostics)
 
 
 worker.start_media_reader = start_media_reader
