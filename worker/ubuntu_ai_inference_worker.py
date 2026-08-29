@@ -53,14 +53,19 @@ def write_response(stream: BinaryIO, payload: dict[str, object]) -> None:
     stream.flush()
 
 
-def serialize_detections(results, analytics_profile: str = "water-v1") -> list[dict[str, object]]:
+def serialize_detection_batch(
+    results,
+    analytics_profile: str = "water-v1",
+) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    """Return unchanged accepted detections plus a decision-neutral diagnostic side-channel."""
     detections: list[dict[str, object]] = []
+    diagnostics: list[dict[str, object]] = []
     if not results:
-        return detections
+        return detections, diagnostics
 
     result = results[0]
     if result.boxes is None:
-        return detections
+        return detections, diagnostics
 
     names = result.names
     track_ids = getattr(result.boxes, "id", None)
@@ -68,9 +73,8 @@ def serialize_detections(results, analytics_profile: str = "water-v1") -> list[d
     for index, box in enumerate(result.boxes):
         cls_id = int(box.cls[0].item())
         class_name = str(names.get(cls_id, cls_id))
+        confidence = float(box.conf[0].item())
         semantic = normalize_model_class(class_name, analytics_profile)
-        if semantic is None:
-            continue
 
         track_id = None
         if track_ids is not None:
@@ -81,15 +85,39 @@ def serialize_detections(results, analytics_profile: str = "water-v1") -> list[d
 
         xyxy = box.xyxy[0].tolist()
         x1, y1, x2, y2 = [int(round(value)) for value in xyxy]
+        width = max(0, x2 - x1)
+        height = max(0, y2 - y1)
+        diagnostics.append(
+            {
+                "model_class": class_name,
+                "confidence": round(confidence, 4),
+                "bbox_xyxy": [x1, y1, x2, y2],
+                "bbox_width_px": width,
+                "bbox_height_px": height,
+                "bbox_area_px": width * height,
+                "track_id": track_id,
+                "track_assigned": track_id is not None,
+                "class_mapping_accepted": semantic is not None,
+                "semantic_class": None if semantic is None else semantic.get("class_name"),
+            }
+        )
+        if semantic is None:
+            continue
+
         detections.append(
             {
                 "track_id": track_id,
                 **semantic,
-                "confidence": float(box.conf[0].item()),
+                "confidence": confidence,
                 "bbox_xyxy": [x1, y1, x2, y2],
             }
         )
 
+    return detections, diagnostics
+
+
+def serialize_detections(results, analytics_profile: str = "water-v1") -> list[dict[str, object]]:
+    detections, _ = serialize_detection_batch(results, analytics_profile)
     return detections
 
 
@@ -192,9 +220,14 @@ def main() -> int:
                     track_kwargs["classes"] = _cached_class_ids
                 # half is already applied via model.half(); some ultralytics versions also accept half kwarg
                 results = model.track(frame, **track_kwargs)  # type: ignore[arg-type]
+            detections, diagnostics = serialize_detection_batch(results, profile.name)
             write_response(
                 protocol_out,
-                {"ok": True, "detections": serialize_detections(results, profile.name)},
+                {
+                    "ok": True,
+                    "detections": detections,
+                    "diagnostics": diagnostics,
+                },
             )
         except Exception as exc:
             write_response(
