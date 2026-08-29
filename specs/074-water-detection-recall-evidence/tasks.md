@@ -42,15 +42,16 @@
 - AC-004 | Task: T002,T003,T004,T011,T012 | Evidence: interval suppression, record cap, truncation flag and framed-response hard bound | Coverage: COVERED
 - AC-005 | Task: T013 | Evidence: exact remediation base-to-head changed-file comparison and protected-path review | Coverage: COVERED
 - AC-006 | Task: T014,T015,T016 | Evidence: exact-head and exact-main GitHub required checks plus expected-head merge | Coverage: COVERED
-- AC-007 | Task: T017,T018,T019 | Evidence: protected Ubuntu Worker exact-main deployment manifest/artifact/audit and runtime progression PASS; representative traffic sample may be deferred | Coverage: RUNTIME-MANUAL
+- AC-007 | Task: T017,T018,T019 | Evidence: protected Ubuntu Worker exact-main deployment manifest/artifact/audit and runtime progression PASS; representative traffic sample may be deferred | Coverage: RUNTIME-MANUAL | Reason: representative vessel traffic is time-dependent and may be unavailable during deployment, while exact runtime progression is machine-verifiable.
 - AC-008 | Task: T005,T009,T020 | Evidence: SDD boundaries and canonical #346 checkpoints keep recall tuning separately authorized | Coverage: COVERED
 - AC-009 | Task: T010,T011,T012 | Evidence: `tests/test_water_recall_ubuntu_ipc.py` | Coverage: COVERED
 
 ## Definition of Done
 
 - [x] Issue/spec/plan/tasks current for remediation implementation
-- [x] Exact remediation changed-file scope verified
+- [x] Exact changed-file scope verified
 - [x] Required deterministic remediation tests authored
+- [ ] Required tests and evidence complete
 - [ ] Required CI green
 - [ ] Exact-green-head remediation merge complete
 - [ ] Deployment state resolved
