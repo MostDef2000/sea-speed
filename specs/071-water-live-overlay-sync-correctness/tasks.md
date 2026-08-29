@@ -5,6 +5,7 @@
 - PR: #348
 - Branch: `issue-346-water-sync`
 - Scope identity: `issue-346-water-live-overlay-sync-task1-v1`
+- Change Contract local checks: PASS — exact five-path scope and bounded Water frontend diff verified before PR validation.
 
 ## Delivery tasks
 
