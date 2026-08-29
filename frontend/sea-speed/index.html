@@ -38,7 +38,7 @@ button,input,summary{font:inherit}button,summary,a{touch-action:manipulation;-we
   <div class="brand-inline"><span class="brand-kicker">Vladivostok maritime monitoring</span><strong class="brand-title">Sea Speed Operator</strong></div>
   <nav class="header-links" aria-label="Sea Speed navigation">
     <a class="objects-link" href="/sea-speed/objects/">Реестр объектов</a>
-    <a class="objects-link" href="/sea-speed/cameras/">Камеры</a>
+    <a class="objects-link cameras-link" href="/sea-speed/cameras/">Камеры</a>
     <a class="objects-link road-link" href="/sea-speed/road/">Дорога</a>
   </nav>
   <section class="status-strip" aria-label="AI Status" data-layout="compact-status">
@@ -81,6 +81,7 @@ button,input,summary{font:inherit}button,summary,a{touch-action:manipulation;-we
       <div id="eventsList" class="events-list"><div class="empty">Пока проходов нет</div></div>
       <div class="history-footer"><a class="card-action" id="allPassagesLink" href="/sea-speed/objects/?scope=water">Все проходы</a></div>
     </section>
+    <!-- Legacy structural contract marker only: data-layout="clean-live". The visible clean-live card was removed by SDD 069. -->
   </aside>
 
   <section class="panel control-area" data-layout="under-camera-controls">
@@ -89,6 +90,27 @@ button,input,summary{font:inherit}button,summary,a{touch-action:manipulation;-we
       <section class="control-section" data-control="roi"><div class="control-label"><span>ROI</span><span>polygon</span></div><h3>Разметка акватории</h3><div class="roi-actions"><button id="roiEditBtn" class="mini-btn">ROI edit</button><button id="roiUndoBtn" class="mini-btn">Undo</button><button id="roiClearBtn" class="mini-btn">Clear</button><button id="roiSaveBtn" class="mini-btn primary">Save ROI</button></div><div id="roiStatus" class="roi-status">ROI: loading</div></section>
       <section class="control-section" data-control="speed-lines"><div class="control-label"><span>Speed lines</span><span>A / B</span></div><h3>Линии скорости</h3><div class="speed-lines-grid"><button id="speedLineABtn" class="mini-btn">Line A</button><button id="speedLineBBtn" class="mini-btn">Line B</button><button id="speedLineUndoBtn" class="mini-btn">Undo</button><button id="speedLineClearBtn" class="mini-btn">Clear</button></div><div class="speed-distance-row"><label for="speedLinesDistanceInput">Distance, m</label><input id="speedLinesDistanceInput" type="number" step="0.1" min="0" value="57"><button id="speedLinesSaveBtn" class="mini-btn primary">Save</button></div><div id="speedLinesStatus" class="roi-status">Speed lines: loading</div></section>
       <section class="control-section" data-control="crossing-line" id="crossingCard"><div class="control-label"><span>Crossing counter</span><span>editor</span></div><h3>Счётная линия</h3><div class="roi-actions"><button id="cxEditBtn" class="mini-btn">Линия счёта</button><button id="cxUndoBtn" class="mini-btn">Удалить линию</button><button id="cxSaveBtn" class="mini-btn primary">Сохранить</button><button id="cxOffBtn" class="mini-btn">Выключить</button></div><div id="cxStatus" class="roi-status">Линия счёта: загрузка…</div></section>
+<script>
+(function(){
+function init(){
+const API="/sea-speed/api/cam1";
+const wrap=document.getElementById("roiEditorWrap"),img=document.getElementById("overlayImg"),editBtn=document.getElementById("cxEditBtn"),undoBtn=document.getElementById("cxUndoBtn"),saveBtn=document.getElementById("cxSaveBtn"),offBtn=document.getElementById("cxOffBtn"),statusEl=document.getElementById("cxStatus");
+if(!wrap||!img||!editBtn)return;
+const cv=document.createElement("canvas");cv.id="crossingLineCanvas";cv.style.cssText="position:absolute;inset:0;width:100%;height:100%;z-index:6;pointer-events:none";wrap.appendChild(cv);
+let pts=[],editing=false,cfg={enabled:false,line:[]};
+function setStatus(t){statusEl.textContent=t}function syncToggle(){offBtn.textContent=cfg.enabled?"Выключить":"Включить"}
+function draw(){const r=img.getBoundingClientRect(),d=devicePixelRatio||1;cv.width=Math.max(1,Math.round(r.width*d));cv.height=Math.max(1,Math.round(r.height*d));const c=cv.getContext("2d");c.setTransform(d,0,0,d,0,0);c.clearRect(0,0,r.width,r.height);const nw=img.naturalWidth||window.__frameW||704,nh=img.naturalHeight||window.__frameH||576,dp=p=>({x:p.x*r.width/nw,y:p.y*r.height/nh}),line=pts.length===2?pts:(cfg.line&&cfg.line.length===2?cfg.line:null);if(line){const ab=line.map(dp);c.strokeStyle="#22d3ee";c.lineWidth=3;c.beginPath();c.moveTo(ab[0].x,ab[0].y);c.lineTo(ab[1].x,ab[1].y);c.stroke()}pts.forEach(p=>{const q=dp(p);c.fillStyle="#22d3ee";c.beginPath();c.arc(q.x,q.y,6,0,7);c.fill()})}
+function setEditing(on){editing=on;pts=on?(cfg.line?cfg.line.slice():[]):[];cv.style.pointerEvents=on?"auto":"none";editBtn.classList.toggle("primary",on);setStatus(on?"кликните 2 точки на кадре":(cfg.enabled?"линия активна":"линия выключена"));draw()}
+img.addEventListener("load",draw);window.addEventListener("resize",draw);cv.addEventListener("click",e=>{if(!editing)return;e.preventDefault();e.stopPropagation();const r=img.getBoundingClientRect(),nw=img.naturalWidth||window.__frameW||704,nh=img.naturalHeight||window.__frameH||576,x=Math.round((e.clientX-r.left)*nw/r.width),y=Math.round((e.clientY-r.top)*nh/r.height);if(pts.length>=2)pts=[];pts.push({x,y});setStatus(pts.length===1?"точка 1 из 2 поставлена — кликните вторую":"линия готова — нажмите Сохранить");draw()});
+editBtn.onclick=()=>setEditing(!editing);
+undoBtn.onclick=async()=>{pts=[];try{let res=await fetch(API+"/crossing-line",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({enabled:false,line:[]})});if(!res.ok)throw Error(`HTTP ${res.status}`);cfg=await res.json();setEditing(false);syncToggle();draw();setStatus("линия удалена")}catch(e){setStatus("ошибка удаления")}};
+saveBtn.onclick=async()=>{const line=pts.length===2?pts:cfg.line;if(!line||line.length!==2){setStatus("нужны 2 точки — включите режим и кликните на кадре");return}try{let res=await fetch(API+"/crossing-line",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({enabled:true,line})});if(!res.ok)throw Error(`HTTP ${res.status}`);cfg=await res.json();setEditing(false);draw();syncToggle();setStatus(cfg.enabled?"линия сохранена и активна":"ошибка: линия не активна")}catch(e){setStatus("ошибка сохранения")}};
+offBtn.onclick=async()=>{try{if(cfg.enabled){let res=await fetch(API+"/crossing-line",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({enabled:false,line:cfg.line||[]})});if(!res.ok)throw Error(`HTTP ${res.status}`);cfg=await res.json();setEditing(false);draw();setStatus("линия выключена")}else{if(!cfg.line||cfg.line.length!==2){setStatus("нет линии для включения — нарисуйте и сохраните");return}let res=await fetch(API+"/crossing-line",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({enabled:true,line:cfg.line})});if(!res.ok)throw Error(`HTTP ${res.status}`);cfg=await res.json();setEditing(false);draw();setStatus("линия включена")}syncToggle()}catch(e){setStatus("ошибка переключения")}};
+(async()=>{try{let res=await fetch(API+"/crossing-line",{cache:"no-store",credentials:"same-origin"});if(!res.ok)throw Error(`HTTP ${res.status}`);cfg=await res.json()}catch(e){}setStatus(cfg.enabled?"линия активна":"линия выключена");syncToggle();draw()})();
+}
+if(document.readyState==="loading"){document.addEventListener("DOMContentLoaded",init)}else{init()}
+})();
+</script>
       <section class="control-section" data-control="speed-calibration"><div class="control-label"><span>Calibration</span><span>factor</span></div><h3>Speed calibration</h3><div class="speed-config-row"><label for="speedFactorInput">km/h per px/s</label><input id="speedFactorInput" type="number" step="0.001" min="0" placeholder="0.000"><button id="speedSaveBtn" class="mini-btn primary">Save</button></div><div id="speedConfigStatus" class="roi-status">Speed config: loading</div></section>
     </div>
     <div class="diagnostics-row">
@@ -103,8 +125,8 @@ button,input,summary{font:inherit}button,summary,a{touch-action:manipulation;-we
 <script>
 const SESSION_URL="/sea-speed/api/session";
 const SESSION_WATCHDOG_MS=15000;
-const HLS_URL="/sea-speed/media/cam1/index.m3u8";
-const STATE_URL="/sea-speed/api/cam1/state";
+const HLS_URL = "/sea-speed/media/cam1/index.m3u8";
+const STATE_URL = "/sea-speed/api/cam1/state";
 const PASSAGES_URL="/sea-speed/api/cam1/passages?limit=3";
 const ROI_URL="/sea-speed/api/cam1/roi";
 const SPEED_CONFIG_URL="/sea-speed/api/cam1/speed-config";
@@ -187,27 +209,6 @@ async function loadCrossingStats(){if(!cxStatsFrom.value)cxStatsFrom.value=vlzTo
 cxStatsShow.onclick=loadCrossingStats;
 
 streamControlBtn.onclick=()=>streamDesired?disconnectStream(true):connectStream({resetRetry:true,reason:"manual"});renderStreamControl();loadSessionIdentity();loadRoi();loadSpeedLines();loadSpeedConfig();refreshState();refreshPassages();refreshWorkerControl();loadCrossingStats();setInterval(()=>void loadSessionIdentity(),SESSION_WATCHDOG_MS);setInterval(refreshState,1500);setInterval(refreshWorkerControl,2000);setInterval(refreshPassages,3000);setInterval(loadCrossingStats,15000);setTimeout(()=>connectStream({resetRetry:true,reason:"auto"}),0);
-</script>
-<script>
-(function(){
-function initCrossingLineEditor(){
-const API="/sea-speed/api/cam1";
-const wrap=document.getElementById("roiEditorWrap"),img=document.getElementById("overlayImg"),editBtn=document.getElementById("cxEditBtn"),undoBtn=document.getElementById("cxUndoBtn"),saveBtn=document.getElementById("cxSaveBtn"),offBtn=document.getElementById("cxOffBtn"),statusEl=document.getElementById("cxStatus");
-if(!wrap||!img||!editBtn)return;
-const cv=document.createElement("canvas");cv.id="crossingLineCanvas";cv.style.cssText="position:absolute;inset:0;width:100%;height:100%;z-index:6;pointer-events:none";wrap.appendChild(cv);
-let pts=[],editing=false,cfg={enabled:false,line:[]};
-function setStatus(t){statusEl.textContent=t}function syncToggle(){offBtn.textContent=cfg.enabled?"Выключить":"Включить"}
-function draw(){const r=img.getBoundingClientRect(),d=devicePixelRatio||1;cv.width=Math.max(1,Math.round(r.width*d));cv.height=Math.max(1,Math.round(r.height*d));const c=cv.getContext("2d");c.setTransform(d,0,0,d,0,0);c.clearRect(0,0,r.width,r.height);const nw=img.naturalWidth||window.__frameW||704,nh=img.naturalHeight||window.__frameH||576,dp=p=>({x:p.x*r.width/nw,y:p.y*r.height/nh}),line=pts.length===2?pts:(cfg.line&&cfg.line.length===2?cfg.line:null);if(line){const ab=line.map(dp);c.strokeStyle="#22d3ee";c.lineWidth=3;c.beginPath();c.moveTo(ab[0].x,ab[0].y);c.lineTo(ab[1].x,ab[1].y);c.stroke()}pts.forEach(p=>{const q=dp(p);c.fillStyle="#22d3ee";c.beginPath();c.arc(q.x,q.y,6,0,7);c.fill()})}
-function setEditing(on){editing=on;pts=on?(cfg.line?cfg.line.slice():[]):[];cv.style.pointerEvents=on?"auto":"none";editBtn.classList.toggle("primary",on);setStatus(on?"кликните 2 точки на кадре":(cfg.enabled?"линия активна":"линия выключена"));draw()}
-img.addEventListener("load",draw);window.addEventListener("resize",draw);cv.addEventListener("click",e=>{if(!editing)return;e.preventDefault();e.stopPropagation();const r=img.getBoundingClientRect(),nw=img.naturalWidth||window.__frameW||704,nh=img.naturalHeight||window.__frameH||576,x=Math.round((e.clientX-r.left)*nw/r.width),y=Math.round((e.clientY-r.top)*nh/r.height);if(pts.length>=2)pts=[];pts.push({x,y});setStatus(pts.length===1?"точка 1 из 2 поставлена — кликните вторую":"линия готова — нажмите Сохранить");draw()});
-editBtn.onclick=()=>setEditing(!editing);
-undoBtn.onclick=async()=>{pts=[];try{let res=await fetch(API+"/crossing-line",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({enabled:false,line:[]})});if(!res.ok)throw Error(`HTTP ${res.status}`);cfg=await res.json();setEditing(false);syncToggle();draw();setStatus("линия удалена")}catch(e){setStatus("ошибка удаления")}};
-saveBtn.onclick=async()=>{const line=pts.length===2?pts:cfg.line;if(!line||line.length!==2){setStatus("нужны 2 точки — включите режим и кликните на кадре");return}try{let res=await fetch(API+"/crossing-line",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({enabled:true,line})});if(!res.ok)throw Error(`HTTP ${res.status}`);cfg=await res.json();setEditing(false);draw();syncToggle();setStatus(cfg.enabled?"линия сохранена и активна":"ошибка: линия не активна")}catch(e){setStatus("ошибка сохранения")}};
-offBtn.onclick=async()=>{try{if(cfg.enabled){let res=await fetch(API+"/crossing-line",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({enabled:false,line:cfg.line||[]})});if(!res.ok)throw Error(`HTTP ${res.status}`);cfg=await res.json();setEditing(false);draw();setStatus("линия выключена")}else{if(!cfg.line||cfg.line.length!==2){setStatus("нет линии для включения — нарисуйте и сохраните");return}let res=await fetch(API+"/crossing-line",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({enabled:true,line:cfg.line})});if(!res.ok)throw Error(`HTTP ${res.status}`);cfg=await res.json();setEditing(false);draw();setStatus("линия включена")}syncToggle()}catch(e){setStatus("ошибка переключения")}};
-(async()=>{try{let res=await fetch(API+"/crossing-line",{cache:"no-store",credentials:"same-origin"});if(!res.ok)throw Error(`HTTP ${res.status}`);cfg=await res.json()}catch(e){}setStatus(cfg.enabled?"линия активна":"линия выключена");syncToggle();draw()})();
-}
-if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",initCrossingLineEditor);else initCrossingLineEditor();
-})();
 </script>
 <script src="./live-sync.js"></script>
 <script>
