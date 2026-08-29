@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deterministic tests for Water live overlay sync alignment (064)."""
+"""Deterministic tests for Water live overlay sync alignment (064/071)."""
 
 import unittest
 from pathlib import Path
@@ -26,12 +26,16 @@ def closest_earlier_envelope(buffer, comp_ms):
 
 
 def render_fallback_on_bracket_failure(buffer, media_ms, lag_ms):
-    """Mirror of renderForVideoFrame fallback branch on Water."""
+    """Mirror of SDD 071 fail-closed Water no-bracket branch."""
     comp = media_ms - lag_ms
     near = closest_earlier_envelope(buffer, comp)
-    if near is not None and near["capture_time_unix_ms"] >= comp - 2000:
+    if (
+        near is not None
+        and near["capture_time_unix_ms"] >= comp - 2000
+        and near["capture_time_unix_ms"] <= comp
+    ):
         return near["id"]
-    return buffer[-1]["id"]
+    return None
 
 
 class WaterOverlaySyncTest(unittest.TestCase):
@@ -50,22 +54,33 @@ class WaterOverlaySyncTest(unittest.TestCase):
         chosen = render_fallback_on_bracket_failure(buffer, media_ms=6000, lag_ms=0)
         self.assertEqual(chosen, "near")
 
-    def test_fallback_beyond_two_seconds_uses_latest(self):
+    def test_fallback_beyond_two_seconds_clears(self):
         buffer = [
             {"id": "old", "capture_time_unix_ms": 1000},
-            {"id": "latest", "capture_time_unix_ms": 6800},
+            {"id": "future", "capture_time_unix_ms": 6800},
         ]
         chosen = render_fallback_on_bracket_failure(buffer, media_ms=6000, lag_ms=0)
-        self.assertEqual(chosen, "latest")
+        self.assertIsNone(chosen)
+
+    def test_future_only_metadata_clears(self):
+        buffer = [
+            {"id": "future-a", "capture_time_unix_ms": 6100},
+            {"id": "future-b", "capture_time_unix_ms": 6800},
+        ]
+        chosen = render_fallback_on_bracket_failure(buffer, media_ms=6000, lag_ms=0)
+        self.assertIsNone(chosen)
 
     def test_frontend_source_contains_sync_markers(self):
         source = FRONTEND_SOURCE.read_text(encoding="utf-8")
         for marker in (
             "SeaSpeedLiveSync.clampLag(",
             "function closestEarlierEnvelope(compMs)",
-            "mediaMs-2000",
+            "const LIVE_NEAR_MAX_AGE_MS=2000;",
+            "nearCapture>=mediaMs-LIVE_NEAR_MAX_AGE_MS&&nearCapture<=mediaMs",
+            "if(raw==null){clearLive();return}",
         ):
             self.assertIn(marker, source)
+        self.assertNotIn("drawLive(liveBuffer[liveBuffer.length-1])", source)
 
 
 if __name__ == "__main__":
