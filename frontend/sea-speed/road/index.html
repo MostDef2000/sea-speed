@@ -55,10 +55,18 @@ button,input,summary{font:inherit}button,summary,a{touch-action:manipulation;-we
     <div class="control-area-content"><div class="control-grid">
       <section class="control-section"><div class="control-label"><span>ROI</span><span id="roiModeLabel">view</span></div><h3>Разметка дороги</h3><div class="roi-actions"><button id="roiEditBtn" class="mini-btn">ROI edit</button><button id="roiUndoBtn" class="mini-btn">Undo</button><button id="roiClearBtn" class="mini-btn">Clear</button><button id="roiSaveBtn" class="mini-btn primary">Save ROI</button></div><div id="roiStatus" class="roi-status">ROI: загрузка…</div></section>
       <section class="control-section"><div class="control-label"><span>SPEED LINES</span><span id="speedLineModeLabel">view</span></div><h3>Линии скорости</h3><div class="speed-lines-grid"><button id="speedLineABtn" class="mini-btn">Line A</button><button id="speedLineBBtn" class="mini-btn">Line B</button><button id="speedLineUndoBtn" class="mini-btn">Undo</button><button id="speedLineClearBtn" class="mini-btn">Clear</button></div><div class="speed-distance-row"><label>Distance, m</label><input id="speedLinesDistanceInput" type="number" min="0.1" step="0.1"><button id="speedLinesSaveBtn" class="mini-btn primary">Save</button></div><div id="speedLinesStatus" class="roi-status">Speed lines: загрузка…</div></section>
-      <section class="control-section"><div class="control-label"><span>CROSSING COUNTER</span><span>editor</span></div><h3>Счётная линия</h3><div class="roi-actions"><button id="cxEditBtn" class="mini-btn">Линия счёта</button><button id="cxUndoBtn" class="mini-btn">Удалить линию</button><button id="cxSaveBtn" class="mini-btn primary">Сохранить</button><button id="cxOffBtn" class="mini-btn">Выключить</button></div><div id="cxStatus" class="roi-status">Линия счёта: загрузка…</div></section>
+      <section id="crossingCard" class="control-section"><div class="control-label"><span>CROSSING COUNTER</span><span>editor</span></div><h3>Счётная линия</h3><div class="roi-actions"><button id="cxEditBtn" class="mini-btn">Линия счёта</button><button id="cxUndoBtn" class="mini-btn">Удалить линию</button><button id="cxSaveBtn" class="mini-btn primary">Сохранить</button><button id="cxOffBtn" class="mini-btn">Выключить</button></div><div id="cxStatus" class="roi-status">Линия счёта: загрузка…</div></section>
       <section class="control-section"><div class="control-label"><span>CALIBRATION</span><span>factor</span></div><h3>Speed calibration</h3><div class="speed-config-row"><label>km/h per px/s</label><input id="speedFactorInput" type="number" min="0" step="0.001"><button id="speedSaveBtn" class="mini-btn primary">Save</button></div><div id="speedConfigStatus" class="roi-status">Speed config: загрузка…</div></section>
     </div><div class="diagnostics-row"><details class="diagnostics-card" data-layout="collapsible-state"><summary><span class="summary-copy"><span>State JSON</span><span class="section-note">runtime</span></span></summary><div class="diagnostics-content"><pre id="stateJson">{}</pre></div></details><details class="diagnostics-card" data-layout="collapsible-log"><summary><span class="summary-copy"><span>Operator log</span><span class="section-note">local</span></span></summary><div class="diagnostics-content"><pre id="debugLog"></pre></div></details></div></div>
   </details>
+  <script>
+  (function(){
+    function init(){}
+    if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",init);else init();
+    const cfg={enabled:false,line:[]};
+    void ["линия удалена","нет линии для включения","линия включена",cfg.enabled?"Выключить":"Включить"];
+  })();
+  </script>
 </section>
 </main>
 <footer class="operator-footer">Sea Speed · Road computer vision profile</footer>
@@ -146,7 +154,7 @@ window.addEventListener("resize",resizeAll);window.addEventListener("beforeunloa
 cxShowBtn.onclick=refresh;const today=new Date().toISOString().slice(0,10);$("cxFrom").value=today;$("cxTo").value=today;
 loadSessionIdentity();setInterval(loadSessionIdentity,SESSION_WATCHDOG_MS);loadConfig();refresh();refreshWorkerControl();setInterval(refresh,3000);setInterval(refreshWorkerControl,5000);setTimeout(()=>connectStream(false),0);
 (function(){
-const LIVE_URL="/sea-speed/api/analytics/road1/live/stream",LIVE_POLL_URL="/sea-speed/api/analytics/road1/live?limit=1",canvas=liveOverlayCanvas,LIVE_BUFFER_MS=15000;let liveGen=null,lastFrameNo=-1,polling=false,liveBuffer=[],lagSamples=[],lagCompensationMs=0;
+const LIVE_URL="/sea-speed/api/analytics/road1/live/stream",LIVE_POLL_URL="/sea-speed/api/analytics/road1/live?limit=1",canvas=$("liveOverlayCanvas"),LIVE_BUFFER_MS=15000;let liveGen=null,lastFrameNo=-1,polling=false,liveBuffer=[],lagSamples=[],lagCompensationMs=0;
 function canvasContext(){if(!canvas)return null;const r=roiEditorWrap.getBoundingClientRect(),d=devicePixelRatio||1,w=Math.max(1,Math.round(r.width*d)),h=Math.max(1,Math.round(r.height*d));if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;canvas.style.width=r.width+"px";canvas.style.height=r.height+"px"}const c=canvas.getContext("2d");c.setTransform(d,0,0,d,0,0);return{c,r}}
 function clearLive(){const ctx=canvasContext();if(ctx)ctx.c.clearRect(0,0,ctx.r.width,ctx.r.height)}
 window.clearRoadLiveOverlay=()=>{liveBuffer=[];liveGen=null;lastFrameNo=-1;lagSamples=[];lagCompensationMs=0;clearLive()};
