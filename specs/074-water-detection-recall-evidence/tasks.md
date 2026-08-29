@@ -52,8 +52,8 @@
 - [x] Exact changed-file scope verified
 - [x] Required deterministic remediation tests authored
 - [ ] Required tests and evidence complete
-- [ ] Required CI green
-- [ ] Exact-green-head merge complete
+- [x] Required CI green
+- [ ] Post-merge durable evidence pending; Exact-green-head merge complete
 - [ ] Deployment state resolved
 - [ ] Runtime acceptance resolved
 - [x] Deferred work recorded
@@ -64,8 +64,8 @@
 
 - [x] Requirements are covered by tasks and traceability.
 - [x] Spec, plan and tasks match the remediation design.
-- [ ] Required CI is green.
-- [ ] Exact-green-head merge evidence is recorded in the canonical Issue.
+- [x] Required CI is green.
+- [ ] Post-merge checkpoint pending; Exact-green-head merge evidence is recorded in the canonical Issue.
 - [ ] Applicable deployment/runtime acceptance is complete.
 - [x] Runtime learning and deferred work are written back to the feature artifacts.
 
