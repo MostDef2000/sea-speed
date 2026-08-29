@@ -5,6 +5,7 @@
 - Branch: `issue-346-water-media-time-provenance`
 - Authorization: Task 1B `OUTCOME APPROVED` at base `4ed8c5e39c7d1e5fe5c9bf1fbd84bb87835e835e`.
 - Actual implementation contour: VPS-only, narrowed from the approved MIXED ceiling after proving Worker mutation unnecessary.
+- Change Contract risk profile: NOT REQUIRED for the derived VPS-only impact; the SDD keeps explicit production-learning risks as engineering evidence, not as a policy high-risk trigger.
 
 ## Delivery tasks
 
