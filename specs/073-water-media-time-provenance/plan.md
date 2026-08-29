@@ -48,34 +48,34 @@ The Water page's existing `getMediaMs()` can return early if optional `getStartD
 
 ## Risk profile
 
-- Risk profile: REQUIRED
-- RISK-073-001 | Category: TECH | Probability: 3 | Impact: 3 | Score: 9 | Mitigation: relative mapping uses only bounded player latency and existing metadata timestamps; no arbitrary newest draw | Validation: deterministic clock-offset invariance + runtime vessel observation | Residual risk: 2 | Owner: frontend | Status: MITIGATED.
-- RISK-073-002 | Category: TECH | Probability: 2 | Impact: 3 | Score: 6 | Mitigation: hls.js latency preferred, native seekable latency fallback, invalid/out-of-range values fail closed | Validation: source contract + unit tests | Residual risk: 1 | Owner: frontend | Status: MITIGATED.
-- RISK-073-003 | Category: COMPATIBILITY | Probability: 2 | Impact: 3 | Score: 6 | Mitigation: Water-specific buffer gate; Road code untouched | Validation: existing Road/live-sync regression suite and exact diff | Residual risk: 1 | Owner: frontend | Status: MITIGATED.
-- RISK-073-004 | Category: OPS | Probability: 2 | Impact: 3 | Score: 6 | Mitigation: actual runtime narrowed to VPS-only; prior exact release is rollback target | Validation: protected deployment/runtime_verified | Residual risk: 1 | Owner: delivery | Status: MITIGATED.
+- Risk profile: NOT REQUIRED
+
+The derived Change Contract impact is VPS-only with no security, schema, destructive, detection/speed-formula, or other high-risk trigger. Production-learning concerns are still covered explicitly by the test design, deployment transaction audit, rollback target, and authenticated runtime acceptance rather than by policy `RISK-*` records.
 
 ## Test design
 
-- TEST-073-001 | Covers: AC-001 | Level: unit | Priority: P0 | Evidence: synthetic Water buffer plus 500ms latency resolves 10.1s target and 50% bracket interpolation.
-- TEST-073-002 | Covers: AC-002 | Level: unit | Priority: P0 | Evidence: add one-day offset to every Worker timestamp; selected IDs/fraction stay identical.
-- TEST-073-003 | Covers: AC-003 | Level: unit | Priority: P0 | Evidence: missing/negative/>30s latency returns no relative target.
-- TEST-073-004 | Covers: AC-004 | Level: contract | Priority: P0 | Evidence: Water instance media-time probe preserves native date or returns invalid sentinel; selector rejects non-finite absolute time and may use relative target.
-- TEST-073-005 | Covers: AC-005 | Level: contract | Priority: P0 | Evidence: latest-buffer draw remains absent and bounded closest-earlier markers remain.
-- TEST-073-006 | Covers: AC-006 | Level: integration | Priority: P0 | Evidence: Road file zero-diff plus existing Road/live-sync tests.
-- TEST-073-007 | Covers: AC-007 | Level: end-to-end | Priority: P0 | Evidence: exact-head CI, exact-main Quality, protected VPS runtime_verified.
-- TEST-073-008 | Covers: AC-008 | Level: runtime-manual | Priority: P0 | Evidence: authenticated Water observation with positive detections/tracks and visible aligned moving bbox.
+- TEST-073-001 | Covers: AC-001 | Level: unit | Priority: P0 | Evidence: synthetic Water buffer plus 500ms latency resolves 10.1s target and 50% bracket interpolation
+- TEST-073-002 | Covers: AC-002 | Level: unit | Priority: P0 | Evidence: add one-day offset to every Worker timestamp; selected IDs/fraction stay identical
+- TEST-073-003 | Covers: AC-003 | Level: unit | Priority: P0 | Evidence: missing/negative/>30s latency returns no relative target
+- TEST-073-004 | Covers: AC-004 | Level: integration | Priority: P0 | Evidence: Water instance media-time probe preserves native date or returns invalid sentinel; selector rejects non-finite absolute time and may use relative target
+- TEST-073-005 | Covers: AC-005 | Level: integration | Priority: P0 | Evidence: latest-buffer draw remains absent and bounded closest-earlier markers remain
+- TEST-073-006 | Covers: AC-006 | Level: integration | Priority: P0 | Evidence: Road file zero-diff plus existing Road/live-sync tests
+- TEST-073-007 | Covers: AC-007 | Level: end-to-end | Priority: P0 | Evidence: exact-head CI, exact-main Quality, protected VPS runtime_verified
+- TEST-073-008 | Covers: AC-008 | Level: runtime-manual | Priority: P0 | Evidence: authenticated Water observation with positive detections/tracks and visible aligned moving bbox
 
 ## Deployment transaction audit
 
-- Adjacent-stage review: COMPLETE.
-- TX-073-ADMISSION | Stage: ADMISSION | Mutation: NO | Failure: FATAL | State: no mutation | Retry: after authorization/contract repair | Evidence: #346 Task 1B OUTCOME APPROVED receipt.
-- TX-073-PRE | Stage: PRE-MUTATION | Mutation: NO | Failure: FATAL | State: production remains `4ed8c5e39c7d1e5fe5c9bf1fbd84bb87835e835e` | Retry: exact-head/main quality green | Evidence: protected source + Quality.
-- TX-073-MUTATION | Stage: MUTATION | Mutation: YES | Failure: FATAL | State: prior VPS release remains/restored | Retry: bounded diagnosis | Rollback: `4ed8c5e39c7d1e5fe5c9bf1fbd84bb87835e835e` | Evidence: VPS deploy log.
-- TX-073-VERIFY | Stage: VERIFICATION | Mutation: NO | Failure: FATAL | State: candidate not accepted | Retry: verify/remediate/rollback | Evidence: deployment manifest + authenticated browser.
-- TX-073-COMMIT | Stage: STATE-COMMIT | Mutation: YES | Failure: FATAL | State: candidate not recorded accepted | Retry: same exact verified source | Evidence: deployment state.
-- TX-073-HOUSE | Stage: HOUSEKEEPING | Mutation: POSSIBLE | Failure: BEST-EFFORT | State: serving runtime retained | Retry: independent cleanup | Evidence: deploy cleanup output.
-- TX-073-EVIDENCE | Stage: EVIDENCE | Mutation: NO | Failure: FATAL | State: task non-terminal | Retry: recollect exact evidence | Evidence: CI/deploy artifact/Issue checkpoint.
-- TX-073-ROLLBACK | Stage: ROLLBACK | Mutation: YES | Failure: FATAL | State: incident remains open | Retry: after diagnosis | Evidence: rollback audit if invoked.
+- Adjacent-stage review: COMPLETE
+- Production-learning root cause: Water metadata is timestamped in Worker receive UTC while the frontend depended on browser HLS absolute media time being available and semantically comparable; positive detections could therefore be rejected before rendering.
+- Production-learning adjacent-stage findings: detector/tracker, API ingress, HLS health, source protection, CI, deployment and runtime verification remained healthy; the failure was isolated to frontend temporal selection and was visible only in authenticated product acceptance.
+- TX-073-ADMISSION | Stage: ADMISSION | Mutation: NO | Failure disposition: FATAL | State after failure: no source or production mutation admitted | Retry: repair authorization or contract evidence and re-evaluate | Rollback: not required because no mutation occurred | Evidence: Issue #346 Task 1B OUTCOME APPROVED receipt
+- TX-073-PRE | Stage: PRE-MUTATION | Mutation: NO | Failure disposition: FATAL | State after failure: production remains on `4ed8c5e39c7d1e5fe5c9bf1fbd84bb87835e835e` | Retry: after exact-head and exact-main quality gates are green | Rollback: not required because production is unchanged | Evidence: protected source and exact Quality evidence
+- TX-073-MUTATION | Stage: MUTATION | Mutation: YES | Failure disposition: FATAL | State after failure: prior VPS release remains or is restored | Retry: after bounded deployment diagnosis | Rollback: deploy `4ed8c5e39c7d1e5fe5c9bf1fbd84bb87835e835e` | Evidence: protected VPS deployment log
+- TX-073-VERIFY | Stage: VERIFICATION | Mutation: NO | Failure disposition: FATAL | State after failure: candidate is not accepted | Retry: verify after remediation or rollback | Rollback: restore prior exact VPS release if runtime is degraded | Evidence: deployment manifest and authenticated browser acceptance
+- TX-073-COMMIT | Stage: STATE-COMMIT | Mutation: YES | Failure disposition: FATAL | State after failure: candidate must not be recorded as accepted | Retry: repeat state commit only for the same verified exact source | Rollback: restore previous current-release pointer | Evidence: deployment runtime state
+- TX-073-HOUSE | Stage: HOUSEKEEPING | Mutation: POSSIBLE | Failure disposition: BEST-EFFORT | State after failure: serving verified runtime remains active and cleanup warning is recorded | Retry: cleanup independently | Rollback: not required for housekeeping-only failure | Evidence: deployment cleanup output
+- TX-073-EVIDENCE | Stage: EVIDENCE | Mutation: NO | Failure disposition: FATAL | State after failure: delivery remains non-terminal | Retry: recollect exact evidence without source change | Rollback: not required unless verification itself failed | Evidence: CI, deployment artifact and Issue checkpoint
+- TX-073-ROLLBACK | Stage: ROLLBACK | Mutation: YES | Failure disposition: FATAL | State after failure: incident remains open and runtime state is reported explicitly | Retry: after exact rollback failure diagnosis | Rollback: previous accepted exact-main release | Evidence: protected rollback audit if invoked
 
 ## Validation
 
@@ -90,9 +90,16 @@ The Water page's existing `getMediaMs()` can return early if optional `getStartD
 
 ## Correct-course check
 
-- Trigger: PRODUCTION_LEARNING.
-- Previous remediation still showed `AI active`, `DETECTIONS=3`, `TRACKS=3` with no bbox.
-- Root cause refinement: absolute-media-time availability/semantics are not a valid prerequisite for Water overlay because metadata timestamps are explicitly Worker receive time.
-- Scope impact: implementation narrows from authorized MIXED ceiling to VPS-only; no protected boundary expansion.
-- Authorization impact: NONE; all source changes are inside the approved Task 1B frontend/test/SDD paths.
-- Task 2 remains blocked until Task 1 browser acceptance passes.
+- Trigger: PRODUCTION_LEARNING
+- Issue impact: #346 Task 1 remains open because authenticated production acceptance still has positive detections with no bbox.
+- Specification impact: refine temporal provenance from absolute cross-clock comparison to Water relative live-edge mapping without changing the product outcome.
+- Plan impact: narrow implementation to frontend-only VPS deployment and preserve Worker/Road/API protected contours.
+- Tasks impact: add deterministic relative-timeline and clock-offset regressions, then repeat exact delivery/runtime acceptance gates.
+- Authorization impact: no expansion beyond the approved Task 1B ceiling; implementation is narrower than authorized.
+- Follow-up: complete authenticated Water bbox acceptance before starting Task 2 unified speed semantics.
+
+## Runtime feedback
+
+- Production `4ed8c5e39c7d1e5fe5c9bf1fbd84bb87835e835e` is runtime_verified and HLS advances, but authenticated UI shows `AI active`, `DETECTIONS=3`, `TRACKS=3` with no bbox.
+- This falsified the prior assumption that bounded absolute timestamp lookup alone was sufficient and refined the root cause to incompatible/optional absolute media-time provenance.
+- Expected post-deploy evidence is a visible aligned bbox for positive detections while no-match cases remain fail-closed.
