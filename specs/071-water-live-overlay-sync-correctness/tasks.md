@@ -5,14 +5,14 @@
 - PR: #348
 - Branch: `issue-346-water-sync`
 - Scope identity: `issue-346-water-live-overlay-sync-task1-v1`
-- Change Contract local checks: PASS — exact five-path scope and bounded Water frontend diff verified before PR validation.
+- Change Contract local checks: PASS — exact six-path Task 1 scope and bounded Water frontend/test diff verified before exact-head validation.
 
 ## Delivery tasks
 
 - T001 — Tighten Water `renderForVideoFrame()` so unresolved HLS media time clears the AI canvas instead of drawing arrival-order metadata.
 - T002 — Preserve valid same-generation bracket interpolation and explicitly bound closest-earlier fallback to no more than 2000 ms behind compensated media time.
 - T003 — Remove unconditional newest-buffer drawing from the Water no-bracket path; stale/future/unmatched metadata must clear the canvas.
-- T004 — Add deterministic Water frontend contract coverage for unresolved media time, bounded earlier metadata and absence of newest-buffer fallback.
+- T004 — Add deterministic Water frontend contract coverage and update the existing Water sync regression for unresolved media time, bounded earlier metadata, future-only metadata and absence of newest-buffer fallback.
 - T005 — Keep one-HLS Water lifecycle, metadata-only Worker control and protected Road/worker/API/speed/detection/media topology unchanged.
 - T006 — Run SDD/Change Contract/repository validation and exact-head CI; remediate only within admitted Task 1 paths.
 - T007 — Merge exact green head, require exact-main Quality, deploy VPS exact-main and record authenticated Water moving-vessel sync acceptance; Ubuntu Worker source deployment remains NOT REQUIRED.
@@ -20,8 +20,8 @@
 ## Requirements traceability
 
 - AC-001 | Task: T001,T004 | Evidence: `raw==null` clears overlay and latest-buffer draw is absent | Coverage: COVERED
-- AC-002 | Task: T002,T004 | Evidence: `LIVE_NEAR_MAX_AGE_MS=2000` plus bounded closest-earlier capture-time guard | Coverage: COVERED
-- AC-003 | Task: T003,T004 | Evidence: no unconditional newest-buffer fallback and explicit `clearLive()` no-match path | Coverage: COVERED
+- AC-002 | Task: T002,T004 | Evidence: `LIVE_NEAR_MAX_AGE_MS=2000` plus bounded closest-earlier capture-time guard and legacy sync regression | Coverage: COVERED
+- AC-003 | Task: T003,T004 | Evidence: no unconditional newest-buffer fallback; >2s stale and future-only tests clear | Coverage: COVERED
 - AC-004 | Task: T002,T005 | Evidence: `bracketForMedia()` and interpolation remain present | Coverage: COVERED
 - AC-005 | Task: T005,T007 | Evidence: existing one-HLS/worker lifecycle contracts plus production continuity | Coverage: RUNTIME-MANUAL | Reason: authenticated HLS/overlay continuity requires production browser observation.
 - AC-006 | Task: T005,T006 | Evidence: exact changed-file review and full Quality | Coverage: COVERED
@@ -31,8 +31,8 @@
 ## Definition of Done
 
 - Issue/spec/plan/tasks current — #346 Task 1 and SDD 071 reflect the authorized sync-only scope.
-- Exact changed-file scope verified — only Water frontend, Water sync contract test and three SDD 071 files differ from authorization base.
-- Required tests and evidence complete — deterministic sync guard contract plus existing frontend/repository contracts and runtime evidence.
+- Exact changed-file scope verified — Water frontend, two corresponding Water sync tests and three SDD 071 files differ from authorization base; all protected runtime/source contours remain unchanged.
+- Required tests and evidence complete — deterministic sync guard contracts plus existing frontend/repository contracts and runtime evidence.
 - Required CI green — exact PR head Repository validation and quality-integration, then exact-main Quality.
 - Exact-green-head merge complete — only after fresh base/head/scope/review verification.
 - Deployment state resolved — VPS exact-main runtime verified or explicitly rolled back; Ubuntu Worker deployment not required.
