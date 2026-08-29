@@ -42,7 +42,7 @@
 
 - [x] T021 Obtain fresh six-field Task 3B authorization from exact protected main `ea6f1e9d15252840d27721f004817ba35f11d0c6` for SDD reconciliation plus bounded read-only diagnostic sampling.
 - [x] T022 Reconcile spec/plan/tasks with completed Task 3A exact-head, merge, exact-main, deployment and runtime evidence; remove stale PENDING production state.
-- [x] T022A Remediate PR #359 Change Contract metadata after validation-only failures on runs `33254873334` and `33254921930`; no implementation, production behavior or authorized source scope changed.
+- [x] T022A Remediate PR #359 Change Contract metadata after validation-only failures on runs `33254873334`, `33254921930` and `33255001786`; canonical required fields were normalized without implementation, production behavior or authorized source-scope changes.
 - [ ] T023 Collect a bounded representative sample of existing `WATER_RECALL_DIAGNOSTIC` records from `sea-speed-worker.service` while real Water vessel traffic is visible. Do not restart, redeploy or retune the Worker to obtain the sample.
 - [ ] T024 Correlate accepted and visually missed/unstable vessel examples and classify observed loss across post-threshold detector visibility, class mapping, ROI-center filtering and tracker continuity.
 - [ ] T025 Record a dominant evidence-supported loss stage, or explicitly record `INCONCLUSIVE` if the current post-threshold evidence cannot distinguish the cause.
