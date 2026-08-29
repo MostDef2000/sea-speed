@@ -2,7 +2,7 @@
 
 - Specification: `specs/071-water-live-overlay-sync-guard/spec.md`
 - Issue: #346
-- PR: pending
+- PR: #347
 - Branch: `issue-346-water-live-sync`
 - Scope identity: `issue-346-task1-water-live-overlay-sync-v1`
 
