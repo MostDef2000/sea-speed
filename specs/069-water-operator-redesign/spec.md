@@ -64,7 +64,7 @@ On iPhone Pro / Pro Max portrait viewports the existing approved hierarchy and t
 - NFR-069-001 | Area: RELIABILITY | Target: one browser HLS decoder/lifecycle for Water; AI worker lifecycle cannot restart the video | Validation: static contract + production Worker OFF→ON→OFF observation | Evidence: `frontend/sea-speed/index.html`, `tests/test_frontend_contract.py`, runtime acceptance | Status: CONCERNS
 - NFR-069-002 | Area: PERFORMANCE | Target: no duplicate Water HLS playlist/segment consumer and no regular hidden overlay JPEG refresh during healthy playback | Validation: source contract and browser/runtime inspection | Evidence: one HLS constructor/media target; bounded fallback logic | Status: CONCERNS
 - NFR-069-003 | Area: COMPATIBILITY | Target: zero Road/API/worker/schema/media-topology change and unchanged live-sync timing algorithm | Validation: exact changed-file review plus existing test suite | Evidence: PR diff and Quality | Status: PASS
-- NFR-069-004 | Area: USABILITY | Target: approved desktop/mobile dashboard and collapsible calibration controls remain unchanged | Validation: existing structural contracts and authenticated production visual check | Status: PASS
+- NFR-069-004 | Area: USABILITY | Target: approved desktop/mobile dashboard and collapsible calibration controls remain unchanged | Validation: existing structural contracts and authenticated production visual check | Evidence: `tests/test_frontend_contract.py` plus prior accepted Water redesign screenshots | Status: PASS
 
 ## Runtime feedback
 
