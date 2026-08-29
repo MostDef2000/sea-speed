@@ -58,31 +58,33 @@ Per-track detection smoothing still produces fresh/held telemetry, but only `spe
 
 Reason: Task 2 changes production Water speed-calculation ownership and persistence semantics. It intentionally changes when a passage becomes `measured`, so detection/tracking/calibration/speed impact is YES even though the calibrated formula itself is reused and API schema is unchanged. The change is bounded to Water passage semantics, deterministic tests, exact-source Worker rollout and rollback to `e383c836253a8d9c3d824ed8f7c9cd8c1b6be1b5`.
 
+- RISK-072-001 | Category: TECH | Probability: 3 | Impact: 4 | Score: 12 | Mitigation: count only explicit fresh calibrated samples, keep sample history bounded, preserve strict two-gate precedence, and remove the independent live overwrite | Validation: TEST-072-001 through TEST-072-006 plus exact-source Ubuntu Worker runtime acceptance | Residual risk: MEDIUM until a real production passage demonstrates matching live/persisted measured speed | Owner: Sea Speed Delivery Orchestrator | Status: MITIGATED
+
 ## Test design
 
-- TEST-072-001 | Covers: AC-001 | Level: unit | Priority: P0 | Evidence: fresh 10/12/14 samples yield measured 12.0 calibrated passage with min/avg/max metadata
-- TEST-072-002 | Covers: AC-002 | Level: unit | Priority: P0 | Evidence: held `speed_sample_fresh=false` values leave sample count unchanged
-- TEST-072-003 | Covers: AC-003 | Level: unit | Priority: P0 | Evidence: three fresh samples across track IDs 11/22/33 remain one stitched passage and measure successfully
-- TEST-072-004 | Covers: AC-004 | Level: unit | Priority: P0 | Evidence: calibrated measured fallback is superseded by later A->B strict two-gate result
-- TEST-072-005 | Covers: AC-005 | Level: unit | Priority: P0 | Evidence: finalize preserves calibrated measured value; two fresh samples finalize incomplete/null
-- TEST-072-006 | Covers: AC-006 | Level: integration | Priority: P0 | Evidence: worker source contract verifies fresh telemetry precedes passage update, canonical speed maps back, legacy `_inst` overwrite absent
-- TEST-072-007 | Covers: AC-007 | Level: regression | Priority: P0 | Evidence: existing Road/worker tests and exact changed-file review
+- TEST-072-001 | Covers: AC-001,RISK-072-001 | Level: unit | Priority: P0 | Evidence: fresh 10/12/14 samples yield measured 12.0 calibrated passage with min/avg/max metadata
+- TEST-072-002 | Covers: AC-002,RISK-072-001 | Level: unit | Priority: P0 | Evidence: held `speed_sample_fresh=false` values leave sample count unchanged
+- TEST-072-003 | Covers: AC-003,RISK-072-001 | Level: unit | Priority: P0 | Evidence: three fresh samples across track IDs 11/22/33 remain one stitched passage and measure successfully
+- TEST-072-004 | Covers: AC-004,RISK-072-001 | Level: unit | Priority: P0 | Evidence: calibrated measured fallback is superseded by later A->B strict two-gate result
+- TEST-072-005 | Covers: AC-005,RISK-072-001 | Level: unit | Priority: P0 | Evidence: finalize preserves calibrated measured value; two fresh samples finalize incomplete/null
+- TEST-072-006 | Covers: AC-006,RISK-072-001 | Level: integration | Priority: P0 | Evidence: worker source contract verifies fresh telemetry precedes passage update, canonical speed maps back, legacy `_inst` overwrite absent
+- TEST-072-007 | Covers: AC-007 | Level: integration | Priority: P0 | Evidence: existing Road/worker tests and exact changed-file review
 - TEST-072-008 | Covers: AC-008 | Level: end-to-end | Priority: P0 | Evidence: exact-head CI, exact-main Quality, Ubuntu Worker deployment/runtime progression
-- TEST-072-009 | Covers: AC-009 | Level: runtime-manual | Priority: P0 | Evidence: authenticated Water live measured speed and matching latest passage numeric speed
+- TEST-072-009 | Covers: AC-009,RISK-072-001 | Level: runtime-manual | Priority: P0 | Evidence: authenticated Water live measured speed and matching latest passage numeric speed
 
 ## Deployment transaction audit
 
 - Adjacent-stage review: COMPLETE
 - Production-learning root cause: Water had two independent speed owners in the same worker frame lifecycle; live detection speed could be measured after PassageEngine while the persisted passage remained incomplete.
 - Production-learning adjacent-stage findings: API monotonic merge, Water frontend passage rendering, HLS/overlay sync and storage schema behave as designed; the contradiction originates in Worker ordering/ownership.
-- TX-072-ADMISSION | Stage: ADMISSION | Mutation: NO | Failure disposition: FATAL | State after failure: no Task 2 source/runtime mutation admitted | Retry: repair authorization/contract evidence | Rollback: none | Evidence: Issue #346 Task 2 OUTCOME APPROVED plus Task 1 authenticated PASS
-- TX-072-PRE | Stage: PRE-MUTATION | Mutation: NO | Failure disposition: FATAL | State after failure: production Worker remains prior accepted source | Retry: after exact-head and exact-main quality gates | Rollback: none | Evidence: protected main and quality checks
+- TX-072-ADMISSION | Stage: ADMISSION | Mutation: NO | Failure disposition: FATAL | State after failure: no Task 2 source/runtime mutation admitted | Retry: repair authorization/contract evidence | Rollback: NOT REQUIRED because mutation has not started | Evidence: Issue #346 Task 2 OUTCOME APPROVED plus Task 1 authenticated PASS
+- TX-072-PRE | Stage: PRE-MUTATION | Mutation: NO | Failure disposition: FATAL | State after failure: production Worker remains prior accepted source | Retry: after exact-head and exact-main quality gates | Rollback: NOT REQUIRED because mutation has not started | Evidence: protected main and quality checks
 - TX-072-MUTATION | Stage: MUTATION | Mutation: YES | Failure disposition: FATAL | State after failure: candidate Worker must not be accepted | Retry: after bounded diagnosis | Rollback: exact previous accepted Worker lineage / source `e383c836253a8d9c3d824ed8f7c9cd8c1b6be1b5` as repository baseline | Evidence: protected Ubuntu Worker deployment
-- TX-072-VERIFY | Stage: VERIFICATION | Mutation: NO | Failure disposition: FATAL | State after failure: candidate remains non-terminal | Retry: verify after remediation/rollback | Rollback: restore previous Worker release if runtime progression degrades | Evidence: Worker deployment/runtime evidence and production passage observation
+- TX-072-VERIFY | Stage: VERIFICATION | Mutation: POSSIBLE | Failure disposition: FATAL | State after failure: candidate remains non-terminal | Retry: verify after remediation/rollback | Rollback: restore previous Worker release if runtime progression degrades | Evidence: Worker deployment/runtime evidence and production passage observation
 - TX-072-COMMIT | Stage: STATE-COMMIT | Mutation: YES | Failure disposition: FATAL | State after failure: candidate must not be recorded accepted | Retry: exact same verified source only | Rollback: restore prior release pointer/runtime | Evidence: runtime_verified deployment manifest/audit
-- TX-072-HOUSE | Stage: HOUSEKEEPING | Mutation: POSSIBLE | Failure disposition: BEST-EFFORT | State after failure: verified Worker remains active; cleanup warning recorded | Retry: independently | Rollback: none for cleanup-only failure | Evidence: deployment cleanup output
-- TX-072-EVIDENCE | Stage: EVIDENCE | Mutation: NO | Failure disposition: FATAL | State after failure: Task 2 remains non-terminal | Retry: recollect exact evidence | Rollback: only if verification failed | Evidence: CI/deployment artifact/Issue checkpoint
-- TX-072-ROLLBACK | Stage: ROLLBACK | Mutation: YES | Failure disposition: FATAL | State after failure: incident stays open | Retry: after rollback diagnosis | Rollback: previous runtime-verified Water Worker release | Evidence: protected rollback audit if invoked
+- TX-072-HOUSE | Stage: HOUSEKEEPING | Mutation: POSSIBLE | Failure disposition: BEST-EFFORT | State after failure: verified Worker remains active; cleanup warning recorded | Retry: independently | Rollback: NOT REQUIRED solely for housekeeping failure | Evidence: deployment cleanup output
+- TX-072-EVIDENCE | Stage: EVIDENCE | Mutation: NO | Failure disposition: CONDITIONAL | State after failure: Task 2 remains non-terminal while runtime stays unchanged | Retry: recollect exact evidence if safe | Rollback: based on runtime verification, not evidence transport alone | Evidence: CI/deployment artifact/Issue checkpoint
+- TX-072-ROLLBACK | Stage: ROLLBACK | Mutation: YES | Failure disposition: FATAL | State after failure: incident stays open | Retry: after rollback diagnosis | Rollback: previous runtime-verified Water Worker release or secondary recovery path | Evidence: protected rollback audit if invoked
 
 ## Validation
 
