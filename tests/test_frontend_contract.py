@@ -216,7 +216,9 @@ class FrontendContractTests(unittest.TestCase):
 
     def test_road_overlay_snapshot_is_bounded_fallback_only(self) -> None:
         self.assertIn('lastFallbackOverlayUrl=""', self.road)
-        self.assertIn('if(d.last_overlay_url&&!playbackIsAdvancing(STREAM_RECOVERY_GRACE_MS))', self.road)
+        self.assertIn('function clearFallbackOverlay(){', self.road)
+        self.assertIn('streamDesired=true;clearFallbackOverlay();renderStreamControl()', self.road)
+        self.assertIn('if(!streamDesired&&d.last_overlay_url&&!playbackIsAdvancing(STREAM_RECOVERY_GRACE_MS))', self.road)
         self.assertIn('if(url!==lastFallbackOverlayUrl)', self.road)
         self.assertNotIn('if(d.last_overlay_url)overlayImg.src=', self.road)
 
