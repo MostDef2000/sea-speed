@@ -60,6 +60,7 @@ const toInput=document.getElementById("cxDto");
 const showBtn=document.getElementById("cxShow");
 const out=document.getElementById("cxOut");
 if(!layer||!viewBtn)return;
+const requestedView=new URLSearchParams(window.location.search).get("view");
 const vlzToday=()=>new Date(Date.now()+10*3600e3).toISOString().slice(0,10);
 let active=false;
 function camFor(){
@@ -70,13 +71,20 @@ function setHidden(hidden){
   ["filters","objectsGrid"].forEach(id=>{const el=document.getElementById(id);if(el)el.style.display=hidden?"none":""});
   document.querySelectorAll(".pager,.summary-row").forEach(el=>el.style.display=hidden?"none":"");
 }
-viewBtn.addEventListener("click",()=>{
-  active=!active;
+function syncViewQuery(){
+  const url=new URL(window.location.href);
+  if(active)url.searchParams.set("view","crossings");else url.searchParams.delete("view");
+  history.replaceState(null,"",url);
+}
+function setCrossingsActive(nextActive,syncUrl=true){
+  active=!!nextActive;
   layer.style.display=active?"block":"none";
   viewBtn.textContent=active?"← К объектам":"Пересечения";
   setHidden(active);
+  if(syncUrl)syncViewQuery();
   if(active){if(!fromInput.value)fromInput.value=vlzToday();if(!toInput.value)toInput.value=vlzToday();loadCrossings()}
-});
+}
+viewBtn.addEventListener("click",()=>setCrossingsActive(!active));
 showBtn.addEventListener("click",loadCrossings);
 async function loadCrossings(){
   const cam=camFor();
@@ -94,8 +102,7 @@ async function loadCrossings(){
     +'<table style="width:100%;border-collapse:collapse;margin-top:6px"><tr style="color:#93b8c5"><th align=left>класс</th><th>→</th><th>←</th><th>всего</th></tr>'+(rows||'<tr><td colspan=4 style="color:#93b8c5">нет данных за период</td></tr>')+"</table>";
   }catch(e){out.textContent="Ошибка загрузки: "+e.message}
 }
-const originalSetScope=window.setRegistryScope;
-if(typeof originalSetScope==="function"){window.setRegistryScope=function(key){originalSetScope(key);if(active)loadCrossings()}}
+if(requestedView==="crossings")setCrossingsActive(true,false);
 }
 if(document.readyState==="loading"){document.addEventListener("DOMContentLoaded",initCxLayer)}else{initCxLayer()}
 })();
