@@ -101,7 +101,7 @@ The remediation changes an internal supervised inference response and call signa
 
 ## Correct-course check
 
-- Trigger: PRODUCTION_FAILURE
+- Trigger: PRODUCTION_LEARNING
 - Issue impact: #346 Task 3A remains evidence-only; production rollout of the first implementation failed twice and automatically restored the accepted Worker.
 - Specification impact: production Ubuntu child/parent IPC is now explicitly part of the observability contract.
 - Plan impact: add only the internal child diagnostics field and optional parent sink plumbing; keep detector/tracker/ROI behavior protected.
@@ -122,6 +122,7 @@ The remediation changes an internal supervised inference response and call signa
 - TX-074-008 | Stage: ROLLBACK | Mutation: YES | Failure disposition: FATAL | State after failure: incident remains open until previous Worker release is verified | Retry: protected rollback after diagnosis | Rollback: previous accepted Ubuntu Worker release | Evidence: rollback manifest/audit if invoked
 
 - Adjacent-stage review: COMPLETE
+- Production-learning root cause: the Ubuntu production entrypoint exposed an incompatible two-argument detector monkey-patch and the child IPC removed class-map rejects before Task 3A diagnostics could observe them.
 - Production-learning adjacent-stage findings: deployment transport, source protection and AI self-test all passed; failure occurred only when the first actual Water frame entered the incompatible monkey-patched detector call. Deployment tooling therefore remains protected and unchanged.
 
 ## Rollout and rollback
