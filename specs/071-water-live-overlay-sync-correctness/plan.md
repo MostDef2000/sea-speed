@@ -47,9 +47,9 @@ The runtime-remediation correction removes one blanket newest-envelope age rejec
 
 Production learning triggered this remediation: the initial exact-source Task 1 release reached `runtime_verified` but authenticated product acceptance showed `AI active`, `DETECTIONS 1`, `TRACKS 1` with no rendered bbox. The remediation is still frontend-only and reversible, but the observed production acceptance failure makes explicit reliability risk treatment mandatory.
 
-- RISK-071-001 | Category: RELIABILITY | Probability: 3 | Impact: 3 | Score: 9 | Mitigation: bracket/closest-earlier matching remains fail-closed; remove only the pre-match newest-age rejection | Validation: deterministic historical-bracket regression + authenticated production observation | Residual risk: 2 | Owner: frontend | Status: MITIGATED
-- RISK-071-002 | Category: RELIABILITY | Probability: 2 | Impact: 3 | Score: 6 | Mitigation: no unconditional latest-buffer fallback; future and >2s stale no-bracket metadata still clear | Validation: Water sync guard regressions | Residual risk: 1 | Owner: frontend | Status: MITIGATED
-- RISK-071-003 | Category: REGRESSION | Probability: 2 | Impact: 3 | Score: 6 | Mitigation: single HLS lifecycle and protected Road/worker/API contours remain zero-diff | Validation: exact changed-file scope + full Quality | Residual risk: 1 | Owner: delivery | Status: MITIGATED
+- RISK-071-001 | Category: TECH | Probability: 3 | Impact: 3 | Score: 9 | Mitigation: bracket/closest-earlier matching remains fail-closed; remove only the pre-match newest-age rejection | Validation: deterministic historical-bracket regression + authenticated production observation | Residual risk: 2 | Owner: frontend | Status: MITIGATED
+- RISK-071-002 | Category: TECH | Probability: 2 | Impact: 3 | Score: 6 | Mitigation: no unconditional latest-buffer fallback; future and >2s stale no-bracket metadata still clear | Validation: Water sync guard regressions | Residual risk: 1 | Owner: frontend | Status: MITIGATED
+- RISK-071-003 | Category: OPS | Probability: 2 | Impact: 3 | Score: 6 | Mitigation: single HLS lifecycle and protected Road/worker/API contours remain zero-diff | Validation: exact changed-file scope + full Quality | Residual risk: 1 | Owner: delivery | Status: MITIGATED
 
 ## Test design
 
@@ -63,6 +63,9 @@ Production learning triggered this remediation: the initial exact-source Task 1 
 
 ## Deployment transaction audit
 
+- Adjacent-stage review: COMPLETE
+- Production-learning root cause: the frontend compared displayed HLS media time with only the newest Worker envelope and cleared the canvas before searching the bounded buffer, so normal HLS lag could suppress a valid older temporally matched bbox.
+- Production-learning adjacent-stage findings: admission/source/merge/deployment/runtime health gates behaved correctly; mutation and runtime verification succeeded, while product-level authenticated visual verification exposed a frontend temporal-selection defect not represented by the previous deterministic test set; rollback remained available and no worker/API/media topology mutation occurred.
 - TX-071-ADMISSION | Stage: ADMISSION | Mutation: NO | Failure disposition: FATAL | State after failure: no source or production mutation admitted | Retry: repair authorization/contract evidence then re-evaluate | Rollback: not required | Evidence: Issue #346 Task 1 authorization receipt.
 - TX-071-PRE | Stage: PRE-MUTATION | Mutation: NO | Failure disposition: FATAL | State after failure: production remains on prior exact-main | Retry: after exact-main Quality and policy are green | Rollback: not required | Evidence: source protection, exact-main Quality, production-policy evidence.
 - TX-071-MUTATION | Stage: MUTATION | Mutation: YES | Failure disposition: FATAL | State after failure: deployment retains/restores prior release | Retry: after exact failure diagnosis/prerequisites | Rollback: protected VPS rollback to `50aec9a233b465f73993f92a69f8e9b22707a322` for remediation release | Evidence: VPS deployment log.
