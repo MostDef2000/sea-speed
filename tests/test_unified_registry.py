@@ -235,6 +235,16 @@ class RegistryPageContractTests(unittest.TestCase):
         self.assertNotIn('objects/?scope=road">', self.page.split("<nav")[1].split("</nav>")[0])
         self.assertIn('href="/sea-speed/objects/">Реестр объектов</a>', self.page)
 
+    def test_crossing_history_query_activates_existing_layer_and_stays_scope_aware(self) -> None:
+        self.assertIn('const requestedView=new URLSearchParams(window.location.search).get("view")', self.page)
+        self.assertIn('if(requestedView==="crossings")setCrossingsActive(true,false)', self.page)
+        self.assertIn('function setCrossingsActive(nextActive,syncUrl=true)', self.page)
+        self.assertIn('url.searchParams.set("view","crossings")', self.page)
+        self.assertIn('url.searchParams.delete("view")', self.page)
+        self.assertIn('registryScopeKey==="road")?"road1":"cam1"', self.page)
+        self.assertEqual(self.page.count('id="crossingsLayer"'), 1)
+        self.assertEqual(self.page.count('id="cxViewBtn"'), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
