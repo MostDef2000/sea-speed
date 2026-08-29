@@ -2,6 +2,7 @@
 
 - Specification: `specs/069-water-operator-redesign/spec.md`
 - Issue: #326
+- PR: #342
 - Branch: `issue-326-water-single-hls`
 - Scope identity: `issue-326-water-single-hls-v2`
 
