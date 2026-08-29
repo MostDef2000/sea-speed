@@ -6,6 +6,7 @@
 - Branch: `issue-346-water-sync`
 - Scope identity: `issue-346-water-live-overlay-sync-task1-v1`
 - Change Contract local checks: PASS — exact six-path Task 1 scope and bounded Water frontend/test diff verified before exact-head validation.
+- Existing regression alignment: `tests/test_water_overlay_sync.py` is included under the approved corresponding frontend/live-sync test scope; no runtime/protected boundary changes.
 
 ## Delivery tasks
 
