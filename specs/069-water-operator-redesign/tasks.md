@@ -5,6 +5,7 @@
 - PR: #342
 - Branch: `issue-326-water-single-hls`
 - Scope identity: `issue-326-water-single-hls-v2`
+- PR quality preflight: Change Contract admitted with `Quality verdict: CONCERNS` while exact-head CI and authenticated runtime continuity evidence remain pending.
 
 ## Completed redesign baseline
 
