@@ -66,10 +66,7 @@ class FrontendContractTests(unittest.TestCase):
             'id="roiCanvas"', 'id="speedLinesCanvas"', 'id="stateJson"', 'id="debugLog"',
         ):
             self.assertIn(marker, self.source)
-        self.assertNotRegex(
-            self.source,
-            r'<(?:section|article|div)\b[^>]*data-layout="clean-live"',
-        )
+        self.assertNotRegex(self.source, r'<(?:section|article|div)\b[^>]*data-layout="clean-live"')
         self.assertNotIn('Чистый поток', self.source)
         self.assertNotIn('id="cxSummary"', self.source)
         self.assertEqual(self.source.count('id="waterMainVideo"'), 1)
@@ -144,7 +141,7 @@ class FrontendContractTests(unittest.TestCase):
             'const CAMERA_ID="road1"', 'const BASE="/sea-speed/api/analytics/road1"',
             'const STATE_URL=BASE+"/state"', 'const EVENTS_URL=BASE+"/events?limit=3"',
             'const ROI_URL=BASE+"/roi"', 'const SPEED_CONFIG_URL=BASE+"/speed-config"',
-            'const SPEED_LINES_URL=BASE+"/speed-lines"',
+            'const SPEED_LINES_URL=BASE+"/speed-lines"', 'const CROSSING_LINE_URL=BASE+"/crossing-line"',
             'const PREVIEW_START_URL="/sea-speed/api/cameras/road1/preview/start"',
             'const PREVIEW_STOP_URL="/sea-speed/api/cameras/preview/stop"',
             'const WORKER_CONTROL_URL="/sea-speed/api/worker/control/road1"',
@@ -152,41 +149,86 @@ class FrontendContractTests(unittest.TestCase):
             self.assertIn(marker, self.road)
         self.assertNotRegex(self.road, r'rtsp://[^\s"\']+:[^\s"\']+@')
 
-    def test_road_page_matches_operator_layout_and_controls(self) -> None:
+    def test_road_page_matches_water_parity_layout_and_controls(self) -> None:
         for marker in (
-            'data-layout="compact-status"', 'data-layout="three-column-workspace"',
-            'data-layout="primary-camera"', 'data-layout="clean-live"',
-            'Overlay controls', 'Speed calibration', 'State JSON', 'Operator log',
-            'DETECTION HISTORY', 'id="overlayImg"', 'id="roiCanvas"', 'id="speedLinesCanvas"',
+            'data-layout="single-row-header"', 'data-layout="compact-status"',
+            'data-layout="road-operator-workspace"', 'data-layout="primary-camera"',
+            'data-layout="right-information-rail"', 'data-layout="crossing-stats"',
+            'data-layout="recent-events"', 'data-layout="under-camera-controls"',
+            'data-layout="collapsible-state"', 'data-layout="collapsible-log"',
+            'id="roadMainVideo"', 'id="overlayImg"', 'id="liveOverlayCanvas"',
+            'id="roiCanvas"', 'id="speedLinesCanvas"', 'id="crossingCanvas"',
             'id="stateJson"', 'id="debugLog"', 'id="eventsList"',
         ):
             self.assertIn(marker, self.road)
-        self.assertEqual(self.road.count('id="streamControlBtn"'), 1)
-        self.assertEqual(self.road.count('id="workerControlBtn"'), 1)
-        self.assertEqual(self.road.count('id="video"'), 1)
-        self.assertNotIn('id="previewStart"', self.road)
-        self.assertNotIn('id="previewStop"', self.road)
+        for marker in (
+            'id="roiEditBtn"', 'id="roiUndoBtn"', 'id="roiClearBtn"', 'id="roiSaveBtn"',
+            'id="speedLineABtn"', 'id="speedLineBBtn"', 'id="speedLinesSaveBtn"',
+            'id="cxEditBtn"', 'id="cxUndoBtn"', 'id="cxSaveBtn"', 'id="cxOffBtn"',
+            'id="speedFactorInput"', 'id="speedSaveBtn"',
+        ):
+            self.assertEqual(self.road.count(marker), 1)
+        self.assertNotIn('data-layout="clean-live"', self.road)
+        self.assertNotIn('Чистый поток', self.road)
+        self.assertNotIn('cleanPreviewVideo', self.road)
+        self.assertEqual(self.road.count('id="roadMainVideo"'), 1)
+        self.assertEqual(self.road.count('id="video"'), 0)
+        self.assertIn('grid-template-areas:"camera right" "controls right"', self.road)
+        self.assertIn('grid-template-areas:"camera" "right" "controls"', self.road)
         ids = re.findall(r'\bid="([^"]+)"', self.road)
         self.assertEqual(len(ids), len(set(ids)))
 
-    def test_road_stream_is_auto_connected_contextual_and_resilient(self) -> None:
-        for marker in (
-            'const STREAM_RETRY_DELAYS_MS=[1000,2000,4000,8000]',
-            'Hls.ErrorTypes.MEDIA_ERROR', 'function schedulePlaybackWatchdog',
-            'function disconnectStream(', 'setTimeout(()=>connectStream(false),0)',
-            'streamControlBtn.onclick=()=>streamDesired?disconnectStream(true):connectStream(true)',
-            'livePreviewFrame.classList.remove("has-video")',
-        ):
-            self.assertIn(marker, self.road)
-        self.assertIn('Road AI worker stopped; live preview unchanged', self.road)
+    def test_road_header_begins_with_lighthouse_and_compact_status(self) -> None:
+        header_start = self.road.index('<header class="operator-header" data-layout="single-row-header">')
+        header_end = self.road.index('</header>', header_start)
+        header = self.road[header_start:header_end]
+        self.assertLess(header.index('class="project-home"'), header.index('class="brand-inline"'))
+        self.assertLess(header.index('class="brand-inline"'), header.index('class="header-links"'))
+        self.assertIn('data-layout="compact-status"', header)
+        self.assertIn('class="session-bar"', header)
+        self.assertIn('.operator-header{display:flex;align-items:center;', self.road)
 
-    def test_road_worker_control_is_road_scoped_and_contextual(self) -> None:
+    def test_road_uses_one_hls_player_bound_to_main_video(self) -> None:
+        self.assertEqual(self.road.count('new Hls('), 1)
+        self.assertIn('instance.attachMedia(roadMainVideo)', self.road)
+        self.assertNotIn('cleanHls', self.road)
+        self.assertNotIn('attachMedia(video)', self.road)
+        self.assertIn('roadMainVideo.addEventListener("timeupdate",notePlaybackProgress)', self.road)
+        self.assertIn('roadMainVideo.addEventListener("waiting",()=>schedulePlaybackWatchdog("waiting timeout"))', self.road)
+        self.assertIn('roadMainVideo.addEventListener("stalled",()=>schedulePlaybackWatchdog("stalled timeout"))', self.road)
+        self.assertIn('streamControlBtn.onclick=()=>streamDesired?disconnectStream(true):connectStream(true)', self.road)
+        self.assertIn('const STREAM_RETRY_DELAYS_MS=[1000,2000,4000,8000]', self.road)
+        self.assertIn('Hls.ErrorTypes.MEDIA_ERROR', self.road)
+        self.assertIn('Hls.ErrorTypes.NETWORK_ERROR', self.road)
+
+    def test_road_worker_control_is_road_scoped_and_media_independent(self) -> None:
         self.assertIn('WORKER_START_URL=WORKER_CONTROL_URL+"/start"', self.road)
         self.assertIn('WORKER_STOP_URL=WORKER_CONTROL_URL+"/stop"', self.road)
         self.assertIn('d.target!=="road1"', self.road)
-        self.assertIn('Остановить только Road AI worker; live preview продолжит работать', self.road)
+        self.assertIn('Остановить только Road AI worker; live HLS продолжит работать', self.road)
+        self.assertIn('Road AI worker stopped; live HLS unchanged', self.road)
+        self.assertIn('window.clearRoadLiveOverlay=()=>{', self.road)
+        self.assertIn('if(workerServiceActive===false){clearLive();return}', self.road)
         self.assertNotIn('/sea-speed/api/worker/control/start"', self.road)
         self.assertNotIn('/sea-speed/api/worker/control/stop"', self.road)
+        self.assertNotRegex(self.road, r'toggleWorker\([^)]*\).*connectStream')
+        self.assertNotRegex(self.road, r'toggleWorker\([^)]*\).*disconnectStream')
+
+    def test_road_overlay_snapshot_is_bounded_fallback_only(self) -> None:
+        self.assertIn('lastFallbackOverlayUrl=""', self.road)
+        self.assertIn('if(d.last_overlay_url&&!playbackIsAdvancing(STREAM_RECOVERY_GRACE_MS))', self.road)
+        self.assertIn('if(url!==lastFallbackOverlayUrl)', self.road)
+        self.assertNotIn('if(d.last_overlay_url)overlayImg.src=', self.road)
+
+    def test_road_crossings_and_recent_events_are_independent_cards(self) -> None:
+        self.assertIn('href="/sea-speed/objects/?scope=road&view=crossings">История</a>', self.road)
+        self.assertIn('id="cxStatsIn"', self.road)
+        self.assertIn('id="cxStatsOut"', self.road)
+        self.assertIn('id="cxStatsTotal"', self.road)
+        self.assertIn('id="cxStatsRows"', self.road)
+        self.assertIn('Последнее пересечение:', self.road)
+        self.assertIn('(data.events||[]).slice(0,3)', self.road)
+        self.assertIn('href="/sea-speed/objects/?scope=road">Все события</a>', self.road)
 
     def test_objects_registry_is_domain_scoped_from_water_and_road(self) -> None:
         self.assertIn('href="/sea-speed/objects/">Реестр объектов</a>', self.source)
@@ -220,6 +262,15 @@ class FrontendContractTests(unittest.TestCase):
             '<script src="./live-sync.js"></script>',
         ):
             self.assertIn(marker, self.source)
+
+    def test_road_live_sync_markers_remain(self) -> None:
+        for marker in (
+            'SeaSpeedLiveSync.bracketForMedia(mediaMs,{',
+            'SeaSpeedLiveSync.closestEarlierEnvelope(compMs,{',
+            'SeaSpeedLiveSync.clampLag(SeaSpeedLiveSync.median(lagSamples))',
+            '<script src="/sea-speed/live-sync.js"></script>',
+        ):
+            self.assertIn(marker, self.road)
 
     def test_all_pages_keep_mobile_baseline(self) -> None:
         for page in (self.objects, self.cameras, self.road):
