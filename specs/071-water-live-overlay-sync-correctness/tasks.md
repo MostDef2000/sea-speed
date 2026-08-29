@@ -2,7 +2,7 @@
 
 - Specification: `specs/071-water-live-overlay-sync-correctness/spec.md`
 - Issue: #346
-- PR: #348 (initial implementation); runtime-acceptance remediation uses a fresh follow-up PR.
+- PR: #348 (initial implementation); #349 (runtime-acceptance remediation).
 - Branch: `issue-346-water-sync-runtime-fix`
 - Scope identity: `issue-346-water-live-overlay-sync-task1-v1`
 - Change Contract local checks: PASS — remediation remains within admitted Water frontend/test/SDD paths; worker/API/Road/speed/detection/media topology remain protected.
