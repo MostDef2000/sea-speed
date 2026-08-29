@@ -17,7 +17,7 @@
 - T006 — Original redesign CI/merge/deployment completed.
 - T007 — `Разметка и калибровка` made collapsible and default-closed; deployed and accepted.
 
-## Single-HLS refinement tasks
+## Delivery tasks
 
 - T101 — Remove hidden legacy `video#video.stream-probe`; retain exactly one Water `<video id="waterMainVideo">`.
 - T102 — Collapse dual Hls.js lifecycle into one Hls instance attached to `waterMainVideo`; retain existing retry/recovery constants.
