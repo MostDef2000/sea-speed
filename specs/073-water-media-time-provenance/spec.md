@@ -65,3 +65,9 @@ Worker OFF clears Water metadata while HLS continues. Worker ON resumes fresh me
 ## Production learning
 
 Two runtime-verified frontend releases still produced an empty Water AI canvas while the authenticated UI reported positive detections/tracks. The remaining defect is not detector recall: absolute Water media-time resolution can be unavailable/invalid or semantically incompatible with `worker_receive_utc`. Task 1B replaces that cross-clock assumption with relative live-edge mapping while preserving fail-closed behavior.
+
+## Runtime feedback
+
+- Production release `4ed8c5e39c7d1e5fe5c9bf1fbd84bb87835e835e` reached `runtime_verified` and HLS health checks passed.
+- Authenticated Water observation then showed `AI active`, `DETECTIONS=3`, `TRACKS=3` with no rendered bbox, proving the remaining failure is in frontend temporal selection rather than detector availability.
+- Task 1B acceptance remains open until the relative live-edge mapping is deployed and a moving vessel with positive detections renders an aligned bbox.
