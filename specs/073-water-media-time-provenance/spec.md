@@ -56,11 +56,11 @@ Worker OFF clears Water metadata while HLS continues. Worker ON resumes fresh me
 
 ## NFR assessment
 
-- NFR-073-001 | Area: RELIABILITY | Target: positive Water detections remain renderable without optional absolute HLS timestamps | Validation: deterministic relative-timeline tests + production observation | Status: CONCERNS until runtime acceptance.
-- NFR-073-002 | Area: SAFETY | Target: no stale/latest guessing when latency cannot be resolved | Validation: fail-closed tests/source contracts | Status: PASS.
-- NFR-073-003 | Area: COMPATIBILITY | Target: Road and one-HLS lifecycle unchanged | Validation: exact diff + existing regression suite | Status: PASS.
-- NFR-073-004 | Area: PERFORMANCE | Target: no new network poll or decoder loop | Validation: source inspection | Status: PASS.
-- NFR-073-005 | Area: SECURITY | Target: no auth/token/topology change | Validation: exact changed-file scope | Status: PASS.
+- NFR-073-001 | Area: RELIABILITY | Target: positive Water detections remain renderable without optional absolute HLS timestamps | Validation: deterministic relative-timeline tests plus production observation | Evidence: Water sync tests and authenticated moving-vessel acceptance | Status: CONCERNS
+- NFR-073-002 | Area: SAFETY | Target: no stale or latest-envelope guessing when latency cannot be resolved | Validation: fail-closed tests and source contracts | Evidence: no-latest markers and invalid-latency tests | Status: PASS
+- NFR-073-003 | Area: COMPATIBILITY | Target: Road behavior and one-HLS lifecycle remain unchanged | Validation: exact diff and existing regression suite | Evidence: Road page zero-diff and live-sync regressions | Status: PASS
+- NFR-073-004 | Area: PERFORMANCE | Target: no additional network poll, decoder, or render loop | Validation: source inspection | Evidence: existing SSE/poll/render loops reused without new loop | Status: PASS
+- NFR-073-005 | Area: SECURITY | Target: no auth, token, API, or network-topology change | Validation: exact changed-file scope | Evidence: frontend/test/SDD-only diff and Quality evidence | Status: PASS
 
 ## Production learning
 
