@@ -4,65 +4,71 @@
 - Issue: #326
 - Status: ACTIVE
 - Owner outcome: Water operators get one compact dashboard where the synchronized AI feed stays dominant, overlay editors sit directly below it, and crossing statistics plus recent passages are visible without a redundant clean-stream card.
+- Refinement authorization: `issue-326-water-single-hls-v2`, base `779aed5868de67cbd106693c76db4dc77915627d`.
 
 ## Product outcome
 
-Redesign `/sea-speed/` to match the approved Water Operator composition while preserving the existing Water HLS/live-overlay runtime, ROI and speed-line editing, speed calibration, crossing-line semantics, authenticated navigation, diagnostics, and passage data sources. The page becomes a compact two-column desktop dashboard: the primary AI camera and its controls on the left, and separate crossing-statistics and recent-passage cards on the right. On mobile the same information hierarchy stacks vertically with iOS-usable controls.
+`/sea-speed/` keeps the approved Water Operator composition and uses one continuous protected Camera 1 HLS player. AI processing is an independent metadata layer: with the Water worker stopped, the same video continues without AI boxes; with the worker running, timestamped AI boxes are drawn on `liveOverlayCanvas` over that same video without reconnecting or switching media sources. ROI, speed-line editing, speed calibration, crossing-line semantics, authenticated navigation, diagnostics, crossing statistics and passage data sources remain unchanged.
 
 ## User scenarios
 
-### Scenario 1 - Observe the Water AI feed
+### Scenario 1 - Observe the Water feed
 
-Given an authenticated operator opens `/sea-speed/`, when the page loads, then the compact header and the large synchronized AI camera are visible first and there is no separate `LIVE CAMERA / Чистый поток` card competing for space.
+Given an authenticated operator opens `/sea-speed/`, the compact header and large Water camera are visible first, there is no separate `LIVE CAMERA / Чистый поток` card, and only one browser video/HLS playback pipeline is active.
 
-### Scenario 2 - Edit Water overlays below the camera
+### Scenario 2 - Stop and start AI without interrupting video
 
-Given the operator needs to adjust ROI, speed lines, counting line, or speed calibration, when they use the control area directly below the main camera, then the existing API operations and editor semantics are preserved and crossing statistics are not mixed into the line editor.
+Given Camera 1 HLS is playing, when the operator stops the Water AI worker, the video continues advancing and the AI canvas is cleared. When the operator starts the worker again, fresh SSE/live envelopes resume on the same video without HLS recreation or source switching.
 
-### Scenario 3 - Review crossing statistics
+### Scenario 3 - Recover media independently of AI
 
-Given crossing records already exist for `cam1`, when the operator selects a date range in the `Пересечения` card, then the existing generic crossing-summary endpoint supplies IN/OUT/total and per-class counts without adding a new backend contract. The card also exposes a direct `История` link into the existing Water registry crossing view.
+Given the HLS player has a real network/media stall, the existing bounded reconnect/recovery logic operates on `waterMainVideo`. AI worker state must not trigger media reconnect. The legacy annotated snapshot may be used only as a bounded fallback while the HLS player is not healthy; it must not be fetched cyclically while healthy HLS playback advances.
 
-### Scenario 4 - Review recent passages
+### Scenario 4 - Edit Water overlays below the camera
 
-Given Water passages exist, when the dashboard refreshes, then up to three fresh passage records show their available snapshot, passage ID, timestamp, actual status, direction/speed context, and a link to the full Water registry.
+Given the operator needs to adjust ROI, speed lines, counting line, or speed calibration, the existing API operations and editor semantics remain under the main camera and crossing statistics stay separate from the line editor.
 
-### Scenario 5 - Use the dashboard on mobile
+### Scenario 5 - Review crossings and passages
 
-Given an operator opens the page on an iPhone Pro or Pro Max portrait viewport, when the responsive layout applies, then header/status, primary camera, crossing statistics, recent passages, controls, calibration, and diagnostics remain usable in that logical order with touch targets at least 44 px high where controls are interactive.
+Existing `cam1` crossing-summary and passages endpoints remain the only sources for the independent `Пересечения` and `Последние проходы` cards, including the direct Water crossing-history link.
+
+### Scenario 6 - Use the dashboard on mobile
+
+On iPhone Pro / Pro Max portrait viewports the existing approved hierarchy and touch usability remain intact.
 
 ## Requirements
 
-- R1: `/sea-speed/` MUST use a compact header band beginning with the existing clickable lighthouse/home action and keep authenticated user/logout plus Water navigation/status controls accessible.
-- R2: The visible `clean-live` / `Чистый поток` card MUST be removed, while the existing HLS health/reconnect path and synchronized main Water video/live overlay behavior remain functionally intact.
-- R3: The main Water AI camera MUST remain the dominant visual element and retain `overlayImg`, `waterMainVideo`, ROI canvas, speed-lines canvas, live overlay canvas, and current synchronized overlay runtime.
-- R4: ROI, speed lines, crossing-line editor, speed calibration, `State JSON`, and `Operator log` MUST be placed under the primary camera; crossing statistics MUST NOT be rendered inside crossing editor controls.
-- R5: A visually independent `Пересечения` card MUST use existing `cam1` crossing-summary data to show date controls, IN, OUT, total, per-class breakdown, and an honest latest-crossing indicator without inventing backend state.
-- R6: `История` MUST navigate directly to the existing crossing-history UX in `frontend/sea-speed/objects/index.html` using Water scope, and that registry page MUST activate its existing crossing layer from the direct-link query state.
-- R7: A separate `Последние проходы` card MUST show at most three current passage records from the existing passages endpoint, including available snapshot, ID, timestamp, actual status, and a link to the Water registry.
-- R8: `frontend/sea-speed/road/index.html`, worker/detection/tracking behavior, speed/calibration formulas, crossing semantics, API/storage/telemetry schemas, authentication/media topology, and HLS/live-sync timing MUST remain unchanged.
+- R1: `/sea-speed/` MUST keep the approved compact lighthouse-first header and authenticated navigation/status controls.
+- R2: The visible `clean-live` / `Чистый поток` card MUST remain absent.
+- R3: `waterMainVideo` MUST be the only Water `<video>` element and the only HLS media target. The legacy hidden `video#video` / `stream-probe` consumer MUST be removed.
+- R4: The HLS reconnect/watchdog lifecycle MUST use `waterMainVideo` for playback progress, `waiting`, `stalled`, `ended`, decode/network recovery and reconnect decisions.
+- R5: Worker Start/Stop MUST NOT create, destroy, reconnect, pause, or switch the HLS source. Worker OFF clears stale AI live-buffer/canvas state; Worker ON resumes drawing fresh metadata envelopes.
+- R6: `last_overlay_url` MUST NOT be refreshed on the regular state-poll cadence while HLS is healthy. It MAY be loaded once per changed fallback URL while playback is unavailable/stalled.
+- R7: Existing `live-sync.js`, lag/interpolation timing constants, Water live API/SSE semantics, worker code, API code and media topology MUST remain unchanged.
+- R8: ROI, speed lines, crossing-line editor, calibration, `State JSON`, `Operator log`, crossing statistics, passages and registry links MUST preserve their existing behavior and approved layout.
+- R9: `frontend/sea-speed/road/index.html`, detection/tracking algorithms, speed/crossing formulas, API/storage/telemetry schemas, authentication, nginx/MediaMTX/ZeroTier and Camera/FFmpeg topology MUST remain unchanged.
 
 ## Acceptance criteria
 
-- AC-001: The Water header is a compact single desktop band beginning with the clickable lighthouse; authenticated navigation, status, user, and logout controls remain accessible.
-- AC-002: The visible `LIVE CAMERA / Чистый поток` block is absent, the primary AI camera is dominant, and existing HLS reconnect plus Water synchronized overlay markers remain intact.
-- AC-003: ROI, speed lines, crossing-line editor, calibration, State JSON, and Operator log are under the camera; editor controls retain their existing IDs/actions and no crossing statistics element remains in the line editor.
-- AC-004: The separate `Пересечения` card provides date range controls, IN/OUT/total, per-class rows, and an honest latest-crossing display from existing available client/runtime evidence.
-- AC-005: `История` opens `/sea-speed/objects/?scope=water&view=crossings`, and the registry activates the same existing Water crossing layer rather than implementing a duplicate history screen.
-- AC-006: The separate `Последние проходы` card renders at most three passage records with available snapshot, passage ID, timestamp, status and a full-history Water registry link.
-- AC-007: Contract tests prove the Water redesign markers, direct crossing-history behavior, protected Road boundary, existing endpoint markers, unique control IDs, and responsive mobile baseline.
-- AC-008: Repository/SDD/change-contract validation, required unit/quality CI, exact-green-head merge, exact-main Quality, protected VPS deployment, and Water runtime acceptance complete without an Ubuntu Worker update.
+- AC-001: Water source contains exactly one video element, `id="waterMainVideo"`; `id="video"` and `class="stream-probe"` are absent.
+- AC-002: Exactly one `new Hls(...)` instance is created for Water playback and it attaches to `waterMainVideo`; compatibility globals may alias that same instance but MUST NOT create a second player.
+- AC-003: Stream watchdog/recovery event listeners and playback progress calculations are bound to `waterMainVideo`.
+- AC-004: Worker OFF immediately clears Water AI overlay state while HLS playback remains intact; Worker ON does not invoke HLS connect/disconnect and fresh live envelopes resume.
+- AC-005: Healthy HLS playback suppresses periodic `last_overlay_url` image refresh; fallback image loading is bounded to unhealthy playback and changed fallback URLs.
+- AC-006: Existing Water live-sync interpolation/bracketing markers and timing constants remain unchanged; Road/API/worker/media topology have zero source diff.
+- AC-007: Existing approved dashboard layout, collapsible controls, crossings, passages, registry links and mobile baseline remain green in contract tests.
+- AC-008: Repository/SDD/change-contract validation, required unit/quality CI, exact-green-head merge, exact-main Quality, protected VPS deployment and authenticated production Worker OFF→ON→OFF continuity acceptance complete without Ubuntu Worker deployment.
 
 ## NFR assessment
 
-- NFR-069-001 | Area: USABILITY | Target: primary camera remains visually dominant while crossing and passage information is available without scrolling on a wide operator display where viewport height permits | Validation: structural contract checks and responsive runtime visual acceptance | Evidence: `frontend/sea-speed/index.html`, production screenshots/runtime inspection | Status: CONCERNS
-- NFR-069-002 | Area: COMPATIBILITY | Target: zero backend/API/schema or Water HLS/live-sync timing changes and zero Road source changes | Validation: exact changed-file review plus existing frontend/live-overlay tests | Evidence: PR changed-file list, `tests/test_frontend_contract.py`, existing Water overlay test suite | Status: PASS
-- NFR-069-003 | Area: ACCESSIBILITY | Target: interactive controls remain keyboard-focusable and mobile touch targets retain at least 44 px minimum height | Validation: CSS/static contract inspection and mobile runtime acceptance | Evidence: Water page CSS and iPhone Pro/Pro Max viewport inspection | Status: CONCERNS
-- NFR-069-004 | Area: OPERABILITY | Target: dashboard continues to expose stream/worker state, diagnostics, crossing data, and recent passage evidence from existing endpoints with no new operational dependency | Validation: contract tests and protected VPS runtime acceptance | Evidence: endpoint markers, authenticated production page, API-backed widgets | Status: CONCERNS
+- NFR-069-001 | Area: RELIABILITY | Target: one browser HLS decoder/lifecycle for Water; AI worker lifecycle cannot restart the video | Validation: static contract + production Worker OFF→ON→OFF observation | Evidence: `frontend/sea-speed/index.html`, `tests/test_frontend_contract.py`, runtime acceptance | Status: CONCERNS
+- NFR-069-002 | Area: PERFORMANCE | Target: no duplicate Water HLS playlist/segment consumer and no regular hidden overlay JPEG refresh during healthy playback | Validation: source contract and browser/runtime inspection | Evidence: one HLS constructor/media target; bounded fallback logic | Status: CONCERNS
+- NFR-069-003 | Area: COMPATIBILITY | Target: zero Road/API/worker/schema/media-topology change and unchanged live-sync timing algorithm | Validation: exact changed-file review plus existing test suite | Evidence: PR diff and Quality | Status: PASS
+- NFR-069-004 | Area: USABILITY | Target: approved desktop/mobile dashboard and collapsible calibration controls remain unchanged | Validation: existing structural contracts and authenticated production visual check | Evidence: `tests/test_frontend_contract.py` plus prior accepted Water redesign screenshots | Status: PASS
 
 ## Runtime feedback
 
-- Runtime acceptance: PENDING.
-- Accepted production behavior: PENDING.
-- Regressions/learning: none admitted; Issue #326 was clarified by the durable user comment marking the approved design as `макет для воды`.
-- Follow-up work: any request for new crossing history APIs, new latest-crossing schema fields, Road redesign, or worker analytics changes requires a separate scope and authorization.
+- Prior redesign visual acceptance: operator accepted.
+- Single-HLS refinement runtime acceptance: PENDING.
+- Known separate follow-up: VPS CPU/transcoding saturation investigation remains #335 and is explicitly out of this refinement.
+- Follow-up work outside this authorization requires a separate scope cycle.
