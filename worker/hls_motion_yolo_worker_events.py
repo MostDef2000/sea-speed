@@ -1364,6 +1364,8 @@ def update_speed_lines_estimate(det):
         "speed_kmh_max": None,
         "speed_kmh_avg": None,
         "speed_sample_count": 0,
+        "speed_instant_kmh": None,
+        "speed_sample_fresh": False,
         "speed_ready": False,
     }
     state.setdefault("prev_point", None)
@@ -1473,6 +1475,8 @@ def update_speed_lines_estimate(det):
             inst_kmh = abs(dm / dt) * 3.6
             if min_kmh <= inst_kmh <= max_kmh:
                 inst_kmh = round(inst_kmh, 1)
+                info["speed_instant_kmh"] = inst_kmh
+                info["speed_sample_fresh"] = True
                 state["samples"].append(inst_kmh)
                 if len(state["samples"]) > 120:
                     state["samples"] = state["samples"][-120:]
@@ -1633,9 +1637,11 @@ def main():
             stitch_window_sec=env_float("WATER_PASSAGE_STITCH_GAP_SEC", 2.5),
             passage_end_gap_sec=env_float("WATER_PASSAGE_TIMEOUT_SEC", 5.0),
             stitch_distance_px=env_float("WATER_PASSAGE_STITCH_MAX_DISTANCE_PX", 120.0),
+            calibrated_min_samples=env_int("DETECTION_SPEED_MIN_SAMPLES", 3),
+            calibrated_smooth_samples=env_int("DETECTION_SPEED_SMOOTH_SAMPLES", 5),
         )
         print(
-            "Water passage engine: strategy=two_gate "
+            "Water passage engine: strategy=two_gate+calibrated_fallback "
             f"max_observations={passage_engine.max_observations} "
             f"max_active={passage_engine.max_active_passages}"
         )
@@ -1676,6 +1682,13 @@ def main():
             update_crossing_counts(detections, now)
             passage_updates = []
             if is_water and passage_engine is not None:
+                # Compute fresh calibrated telemetry before PassageEngine so the
+                # passage, not the live renderer, owns the published speed state.
+                for det in detections:
+                    try:
+                        det["_line_speed_info"] = update_speed_lines_estimate(det)
+                    except Exception:
+                        det["_line_speed_info"] = {}
                 # Inject per-detection sharpness for sharpness-aware best-frame selection.
                 for det in detections:
                     try:
@@ -1761,17 +1774,8 @@ def main():
                 except Exception as e:
                     print(f"live envelope post skipped: {e}")
             else:
-                # Water per-pixel instantaneous for live (as Road) — keep passage for event, but live shows median
-                for _det in detections:
-                    try:
-                        _lsi = update_speed_lines_estimate(_det)
-                        _inst = _lsi.get("speed_kmh")
-                        if _inst is not None:
-                            _det["speed_kmh"] = _inst
-                            _det["speed_source"] = _lsi.get("speed_source")
-                            _det["_line_speed_info"] = _lsi
-                    except Exception:
-                        pass
+                # Water live publishes the canonical passage speed already
+                # attached above; there is no independent post-passage overwrite.
                 try:
                     h, w = frame.shape[:2]
                     wc = os.environ.get("SEA_SPEED_SOURCE_COMMIT", "unknown")

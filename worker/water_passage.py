@@ -90,6 +90,17 @@ def _contextual_snapshot_detection(det: Dict[str, object], scale: float) -> Dict
     return expanded
 
 
+def _median(values: Sequence[float]) -> float:
+    ordered = sorted(float(value) for value in values)
+    count = len(ordered)
+    if not count:
+        raise ValueError("median requires at least one value")
+    middle = count // 2
+    if count % 2:
+        return ordered[middle]
+    return (ordered[middle - 1] + ordered[middle]) / 2.0
+
+
 @dataclass(frozen=True)
 class Observation:
     ts: float
@@ -244,6 +255,10 @@ class _PassageState:
     best_snapshot_score: float = -1.0
     best_snapshot_sharpness: float = -1.0
     measurement: MeasurementResult = field(default_factory=MeasurementResult)
+    calibrated_samples: Deque[float] = field(default_factory=deque)
+    calibrated_measurement: MeasurementResult = field(
+        default_factory=lambda: MeasurementResult(speed_method="detection_first_calibrated")
+    )
 
 
 class WaterPassageEngine:
@@ -264,6 +279,9 @@ class WaterPassageEngine:
         snapshot_improvement_ratio: float = 1.15,
         reacquire_window_sec: float = 10.0,
         snapshot_context_scale: float = 5.0,
+        calibrated_min_samples: int = 3,
+        calibrated_smooth_samples: int = 5,
+        calibrated_max_samples: int = 120,
     ):
         self.estimator_factory = estimator_factory
         self.id_factory = id_factory
@@ -277,6 +295,9 @@ class WaterPassageEngine:
         self.max_active_passages = max(1, int(max_active_passages))
         self.snapshot_improvement_ratio = max(1.0, float(snapshot_improvement_ratio))
         self.snapshot_context_scale = max(1.0, float(snapshot_context_scale))
+        self.calibrated_min_samples = max(1, int(calibrated_min_samples))
+        self.calibrated_smooth_samples = max(self.calibrated_min_samples, int(calibrated_smooth_samples))
+        self.calibrated_max_samples = max(self.calibrated_smooth_samples, int(calibrated_max_samples))
         self._active: Dict[str, _PassageState] = {}
         self._track_to_passage: Dict[int, str] = {}
 
@@ -305,9 +326,75 @@ class WaterPassageEngine:
             "snapshot_score": round(max(0.0, state.best_snapshot_score), 6),
         }
 
+    def _calibrated_meta(self, state: _PassageState) -> Dict[str, object]:
+        samples = list(state.calibrated_samples)
+        meta: Dict[str, object] = {
+            "source": "detection_first_calibrated",
+            "samples_used": len(samples),
+            "required_samples": self.calibrated_min_samples,
+        }
+        if samples:
+            meta.update({
+                "speed_kmh_min": round(min(samples), 1),
+                "speed_kmh_avg": round(sum(samples) / len(samples), 1),
+                "speed_kmh_max": round(max(samples), 1),
+            })
+        return meta
+
+    def _update_calibrated_measurement(self, state: _PassageState, det: Dict[str, object]) -> MeasurementResult:
+        info = det.get("_line_speed_info")
+        if not isinstance(info, dict):
+            return state.calibrated_measurement
+        if bool(info.get("speed_sample_fresh")):
+            try:
+                sample = float(info.get("speed_instant_kmh"))
+            except (TypeError, ValueError):
+                sample = 0.0
+            if math.isfinite(sample) and sample > 0:
+                state.calibrated_samples.append(sample)
+        samples = list(state.calibrated_samples)
+        meta = self._calibrated_meta(state)
+        if len(samples) >= self.calibrated_min_samples:
+            recent = samples[-self.calibrated_smooth_samples :]
+            speed_kmh = round(_median(recent), 1)
+            state.calibrated_measurement = MeasurementResult(
+                speed_status="measured",
+                speed_kmh=speed_kmh,
+                speed_method="detection_first_calibrated",
+                direction=None,
+                measurement_meta={**meta, "window_samples": len(recent)},
+            )
+        elif samples:
+            state.calibrated_measurement = MeasurementResult(
+                speed_status="measuring",
+                speed_method="detection_first_calibrated",
+                measurement_meta=meta,
+            )
+        return state.calibrated_measurement
+
+    @staticmethod
+    def _select_measurement(gate: MeasurementResult, calibrated: MeasurementResult) -> MeasurementResult:
+        if gate.speed_status == "measured":
+            return gate
+        if calibrated.speed_status == "measured":
+            return calibrated
+        return gate
+
     def _finalize(self, passage_id: str, ts: float) -> Dict[str, object]:
         state = self._active.pop(passage_id)
-        state.measurement = state.estimator.finalize()
+        gate_final = state.estimator.finalize()
+        if gate_final.speed_status == "measured":
+            state.measurement = gate_final
+        elif state.calibrated_measurement.speed_status == "measured":
+            state.measurement = state.calibrated_measurement
+        elif state.calibrated_samples:
+            state.measurement = MeasurementResult(
+                speed_status="incomplete",
+                speed_method="detection_first_calibrated",
+                measurement_meta=self._calibrated_meta(state),
+            )
+        else:
+            state.measurement = gate_final
         state.status = "completed"
         state.completed_at = max(float(ts), state.last_seen_at)
         for track_id in list(state.track_fragments):
@@ -389,6 +476,7 @@ class WaterPassageEngine:
             estimator=self.estimator_factory(),
             observations=deque(maxlen=self.max_observations),
             track_fragments=[track_id],
+            calibrated_samples=deque(maxlen=self.calibrated_max_samples),
         )
         self._active[passage_id] = state
         self._track_to_passage[track_id] = passage_id
@@ -428,7 +516,9 @@ class WaterPassageEngine:
             state.last_seen_at = now
             state.last_anchor = anchor
             state.confidence = max(state.confidence, confidence)
-            state.measurement = state.estimator.update(observation)
+            gate_measurement = state.estimator.update(observation)
+            calibrated_measurement = self._update_calibrated_measurement(state, det)
+            state.measurement = self._select_measurement(gate_measurement, calibrated_measurement)
             state.status = "measured" if state.measurement.speed_status == "measured" else "measuring"
             area = max(1.0, (x2 - x1) * (y2 - y1))
             snapshot_score = confidence * area
