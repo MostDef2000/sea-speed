@@ -2,12 +2,15 @@
 
 - Specification: `specs/074-water-detection-recall-evidence/spec.md`
 - Issue: #346
-- Status: Active
+- Status: Active - Task 3A complete; Task 3B evidence interpretation in progress
 - Original branch: `issue-346-water-recall-evidence`
 - Original authorization base: `739947c11471c746e74af0dfee4d9a5edd0d7bac`
 - Remediation branch: `issue-346-water-recall-ipc-remediation`
 - Remediation authorization base: `7b9902adca65d43151de629d15e526a5f79d3899`
-- Scope: Ubuntu Worker REQUIRED; VPS NOT REQUIRED; observability-only, no detection decision change.
+- Task 3B branch: `issue-346-water-recall-evidence-interpretation`
+- Task 3B authorization base: `ea6f1e9d15252840d27721f004817ba35f11d0c6`
+- Task 3B scope identity: `issue-346-task3b-water-recall-evidence-interpretation-v1`
+- Task 3B contour: Ubuntu Worker READ-ONLY EVIDENCE REQUIRED; VPS NOT REQUIRED; deployment NOT REQUIRED; repository changes limited to SDD 074.
 
 ## Architecture
 
@@ -21,7 +24,7 @@ ROI mask before inference
   -> Water passage/live processing
 ```
 
-Task 3A adds a decision-neutral side-channel. On the direct/in-process path the detector produces both accepted detections and diagnostic records from the same result. Production Ubuntu uses an isolated child and therefore carries the same split through its existing bounded framed IPC:
+Task 3A adds a decision-neutral side-channel. Production Ubuntu carries the same split through its existing bounded framed IPC:
 
 ```text
 Ubuntu parent supervisor
@@ -39,7 +42,7 @@ Ubuntu parent supervisor
   -> one secret-free WATER_RECALL_DIAGNOSTIC line per bounded interval
 ```
 
-The diagnostic term `post_threshold_raw` is deliberately precise: Ultralytics has already applied the configured `conf` threshold inside the existing `model.track` call. This stage does not run shadow inference at a lower threshold because a second inference/tracker pass could change GPU load or persistent tracker state. If daytime evidence cannot explain misses, a separate authorized experiment is required.
+The diagnostic term `post_threshold_raw` is deliberately precise: Ultralytics has already applied the configured `conf` threshold inside the existing `model.track` call. Task 3B does not run shadow inference at a lower threshold because a second inference/tracker pass could change GPU load or persistent tracker state. If representative evidence cannot explain misses, the result is `INCONCLUSIVE` and a separate authorized experiment is required.
 
 ## Decisions
 
@@ -47,92 +50,129 @@ The diagnostic term `post_threshold_raw` is deliberately precise: Ultralytics ha
 
 - Decision: extend `detect_vehicles` with an optional list sink that records model outputs while returning the same accepted detections.
 - Reason: exposes class/confidence/bbox/track evidence with no second inference and no API/schema change.
-- Alternatives rejected: a second low-confidence `model.predict/track` pass, because it changes runtime cost and could perturb persistent tracking; publishing diagnostics through the API, because Task 3A does not authorize API/storage changes.
+- Status: IMPLEMENTED and production accepted in Task 3A.
 
 ### D-074-002 - Reuse the existing ROI predicate
 
 - Decision: compute diagnostic ROI relation with `detection_inside_road_roi(..., roi_points)` and derive final acceptance from the actual post-filter list.
-- Reason: diagnostics must describe current semantics rather than implement a parallel approximation.
-- Alternatives rejected: geometric IoU/intersection diagnostics as the acceptance predicate, because production currently filters by bbox center and changing that belongs to later evidence-based tuning.
+- Reason: diagnostics describe current semantics rather than implement a parallel approximation.
+- Status: IMPLEMENTED and production accepted in Task 3A.
 
 ### D-074-003 - Bounded local structured logging
 
 - Decision: emit `WATER_RECALL_DIAGNOSTIC <compact-json>` at most once per configurable interval, default 10 seconds, and cap records per emission, default 12 and hard-capped at 50.
 - Reason: evidence is retrievable from Worker runtime logs without increasing API/storage surface or unbounded log volume.
-- Alternatives rejected: per-frame logging and image/crop persistence because both are unnecessarily expensive and increase data exposure.
+- Status: IMPLEMENTED and production accepted in Task 3A.
 
 ### D-074-004 - Carry diagnostics through the existing Ubuntu inference IPC
 
-- Decision: the Ubuntu AI child serializes two logical outputs from the same single `model.track()` result: the exact pre-existing accepted detection list and a separate diagnostic list. The parent validates both in the existing <=4 MiB framed response and forwards diagnostics only when an optional sink is supplied.
-- Reason: production executes inference in `ubuntu_ai_inference_worker.py`; the original 3A implementation only instrumented the in-process detector and its monkey-patch call signature was incompatible with the new keyword argument.
-- Alternatives rejected: suppressing the diagnostics keyword on Ubuntu, because class-map rejects would remain invisible; running another inference pass, because it changes runtime behavior; changing deployment/runtime verifier scripts, because the failure is source-path compatibility, not deployment infrastructure.
+- Decision: the Ubuntu AI child serializes the exact pre-existing accepted detection list and a separate diagnostic list from the same single `model.track()` result. The parent validates both inside the existing <=4 MiB framed response and forwards diagnostics only when an optional sink is supplied.
+- Reason: production executes inference in `ubuntu_ai_inference_worker.py`; the original 3A implementation instrumented only the in-process path and its monkey-patch call signature was incompatible with the new keyword argument.
+- Status: IMPLEMENTED by PR #358 and production accepted at exact main `ea6f1e9d15252840d27721f004817ba35f11d0c6`.
+
+### D-074-005 - Task 3B is read-only evidence interpretation
+
+- Decision: do not change Worker code, detector parameters, class map, ROI or tracker in Task 3B. Observe only existing bounded diagnostic records from the accepted Worker, reconcile SDD 074 with completed Task 3A delivery evidence, and classify the dominant observed loss stage or `INCONCLUSIVE`.
+- Reason: the Issue requires evidence before tuning, and Task 3A already provides the production-safe observability surface.
+- Alternatives rejected: tuning from visual intuition; adding a diagnostic deployment; adding a second inference pass; widening SDD-only source scope.
 
 ## Affected contours
 
+### Task 3A completed contours
+
 - Repository original 3A: `worker/hls_motion_yolo_worker_events.py`, `tests/test_worker_tracking_overlay.py`, SDD 074.
-- Repository remediation: `worker/ubuntu_worker_entrypoint.py`, `worker/ubuntu_ai_inference_worker.py`, `tests/test_water_recall_ubuntu_ipc.py`, and SDD 074. `worker/hls_motion_yolo_worker_events.py` remains within the authorized remediation scope but requires no semantic change unless validation exposes one.
-- VPS: NONE / deployment NOT REQUIRED.
-- Ubuntu Worker: REQUIRED exact-main release because production Worker source changes.
-- Public interfaces: NONE; internal framed child response gains only optional diagnostics data.
-- Road: two-argument `detect_vehicles` calls remain valid because the monkey patch defaults `diagnostics=None`; Road detector/class/tracker semantics do not change.
+- Repository remediation: `worker/ubuntu_worker_entrypoint.py`, `worker/ubuntu_ai_inference_worker.py`, `tests/test_water_recall_ubuntu_ipc.py`, and SDD 074.
+- Ubuntu Worker: exact-main release REQUIRED and completed.
+- VPS: NOT REQUIRED and skipped.
+- Public interfaces: unchanged.
+- Road: two-argument detector compatibility preserved; Road desired runtime state remained stopped during rollout.
+
+### Task 3B current contours
+
+- Repository: only `specs/074-water-detection-recall-evidence/spec.md`, `plan.md`, `tasks.md`.
+- Ubuntu Worker: read-only evidence observation of accepted source `ea6f1e9d15252840d27721f004817ba35f11d0c6`.
+- VPS: none.
+- Deployment/runtime mutation: none.
+- Protected source: all `worker/**`, detector/tracker/ROI configuration, speed/PassageEngine, API/storage/frontend, Road and deployment tooling.
 
 ## Validation
 
-- Static/CI: SDD validation, Change Contract validation, Python syntax, repository behavioral suite, exact changed-file review.
-- Unit/integration: accepted detection serialization equality; class-map reject visibility only in diagnostics; parent optional sink compatibility; one `model.track` source call; existing bounded log tests; Road regressions.
-- Runtime acceptance: protected exact-main Ubuntu Worker must complete AI self-test, enter `Worker started`, advance frame/state counters and satisfy `frame_and_state_progression=PASS`. VPS must skip. Real-vessel diagnostic sampling may remain deferred while no representative traffic exists.
+### Completed Task 3A validation
+
+- Exact remediation head: `dd341242e54f4e01382e2322e9571ec407cd295a`.
+- PR Validation run `33251179588`: PASS.
+- Quality integration run `33251179586`: PASS.
+- Exact-green-head merge: PR #358 -> protected main `ea6f1e9d15252840d27721f004817ba35f11d0c6`.
+- Exact-main Repository validation run `33251243227`: PASS.
+- Exact-main quality-integration run `33251243310`: PASS.
+- Autonomous production deployment run `33251264466`: PASS.
+- Ubuntu Worker contour: REQUIRED/executed/PASS; VPS contour: SKIPPED.
+- Runtime gate: frames `17 -> 33`, successful state posts `4 -> 9`, AI inference successes `29 -> 54`, `frame_and_state_progression=PASS`.
+- Deployment artifact ID `9714438874`; evidence ZIP digest `sha256:66556adea96476163403a1440fd7bdb1aa3c24a07945dce02ab36699e708c1e5`.
+
+### Task 3B validation
+
+- Source review: branch diff must contain only the three SDD 074 paths.
+- SDD validation and normal repository CI remain authoritative for the documentation-only PR.
+- Runtime observation: bounded read-only `WATER_RECALL_DIAGNOSTIC` records from `sea-speed-worker.service` while representative Water traffic is visible.
+- Evidence interpretation: compare accepted and missed/unstable examples across post-threshold detector visibility, class mapping acceptance, ROI-center relation/final acceptance and track continuity.
+- Honest terminal state: classify a supported dominant stage or record `INCONCLUSIVE`.
+- Tuning gate: no detector/tracker/ROI/class-map behavior change inside this task.
 
 ## Risk profile
 
-- Risk profile: NOT REQUIRED
-
-The remediation changes an internal supervised inference response and call signature but does not change security boundaries, schemas/migrations, destructive behavior, detector/tracker/ROI decisions, calibration/speed formulas or topology. IPC is already framed and capped at 4 MiB; no second inference is added. Production rollout remains transactional with automatic restoration of the prior runtime-verified Worker on activation failure.
+- Task 3A remediation risk profile: NOT REQUIRED; completed under the existing transactional Ubuntu rollout.
+- Task 3B risk profile: NOT REQUIRED. Repository changes are SDD-only and production observation is read-only, bounded and secret-free. No deployment, restart, schema, destructive operation, inference configuration change or public API change is admitted.
 
 ## Test design
 
-- TEST-074-001 | Covers: AC-001,NFR-001 | Level: unit | Priority: P0 | Evidence: `tests/test_worker_tracking_overlay.py::test_recall_diagnostics_sink_does_not_change_detector_result`
-- TEST-074-002 | Covers: AC-002,AC-003,NFR-003,NFR-004 | Level: unit | Priority: P0 | Evidence: `tests/test_worker_tracking_overlay.py::test_water_recall_diagnostics_are_bounded_and_stage_explicit`
-- TEST-074-003 | Covers: AC-004,NFR-002 | Level: unit | Priority: P0 | Evidence: bounded interval/truncation assertions and one-pass source contract
-- TEST-074-004 | Covers: AC-005,AC-008 | Level: integration | Priority: P0 | Evidence: exact base-to-head changed-file comparison and protected-path review
-- TEST-074-005 | Covers: AC-006 | Level: integration | Priority: P0 | Evidence: exact-head PR Validation/quality-integration and exact-main push checks
-- TEST-074-006 | Covers: AC-007 | Level: end-to-end | Priority: P0 | Evidence: protected Ubuntu Worker deployment manifest, exact release artifact and execution audit with runtime progression PASS
-- TEST-074-007 | Covers: daytime evidence collection | Level: runtime-manual | Priority: P1 | Evidence: representative `WATER_RECALL_DIAGNOSTIC` log samples when vessel traffic is available; explicitly deferrable in Task 3A
-- TEST-074-008 | Covers: FR-009,FR-010,AC-009,NFR-001,NFR-002,NFR-003,NFR-004 | Level: integration | Priority: P0 | Evidence: `tests/test_water_recall_ubuntu_ipc.py`
+- TEST-074-001 | Covers: AC-001,NFR-001 | Level: unit | Priority: P0 | Evidence: `tests/test_worker_tracking_overlay.py::test_recall_diagnostics_sink_does_not_change_detector_result` | Status: PASS
+- TEST-074-002 | Covers: AC-002,AC-003,NFR-003,NFR-004 | Level: unit | Priority: P0 | Evidence: `tests/test_worker_tracking_overlay.py::test_water_recall_diagnostics_are_bounded_and_stage_explicit` | Status: PASS
+- TEST-074-003 | Covers: AC-004,NFR-002 | Level: unit | Priority: P0 | Evidence: bounded interval/truncation assertions and one-pass source contract | Status: PASS
+- TEST-074-004 | Covers: AC-005,AC-008 | Level: integration | Priority: P0 | Evidence: exact base-to-head changed-file comparison and protected-path review | Status: PASS for Task 3A; Task 3B scope review pending PR
+- TEST-074-005 | Covers: AC-006 | Level: integration | Priority: P0 | Evidence: exact-head PR Validation/quality-integration and exact-main push checks | Status: PASS for Task 3A
+- TEST-074-006 | Covers: AC-007 | Level: end-to-end | Priority: P0 | Evidence: protected Ubuntu Worker deployment manifest, exact release artifact and execution audit with runtime progression PASS | Status: PASS
+- TEST-074-007 | Covers: AC-011 daytime evidence interpretation | Level: runtime-manual | Priority: P1 | Evidence: representative `WATER_RECALL_DIAGNOSTIC` log samples and durable stage classification or `INCONCLUSIVE` | Status: PENDING
+- TEST-074-008 | Covers: FR-009,FR-010,AC-009,NFR-001,NFR-002,NFR-003,NFR-004 | Level: integration | Priority: P0 | Evidence: `tests/test_water_recall_ubuntu_ipc.py` | Status: PASS
+- TEST-074-009 | Covers: AC-010 | Level: delivery-control | Priority: P0 | Evidence: SDD records exact-head/main/deployment evidence from canonical Issue #346 | Status: IN PROGRESS in Task 3B
 
 ## Correct-course check
 
-- Trigger: PRODUCTION_LEARNING
-- Issue impact: #346 Task 3A remains evidence-only; production rollout of the first implementation failed twice and automatically restored the accepted Worker.
-- Specification impact: production Ubuntu child/parent IPC is now explicitly part of the observability contract.
-- Plan impact: add only the internal child diagnostics field and optional parent sink plumbing; keep detector/tracker/ROI behavior protected.
-- Tasks impact: add remediation implementation/test/gates before retrying deployment.
-- Authorization impact: a fresh six-field remediation Scope was approved from protected main `7b9902adca65d43151de629d15e526a5f79d3899`; the additional Ubuntu source paths are therefore admitted. Recall tuning remains unauthorized.
-- Root cause: `ubuntu_worker_entrypoint.py` replaced `detect_vehicles` with a two-argument function, while Water invoked `diagnostics=...`; `ubuntu_ai_inference_worker.py` also discarded class-map rejects before the parent could observe them.
-- Follow-up: after a runtime-verified remediation, use daytime evidence to decide whether any later recall change concerns class mapping, ROI, resolution/confidence or tracker configuration.
+- Trigger: PRODUCTION_LEARNING followed by durable-state reconciliation.
+- Original learning: first Task 3A source passed source/quality and AI self-test but failed when the first Water frame invoked an incompatible two-argument detector monkey-patch; Ubuntu child IPC also dropped class-map rejects.
+- Remediation result: PR #358 fixed only the production child/parent IPC path and passed exact source, quality and protected Ubuntu runtime progression.
+- Current production source: `ea6f1e9d15252840d27721f004817ba35f11d0c6` accepted.
+- SDD reconciliation impact: stale PENDING statements for Task 3A are replaced with exact completed evidence. This does not reopen the completed remediation or authorize further Worker changes.
+- Task 3B authorization impact: only representative evidence interpretation and three SDD paths are admitted. Recall tuning remains unauthorized.
+- Current external dependency: representative Water traffic plus access to the existing Worker journal. The deployment workflow does not export service journal contents, so its lack of `WATER_RECALL_DIAGNOSTIC` lines cannot classify recall.
 
 ## Deployment transaction audit
 
-- TX-074-001 | Stage: ADMISSION | Mutation: NO | Failure disposition: FATAL | State after failure: current production Worker unchanged | Retry: after authorization/contract evidence is corrected | Rollback: NOT REQUIRED because mutation has not started | Evidence: #346 exact `OUTCOME APPROVED` receipts
-- TX-074-002 | Stage: PRE-MUTATION | Mutation: NO | Failure disposition: FATAL | State after failure: current production Worker unchanged | Retry: after exact-head/exact-main gates are green | Rollback: NOT REQUIRED | Evidence: protected main and Quality evidence
-- TX-074-003 | Stage: MUTATION | Mutation: YES | Failure disposition: FATAL | State after failure: candidate release must not be accepted on deployment failure | Retry: protected exact-source deploy after bounded diagnosis | Rollback: previous runtime-verified Ubuntu Worker release | Evidence: Ubuntu deployment protocol
-- TX-074-004 | Stage: VERIFICATION | Mutation: POSSIBLE | Failure disposition: FATAL | State after failure: candidate remains non-terminal if runtime/source verification fails | Retry: after remediation or rollback | Rollback: previous accepted Worker release | Evidence: deployment manifest and runtime gate
-- TX-074-005 | Stage: STATE-COMMIT | Mutation: YES | Failure disposition: FATAL | State after failure: candidate must not be recorded accepted | Retry: exact same verified source only | Rollback: restore prior release pointer/runtime | Evidence: accepted deployment manifest/audit
-- TX-074-006 | Stage: HOUSEKEEPING | Mutation: POSSIBLE | Failure disposition: BEST-EFFORT | State after failure: verified runtime state preserved | Retry: independently | Rollback: NOT REQUIRED solely for housekeeping failure | Evidence: cleanup warning if any
-- TX-074-007 | Stage: EVIDENCE | Mutation: NO | Failure disposition: CONDITIONAL | State after failure: deployed instrumentation remains valid while representative vessel evidence is deferred | Retry: collect logs when traffic exists | Rollback: only if runtime verification or boundedness fails | Evidence: exact deployment evidence plus later diagnostic sample
-- TX-074-008 | Stage: ROLLBACK | Mutation: YES | Failure disposition: FATAL | State after failure: incident remains open until previous Worker release is verified | Retry: protected rollback after diagnosis | Rollback: previous accepted Ubuntu Worker release | Evidence: rollback manifest/audit if invoked
-
-- Adjacent-stage review: COMPLETE
-- Production-learning root cause: the Ubuntu production entrypoint exposed an incompatible two-argument detector monkey-patch and the child IPC removed class-map rejects before Task 3A diagnostics could observe them.
-- Production-learning adjacent-stage findings: deployment transport, source protection and AI self-test all passed; failure occurred only when the first actual Water frame entered the incompatible monkey-patched detector call. Deployment tooling therefore remains protected and unchanged.
+- TX-074-001 | Stage: ADMISSION | Mutation: NO | Failure disposition: FATAL | Evidence: #346 exact `OUTCOME APPROVED` receipts | Status: PASS
+- TX-074-002 | Stage: PRE-MUTATION | Mutation: NO | Failure disposition: FATAL | Evidence: exact protected source and quality | Status: PASS
+- TX-074-003 | Stage: TASK3A MUTATION | Mutation: YES | Failure disposition: FATAL | Rollback: previous runtime-verified Worker | Status: PASS after remediation
+- TX-074-004 | Stage: TASK3A VERIFICATION | Mutation: POSSIBLE | Failure disposition: FATAL | Evidence: deployment manifest/runtime gate | Status: PASS
+- TX-074-005 | Stage: TASK3A STATE-COMMIT | Mutation: YES | Failure disposition: FATAL | Evidence: accepted deployment manifest/audit | Status: PASS
+- TX-074-006 | Stage: HOUSEKEEPING | Mutation: POSSIBLE | Failure disposition: BEST-EFFORT | Status: RESOLVED / non-blocking
+- TX-074-007 | Stage: TASK3B EVIDENCE | Mutation: NO | Failure disposition: CONDITIONAL | State while unavailable: accepted Worker remains unchanged; retry observation when representative traffic exists | Evidence: bounded diagnostic sample | Status: PENDING
+- TX-074-008 | Stage: ROLLBACK | Mutation: YES | Applies only to Task 3A deployment failure; no rollback is relevant to Task 3B read-only observation | Status: NOT REQUIRED for Task 3B
 
 ## Rollout and rollback
 
-- Rollout: remediation exact-head PR gates -> fresh merge probe -> exact-green-head merge -> exact-main Repository/Quality -> protected Ubuntu Worker exact-main deployment; VPS skipped. Representative vessel log sampling may occur later without a new deployment.
-- Rollback: protected updater automatically restores the previous runtime-verified Ubuntu Worker release if activation/runtime progression fails. Prior accepted production source before remediation is `739947c11471c746e74af0dfee4d9a5edd0d7bac`; no data migration is involved.
+### Task 3A
+
+Completed: exact-head gates -> fresh merge probe -> exact-green-head merge -> exact-main Repository/Quality -> protected Ubuntu Worker deployment -> runtime progression PASS. VPS skipped. Accepted source is `ea6f1e9d15252840d27721f004817ba35f11d0c6`.
+
+### Task 3B
+
+There is no production rollout. Merge only the SDD reconciliation after required PR checks. Production observation reads existing bounded diagnostic output from the already accepted Worker. No rollback target is needed because Task 3B performs no runtime mutation.
 
 ## Runtime feedback
 
-- Actual architecture learned from failed rollout: Ubuntu production inference is isolated in `ubuntu_ai_inference_worker.py`, with `ubuntu_worker_entrypoint.py` replacing the generic detector function.
-- First 3A candidate `7b9902adca65d43151de629d15e526a5f79d3899` failed twice with `no_exact_running_baseline` after `ai_inference_ready=true`; both attempts restored `739947c11471c746e74af0dfee4d9a5edd0d7bac`.
-- Remediation architecture: PENDING exact-head validation and exact-main deployment.
-- Deferred cleanup: representative Water vessel diagnostic samples remain intentionally deferred until traffic exists; no threshold/class/ROI/tracker tuning is admitted by that deferral.
+- First 3A candidate `7b9902adca65d43151de629d15e526a5f79d3899` failed twice at runtime progression and restored `739947c11471c746e74af0dfee4d9a5edd0d7bac`.
+- PR #358 remediation exact head `dd341242e54f4e01382e2322e9571ec407cd295a` passed PR Validation `33251179588` and quality-integration `33251179586`.
+- Remediation merged to `ea6f1e9d15252840d27721f004817ba35f11d0c6`; exact-main runs `33251243227` and `33251243310` passed.
+- Deployment run `33251264466` passed with Ubuntu required/executed and VPS skipped. `frame_and_state_progression=PASS`; Worker active; accepted runtime source is `ea6f1e9d15252840d27721f004817ba35f11d0c6`.
+- Task 3A is source/deployment/runtime COMPLETE.
+- Task 3B representative diagnostic sampling is PENDING. The existing deployment Actions log reports gate counters but does not export `sea-speed-worker.service` journal lines.
+- No threshold/class/ROI/tracker tuning is admitted until representative evidence is reviewed and a separate tuning Scope is approved.
