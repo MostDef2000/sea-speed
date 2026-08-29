@@ -72,8 +72,9 @@ class FrontendContractTests(unittest.TestCase):
         )
         self.assertNotIn('Чистый поток', self.source)
         self.assertNotIn('id="cxSummary"', self.source)
-        self.assertEqual(self.source.count('id="video"'), 1)
-        self.assertIn('class="stream-probe"', self.source)
+        self.assertEqual(self.source.count('id="waterMainVideo"'), 1)
+        self.assertEqual(self.source.count('id="video"'), 0)
+        self.assertNotIn('class="stream-probe"', self.source)
         ids = re.findall(r'\bid="([^"]+)"', self.source)
         self.assertEqual(len(ids), len(set(ids)))
 
@@ -111,6 +112,32 @@ class FrontendContractTests(unittest.TestCase):
         self.assertIn('grid-template-areas:"camera right" "controls right"', self.source)
         self.assertIn('grid-template-areas:"camera" "right" "controls"', self.source)
         self.assertIn('@media(max-width:430px)', self.source)
+
+    def test_water_uses_one_hls_player_bound_to_main_video(self) -> None:
+        self.assertEqual(self.source.count('new Hls('), 1)
+        self.assertIn('instance.attachMedia(waterMainVideo)', self.source)
+        self.assertIn('window.hls=instance;window.waterHls=instance', self.source)
+        self.assertNotIn('waterHls=new Hls(', self.source)
+        self.assertNotIn('instance.attachMedia(video)', self.source)
+        self.assertNotIn('video.currentTime', self.source)
+        self.assertNotIn('video.addEventListener(', self.source)
+        self.assertIn('waterMainVideo.addEventListener("timeupdate",notePlaybackProgress)', self.source)
+        self.assertIn('waterMainVideo.addEventListener("waiting",()=>schedulePlaybackWatchdog("waiting timeout"))', self.source)
+        self.assertIn('waterMainVideo.addEventListener("stalled",()=>schedulePlaybackWatchdog("stalled timeout"))', self.source)
+
+    def test_water_worker_lifecycle_only_controls_ai_overlay(self) -> None:
+        self.assertIn('AI worker stopped; live HLS unchanged', self.source)
+        self.assertIn('if(!workerServiceActive)window.clearWaterLiveOverlay?.()', self.source)
+        self.assertIn('window.clearWaterLiveOverlay=()=>{', self.source)
+        self.assertIn('if(workerServiceActive===false){clearLive();return}', self.source)
+        self.assertNotRegex(self.source, r'toggleWorker\([^)]*\).*connectStream')
+        self.assertNotRegex(self.source, r'toggleWorker\([^)]*\).*disconnectStream')
+
+    def test_water_overlay_snapshot_is_bounded_fallback_only(self) -> None:
+        self.assertIn('lastFallbackOverlayUrl=""', self.source)
+        self.assertIn('if(s.last_overlay_url&&!playbackIsAdvancing(STREAM_RECOVERY_GRACE_MS))', self.source)
+        self.assertIn('if(fallbackUrl&&fallbackUrl!==lastFallbackOverlayUrl)', self.source)
+        self.assertNotIn('if(s.last_overlay_url)overlayImg.src=', self.source)
 
     def test_road_page_uses_logical_road1_and_generic_analytics_api(self) -> None:
         for marker in (
