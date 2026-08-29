@@ -117,7 +117,8 @@ class QualityArchitectureTests(unittest.TestCase):
             self.assertIn("frontend/sea-speed/road/index.html", vps_paths)
             for marker in (
                 "deploy/vps/sea-speed-auth-cutover.sh", "deploy/vps/install-auth-privilege-boundary.sh",
-                "deploy/vps/sea-speed-auth-privileged-helper.py", "scripts/operations/nginx_cam1_direct_h264.py",
+                "deploy/vps/sea-speed-auth-privileged-helper.py", "deploy/vps/sea-speed-nginx-zerotier-wait.sh",
+                "deploy/vps/sea-speed-nginx-zerotier.conf", "scripts/operations/nginx_cam1_direct_h264.py",
                 "scripts/operations/nginx_sea_speed_auth.py",
             ):
                 self.assertIn(marker, vps_paths)

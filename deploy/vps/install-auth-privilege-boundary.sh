@@ -13,6 +13,9 @@ REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/../.." && pwd)"
 TEST_ROOT="${SEA_SPEED_PRIVILEGE_BOUNDARY_TEST_ROOT:-}"
 WATCHDOG_SERVICE="sea-speed-camera1-h264-freshness.service"
 WATCHDOG_TIMER="sea-speed-camera1-h264-freshness.timer"
+NGINX_WAIT_SERVICE="sea-speed-nginx-zerotier-wait"
+NGINX_DROPIN_DIR="nginx.service.d"
+NGINX_DROPIN_NAME="sea-speed-nginx-zerotier.conf"
 
 if [[ -n "$TEST_ROOT" ]]; then
   [[ "$TEST_ROOT" == /* && "$TEST_ROOT" != "/" ]] || { echo "ERROR test root must be an absolute non-root path" >&2; exit 2; }
@@ -54,6 +57,8 @@ AUTH_RENDERER_SOURCE="$REPO_ROOT/scripts/operations/nginx_sea_speed_auth.py"
 WATCHDOG_SOURCE="$REPO_ROOT/deploy/vps/camera1-h264-freshness-watchdog.py"
 WATCHDOG_SERVICE_SOURCE="$REPO_ROOT/deploy/vps/$WATCHDOG_SERVICE"
 WATCHDOG_TIMER_SOURCE="$REPO_ROOT/deploy/vps/$WATCHDOG_TIMER"
+NGINX_WAIT_SOURCE="$REPO_ROOT/deploy/vps/sea-speed-nginx-zerotier-wait.sh"
+NGINX_DROPIN_SOURCE="$REPO_ROOT/deploy/vps/$NGINX_DROPIN_NAME"
 for source in \
   "$HELPER_SOURCE" \
   "$CUTOVER_SOURCE" \
@@ -61,7 +66,9 @@ for source in \
   "$AUTH_RENDERER_SOURCE" \
   "$WATCHDOG_SOURCE" \
   "$WATCHDOG_SERVICE_SOURCE" \
-  "$WATCHDOG_TIMER_SOURCE"; do
+  "$WATCHDOG_TIMER_SOURCE" \
+  "$NGINX_WAIT_SOURCE" \
+  "$NGINX_DROPIN_SOURCE"; do
   [[ -f "$source" && ! -L "$source" ]] || { echo "ERROR required exact-source asset missing or unsafe: $source" >&2; exit 5; }
 done
 
@@ -72,6 +79,8 @@ SUDOERS_PATH="${PREFIX}/etc/sudoers.d/sea-speed-auth-privileged"
 WATCHDOG_PATH="${PREFIX}/usr/local/sbin/sea-speed-camera1-h264-freshness-watchdog"
 WATCHDOG_SERVICE_PATH="${PREFIX}/etc/systemd/system/$WATCHDOG_SERVICE"
 WATCHDOG_TIMER_PATH="${PREFIX}/etc/systemd/system/$WATCHDOG_TIMER"
+NGINX_WAIT_HELPER_PATH="${PREFIX}/usr/local/sbin/$NGINX_WAIT_SERVICE"
+NGINX_DROPIN_PATH="${PREFIX}/etc/systemd/system/$NGINX_DROPIN_DIR/$NGINX_DROPIN_NAME"
 TMP="$(mktemp -d)"
 BACKUP="$TMP/backup"
 STAGE="$TMP/stage"
@@ -79,11 +88,15 @@ MUTATED=0
 SUCCESS=0
 PREV_TIMER_ENABLED="not-found"
 PREV_TIMER_ACTIVE="inactive"
+PREV_NGINX_ENABLED="not-found"
+PREV_NGINX_ACTIVE="inactive"
 mkdir -p "$BACKUP" "$STAGE/repo/deploy/vps" "$STAGE/repo/scripts/operations"
 
 if [[ -z "$TEST_ROOT" ]]; then
   PREV_TIMER_ENABLED="$(systemctl is-enabled "$WATCHDOG_TIMER" 2>/dev/null || true)"
   PREV_TIMER_ACTIVE="$(systemctl is-active "$WATCHDOG_TIMER" 2>/dev/null || true)"
+  PREV_NGINX_ENABLED="$(systemctl is-enabled nginx.service 2>/dev/null || true)"
+  PREV_NGINX_ACTIVE="$(systemctl is-active nginx.service 2>/dev/null || true)"
 fi
 
 backup_path() {
@@ -120,6 +133,24 @@ restore_timer_runtime() {
   fi
 }
 
+restore_nginx_runtime() {
+  [[ -z "$TEST_ROOT" ]] || return 0
+  systemctl daemon-reload >/dev/null 2>&1 || true
+  case "$PREV_NGINX_ENABLED" in
+    enabled|enabled-runtime|linked|linked-runtime|alias)
+      systemctl enable nginx.service >/dev/null 2>&1 || true
+      ;;
+    *)
+      systemctl disable nginx.service >/dev/null 2>&1 || true
+      ;;
+  esac
+  if [[ "$PREV_NGINX_ACTIVE" == "active" || "$PREV_NGINX_ACTIVE" == "activating" ]]; then
+    systemctl start nginx.service >/dev/null 2>&1 || true
+  else
+    systemctl stop nginx.service >/dev/null 2>&1 || true
+  fi
+}
+
 cleanup() {
   local rc=$?
   if [[ "$SUCCESS" -ne 1 && "$MUTATED" -eq 1 ]]; then
@@ -129,7 +160,10 @@ cleanup() {
     restore_path "$WATCHDOG_PATH" watchdog
     restore_path "$WATCHDOG_SERVICE_PATH" watchdog-service
     restore_path "$WATCHDOG_TIMER_PATH" watchdog-timer
+    restore_path "$NGINX_WAIT_HELPER_PATH" nginx-wait-helper
+    restore_path "$NGINX_DROPIN_PATH" nginx-dropin
     restore_timer_runtime
+    restore_nginx_runtime
     echo "SEA_SPEED_AUTH_PRIVILEGE_INSTALL_ROLLBACK=PASS" >&2
   fi
   rm -rf -- "$TMP"
@@ -144,6 +178,8 @@ install -m 0644 "$AUTH_RENDERER_SOURCE" "$STAGE/repo/scripts/operations/nginx_se
 install -m 0755 "$WATCHDOG_SOURCE" "$STAGE/watchdog"
 install -m 0644 "$WATCHDOG_SERVICE_SOURCE" "$STAGE/watchdog.service"
 install -m 0644 "$WATCHDOG_TIMER_SOURCE" "$STAGE/watchdog.timer"
+install -m 0755 "$NGINX_WAIT_SOURCE" "$STAGE/nginx-wait-helper"
+install -m 0644 "$NGINX_DROPIN_SOURCE" "$STAGE/nginx-dropin"
 
 python3 - "$STAGE/manifest.json" "$SOURCE_SHA" "$STAGE/helper" "$STAGE/repo" <<'PY'
 import hashlib
@@ -180,12 +216,21 @@ EOF
 chmod 0440 "$STAGE/sudoers"
 visudo -cf "$STAGE/sudoers" >/dev/null
 
+if [[ -z "$TEST_ROOT" ]]; then
+  # Do not mutate the root-owned boundary unless the exact fixed address is
+  # currently available. The installed systemd boundary owns later retries.
+  bash "$NGINX_WAIT_SOURCE"
+  echo "NGINX_ZEROTIER_PREMUTATION=PASS"
+fi
+
 backup_path "$HELPER_PATH" helper
 backup_path "$BUNDLE_ROOT" bundle
 backup_path "$SUDOERS_PATH" sudoers
 backup_path "$WATCHDOG_PATH" watchdog
 backup_path "$WATCHDOG_SERVICE_PATH" watchdog-service
 backup_path "$WATCHDOG_TIMER_PATH" watchdog-timer
+backup_path "$NGINX_WAIT_HELPER_PATH" nginx-wait-helper
+backup_path "$NGINX_DROPIN_PATH" nginx-dropin
 MUTATED=1
 
 mkdir -p \
@@ -193,7 +238,9 @@ mkdir -p \
   "$(dirname "$BUNDLE_ROOT")" \
   "$(dirname "$SUDOERS_PATH")" \
   "$(dirname "$WATCHDOG_PATH")" \
-  "$(dirname "$WATCHDOG_SERVICE_PATH")"
+  "$(dirname "$WATCHDOG_SERVICE_PATH")" \
+  "$(dirname "$NGINX_WAIT_HELPER_PATH")" \
+  "$(dirname "$NGINX_DROPIN_PATH")"
 rm -rf -- "${BUNDLE_ROOT}.next"
 mkdir -p "${BUNDLE_ROOT}.next"
 cp -a "$STAGE/repo" "${BUNDLE_ROOT}.next/repo"
@@ -217,6 +264,11 @@ install -o "$INSTALL_UID" -g "$INSTALL_GID" -m 0644 "$STAGE/watchdog.service" "$
 mv -f "${WATCHDOG_SERVICE_PATH}.next" "$WATCHDOG_SERVICE_PATH"
 install -o "$INSTALL_UID" -g "$INSTALL_GID" -m 0644 "$STAGE/watchdog.timer" "${WATCHDOG_TIMER_PATH}.next"
 mv -f "${WATCHDOG_TIMER_PATH}.next" "$WATCHDOG_TIMER_PATH"
+install -o "$INSTALL_UID" -g "$INSTALL_GID" -m 0755 "$STAGE/nginx-wait-helper" "${NGINX_WAIT_HELPER_PATH}.next"
+mv -f "${NGINX_WAIT_HELPER_PATH}.next" "$NGINX_WAIT_HELPER_PATH"
+mkdir -p "$(dirname "$NGINX_DROPIN_PATH")"
+install -o "$INSTALL_UID" -g "$INSTALL_GID" -m 0644 "$STAGE/nginx-dropin" "${NGINX_DROPIN_PATH}.next"
+mv -f "${NGINX_DROPIN_PATH}.next" "$NGINX_DROPIN_PATH"
 
 if [[ "${SEA_SPEED_PRIVILEGE_BOUNDARY_TEST_FAIL_AFTER_INSTALL:-0}" == "1" && -n "$TEST_ROOT" ]]; then
   echo "ERROR injected post-install test failure" >&2
@@ -238,8 +290,12 @@ if [[ -z "$TEST_ROOT" ]]; then
   systemctl is-enabled --quiet "$WATCHDOG_TIMER"
   systemctl is-active --quiet "$WATCHDOG_TIMER"
   echo "CAMERA1_FRESHNESS_TIMER=ACTIVE"
+  systemctl restart nginx.service
+  systemctl is-active --quiet nginx.service
+  echo "NGINX_ZEROTIER_STARTUP=ACTIVE"
 else
   echo "CAMERA1_FRESHNESS_TIMER=TEST_ROOT_NOT_ACTIVATED"
+  echo "NGINX_ZEROTIER_STARTUP=TEST_ROOT_NOT_ACTIVATED"
 fi
 
 SUCCESS=1
@@ -252,3 +308,5 @@ echo "PRIVILEGED_TOPOLOGY=FIXED"
 echo "CAMERA1_FRESHNESS_WATCHDOG=INSTALLED"
 echo "CAMERA1_FRESHNESS_SERVICE=$WATCHDOG_SERVICE"
 echo "CAMERA1_FRESHNESS_TIMER_UNIT=$WATCHDOG_TIMER"
+echo "NGINX_ZEROTIER_WAIT_HELPER=INSTALLED"
+echo "NGINX_ZEROTIER_DROPIN=INSTALLED"
