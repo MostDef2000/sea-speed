@@ -6,6 +6,7 @@
 - Original branch: `issue-346-water-recall-evidence`
 - Original authorization: Task 3A `OUTCOME APPROVED` from exact protected main `739947c11471c746e74af0dfee4d9a5edd0d7bac`.
 - Remediation branch: `issue-346-water-recall-ipc-remediation`
+- Remediation PR: #358
 - Remediation authorization: `OUTCOME APPROVED` from exact protected main `7b9902adca65d43151de629d15e526a5f79d3899` for scope `issue-346-task3a-ubuntu-diagnostic-ipc-remediation-v1`.
 - Runtime contour: Ubuntu Worker REQUIRED; VPS NOT REQUIRED.
 
@@ -23,7 +24,7 @@
 - [x] T010 Serialize accepted detections plus diagnostic records from the same single child `model.track()` result without changing accepted detection fields/values.
 - [x] T011 Make the Ubuntu parent supervisor and monkey-patched detector accept an optional diagnostic sink while preserving two-argument callers and the 4 MiB response bound.
 - [x] T012 Add deterministic remediation tests for accepted-output equality, diagnostic-only rejects, one inference call, sink compatibility, boundedness and secret exclusion.
-- [ ] T013 Verify exact remediation changed-file scope and SDD/Change Contract admission.
+- [x] T013 Verify exact remediation changed-file scope and SDD/Change Contract admission; base-to-head review contains only six authorized paths.
 - [ ] T014 Require exact remediation PR-head Repository validation and quality-integration green.
 - [ ] T015 Fresh-read main/head/scope/review state and merge only the exact green remediation head.
 - [ ] T016 Require exact-main Repository validation and quality-integration green.
@@ -47,7 +48,7 @@
 ## Definition of Done
 
 - [x] Issue/spec/plan/tasks current for remediation implementation
-- [ ] Exact remediation changed-file scope verified
+- [x] Exact remediation changed-file scope verified
 - [x] Required deterministic remediation tests authored
 - [ ] Required CI green
 - [ ] Exact-green-head remediation merge complete
