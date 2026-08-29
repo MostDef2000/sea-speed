@@ -156,23 +156,33 @@ class SystemdDropInTests(unittest.TestCase):
             self.skipTest("systemd-analyze is unavailable")
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            (root / "nginx.service.d").mkdir()
-            (root / "nginx.service").write_text(
-                "[Unit]\nDescription=test nginx\n"
+            unit_dir = root / "etc/systemd/system"
+            dropin_dir = unit_dir / "nginx.service.d"
+            dropin_dir.mkdir(parents=True)
+
+            helper_path = root / "usr/local/sbin/sea-speed-nginx-zerotier-wait"
+            helper_path.parent.mkdir(parents=True)
+            helper_path.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            helper_path.chmod(0o755)
+
+            true_path = root / "bin/true"
+            true_path.parent.mkdir(parents=True)
+            true_path.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            true_path.chmod(0o755)
+
+            (unit_dir / "nginx.service").write_text(
+                "[Unit]\nDescription=test nginx\nDefaultDependencies=no\n"
                 "[Service]\nType=oneshot\nExecStart=/bin/true\n",
                 encoding="utf-8",
             )
-            (root / "zerotier-one.service").write_text(
-                "[Unit]\nDescription=test zerotier\n"
+            (unit_dir / "zerotier-one.service").write_text(
+                "[Unit]\nDescription=test zerotier\nDefaultDependencies=no\n"
                 "[Service]\nType=oneshot\nExecStart=/bin/true\n",
                 encoding="utf-8",
             )
-            shutil.copy2(DROPIN, root / "nginx.service.d" / DROPIN.name)
-            env = os.environ.copy()
-            env["SYSTEMD_UNIT_PATH"] = str(root)
+            shutil.copy2(DROPIN, dropin_dir / DROPIN.name)
             result = subprocess.run(
-                [analyzer, "verify", "nginx.service"],
-                env=env,
+                [analyzer, f"--root={root}", "verify", "nginx.service"],
                 text=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
