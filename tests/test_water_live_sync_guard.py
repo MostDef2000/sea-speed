@@ -27,6 +27,13 @@ class WaterLiveSyncGuardTests(unittest.TestCase):
         self.assertNotIn('else if(liveBuffer.length)drawLive(liveBuffer[liveBuffer.length-1])', self.source)
         self.assertNotIn('drawLive(liveBuffer[liveBuffer.length-1])', self.source)
 
+    def test_media_time_matching_is_not_blocked_by_newest_envelope_age(self) -> None:
+        # HLS may legitimately trail the newest worker envelope. A matching
+        # historical envelope in liveBuffer must reach bracket/near selection
+        # instead of being rejected only because the newest item is >6s ahead.
+        self.assertNotIn('Math.abs(raw-(liveBuffer.length?Math.max(...liveBuffer.map(e=>getCaptureMs(e)||0)):0))>6000', self.source)
+        self.assertIn('const br=bracketForMedia(raw);', self.source)
+
     def test_valid_bracket_interpolation_and_single_hls_remain(self) -> None:
         self.assertIn('const br=bracketForMedia(raw);', self.source)
         self.assertIn('drawLive(interpolate(br.lo,br.hi,br.t))', self.source)
