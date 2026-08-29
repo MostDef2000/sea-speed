@@ -32,10 +32,9 @@ The change remains inside the existing static authenticated Water frontend. `fro
 
 ## Risk profile
 
-- Risk profile: REQUIRED
-- RISK-069-001 | Category: TECH | Probability: 3 | Impact: 4 | Score: 12 | Mitigation: preserve operational IDs/endpoints and HLS/live-overlay code while limiting layout changes to Water frontend | Validation: frontend contract tests plus exact diff review | Residual risk: responsive CSS or DOM relocation can still expose a browser-specific regression | Owner: Sea Speed Delivery Orchestrator | Status: MITIGATED
-- RISK-069-002 | Category: OPS | Probability: 2 | Impact: 4 | Score: 8 | Mitigation: deploy only through protected exact-main VPS pipeline with rollback to authorization-base main | Validation: exact-main Quality, deployment evidence, authenticated runtime checks | Residual risk: browser cache or production viewport differences may require a later bounded UI fix | Owner: Sea Speed Delivery Orchestrator | Status: MITIGATED
-- RISK-069-003 | Category: BUS | Probability: 2 | Impact: 3 | Score: 6 | Mitigation: crossing History reuses canonical registry UX and recent passages reuse current source data instead of introducing parallel behavior | Validation: direct-link registry test and runtime navigation check | Residual risk: latest-crossing timestamp remains unavailable until existing source evidence can support it | Owner: Sea Speed Delivery Orchestrator | Status: ACCEPTED
+- Risk profile: NOT REQUIRED
+
+The canonical Change Contract derives no full-risk trigger for this exact diff: production impact is VPS frontend only, while security impact, API/event/state/storage schema impact, destructive/data migration impact, and other high-risk triggers are all NONE/NO. Production deployment safety remains governed separately by the required VPS safety envelope and deployment transaction audit below.
 
 ## Test design
 
