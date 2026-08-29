@@ -161,6 +161,22 @@ class WorkerTrackingOverlayTests(unittest.TestCase):
         self.assertIn("cv2.addWeighted(", draw)
         self.assertIn("opacity = overlay_label_opacity()", draw)
 
+    def test_water_live_speed_is_owned_by_passage_state(self) -> None:
+        source = SOURCE.read_text(encoding="utf-8-sig")
+        start = source.index("if is_water and passage_engine is not None:")
+        end = source.index("crossing_snapshot = crossing_overlay_summary()", start)
+        water = source[start:end]
+        ingress = 'det["_line_speed_info"] = update_speed_lines_estimate(det)'
+        passage_update = "passage_updates = passage_engine.update(detections, now)"
+        self.assertIn(ingress, water)
+        self.assertIn(passage_update, water)
+        self.assertLess(water.index(ingress), water.index(passage_update))
+        self.assertIn('det["speed_kmh"] = passage.get("speed_kmh")', water)
+        self.assertIn('det["speed_source"] = passage.get("speed_method")', water)
+        self.assertNotIn('_det["speed_kmh"] = _inst', water)
+        self.assertIn('"speed_sample_fresh": False', source)
+        self.assertIn('info["speed_sample_fresh"] = True', source)
+
 
 if __name__ == "__main__":
     unittest.main()
