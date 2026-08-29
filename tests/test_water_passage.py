@@ -227,6 +227,113 @@ class PassageEngineTests(unittest.TestCase):
         return Observation(ts, 1, 50.0, y, (40.0, y - 10, 60.0, y), 0.8)
 
 
+class CanonicalPassageSpeedTests(unittest.TestCase):
+    @staticmethod
+    def with_speed(track_id: int, y: float, kmh: float, *, fresh: bool = True) -> Dict[str, object]:
+        detection = det(track_id, y)
+        detection["_line_speed_info"] = {
+            "speed_sample_fresh": fresh,
+            "speed_instant_kmh": kmh,
+        }
+        return detection
+
+    @staticmethod
+    def disabled_gate() -> TwoGateSpeedEstimator:
+        return TwoGateSpeedEstimator([(0, 20), (100, 20)], [(0, 80), (100, 80)], 60.0, False)
+
+    def test_calibrated_fallback_measures_after_three_fresh_samples(self) -> None:
+        engine = WaterPassageEngine(
+            self.disabled_gate,
+            id_factory=lambda _ts: "P-CAL-001",
+            calibrated_min_samples=3,
+            calibrated_smooth_samples=5,
+        )
+        engine.update([self.with_speed(1, 10, 10.0)], 0.0)
+        engine.update([self.with_speed(1, 12, 12.0)], 1.0)
+        passage = engine.update([self.with_speed(1, 14, 14.0)], 2.0)[-1]["passage"]
+        self.assertEqual(passage["speed_status"], "measured")
+        self.assertEqual(passage["speed_method"], "detection_first_calibrated")
+        self.assertEqual(passage["speed_kmh"], 12.0)
+        self.assertEqual(passage["measurement_meta"]["samples_used"], 3)
+        self.assertEqual(passage["measurement_meta"]["speed_kmh_min"], 10.0)
+        self.assertEqual(passage["measurement_meta"]["speed_kmh_avg"], 12.0)
+        self.assertEqual(passage["measurement_meta"]["speed_kmh_max"], 14.0)
+
+    def test_held_speed_does_not_add_passage_evidence(self) -> None:
+        engine = WaterPassageEngine(
+            self.disabled_gate,
+            id_factory=lambda _ts: "P-CAL-HOLD",
+            calibrated_min_samples=3,
+        )
+        engine.update([self.with_speed(1, 10, 11.0)], 0.0)
+        engine.update([self.with_speed(1, 11, 11.0, fresh=False)], 1.0)
+        engine.update([self.with_speed(1, 12, 11.0, fresh=False)], 2.0)
+        final = engine.finalize_all(3.0)[0]["passage"]
+        self.assertEqual(final["speed_status"], "incomplete")
+        self.assertIsNone(final["speed_kmh"])
+        self.assertEqual(final["measurement_meta"]["samples_used"], 1)
+
+    def test_track_id_churn_preserves_calibrated_samples(self) -> None:
+        engine = WaterPassageEngine(
+            self.disabled_gate,
+            id_factory=lambda _ts: "P-CAL-STITCH",
+            stitch_distance_px=50,
+            calibrated_min_samples=3,
+        )
+        engine.update([self.with_speed(11, 10, 9.0)], 0.0)
+        engine.update([self.with_speed(22, 12, 12.0)], 1.0)
+        passage = engine.update([self.with_speed(33, 14, 15.0)], 2.0)[-1]["passage"]
+        self.assertEqual(passage["passage_id"], "P-CAL-STITCH")
+        self.assertEqual(passage["track_fragments"], [11, 22, 33])
+        self.assertEqual(passage["speed_status"], "measured")
+        self.assertEqual(passage["speed_kmh"], 12.0)
+
+    def test_two_gate_measurement_overrides_calibrated_fallback(self) -> None:
+        engine = WaterPassageEngine(
+            lambda: TwoGateSpeedEstimator([(0, 20), (100, 20)], [(0, 80), (100, 80)], 60.0, True),
+            id_factory=lambda _ts: "P-CAL-GATE",
+            calibrated_min_samples=3,
+        )
+        engine.update([self.with_speed(1, 10, 10.0)], 0.0)
+        engine.update([self.with_speed(1, 30, 12.0)], 1.0)
+        fallback = engine.update([self.with_speed(1, 50, 14.0)], 2.0)[-1]["passage"]
+        self.assertEqual(fallback["speed_status"], "measured")
+        self.assertEqual(fallback["speed_method"], "detection_first_calibrated")
+        gate = engine.update([self.with_speed(1, 90, 16.0)], 3.0)[-1]["passage"]
+        self.assertEqual(gate["speed_status"], "measured")
+        self.assertEqual(gate["speed_method"], "two_gate")
+        self.assertEqual(gate["direction"], "A->B")
+        self.assertGreater(gate["speed_kmh"] or 0, 0)
+
+    def test_finalize_preserves_completed_calibrated_measurement(self) -> None:
+        engine = WaterPassageEngine(
+            self.disabled_gate,
+            id_factory=lambda _ts: "P-CAL-FINAL",
+            calibrated_min_samples=3,
+        )
+        for ts, speed in ((0.0, 10.0), (1.0, 12.0), (2.0, 14.0)):
+            engine.update([self.with_speed(1, 10 + ts, speed)], ts)
+        final = engine.finalize_all(3.0)[0]["passage"]
+        self.assertEqual(final["status"], "completed")
+        self.assertEqual(final["speed_status"], "measured")
+        self.assertEqual(final["speed_method"], "detection_first_calibrated")
+        self.assertEqual(final["speed_kmh"], 12.0)
+
+    def test_insufficient_calibrated_samples_finalize_incomplete(self) -> None:
+        engine = WaterPassageEngine(
+            self.disabled_gate,
+            id_factory=lambda _ts: "P-CAL-SHORT",
+            calibrated_min_samples=3,
+        )
+        engine.update([self.with_speed(1, 10, 10.0)], 0.0)
+        engine.update([self.with_speed(1, 12, 12.0)], 1.0)
+        final = engine.finalize_all(2.0)[0]["passage"]
+        self.assertEqual(final["speed_status"], "incomplete")
+        self.assertIsNone(final["speed_kmh"])
+        self.assertEqual(final["speed_method"], "detection_first_calibrated")
+        self.assertEqual(final["measurement_meta"]["samples_used"], 2)
+
+
 class FastVesselStitchTests(unittest.TestCase):
     """064: velocity-aware stitching keeps fast vessels in one passage."""
 
