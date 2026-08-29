@@ -2,7 +2,7 @@
 
 - Specification: `specs/070-road-water-interface-parity/spec.md`
 - Issue: #343
-- PR: pending
+- PR: #344
 - Branch: `issue-343-road-water-interface-parity`
 - Scope identity: `issue-343-road-water-interface-parity-v1`
 
@@ -35,12 +35,13 @@
 
 - Issue/spec/plan/tasks current — #343 and SDD 070 reflect authorized Road parity.
 - Exact changed-file scope verified — only five admitted paths differ from authorization base.
-- Required tests/evidence complete — frontend/repository contracts plus authenticated runtime evidence.
+- Required tests and evidence complete — frontend/repository contracts plus authenticated runtime evidence.
 - Required CI green — exact PR head Repository validation and quality-integration, then exact-main Quality.
 - Exact-green-head merge complete — only after fresh base/head/scope/review verification.
 - Deployment state resolved — VPS exact-main runtime verified or explicitly rolled back; Ubuntu Worker deployment not required.
 - Runtime acceptance resolved — authenticated Road desktop/mobile parity and Worker OFF->ON->OFF continuity recorded before terminal DONE.
 - Protected contours unchanged — Water/API/worker/live-sync/media topology remain zero-diff.
+- Deferred work recorded — CPU/transcoding/media-topology optimization remains separate and outside #343.
 - Risks resolved or explicitly accepted — runtime continuity/usability concerns resolved by production acceptance.
 - Waivers resolved or current — no waiver expected; any waiver must satisfy Change Contract policy.
 
