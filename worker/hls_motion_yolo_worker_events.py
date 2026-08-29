@@ -31,6 +31,7 @@ _LAST_FRAME_CAPTURE_MS: int | None = None
 _LIVE_PUBLISH_QUEUE = queue.Queue(maxsize=1)
 _LIVE_PUBLISH_LOCK = threading.Lock()
 _LIVE_PUBLISH_THREAD = None
+_WATER_RECALL_DIAGNOSTIC_STATE = {"last_emit_mono": 0.0}
 
 def build_road_live_envelope(frame_no: int, generation: int, observed_mono: float, detections, frame_w: int, frame_h: int, worker_commit: str, capture_time_unix_ms: int | None = None, processed_time_unix_ms: int | None = None):
     # normalized boxes, immutable — v2 carries honest worker-receive timestamps
@@ -129,6 +130,10 @@ def is_yolo_classes_filter_enabled() -> bool:
     if env_str("YOLO_CLASSES_FILTER", "").strip().lower() in {"1", "true", "yes", "on"}:
         return True
     return bool(env_str("YOLO_CLASSES", "").strip())
+
+
+def water_recall_diagnostics_enabled() -> bool:
+    return env_str("WATER_RECALL_DIAGNOSTICS", "1").strip().lower() not in {"0", "false", "no", "off"}
 
 
 def _scale_norm_points(norm_points, dst_w: int, dst_h: int):
@@ -429,7 +434,7 @@ class MotionDetector:
         return time.time() <= self.active_until
 
 
-def detect_vehicles(model, frame):
+def detect_vehicles(model, frame, diagnostics=None):
     profile_name = env_str("ANALYTICS_PROFILE", "").strip()
     profile = get_profile(profile_name) if profile_name else None
     if profile is None:
@@ -456,14 +461,6 @@ def detect_vehicles(model, frame):
         cls_id = int(box.cls[0].item())
         model_class = str(names.get(cls_id, cls_id))
         conf = float(box.conf[0].item())
-        if profile is None:
-            if model_class not in VEHICLE_CLASSES:
-                continue
-            semantic = {"class_name": model_class}
-        else:
-            semantic = normalize_model_class(model_class, profile.name)
-            if semantic is None:
-                continue
         track_id = None
         if track_ids is not None:
             try:
@@ -472,6 +469,25 @@ def detect_vehicles(model, frame):
                 track_id = None
         xyxy = box.xyxy[0].tolist()
         x1, y1, x2, y2 = [int(round(v)) for v in xyxy]
+        if profile is None:
+            semantic = {"class_name": model_class} if model_class in VEHICLE_CLASSES else None
+        else:
+            semantic = normalize_model_class(model_class, profile.name)
+        if diagnostics is not None:
+            diagnostics.append({
+                "model_class": model_class,
+                "confidence": round(conf, 4),
+                "bbox_xyxy": [x1, y1, x2, y2],
+                "bbox_width_px": max(0, x2 - x1),
+                "bbox_height_px": max(0, y2 - y1),
+                "bbox_area_px": max(0, x2 - x1) * max(0, y2 - y1),
+                "track_id": track_id,
+                "track_assigned": track_id is not None,
+                "class_mapping_accepted": semantic is not None,
+                "semantic_class": None if semantic is None else semantic.get("class_name"),
+            })
+        if semantic is None:
+            continue
         detections.append({
             "track_id": track_id,
             "confidence": conf,
@@ -650,6 +666,67 @@ def detection_inside_road_roi(det, points=None):
 
 def filter_detections_by_roi(detections, points=None):
     return [det for det in detections if detection_inside_road_roi(det, points)]
+
+
+def maybe_emit_water_recall_diagnostics(frame_no, raw_records, roi_points, accepted_detections, profile):
+    if profile is None or profile.domain != "water" or not water_recall_diagnostics_enabled():
+        return False
+    now_mono = time.monotonic()
+    interval_sec = max(1.0, env_float("WATER_RECALL_DIAGNOSTICS_INTERVAL_SEC", 10.0))
+    if now_mono - float(_WATER_RECALL_DIAGNOSTIC_STATE.get("last_emit_mono", 0.0)) < interval_sec:
+        return False
+    _WATER_RECALL_DIAGNOSTIC_STATE["last_emit_mono"] = now_mono
+    accepted_keys = {
+        (det.get("track_id"), tuple(det.get("bbox_xyxy") or []), det.get("class_name"))
+        for det in accepted_detections or []
+    }
+    max_records = max(1, min(50, env_int("WATER_RECALL_DIAGNOSTICS_MAX_RECORDS", 12)))
+    records = []
+    for raw in raw_records or []:
+        record = dict(raw)
+        if record.get("class_mapping_accepted"):
+            probe = {
+                "bbox_xyxy": list(record.get("bbox_xyxy") or []),
+                "track_id": record.get("track_id"),
+                "class_name": record.get("semantic_class"),
+            }
+            try:
+                record["roi_center_inside"] = bool(detection_inside_road_roi(probe, roi_points))
+            except Exception:
+                record["roi_center_inside"] = None
+            key = (record.get("track_id"), tuple(record.get("bbox_xyxy") or []), record.get("semantic_class"))
+            record["accepted_after_roi"] = key in accepted_keys
+        else:
+            record["roi_center_inside"] = None
+            record["accepted_after_roi"] = False
+        records.append(record)
+    payload = {
+        "schema": "sea_speed_water_recall_diagnostic_v1",
+        "frame_no": int(frame_no),
+        "analytics_profile": profile.name,
+        "detector": {
+            "model_name": env_str("MODEL_NAME", profile.model_name),
+            "image_size": env_int("YOLO_IMAGE_SIZE", profile.image_size),
+            "confidence_threshold": env_float("YOLO_CONFIDENCE", profile.confidence),
+            "tracker": env_str("YOLO_TRACKER", profile.tracker).strip() or profile.tracker,
+        },
+        "roi": {
+            "enabled": len(roi_points or []) >= 3,
+            "processing_mode": "masked_before_inference" if len(roi_points or []) >= 3 else "full_frame",
+            "point_count": len(roi_points or []),
+            "post_filter": "bbox_center",
+        },
+        "counts": {
+            "post_threshold_raw": len(raw_records or []),
+            "class_mapping_accepted": sum(1 for item in raw_records or [] if item.get("class_mapping_accepted")),
+            "track_assigned": sum(1 for item in raw_records or [] if item.get("track_assigned")),
+            "accepted_after_roi": len(accepted_detections or []),
+        },
+        "records_truncated": len(records) > max_records,
+        "records": records[:max_records],
+    }
+    print("WATER_RECALL_DIAGNOSTIC " + json.dumps(payload, ensure_ascii=True, separators=(",", ":")))
+    return True
 
 
 def draw_roi_polygon(frame):
@@ -1665,9 +1742,10 @@ def main():
             motion_now, motion_area, motion_boxes = motion_detector.process(processing_frame)
             _always_on = is_motion_gate_always_on()
             motion_ai_active = motion_detector.is_ai_active() or _always_on
+            water_recall_raw = []
             if is_water:
                 ai_active = True
-                detections = detect_vehicles(model, processing_frame)
+                detections = detect_vehicles(model, processing_frame, diagnostics=water_recall_raw)
             elif motion_ai_active:
                 ai_active = True
                 detections = detect_vehicles(model, processing_frame)
@@ -1677,6 +1755,11 @@ def main():
                 ai_active = False
                 detections = []
             detections = filter_detections_by_roi(detections)
+            if is_water:
+                try:
+                    maybe_emit_water_recall_diagnostics(frame_no, water_recall_raw, roi_points, detections, profile)
+                except Exception as exc:
+                    print(f"Water recall diagnostics skipped: {exc}")
             now = time.time()
             active_track_ids = {int(det["track_id"]) for det in detections if det.get("track_id") is not None}
             update_crossing_counts(detections, now)
