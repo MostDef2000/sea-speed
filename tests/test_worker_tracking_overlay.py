@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import copy
 import io
+import json
 import time as real_time
 import unittest
 import uuid
@@ -116,6 +117,90 @@ class WorkerTrackingOverlayTests(unittest.TestCase):
         self.assertEqual(detections[0]["track_id"], 17)
         self.assertEqual(detections[0]["bbox_xyxy"], [10, 20, 41, 61])
         self.assertEqual(detections[0]["class_name"], "car")
+
+    def test_recall_diagnostics_sink_does_not_change_detector_result(self) -> None:
+        ns: dict[str, Any] = {
+            "env_float": lambda _name, default: default,
+            "env_int": lambda _name, default: default,
+            "env_str": lambda _name, default="": default,
+            "VEHICLE_CLASSES": {"car", "truck", "bus", "motorcycle", "bicycle"},
+        }
+        load_functions({"detect_vehicles"}, ns)
+        baseline = ns["detect_vehicles"](FakeModel(), object())
+        records: list[dict[str, Any]] = []
+        instrumented = ns["detect_vehicles"](FakeModel(), object(), diagnostics=records)
+        self.assertEqual(instrumented, baseline)
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["model_class"], "car")
+        self.assertEqual(records[0]["confidence"], 0.91)
+        self.assertEqual(records[0]["bbox_xyxy"], [10, 20, 41, 61])
+        self.assertEqual(records[0]["bbox_width_px"], 31)
+        self.assertEqual(records[0]["bbox_height_px"], 41)
+        self.assertEqual(records[0]["track_id"], 17)
+        self.assertTrue(records[0]["track_assigned"])
+        self.assertTrue(records[0]["class_mapping_accepted"])
+
+    def test_water_recall_diagnostics_are_bounded_and_stage_explicit(self) -> None:
+        class Profile:
+            name = "water-v1"
+            domain = "water"
+            model_name = "models/yolo26x.pt"
+            image_size = 960
+            confidence = 0.15
+            tracker = "bytetrack.yaml"
+
+        values = {
+            "WATER_RECALL_DIAGNOSTICS_INTERVAL_SEC": "10",
+            "WATER_RECALL_DIAGNOSTICS_MAX_RECORDS": "1",
+        }
+        ns: dict[str, Any] = {
+            "time": type("FakeTime", (), {"monotonic": staticmethod(lambda: 100.0)}),
+            "json": json,
+            "env_str": lambda name, default="": values.get(name, default),
+            "env_int": lambda name, default: int(values.get(name, default)),
+            "env_float": lambda name, default: float(values.get(name, default)),
+            "water_recall_diagnostics_enabled": lambda: True,
+            "detection_inside_road_roi": lambda det, points=None: det["bbox_xyxy"][0] < 50 and len(points or []) >= 3,
+            "_WATER_RECALL_DIAGNOSTIC_STATE": {"last_emit_mono": 0.0},
+        }
+        load_functions({"maybe_emit_water_recall_diagnostics"}, ns)
+        raw = [
+            {
+                "model_class": "boat", "confidence": 0.81, "bbox_xyxy": [10, 20, 40, 60],
+                "bbox_width_px": 30, "bbox_height_px": 40, "bbox_area_px": 1200,
+                "track_id": 7, "track_assigned": True, "class_mapping_accepted": True, "semantic_class": "vessel",
+            },
+            {
+                "model_class": "car", "confidence": 0.77, "bbox_xyxy": [80, 20, 120, 60],
+                "bbox_width_px": 40, "bbox_height_px": 40, "bbox_area_px": 1600,
+                "track_id": None, "track_assigned": False, "class_mapping_accepted": False, "semantic_class": None,
+            },
+        ]
+        accepted = [{"track_id": 7, "bbox_xyxy": [10, 20, 40, 60], "class_name": "vessel"}]
+        output = io.StringIO()
+        with redirect_stdout(output):
+            emitted = ns["maybe_emit_water_recall_diagnostics"](42, raw, [(0, 0), (100, 0), (100, 100)], accepted, Profile())
+            emitted_again = ns["maybe_emit_water_recall_diagnostics"](43, raw, [(0, 0), (100, 0), (100, 100)], accepted, Profile())
+        self.assertTrue(emitted)
+        self.assertFalse(emitted_again)
+        line = output.getvalue().strip()
+        self.assertTrue(line.startswith("WATER_RECALL_DIAGNOSTIC "))
+        payload = json.loads(line.split(" ", 1)[1])
+        self.assertEqual(payload["schema"], "sea_speed_water_recall_diagnostic_v1")
+        self.assertEqual(payload["frame_no"], 42)
+        self.assertEqual(payload["detector"]["confidence_threshold"], 0.15)
+        self.assertEqual(payload["roi"]["processing_mode"], "masked_before_inference")
+        self.assertEqual(payload["roi"]["post_filter"], "bbox_center")
+        self.assertEqual(payload["counts"]["post_threshold_raw"], 2)
+        self.assertEqual(payload["counts"]["class_mapping_accepted"], 1)
+        self.assertEqual(payload["counts"]["track_assigned"], 1)
+        self.assertEqual(payload["counts"]["accepted_after_roi"], 1)
+        self.assertTrue(payload["records_truncated"])
+        self.assertEqual(len(payload["records"]), 1)
+        self.assertTrue(payload["records"][0]["roi_center_inside"])
+        self.assertTrue(payload["records"][0]["accepted_after_roi"])
+        self.assertNotIn("SEA_SPEED_API_TOKEN", line)
+        self.assertNotIn("HLS_URL", line)
 
     def test_profiled_detector_normalizes_water_boat_to_vessel(self) -> None:
         source = SOURCE.read_text(encoding="utf-8-sig")
