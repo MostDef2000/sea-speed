@@ -42,6 +42,7 @@
 
 - [x] T021 Obtain fresh six-field Task 3B authorization from exact protected main `ea6f1e9d15252840d27721f004817ba35f11d0c6` for SDD reconciliation plus bounded read-only diagnostic sampling.
 - [x] T022 Reconcile spec/plan/tasks with completed Task 3A exact-head, merge, exact-main, deployment and runtime evidence; remove stale PENDING production state.
+- [x] T022A Remediate PR #359 Change Contract metadata after validation-only failures on runs `33254873334` and `33254921930`; no implementation, production behavior or authorized source scope changed.
 - [ ] T023 Collect a bounded representative sample of existing `WATER_RECALL_DIAGNOSTIC` records from `sea-speed-worker.service` while real Water vessel traffic is visible. Do not restart, redeploy or retune the Worker to obtain the sample.
 - [ ] T024 Correlate accepted and visually missed/unstable vessel examples and classify observed loss across post-threshold detector visibility, class mapping, ROI-center filtering and tracker continuity.
 - [ ] T025 Record a dominant evidence-supported loss stage, or explicitly record `INCONCLUSIVE` if the current post-threshold evidence cannot distinguish the cause.
@@ -58,7 +59,7 @@
 - AC-007 | Task: T017,T018,T019 | Evidence: deployment run `33251264466`, artifact `9714438874`, runtime progression PASS, explicit representative-sampling deferral | Coverage: COVERED for Task 3A
 - AC-008 | Task: T005,T009,T020,T026 | Evidence: SDD and canonical #346 authorization boundaries keep recall tuning separately authorized | Coverage: COVERED
 - AC-009 | Task: T010,T011,T012 | Evidence: `tests/test_water_recall_ubuntu_ipc.py` | Coverage: COVERED
-- AC-010 | Task: T021,T022 | Evidence: SDD 074 reconciled to canonical Task 3A delivery evidence | Coverage: COVERED
+- AC-010 | Task: T021,T022,T022A | Evidence: SDD 074 reconciled to canonical Task 3A delivery evidence; PR contract remediation remained metadata/SDD-only | Coverage: COVERED
 - AC-011 | Task: T023,T024,T025 | Evidence: representative bounded production diagnostics plus durable stage interpretation or `INCONCLUSIVE` | Coverage: PENDING RUNTIME EVIDENCE
 
 ## Definition of Done
