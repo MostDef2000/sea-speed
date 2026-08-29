@@ -6,6 +6,7 @@
 - Branch: `issue-346-water-sync-runtime-fix`
 - Scope identity: `issue-346-water-live-overlay-sync-task1-v1`
 - Change Contract local checks: PASS — remediation remains within admitted Water frontend/test/SDD paths; worker/API/Road/speed/detection/media topology remain protected.
+- Change Contract quality verdict: PASS — production-learning risk is explicitly profiled and deterministic fault-path coverage is present; required exact-head CI remains a separate merge gate.
 - Existing regression alignment: `tests/test_water_overlay_sync.py` and `tests/test_water_live_sync_guard.py` cover the approved frontend/live-sync semantics.
 
 ## Delivery tasks
