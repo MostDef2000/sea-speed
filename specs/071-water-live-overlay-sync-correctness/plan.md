@@ -25,6 +25,7 @@ Task 1 changes only the final rendering decision. A bbox is drawn only from a va
 - Keep the existing gross desynchronization guard and bracket interpolation.
 - In the no-bracket path, permit only closest-earlier metadata with capture time inside the explicit bounded window and never later than compensated media time.
 - Remove all newest-buffer fallback drawing from Water `renderForVideoFrame()`.
+- Update both the new Task 1 guard contract and the existing Water overlay-sync regression so historical tests no longer assert the retired newest-envelope fallback.
 - Do not modify Road, worker, detection/tracking, speed/passages, API/storage, HLS topology or auth.
 
 ## Affected contours
@@ -45,7 +46,7 @@ The change is a bounded frontend reliability correction. Failure mode intentiona
 ## Test design
 
 - TEST-071-001 | Covers: AC-001, AC-003 | Level: unit | Priority: P0 | Evidence: deterministic source contract proves unresolved media time and unmatched metadata clear the canvas and that newest-buffer fallback markers are absent.
-- TEST-071-002 | Covers: AC-002 | Level: unit | Priority: P0 | Evidence: source contract proves closest-earlier envelope requires capture time within `[mediaTime-2000, mediaTime]`.
+- TEST-071-002 | Covers: AC-002 | Level: unit | Priority: P0 | Evidence: source contract and legacy Water sync regression prove closest-earlier envelope requires capture time within `[mediaTime-2000, mediaTime]`, future-only metadata clears, and >2s-old metadata clears.
 - TEST-071-003 | Covers: AC-004, AC-005 | Level: integration | Priority: P0 | Evidence: existing frontend contracts prove bracket interpolation, one-HLS lifecycle and metadata-only Worker control remain present.
 - TEST-071-004 | Covers: AC-006 | Level: integration | Priority: P0 | Evidence: exact changed-file review and repository Quality prove protected contours are zero-diff.
 - TEST-071-005 | Covers: AC-007 | Level: end-to-end | Priority: P0 | Evidence: exact-head CI, exact-main Quality and protected VPS runtime_verified.
@@ -65,8 +66,8 @@ The change is a bounded frontend reliability correction. Failure mode intentiona
 ## Validation
 
 - Validate SDD structure/linkage and Change Contract.
-- Run the new Water sync guard contract plus existing frontend/repository tests.
-- Verify diff is limited to `frontend/sea-speed/index.html`, `tests/test_water_live_sync_guard.py` and SDD 071 files.
+- Run `tests/test_water_live_sync_guard.py`, the existing `tests/test_water_overlay_sync.py`, and existing frontend/repository tests.
+- Verify diff is limited to `frontend/sea-speed/index.html`, `tests/test_water_live_sync_guard.py`, `tests/test_water_overlay_sync.py` and SDD 071 files.
 - Require exact-head Repository validation and `quality-integration` green.
 - Fresh-read main/head/scope/reviews before exact-green-head merge.
 - Require exact-main Quality before production deployment.
@@ -80,7 +81,7 @@ The change is a bounded frontend reliability correction. Failure mode intentiona
 - Specification impact: SDD 071 admits frontend sync correctness only.
 - Plan impact: no worker/media topology change; rendering becomes fail-safe on unmatched metadata.
 - Tasks impact: T001-T007 track Task 1 through runtime acceptance.
-- Authorization impact: `issue-346-water-live-overlay-sync-task1-v1` is authorized by the immediately-following `OUTCOME APPROVED` receipt.
+- Authorization impact: `issue-346-water-live-overlay-sync-task1-v1` is authorized by the immediately-following `OUTCOME APPROVED` receipt; inclusion of the existing Water sync regression is within the approved "corresponding frontend/live-sync tests" test scope and does not widen runtime or protected boundaries.
 - Follow-up: after Task 1 terminal acceptance, Task 2 receives a separate six-field Scope/authorization.
 
 ## Runtime feedback
