@@ -7,6 +7,7 @@
 - Original authorization: Task 3A `OUTCOME APPROVED` from exact protected main `739947c11471c746e74af0dfee4d9a5edd0d7bac`.
 - Remediation branch: `issue-346-water-recall-ipc-remediation`
 - Remediation PR: #358
+- Remediation Change Contract: canonical PR schema bound to #358 before authoritative CI.
 - Remediation authorization: `OUTCOME APPROVED` from exact protected main `7b9902adca65d43151de629d15e526a5f79d3899` for scope `issue-346-task3a-ubuntu-diagnostic-ipc-remediation-v1`.
 - Runtime contour: Ubuntu Worker REQUIRED; VPS NOT REQUIRED.
 
