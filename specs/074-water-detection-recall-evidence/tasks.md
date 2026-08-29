@@ -53,7 +53,7 @@
 - [x] Required deterministic remediation tests authored
 - [ ] Required tests and evidence complete
 - [ ] Required CI green
-- [ ] Exact-green-head remediation merge complete
+- [ ] Exact-green-head merge complete
 - [ ] Deployment state resolved
 - [ ] Runtime acceptance resolved
 - [x] Deferred work recorded
