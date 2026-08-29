@@ -18,14 +18,101 @@ function ssClampLag(medianLagMs) {
   return Math.max(0, Math.min(1200, medianLagMs));
 }
 
-// Bracket mediaMs inside the live buffer after lag compensation.
-// Returns {lo, hi, t} for interpolation or null.
-// Both envelopes of a valid pair must share one generation and the gap
-// must be within maxGapMs.
+function ssFiniteCaptureValues(opts) {
+  const buf = opts.liveBuffer || [];
+  const capture = opts.getCaptureMs;
+  const values = [];
+  for (let i = 0; i < buf.length; i++) {
+    const value = Number(capture(buf[i]));
+    if (Number.isFinite(value)) values.push(value);
+  }
+  return values;
+}
+
+function ssIsWaterBuffer(opts) {
+  const buf = opts.liveBuffer || [];
+  const latest = buf.length ? buf[buf.length - 1] : null;
+  return Boolean(latest && latest.camera_id === "cam1" && latest.domain !== "road");
+}
+
+// Water and browser HLS do not share a trustworthy absolute capture clock:
+// Water envelopes use worker_receive_utc while the player may expose HLS
+// program date time (or no absolute media time at all).  What HLS does expose
+// reliably is the current distance from the live edge.  Project that relative
+// latency onto the Worker capture timeline instead of comparing unrelated
+// absolute clocks.
+function ssWaterPlaybackLatencyMs() {
+  if (typeof window === "undefined") return null;
+  try {
+    const hls = window.waterHls;
+    const hlsLatencySeconds = hls ? Number(hls.latency) : NaN;
+    if (Number.isFinite(hlsLatencySeconds) && hlsLatencySeconds >= 0 && hlsLatencySeconds <= 30) {
+      return hlsLatencySeconds * 1000;
+    }
+  } catch (_) {}
+  try {
+    if (typeof document === "undefined") return null;
+    const video = document.getElementById("waterMainVideo");
+    if (!video || !video.seekable || !video.seekable.length) return null;
+    const edge = Number(video.seekable.end(video.seekable.length - 1));
+    const current = Number(video.currentTime);
+    const latencySeconds = edge - current;
+    if (Number.isFinite(latencySeconds) && latencySeconds >= 0 && latencySeconds <= 30) {
+      return latencySeconds * 1000;
+    }
+  } catch (_) {}
+  return null;
+}
+
+function ssWaterTargetCaptureMs(opts) {
+  const latencyMs = ssWaterPlaybackLatencyMs();
+  if (!Number.isFinite(latencyMs)) return null;
+  const captures = ssFiniteCaptureValues(opts);
+  if (!captures.length) return null;
+  return Math.max(...captures) - latencyMs;
+}
+
+function ssResolvedTargetMs(mediaMs, opts) {
+  if (ssIsWaterBuffer(opts)) {
+    const relativeTarget = ssWaterTargetCaptureMs(opts);
+    if (Number.isFinite(relativeTarget)) return relativeTarget;
+  }
+  const absoluteMediaMs = Number(mediaMs);
+  if (!Number.isFinite(absoluteMediaMs)) return null;
+  return absoluteMediaMs - Number(opts.lagCompensationMs || 0);
+}
+
+// The Water page's legacy getMediaMs() treats an absent getStartDate() as
+// unresolved and returns before the selector can use live-edge latency.  Keep
+// the native value when available, but provide an invalid-Date sentinel on the
+// Water video element so the selector is reached and can resolve the relative
+// timeline.  If latency is unavailable the selector still fails closed.
+function ssInstallWaterMediaTimeProbe() {
+  if (typeof document === "undefined") return;
+  const video = document.getElementById("waterMainVideo");
+  if (!video || video.__seaSpeedMediaTimeProbeInstalled) return;
+  const nativeGetStartDate = typeof video.getStartDate === "function" ? video.getStartDate.bind(video) : null;
+  video.getStartDate = function () {
+    if (nativeGetStartDate) {
+      try {
+        const value = nativeGetStartDate();
+        if (value) return value;
+      } catch (_) {}
+    }
+    return new Date(NaN);
+  };
+  video.__seaSpeedMediaTimeProbeInstalled = true;
+}
+
+// Bracket the resolved target inside the live buffer.
+// Road preserves its existing absolute media-time behavior. Water first maps
+// HLS live-edge latency onto the Worker capture timeline. Both envelopes of a
+// valid pair must share one generation and the gap must be within maxGapMs.
 function ssBracketForMedia(mediaMs, opts) {
   const buf = opts.liveBuffer;
   const capture = opts.getCaptureMs;
-  const comp = mediaMs - opts.lagCompensationMs;
+  const comp = ssResolvedTargetMs(mediaMs, opts);
+  if (!Number.isFinite(comp)) return null;
   let lo = null, hi = null;
   for (let i = 0; i < buf.length; i++) {
     const t = capture(buf[i]);
@@ -56,9 +143,14 @@ function ssClosestEarlierEnvelope(compMs, opts) {
   return lo;
 }
 
+ssInstallWaterMediaTimeProbe();
+
 window.SeaSpeedLiveSync = {
   median: ssMedian,
   clampLag: ssClampLag,
   bracketForMedia: ssBracketForMedia,
-  closestEarlierEnvelope: ssClosestEarlierEnvelope
+  closestEarlierEnvelope: ssClosestEarlierEnvelope,
+  waterPlaybackLatencyMs: ssWaterPlaybackLatencyMs,
+  waterTargetCaptureMs: ssWaterTargetCaptureMs,
+  resolvedTargetMs: ssResolvedTargetMs
 };
