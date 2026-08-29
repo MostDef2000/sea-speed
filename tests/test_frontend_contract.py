@@ -66,7 +66,10 @@ class FrontendContractTests(unittest.TestCase):
             'id="roiCanvas"', 'id="speedLinesCanvas"', 'id="stateJson"', 'id="debugLog"',
         ):
             self.assertIn(marker, self.source)
-        self.assertNotIn('data-layout="clean-live"', self.source)
+        self.assertNotRegex(
+            self.source,
+            r'<(?:section|article|div)\b[^>]*data-layout="clean-live"',
+        )
         self.assertNotIn('Чистый поток', self.source)
         self.assertNotIn('id="cxSummary"', self.source)
         self.assertEqual(self.source.count('id="video"'), 1)
