@@ -97,7 +97,7 @@ The remediation changes an internal supervised inference response and call signa
 - TEST-074-005 | Covers: AC-006 | Level: integration | Priority: P0 | Evidence: exact-head PR Validation/quality-integration and exact-main push checks
 - TEST-074-006 | Covers: AC-007 | Level: end-to-end | Priority: P0 | Evidence: protected Ubuntu Worker deployment manifest, exact release artifact and execution audit with runtime progression PASS
 - TEST-074-007 | Covers: daytime evidence collection | Level: runtime-manual | Priority: P1 | Evidence: representative `WATER_RECALL_DIAGNOSTIC` log samples when vessel traffic is available; explicitly deferrable in Task 3A
-- TEST-074-008 | Covers: FR-009,FR-010,AC-009,NFR-001,NFR-002,NFR-003,NFR-004 | Level: unit/integration | Priority: P0 | Evidence: `tests/test_water_recall_ubuntu_ipc.py`
+- TEST-074-008 | Covers: FR-009,FR-010,AC-009,NFR-001,NFR-002,NFR-003,NFR-004 | Level: integration | Priority: P0 | Evidence: `tests/test_water_recall_ubuntu_ipc.py`
 
 ## Correct-course check
 
