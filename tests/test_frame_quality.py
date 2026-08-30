@@ -89,9 +89,10 @@ class FrameQualityTests(unittest.TestCase):
     def test_frame_quality_does_not_change_detector_params(self) -> None:
         water = profiles.get_profile("water-v1")
         self.assertEqual(water.image_size, 960)
-        self.assertEqual(water.confidence, 0.15)
+        self.assertEqual(water.confidence, 0.10)
         road = profiles.get_profile("road-v1")
         self.assertEqual(road.image_size, 960)
+        self.assertEqual(road.confidence, 0.15)
 
 
 if __name__ == "__main__":
