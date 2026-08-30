@@ -58,6 +58,7 @@
 - [x] T035A Record first exact-head CI blocker: PR Validation `33284886697` and Quality `33284886705` failed only because `tests/test_frame_quality.py` still asserted Water confidence `0.15`; Change Contract, SDD and other shown quality domains passed.
 - [x] T035B Obtain fresh literal `OUTCOME APPROVED` for remediation scope `issue-346-task3c-frame-quality-contract-remediation-v1`, adding only `tests/test_frame_quality.py` to the exact path set and authorizing no additional production behavior.
 - [x] T035C Reconcile frame-quality detector invariants to Water confidence `0.10`, Road confidence `0.15`, and unchanged `image_size=960` for both profiles.
+- [x] T035D Record metadata sequencing failure on runs `33285212866`/`33285212862`: their immutable PR event snapshot predated the six-file PR-body update; current PR metadata is corrected, and this bookkeeping commit creates a fresh authoritative event without changing production behavior.
 - [ ] T036 Require exact-head `Repository validation` PASS.
 - [ ] T037 Require exact-head `quality-integration` PASS.
 - [ ] T038 Perform fresh merge probe: protected main, exact green head, exact diff, review threads and authorization assumptions.
