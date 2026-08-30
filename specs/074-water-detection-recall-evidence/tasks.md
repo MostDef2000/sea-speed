@@ -7,6 +7,7 @@
 - Task 3B reconciliation PR: #359
 - Task 3C branch: `issue-346-water-low-confidence-recall`
 - Task 3C authorization: `OUTCOME APPROVED` from exact protected main `b5555c82d0c97fff4542de6776496fb57d7b57ad` for scope `issue-346-task3c-water-low-confidence-recall-tuning-v1`.
+- Task 3C CI remediation authorization: `OUTCOME APPROVED` for scope `issue-346-task3c-frame-quality-contract-remediation-v1`; only `tests/test_frame_quality.py` was added to the repository path set and no additional production behavior was authorized.
 
 ## Delivery tasks
 
@@ -52,8 +53,11 @@
 - [x] T031 Change only `water-v1.confidence` from `0.15` to `0.10`; keep `road-v1.confidence` at `0.15`.
 - [x] T032 Update analytics profile tests to assert Water `0.10`, Road `0.15`, while retaining model/imgsz/tracker/sample/class-map contracts.
 - [x] T033 Reconcile SDD 074 with Task 3B evidence verdict and Task 3C one-variable experiment.
-- [x] T034 Verify exact base-to-head diff contains only the five authorized repository paths.
+- [x] T034 Verify exact base-to-head diff after CI remediation contains only the six authorized repository paths.
 - [x] T035 Open one bounded PR #360 with a complete Change Contract and Ubuntu Worker production impact declared.
+- [x] T035A Record first exact-head CI blocker: PR Validation `33284886697` and Quality `33284886705` failed only because `tests/test_frame_quality.py` still asserted Water confidence `0.15`; Change Contract, SDD and other shown quality domains passed.
+- [x] T035B Obtain fresh literal `OUTCOME APPROVED` for remediation scope `issue-346-task3c-frame-quality-contract-remediation-v1`, adding only `tests/test_frame_quality.py` to the exact path set and authorizing no additional production behavior.
+- [x] T035C Reconcile frame-quality detector invariants to Water confidence `0.10`, Road confidence `0.15`, and unchanged `image_size=960` for both profiles.
 - [ ] T036 Require exact-head `Repository validation` PASS.
 - [ ] T037 Require exact-head `quality-integration` PASS.
 - [ ] T038 Perform fresh merge probe: protected main, exact green head, exact diff, review threads and authorization assumptions.
@@ -67,8 +71,8 @@
 
 ## Requirements traceability
 
-- AC-001 | Task: T031,T032 | Evidence: Water `0.10` and Road `0.15` assertions in `tests/test_analytics_profiles.py` | Coverage: COVERED
-- AC-002 | Task: T034 | Evidence: exact connector base-to-head compare contains five authorized paths | Coverage: COVERED
+- AC-001 | Task: T031,T032,T035C | Evidence: Water `0.10` and Road `0.15` assertions in `tests/test_analytics_profiles.py` and `tests/test_frame_quality.py` | Coverage: COVERED
+- AC-002 | Task: T034,T035B | Evidence: exact connector base-to-head compare contains the six authorized paths after CI remediation | Coverage: COVERED
 - AC-003 | Task: T034,T045 | Evidence: exact protected-path diff review and explicit tuning exclusions | Coverage: COVERED
 - AC-004 | Task: T036,T037 | Evidence: exact-head required Actions runs | Coverage: COVERED
 - AC-005 | Task: T038,T039 | Evidence: fresh main/head/diff/review probe and expected-head merge | Coverage: COVERED
@@ -76,13 +80,13 @@
 - AC-007 | Task: T041,T042 | Evidence: protected Ubuntu deployment and runtime progression audit | Coverage: COVERED
 - AC-008 | Task: T043,T044 | Evidence: representative post-deploy vessel detection/track continuity | Coverage: RUNTIME-MANUAL | Reason: requires real small/distant vessel traffic after deployment
 - AC-009 | Task: T043,T044 | Evidence: representative post-deploy false-positive visual/diagnostic review | Coverage: RUNTIME-MANUAL | Reason: false-positive acceptability requires representative production traffic
-- AC-010 | Task: T031,T032,T034 | Evidence: Road profile remains `0.15` and no Road behavior paths change | Coverage: COVERED
-- AC-011 | Task: T045 | Evidence: canonical Task 3C scope and exact changed-file enforcement | Coverage: COVERED
+- AC-010 | Task: T031,T032,T035C | Evidence: Road profile remains `0.15`, frame-quality contract preserves Road `0.15`, and no Road behavior paths change | Coverage: COVERED
+- AC-011 | Task: T035B,T045 | Evidence: canonical Task 3C and remediation scopes plus exact changed-file enforcement | Coverage: COVERED
 
 ## Definition of Done
 
-- [x] Issue/spec/plan/tasks current for Task 3C source admission and evidence rationale.
-- [x] Exact changed-file scope verified against the authorized five paths.
+- [x] Issue/spec/plan/tasks current for Task 3C source admission, evidence rationale and bounded CI remediation.
+- [x] Exact changed-file scope verified against the authorized six paths.
 - [ ] Required tests and evidence complete after exact-head CI, exact-main CI, deployment and representative production acceptance.
 - [ ] Required CI green on exact PR head and exact merged main.
 - [ ] Exact-green-head merge complete for PR #360.
