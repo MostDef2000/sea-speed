@@ -6,6 +6,7 @@
 - Task 3A remediation PR: #358
 - Task 3B reconciliation PR: #359
 - Task 3C PR: #360
+- Task 3C1 PR: #361
 - Task 3C1 branch: `issue-346-task3c1-water-confidence-reconcile`
 - Task 3C1 authorization: `OUTCOME APPROVED` from exact protected main `cf85d610311e2a0d9100b0851b20aed99f7aa9c3` for scope `issue-346-task3c1-ubuntu-water-confidence-reconciliation-v1`.
 
@@ -79,8 +80,8 @@
 - [x] T049 Change protected Ubuntu Water reconciliation only from `YOLO_CONFIDENCE=0.15` to `0.10`; retain Road `0.15` and image size `960`.
 - [x] T050 Extend the existing reconciler execution test to assert resulting Water `worker.env` is `water-v1`, confidence `0.10`, imgsz `960`, and Road env is `road-v1`, confidence `0.15`, imgsz `960`.
 - [x] T051 Reconcile SDD 074 with completed Task 3C delivery, the production config contradiction and Task 3C1 acceptance gates.
-- [ ] T052 Verify exact base-to-head diff contains only the five Task 3C1 authorized paths.
-- [ ] T053 Open one bounded Task 3C1 remediation PR with complete Change Contract and Ubuntu Worker impact declared.
+- [x] T052 Verify exact base-to-head diff contains only the five Task 3C1 authorized paths; behind=0.
+- [x] T053 Open one bounded Task 3C1 remediation PR #361 with complete Change Contract and Ubuntu Worker impact declared.
 - [ ] T054 Require exact-head `Repository validation` PASS and `quality-integration` PASS.
 - [ ] T055 Perform fresh merge probe and merge only the exact green Task 3C1 head.
 - [ ] T056 Require exact-main `Repository validation` PASS and `quality-integration` PASS.
@@ -106,7 +107,7 @@
 ## Definition of Done
 
 - [x] Issue/spec/plan/tasks current through Task 3C1 source admission and production-learning root cause.
-- [ ] Exact Task 3C1 changed-file scope verified against the authorized five paths.
+- [x] Exact Task 3C1 changed-file scope verified against the authorized five paths.
 - [ ] Required Task 3C1 exact-head and exact-main CI green.
 - [ ] Exact-green-head Task 3C1 merge complete.
 - [ ] Protected Ubuntu deployment state resolved with VPS application contour skipped.
