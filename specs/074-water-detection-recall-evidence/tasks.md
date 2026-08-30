@@ -5,9 +5,9 @@
 - Issue: #346
 - Task 3A remediation PR: #358
 - Task 3B reconciliation PR: #359
-- Task 3C branch: `issue-346-water-low-confidence-recall`
-- Task 3C authorization: `OUTCOME APPROVED` from exact protected main `b5555c82d0c97fff4542de6776496fb57d7b57ad` for scope `issue-346-task3c-water-low-confidence-recall-tuning-v1`.
-- Task 3C CI remediation authorization: `OUTCOME APPROVED` for scope `issue-346-task3c-frame-quality-contract-remediation-v1`; only `tests/test_frame_quality.py` was added to the repository path set and no additional production behavior was authorized.
+- Task 3C PR: #360
+- Task 3C1 branch: `issue-346-task3c1-water-confidence-reconcile`
+- Task 3C1 authorization: `OUTCOME APPROVED` from exact protected main `cf85d610311e2a0d9100b0851b20aed99f7aa9c3` for scope `issue-346-task3c1-ubuntu-water-confidence-reconciliation-v1`.
 
 ## Delivery tasks
 
@@ -50,53 +50,72 @@
 
 - [x] T029 Record Task 3C source authorization receipt on exact protected main `b5555c82d0c97fff4542de6776496fb57d7b57ad` with `VISIBLE_SCOPE_PRESENTED=YES`, `SCOPE_IMMEDIATELY_PRECEDES_APPROVAL=YES`, `SOURCE_AUTHORIZATION_ADMISSION=OPEN`.
 - [x] T030 Create fresh branch `issue-346-water-low-confidence-recall` from the exact authorization base.
-- [x] T031 Change only `water-v1.confidence` from `0.15` to `0.10`; keep `road-v1.confidence` at `0.15`.
+- [x] T031 Change only canonical `water-v1.confidence` from `0.15` to `0.10`; keep `road-v1.confidence` at `0.15`.
 - [x] T032 Update analytics profile tests to assert Water `0.10`, Road `0.15`, while retaining model/imgsz/tracker/sample/class-map contracts.
 - [x] T033 Reconcile SDD 074 with Task 3B evidence verdict and Task 3C one-variable experiment.
 - [x] T034 Verify exact base-to-head diff after CI remediation contains only the six authorized repository paths.
 - [x] T035 Open one bounded PR #360 with a complete Change Contract and Ubuntu Worker production impact declared.
 - [x] T035A Record first exact-head CI blocker: PR Validation `33284886697` and Quality `33284886705` failed only because `tests/test_frame_quality.py` still asserted Water confidence `0.15`; Change Contract, SDD and other shown quality domains passed.
-- [x] T035B Obtain fresh literal `OUTCOME APPROVED` for remediation scope `issue-346-task3c-frame-quality-contract-remediation-v1`, adding only `tests/test_frame_quality.py` to the exact path set and authorizing no additional production behavior.
+- [x] T035B Obtain fresh literal `OUTCOME APPROVED` for remediation scope `issue-346-task3c-frame-quality-contract-remediation-v1`, adding only `tests/test_frame_quality.py` and authorizing no additional production behavior.
 - [x] T035C Reconcile frame-quality detector invariants to Water confidence `0.10`, Road confidence `0.15`, and unchanged `image_size=960` for both profiles.
-- [x] T035D Record metadata sequencing failure on runs `33285212866`/`33285212862`: their immutable PR event snapshot predated the six-file PR-body update; current PR metadata is corrected, and this bookkeeping commit creates a fresh authoritative event without changing production behavior.
-- [ ] T036 Require exact-head `Repository validation` PASS.
-- [ ] T037 Require exact-head `quality-integration` PASS.
-- [ ] T038 Perform fresh merge probe: protected main, exact green head, exact diff, review threads and authorization assumptions.
-- [ ] T039 Merge only the exact green head.
-- [ ] T040 Require exact-main `Repository validation` PASS and `quality-integration` PASS.
-- [ ] T041 Deploy exact main through the protected Ubuntu Worker contour; VPS MUST be skipped.
-- [ ] T042 Require Worker readiness/frame/state/inference progression gates PASS on deployed exact main.
-- [ ] T043 Collect representative post-deploy Water evidence for small/distant vessels and false-positive behavior.
+- [x] T035D Record metadata sequencing failure on runs `33285212866`/`33285212862`; create a fresh authoritative PR event without changing production behavior.
+- [x] T036 Exact-head `Repository validation` run `33285244727` PASS.
+- [x] T037 Exact-head `quality-integration` run `33285244723` PASS.
+- [x] T038 Fresh merge probe confirmed protected main unchanged, exact six-file authorized diff, zero review threads and exact-green head `d804f89e...`.
+- [x] T039 Merge exact green PR #360 to protected main `cf85d610311e2a0d9100b0851b20aed99f7aa9c3`.
+- [x] T040 Exact-main `Repository validation` run `33285295734` PASS and `quality-integration` run `33285295735` PASS.
+- [x] T041 Autonomous protected deployment run `33285316835` PASS; Ubuntu Worker executed and VPS application contour skipped.
+- [x] T042 Worker readiness/frame/state/inference progression PASS on deployed exact main.
+- [x] T043A Collect first post-deploy diagnostic evidence: runtime still reported `confidence_threshold=0.15`, exposing that the intended `0.10` experiment was not active.
+- [ ] T043 Collect representative post-deploy Water evidence only after runtime threshold is proven `0.10`, including small/distant-vessel continuity and false-positive behavior.
 - [ ] T044 PASS if continuity improves without materially uncontrolled false positives; otherwise FAIL and restore Water confidence to `0.15`.
-- [ ] T045 Keep tracker/imgsz/ROI/class-map/model/speed/API/frontend/Road tuning outside Task 3C; any different behavior change requires a new six-field Scope and fresh `OUTCOME APPROVED`.
+- [x] T045 Keep tracker/imgsz/ROI/class-map/model/speed/API/frontend/Road tuning outside Task 3C; any different behavior change requires a new six-field Scope and fresh `OUTCOME APPROVED`.
+
+### Task 3C1 Ubuntu Water confidence reconciliation
+
+- [x] T046 Identify source-confirmed production contradiction: canonical `water-v1=0.10` but `configure-analytics-profiles.py` forced Water `worker.env` to `0.15`.
+- [x] T047 Present fresh six-field Task 3C1 scope and receive literal `OUTCOME APPROVED` against protected main `cf85d610311e2a0d9100b0851b20aed99f7aa9c3`.
+- [x] T048 Record generation 25 source authorization with `VISIBLE_SCOPE_PRESENTED=YES`, `SCOPE_IMMEDIATELY_PRECEDES_APPROVAL=YES`, `SOURCE_AUTHORIZATION_ADMISSION=OPEN`; record that the branch ref was created before durable receipt but before any file mutation.
+- [x] T049 Change protected Ubuntu Water reconciliation only from `YOLO_CONFIDENCE=0.15` to `0.10`; retain Road `0.15` and image size `960`.
+- [x] T050 Extend the existing reconciler execution test to assert resulting Water `worker.env` is `water-v1`, confidence `0.10`, imgsz `960`, and Road env is `road-v1`, confidence `0.15`, imgsz `960`.
+- [x] T051 Reconcile SDD 074 with completed Task 3C delivery, the production config contradiction and Task 3C1 acceptance gates.
+- [ ] T052 Verify exact base-to-head diff contains only the five Task 3C1 authorized paths.
+- [ ] T053 Open one bounded Task 3C1 remediation PR with complete Change Contract and Ubuntu Worker impact declared.
+- [ ] T054 Require exact-head `Repository validation` PASS and `quality-integration` PASS.
+- [ ] T055 Perform fresh merge probe and merge only the exact green Task 3C1 head.
+- [ ] T056 Require exact-main `Repository validation` PASS and `quality-integration` PASS.
+- [ ] T057 Require repository-owned autonomous Ubuntu deployment PASS with VPS application contour skipped and Road desired state preserved.
+- [ ] T058 Collect first post-deploy Water diagnostic and require `confidence_threshold=0.10` before resuming T043/T044 representative acceptance.
 
 ## Requirements traceability
 
-- AC-001 | Task: T031,T032,T035C | Evidence: Water `0.10` and Road `0.15` assertions in `tests/test_analytics_profiles.py` and `tests/test_frame_quality.py` | Coverage: COVERED
-- AC-002 | Task: T034,T035B | Evidence: exact connector base-to-head compare contains the six authorized paths after CI remediation | Coverage: COVERED
-- AC-003 | Task: T034,T045 | Evidence: exact protected-path diff review and explicit tuning exclusions | Coverage: COVERED
-- AC-004 | Task: T036,T037 | Evidence: exact-head required Actions runs | Coverage: COVERED
-- AC-005 | Task: T038,T039 | Evidence: fresh main/head/diff/review probe and expected-head merge | Coverage: COVERED
-- AC-006 | Task: T040 | Evidence: exact-main required Actions runs | Coverage: COVERED
-- AC-007 | Task: T041,T042 | Evidence: protected Ubuntu deployment and runtime progression audit | Coverage: COVERED
-- AC-008 | Task: T043,T044 | Evidence: representative post-deploy vessel detection/track continuity | Coverage: RUNTIME-MANUAL | Reason: requires real small/distant vessel traffic after deployment
-- AC-009 | Task: T043,T044 | Evidence: representative post-deploy false-positive visual/diagnostic review | Coverage: RUNTIME-MANUAL | Reason: false-positive acceptability requires representative production traffic
-- AC-010 | Task: T031,T032,T035C | Evidence: Road profile remains `0.15`, frame-quality contract preserves Road `0.15`, and no Road behavior paths change | Coverage: COVERED
-- AC-011 | Task: T035B,T045 | Evidence: canonical Task 3C and remediation scopes plus exact changed-file enforcement | Coverage: COVERED
+- AC-001 | Task: T031,T032,T050 | Evidence: canonical and resulting-env Water `0.10` / Road `0.15` assertions | Coverage: COVERED
+- AC-002 | Task: T052 | Evidence: exact connector base-to-head compare contains only five Task 3C1 authorized paths | Coverage: COVERED
+- AC-003 | Task: T052,T045 | Evidence: exact protected-path diff review and tuning exclusions | Coverage: COVERED
+- AC-004 | Task: T054 | Evidence: exact-head required Actions runs | Coverage: COVERED
+- AC-005 | Task: T055 | Evidence: fresh main/head/diff/review probe and expected-head merge | Coverage: COVERED
+- AC-006 | Task: T056 | Evidence: exact-main required Actions runs | Coverage: COVERED
+- AC-007 | Task: T057 | Evidence: protected Ubuntu deployment and runtime progression audit | Coverage: COVERED
+- AC-008 | Task: T043,T044 | Evidence: representative post-`0.10` vessel detection/track continuity | Coverage: RUNTIME-MANUAL | Reason: requires real small/distant vessel traffic after confirmed runtime threshold
+- AC-009 | Task: T043,T044 | Evidence: representative post-`0.10` false-positive visual/diagnostic review | Coverage: RUNTIME-MANUAL | Reason: false-positive acceptability requires representative production traffic
+- AC-010 | Task: T031,T032,T049,T050 | Evidence: Road remains `0.15` in canonical profile and resulting protected env | Coverage: COVERED
+- AC-011 | Task: T045,T052 | Evidence: Task 3C1 scope and exact changed-file enforcement | Coverage: COVERED
+- AC-012 | Task: T049,T050 | Evidence: executed reconciler writes Water `0.10`/960 and Road `0.15`/960 | Coverage: COVERED
+- AC-013 | Task: T058 | Evidence: post-deploy `WATER_RECALL_DIAGNOSTIC.detector.confidence_threshold` equals `0.10` | Coverage: RUNTIME-MANUAL | Reason: requires exact deployed production runtime evidence
 
 ## Definition of Done
 
-- [x] Issue/spec/plan/tasks current for Task 3C source admission, evidence rationale and bounded CI remediation.
-- [x] Exact changed-file scope verified against the authorized six paths.
-- [ ] Required tests and evidence complete after exact-head CI, exact-main CI, deployment and representative production acceptance.
-- [ ] Required CI green on exact PR head and exact merged main.
-- [ ] Exact-green-head merge complete for PR #360.
-- [ ] Deployment state resolved for the Ubuntu Worker with VPS skipped.
-- [ ] Runtime acceptance resolved with representative recall continuity and false-positive evidence, or controlled rollback completed.
+- [x] Issue/spec/plan/tasks current through Task 3C1 source admission and production-learning root cause.
+- [ ] Exact Task 3C1 changed-file scope verified against the authorized five paths.
+- [ ] Required Task 3C1 exact-head and exact-main CI green.
+- [ ] Exact-green-head Task 3C1 merge complete.
+- [ ] Protected Ubuntu deployment state resolved with VPS application contour skipped.
+- [ ] Runtime Water threshold proven `0.10` after deployment.
+- [ ] Representative recall continuity and false-positive acceptance resolved, or controlled rollback completed.
 - [x] Deferred work recorded: any tracker/imgsz/ROI/class-map tuning requires a new scope; insufficient traffic remains explicit evidence deferral.
-- [x] Risks resolved or explicitly accepted through one-variable scope, protected deployment and rollback `0.10 -> 0.15`.
-- [x] Waivers resolved or current: no waiver is requested for Task 3C.
+- [x] Risks resolved or explicitly accepted through one-variable scope, configuration-convergence regression coverage, protected deployment and rollback `0.10 -> 0.15`.
+- [x] Waivers resolved or current: no waiver is requested.
 
 ## Completion gate
 
-Issue #346 Task 3 is not complete until Task 3C production acceptance establishes that the lower Water threshold improves small/distant vessel continuity without materially uncontrolled false positives, or the experiment is rolled back and a newly authorized next direction is chosen.
+Issue #346 Task 3 is not complete until protected runtime is proven to use the intended Water threshold `0.10` and representative production acceptance establishes improved small/distant vessel continuity without materially uncontrolled false positives, or the experiment is rolled back and a newly authorized next direction is chosen.
