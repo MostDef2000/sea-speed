@@ -12,7 +12,7 @@
 
 Task 3A created and production-accepted bounded Water recall diagnostics. Task 3B used representative production traffic to identify the dominant observed loss stage. Task 3C performs one minimum evidence-backed behavior change: lower only the `water-v1` detector confidence from `0.15` to `0.10`, while keeping `road-v1` at `0.15` and leaving tracker, class map, ROI, model, image size, speed and public interfaces unchanged.
 
-The production evidence supporting Task 3C is asymmetric and stage-specific:
+The production evidence supporting Task 3C is stage-specific:
 
 - healthy passage `P-20260829T231340-5d4b1ffb` produced `boat` detections around confidence `0.82-0.83`, passed class mapping and ROI, and held stable `track_id=4183`;
 - unstable passage `P-20260829T232107-c5dcf174` produced intermittent detections, including a `boat` candidate at confidence `0.1781` with bbox `20x8`, accepted by class mapping and ROI but with no track assignment, surrounded by long runs of `detections=0`;
@@ -71,17 +71,17 @@ Given the lower Water threshold is deployed, representative traffic must show im
 - AC-005: Fresh merge probe confirms unchanged protected main assumptions, exact authorized diff and no blocking review threads before merge.
 - AC-006: Exact merged main passes `Repository validation` and `quality-integration`.
 - AC-007: Protected Ubuntu Worker deployment of exact main passes runtime safety/progression gates; VPS is skipped.
-- AC-008: Representative real Water traffic after deployment shows improved detection continuity and, where geometry permits, stable track assignment for small/distant vessels relative to the unstable Task 3B example.
+- AC-008: Representative real Water traffic after deployment shows improved detection continuity and, where geometry/time permits, stable track assignment for small/distant vessels relative to the unstable Task 3B example.
 - AC-009: Representative traffic does not show materially uncontrolled false positives. If it does, acceptance fails and Water confidence is restored to `0.15`.
 - AC-010: Road remains at confidence `0.15` with no Road behavior/source changes outside the shared profile table value assertion.
 - AC-011: No further detector/tracker/ROI/class-map tuning occurs under Task 3C authorization.
 
 ## NFR assessment
 
-- NFR-001 | Area: RELIABILITY | Target: one-variable Water-only experiment | Validation: exact diff + profile tests | Status: PENDING CI
-- NFR-002 | Area: PERFORMANCE | Target: no additional inference pass and unchanged `imgsz=960`/sample cadence | Validation: protected-path review and existing worker architecture | Status: PENDING CI
-- NFR-003 | Area: SECURITY | Target: no secret/media/auth surface change | Validation: exact diff | Status: PENDING CI
-- NFR-004 | Area: OPERABILITY | Target: rollback is one Water profile value `0.10 -> 0.15`; protected deployment remains transactional | Validation: deployment evidence | Status: PENDING RUNTIME
+- NFR-001 | Area: RELIABILITY | Target: one-variable Water-only experiment with Road isolation | Validation: exact diff plus analytics profile unit assertions | Evidence: `worker/analytics_profiles.py`; `tests/test_analytics_profiles.py` | Status: PASS
+- NFR-002 | Area: PERFORMANCE | Target: zero additional inference passes with unchanged `imgsz=960` and sample cadence | Validation: exact authorized diff and existing single-child inference architecture | Evidence: Task 3C diff changes only profile confidence plus tests/SDD | Status: PASS
+- NFR-003 | Area: SECURITY | Target: no secret, credential, media URL, auth or public ingress change | Validation: exact changed-file review | Evidence: no deploy/auth/media/API/frontend paths in Task 3C diff | Status: PASS
+- NFR-004 | Area: OPERABILITY | Target: rollback is bounded to Water confidence `0.10 -> 0.15` under protected Ubuntu deployment | Validation: Change Contract rollback target and deployment transaction audit | Evidence: PR #360 Change Contract and Task 3C plan | Status: PASS
 
 ## Compatibility and boundaries
 
