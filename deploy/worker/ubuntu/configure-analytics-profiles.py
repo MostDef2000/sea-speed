@@ -171,7 +171,7 @@ def main() -> int:
             "MODEL_NAME": "models/yolo26x.pt",
             "YOLO_TRACKER": "bytetrack.yaml",
             "YOLO_IMAGE_SIZE": "960",
-            "YOLO_CONFIDENCE": "0.15",
+            "YOLO_CONFIDENCE": "0.10",
             "SAMPLE_FPS": _preserve_float("SAMPLE_FPS", "10"),
             "FRAME_WIDTH": water_frame_w,
             "FRAME_HEIGHT": water_frame_h,
