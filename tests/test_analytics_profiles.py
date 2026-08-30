@@ -35,9 +35,10 @@ class AnalyticsProfilesTests(unittest.TestCase):
             self.assertEqual(profile.domain, domain)
             self.assertEqual(profile.model_name, "models/yolo26x.pt")
             self.assertEqual(profile.image_size, 960)
-            self.assertEqual(profile.confidence, 0.15)
             self.assertEqual(profile.tracker, "bytetrack.yaml")
             self.assertEqual(profile.sample_fps, 10.0)
+        self.assertEqual(water.confidence, 0.10)
+        self.assertEqual(road.confidence, 0.15)
         self.assertEqual(set(profiles.PROFILES), {"water-v1", "road-v1"})
 
     def test_water_normalizes_boat_and_rejects_road_classes(self) -> None:
