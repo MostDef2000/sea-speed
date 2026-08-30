@@ -40,8 +40,8 @@
 - [x] T022A Normalize PR #359 Change Contract metadata after validation-only failures; no production behavior widened.
 - [x] T023 Merge SDD reconciliation PR #359 to protected main `b5555c82d0c97fff4542de6776496fb57d7b57ad`; exact-main Repository validation `33255091247` PASS and quality-integration `33255091254` PASS.
 - [x] T024 Collect bounded representative Worker journal evidence temporally overlapping real vessel passages.
-- [x] T025 Classify a healthy passage: `P-20260829T231340-5d4b1ffb` had `boat` confidence about `0.82`, class-map accepted, ROI accepted and stable `track_id=4183`.
-- [x] T026 Classify an unstable passage: `P-20260829T232107-c5dcf174` had intermittent detections including confidence `0.1781`, bbox `20x8`, class-map/ROI accepted, `track_id=null`, plus surrounding zero-detection runs.
+- [x] T025 Classify healthy passage `P-20260829T231340-5d4b1ffb`: `boat` confidence about `0.82`, class-map accepted, ROI accepted, stable `track_id=4183`.
+- [x] T026 Classify unstable passage `P-20260829T232107-c5dcf174`: intermittent detections including confidence `0.1781`, bbox `20x8`, class-map/ROI accepted, `track_id=null`, plus surrounding zero-detection runs.
 - [x] T027 Record dominant stage `DETECTOR_POST_THRESHOLD_VISIBILITY_INSTABILITY`; record `TRACKER_NON_ASSIGNMENT` as secondary consequence; do not blame class-map or ROI.
 - [x] T028 Present a separate Task 3C six-field tuning Scope and receive fresh literal `OUTCOME APPROVED` before source mutation.
 
@@ -52,8 +52,8 @@
 - [x] T031 Change only `water-v1.confidence` from `0.15` to `0.10`; keep `road-v1.confidence` at `0.15`.
 - [x] T032 Update analytics profile tests to assert Water `0.10`, Road `0.15`, while retaining model/imgsz/tracker/sample/class-map contracts.
 - [x] T033 Reconcile SDD 074 with Task 3B evidence verdict and Task 3C one-variable experiment.
-- [ ] T034 Verify exact base-to-head diff contains only the five authorized repository paths.
-- [ ] T035 Open one bounded PR with a complete Change Contract and Ubuntu Worker production impact declared.
+- [x] T034 Verify exact base-to-head diff contains only the five authorized repository paths.
+- [x] T035 Open one bounded PR #360 with a complete Change Contract and Ubuntu Worker production impact declared.
 - [ ] T036 Require exact-head `Repository validation` PASS.
 - [ ] T037 Require exact-head `quality-integration` PASS.
 - [ ] T038 Perform fresh merge probe: protected main, exact green head, exact diff, review threads and authorization assumptions.
@@ -67,43 +67,30 @@
 
 ## Requirements traceability
 
-- AC-001 | Task: T031,T032 | Evidence: `tests/test_analytics_profiles.py` | Coverage: IMPLEMENTED / PENDING CI
-- AC-002 | Task: T034 | Evidence: exact base-to-head compare | Coverage: PENDING
-- AC-003 | Task: T034 | Evidence: protected-path diff review | Coverage: PENDING
-- AC-004 | Task: T036,T037 | Evidence: exact-head Actions runs | Coverage: PENDING
-- AC-005 | Task: T038,T039 | Evidence: fresh merge probe and expected-head merge | Coverage: PENDING
-- AC-006 | Task: T040 | Evidence: exact-main required Actions runs | Coverage: PENDING
-- AC-007 | Task: T041,T042 | Evidence: protected Ubuntu deployment/runtime gate | Coverage: PENDING
-- AC-008 | Task: T043,T044 | Evidence: representative post-deploy vessel continuity | Coverage: PENDING RUNTIME
-- AC-009 | Task: T043,T044 | Evidence: representative false-positive review | Coverage: PENDING RUNTIME
-- AC-010 | Task: T031,T032,T034 | Evidence: Road profile remains `0.15`, no Road source changes | Coverage: IMPLEMENTED / PENDING CI
-- AC-011 | Task: T045 | Evidence: exact scope and canonical checkpoints | Coverage: ENFORCED
+- AC-001 | Task: T031,T032 | Evidence: Water `0.10` and Road `0.15` assertions in `tests/test_analytics_profiles.py` | Coverage: COVERED
+- AC-002 | Task: T034 | Evidence: exact connector base-to-head compare contains five authorized paths | Coverage: COVERED
+- AC-003 | Task: T034,T045 | Evidence: exact protected-path diff review and explicit tuning exclusions | Coverage: COVERED
+- AC-004 | Task: T036,T037 | Evidence: exact-head required Actions runs | Coverage: COVERED
+- AC-005 | Task: T038,T039 | Evidence: fresh main/head/diff/review probe and expected-head merge | Coverage: COVERED
+- AC-006 | Task: T040 | Evidence: exact-main required Actions runs | Coverage: COVERED
+- AC-007 | Task: T041,T042 | Evidence: protected Ubuntu deployment and runtime progression audit | Coverage: COVERED
+- AC-008 | Task: T043,T044 | Evidence: representative post-deploy vessel detection/track continuity | Coverage: RUNTIME-MANUAL | Reason: requires real small/distant vessel traffic after deployment
+- AC-009 | Task: T043,T044 | Evidence: representative post-deploy false-positive visual/diagnostic review | Coverage: RUNTIME-MANUAL | Reason: false-positive acceptability requires representative production traffic
+- AC-010 | Task: T031,T032,T034 | Evidence: Road profile remains `0.15` and no Road behavior paths change | Coverage: COVERED
+- AC-011 | Task: T045 | Evidence: canonical Task 3C scope and exact changed-file enforcement | Coverage: COVERED
 
 ## Definition of Done
 
-### Task 3A
-
-- [x] Observability source and Ubuntu IPC remediation merged.
-- [x] Exact-head/exact-main quality gates passed.
-- [x] Protected Ubuntu deployment and runtime progression passed.
-
-### Task 3B
-
-- [x] SDD reconciliation merged.
-- [x] Representative production evidence collected.
-- [x] Dominant loss stage recorded as detector visibility instability.
-- [x] Fresh separate tuning authorization obtained before behavior change.
-
-### Task 3C
-
-- [x] Fresh authorization recorded.
-- [x] Water-only threshold implementation and profile test update completed on a fresh branch.
-- [ ] Exact diff verified and bounded PR opened.
-- [ ] Exact-head required checks green.
-- [ ] Exact-green-head merge complete.
-- [ ] Exact-main required checks green.
-- [ ] Protected Ubuntu deployment/runtime gates green.
-- [ ] Representative production acceptance PASS, or controlled rollback to Water `0.15` completed after FAIL.
+- [x] Issue/spec/plan/tasks current for Task 3C source admission and evidence rationale.
+- [x] Exact changed-file scope verified against the authorized five paths.
+- [ ] Required tests and evidence complete after exact-head CI, exact-main CI, deployment and representative production acceptance.
+- [ ] Required CI green on exact PR head and exact merged main.
+- [ ] Exact-green-head merge complete for PR #360.
+- [ ] Deployment state resolved for the Ubuntu Worker with VPS skipped.
+- [ ] Runtime acceptance resolved with representative recall continuity and false-positive evidence, or controlled rollback completed.
+- [x] Deferred work recorded: any tracker/imgsz/ROI/class-map tuning requires a new scope; insufficient traffic remains explicit evidence deferral.
+- [x] Risks resolved or explicitly accepted through one-variable scope, protected deployment and rollback `0.10 -> 0.15`.
+- [x] Waivers resolved or current: no waiver is requested for Task 3C.
 
 ## Completion gate
 
