@@ -90,10 +90,10 @@ Given protected Ubuntu deployment reconciles Water and Road env files, the resul
 
 ## NFR assessment
 
-- NFR-001 | Area: RELIABILITY | Target: one-variable Water-only experiment with Road isolation and source/runtime configuration convergence | Validation: exact diff plus source profile and resulting-env assertions | Evidence: `tests/test_analytics_profiles.py`; protected post-deploy diagnostic | Status: ACTIVE
+- NFR-001 | Area: RELIABILITY | Target: one-variable Water-only experiment with Road isolation and source/runtime configuration convergence | Validation: exact diff plus source profile and resulting-env assertions | Evidence: `tests/test_analytics_profiles.py`; protected post-deploy diagnostic | Status: CONCERNS
 - NFR-002 | Area: PERFORMANCE | Target: zero additional inference passes with unchanged `imgsz=960` and sample cadence | Validation: exact authorized diff and existing single-child inference architecture | Evidence: Task 3C1 changes configuration reconciliation only | Status: PASS
 - NFR-003 | Area: SECURITY | Target: no secret, credential, media URL, auth or public ingress change | Validation: exact changed-file review | Evidence: bounded reconciler/test/SDD paths; no secret values added | Status: PASS
-- NFR-004 | Area: OPERABILITY | Target: deployment cannot silently override the canonical Water confidence and rollback remains `0.10 -> 0.15` | Validation: resulting-env unit assertions plus protected deployment audit | Evidence: Task 3C1 regression test and runtime diagnostic | Status: ACTIVE
+- NFR-004 | Area: OPERABILITY | Target: deployment cannot silently override the canonical Water confidence and rollback remains `0.10 -> 0.15` | Validation: resulting-env unit assertions plus protected deployment audit | Evidence: Task 3C1 regression test and runtime diagnostic | Status: CONCERNS
 
 ## Compatibility and boundaries
 
