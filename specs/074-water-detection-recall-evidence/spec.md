@@ -2,100 +2,122 @@
 
 - Feature: 074-water-detection-recall-evidence
 - Issue: #346
-- Status: Active - Task 3A production accepted; Task 3B evidence interpretation authorized
-- Owner outcome: collect bounded, decision-neutral Water detector evidence so missed or unstable vessels can be diagnosed before any recall tuning.
+- Status: Active - Task 3A production accepted; Task 3B evidence classified; Task 3C Water-only threshold tuning authorized
+- Owner outcome: improve Water vessel recall from production evidence without widening class-map, ROI, tracker, speed, API, frontend, Road, or deployment semantics.
 - Task 3A remediation authorization: `issue-346-task3a-ubuntu-diagnostic-ipc-remediation-v1` from protected main `7b9902adca65d43151de629d15e526a5f79d3899`.
 - Task 3B authorization: `issue-346-task3b-water-recall-evidence-interpretation-v1` from protected main `ea6f1e9d15252840d27721f004817ba35f11d0c6`.
-- Task 3B repository scope: this spec, plan and tasks only; Ubuntu production observation is read-only; deployment is not required.
+- Task 3C authorization: `issue-346-task3c-water-low-confidence-recall-tuning-v1` from protected main `b5555c82d0c97fff4542de6776496fb57d7b57ad`.
 
 ## Product outcome
 
-When Water traffic is available, operators and maintainers can distinguish where a candidate was lost in the current detection pipeline: detector output after the configured confidence threshold, profile class mapping, ROI center filtering, or tracker assignment. The evidence is bounded, secret-free and does not change which detections enter Water live/passage semantics.
+Task 3A created and production-accepted bounded Water recall diagnostics. Task 3B used representative production traffic to identify the dominant observed loss stage. Task 3C performs one minimum evidence-backed behavior change: lower only the `water-v1` detector confidence from `0.15` to `0.10`, while keeping `road-v1` at `0.15` and leaving tracker, class map, ROI, model, image size, speed and public interfaces unchanged.
 
-Task 3A created and production-accepted the observability path. Task 3B interprets representative production evidence and reconciles the durable SDD with completed Task 3A delivery evidence. Neither stage authorizes recall tuning.
+The production evidence supporting Task 3C is asymmetric and stage-specific:
+
+- healthy passage `P-20260829T231340-5d4b1ffb` produced `boat` detections around confidence `0.82-0.83`, passed class mapping and ROI, and held stable `track_id=4183`;
+- unstable passage `P-20260829T232107-c5dcf174` produced intermittent detections, including a `boat` candidate at confidence `0.1781` with bbox `20x8`, accepted by class mapping and ROI but with no track assignment, surrounded by long runs of `detections=0`;
+- therefore class-map and ROI rejection are not supported as the dominant cause; tracker non-assignment is observed downstream of weak/intermittent detector visibility;
+- diagnostics begin after the active `model.track(..., conf=...)` threshold and cannot show candidates rejected below that threshold.
+
+Task 3B classification is `DETECTOR_POST_THRESHOLD_VISIBILITY_INSTABILITY`, with `TRACKER_NON_ASSIGNMENT` as a secondary consequence rather than the primary tuning target.
 
 ## User scenarios
 
 ### Scenario 1 - Explain an accepted vessel
 
-Given Water Worker inference produces a model result that maps to `vessel`, when bounded diagnostics are emitted, then the evidence records model class, confidence, bbox dimensions/area, track assignment, ROI center relation and whether the detection survived the existing ROI filter.
+Given Water Worker inference produces a model result that maps to `vessel`, bounded diagnostics record model class, confidence, bbox dimensions/area, track assignment, ROI center relation and final ROI acceptance.
 
 ### Scenario 2 - Explain a post-threshold rejection
 
-Given Water Worker inference produces a post-threshold model result outside the `water-v1` class map, when diagnostics are emitted, then the evidence records that model class and confidence with `class_mapping_accepted=false` without admitting the object to Water detections.
+Given Water inference produces a post-threshold model result outside the `water-v1` class map, diagnostics record that model class and confidence with `class_mapping_accepted=false` without admitting the object to Water detections.
 
-### Scenario 3 - Preserve production decisions
+### Scenario 3 - Preserve production decisions during observability
 
-Given the same model result and runtime configuration, when diagnostics collection is enabled or disabled, then `detect_vehicles` returns the same detection list and existing ROI filtering makes the same acceptance decision.
+Given the same model result and runtime configuration, diagnostics collection itself does not change returned detections or ROI acceptance decisions.
 
-### Scenario 4 - Keep observability bounded
+### Scenario 4 - Interpret representative traffic
 
-Given continuous Water inference, when diagnostics are enabled, then at most one structured diagnostic record is emitted per configured interval and the per-frame record list is capped; no second inference pass, image crop, camera URL or credential is emitted.
+Given real Water vessel traffic, accepted and unstable examples are compared across detector visibility, class mapping, ROI filtering and tracker continuity before any tuning is proposed.
 
-### Scenario 5 - Preserve Ubuntu supervised inference behavior
+### Scenario 5 - Tune only the evidence-supported stage
 
-Given production Ubuntu executes YOLO in the bounded child process, when the child returns one `model.track()` result, then the existing accepted detection list and an optional diagnostics list travel in the same bounded framed response. The parent supervisor accepts `diagnostics=None` for two-argument Road compatibility and fills the Water diagnostic sink when supplied.
+Given Task 3B evidence points to weak/intermittent post-threshold detector visibility, Task 3C changes only the Water confidence default from `0.15` to `0.10`. Road confidence remains `0.15`. No simultaneous tracker, class-map, ROI or image-size tuning is permitted.
 
-### Scenario 6 - Interpret representative runtime evidence
+### Scenario 6 - Fail safely on false positives or no improvement
 
-Given representative real vessels are visible while the accepted Ubuntu Worker is running, when a bounded sample of `WATER_RECALL_DIAGNOSTIC` records is reviewed, then the dominant observed loss stage is classified as post-threshold detector visibility, class mapping, ROI center filtering or tracker continuity. If the available evidence cannot distinguish a dominant stage, the result is recorded as `INCONCLUSIVE` rather than tuning production blindly.
+Given the lower Water threshold is deployed, representative traffic must show improved small/distant vessel continuity without uncontrolled false positives. If continuity does not improve or false positives materially increase, the Water confidence is restored to `0.15` under the authorized rollback boundary.
 
 ## Requirements
 
-- FR-001: The Worker MUST expose post-threshold model class, confidence, bbox geometry/size, tracker assignment and profile class-mapping outcome through an optional diagnostic sink without changing the returned detections.
-- FR-002: Water diagnostics MUST record whether each class-mapped candidate is inside the existing ROI by the existing bbox-center predicate and whether it survived the existing ROI filter.
-- FR-003: Diagnostics MUST record the active non-secret detector configuration needed to interpret evidence: model name, image size, confidence threshold and tracker name.
-- FR-004: Diagnostics MUST identify whether ROI preprocessing is `masked_before_inference` or `full_frame`, the ROI point count, and the current post-filter strategy `bbox_center`.
-- FR-005: Diagnostics MUST be bounded by an emission interval and a capped record count and MUST NOT execute an additional detector/tracker inference pass.
-- FR-006: Diagnostics MUST NOT contain camera/media URLs, API tokens, Basic Auth values, credentials, image crops or raw frames.
-- FR-007: Task 3A and Task 3B MUST NOT modify YOLO model/weights, `YOLO_CONFIDENCE`, `YOLO_IMAGE_SIZE`, ByteTrack configuration/state, profile class mapping, ROI geometry/masking/filtering decisions, Water speed/PassageEngine semantics, frontend/API storage contracts or Road runtime semantics.
-- FR-008: The evidence semantics MUST state that `post_threshold_raw` is the output visible from the existing `model.track(..., conf=...)` call and therefore cannot prove the existence of candidates rejected below that configured confidence threshold.
-- FR-009: The Ubuntu inference child MUST serialize accepted detections with the same fields/values as before remediation and MUST expose class-map rejected post-threshold boxes only through a separate diagnostics field in the same response.
-- FR-010: The Ubuntu parent supervisor MUST validate the diagnostics field as a list of mappings, preserve the existing 4 MiB framed-response bound, and accept an optional diagnostic sink without changing two-argument callers.
-- FR-011: Task 3B production observation MUST be read-only and bounded to existing secret-free diagnostic output from accepted source `ea6f1e9d15252840d27721f004817ba35f11d0c6`; it MUST NOT deploy, restart, retune or otherwise mutate production solely to obtain evidence.
-- FR-012: Task 3B MUST record either a stage-supported interpretation from representative accepted plus missed/unstable examples or the explicit result `INCONCLUSIVE`. Any later behavior change requires a new six-field Scope and fresh literal `OUTCOME APPROVED`.
+- FR-001: Water diagnostics MUST expose post-threshold model class, confidence, bbox geometry/size, tracker assignment and profile class-mapping outcome without changing returned detections.
+- FR-002: Water diagnostics MUST record the existing ROI-center relation and final ROI acceptance.
+- FR-003: Diagnostics MUST remain bounded, secret-free and single-pass; no second detector/tracker inference is allowed.
+- FR-004: Task 3B evidence MUST distinguish detector visibility, class mapping, ROI and tracker stages or record `INCONCLUSIVE`.
+- FR-005: Task 3B evidence MUST state that `post_threshold_raw` cannot expose boxes rejected below configured confidence.
+- FR-006: Task 3C MUST set `water-v1.confidence` to `0.10`.
+- FR-007: Task 3C MUST keep `road-v1.confidence` at `0.15`.
+- FR-008: Task 3C MUST NOT change model/weights, `YOLO_IMAGE_SIZE`, device/FP16, ByteTrack config/state, class mapping, ROI geometry/pre-mask/post-filter, Water speed/PassageEngine, API/storage/frontend, Road behavior, camera/media/auth topology or deployment tooling.
+- FR-009: Ubuntu Worker MUST consume the selected analytics profile confidence through the existing supervised inference path; no alternate or shadow inference path is introduced.
+- FR-010: Task 3C MUST pass exact-head and exact-main required checks before protected Ubuntu deployment.
+- FR-011: Task 3C production acceptance MUST compare representative small/distant-vessel detection/track continuity against the Task 3B evidence and observe false-positive behavior.
+- FR-012: If Task 3C does not improve continuity or produces materially uncontrolled false positives, Water confidence MUST return to `0.15`; no tracker/imgsz/ROI/class-map tuning is authorized by this scope.
 
 ## Acceptance criteria
 
-- AC-001: A deterministic detector test proves that adding a diagnostics sink leaves the returned detection list byte-for-structure equivalent for the same model result.
-- AC-002: A deterministic diagnostic test records model class, confidence, bbox dimensions/area, track assignment, class-mapping acceptance, ROI-center relation and final ROI acceptance.
-- AC-003: Diagnostic output records current model name, image size, confidence threshold, tracker, ROI preprocessing mode and bbox-center post-filter strategy without including protected URL/token environment names or values.
-- AC-004: Diagnostic emission is rate-bounded and record-bounded; repeated calls inside the configured interval emit nothing and records above the configured cap are truncated with an explicit flag.
-- AC-005: Exact changed-file review confirms zero diff to detector settings, tracker configuration, ROI decision code, Water speed/PassageEngine, API/frontend and Road behavior outside the separately authorized Task 3A implementation paths.
-- AC-006: Task 3A exact PR head passes Repository validation and `quality-integration`, is merged only at that green head, and exact protected main passes the same required quality gates.
-- AC-007: Task 3A exact-main Ubuntu Worker release is deployed through the protected connector path with VPS skipped and reaches `frame_and_state_progression=PASS`.
-- AC-008: No recall threshold, class-map, ROI or tracker tuning is authorized by Task 3A or Task 3B; any later recall change must cite collected evidence and receive its own bounded authorization.
-- AC-009: `tests/test_water_recall_ubuntu_ipc.py` proves accepted child detections are unchanged, class-map rejects are diagnostic-only, the child source contains one `model.track()` call, the parent accepts `diagnostics=None`, and IPC remains bounded and secret-free.
-- AC-010: SDD 074 records the completed Task 3A exact-head, merge, exact-main and Ubuntu runtime evidence rather than leaving those gates pending.
-- AC-011: Representative Task 3B evidence is sufficient to classify the dominant observed loss stage, or the durable result is explicitly `INCONCLUSIVE`; no tuning is performed inside Task 3B.
+- AC-001: Deterministic tests prove `water-v1.confidence == 0.10` and `road-v1.confidence == 0.15`.
+- AC-002: Exact changed-file review contains only the authorized five repository paths.
+- AC-003: No diff changes model/weights, image size, tracker, class map, ROI, speed, API/storage/frontend, Road runtime behavior or deployment tooling.
+- AC-004: Exact PR head passes `Repository validation` and `quality-integration`.
+- AC-005: Fresh merge probe confirms unchanged protected main assumptions, exact authorized diff and no blocking review threads before merge.
+- AC-006: Exact merged main passes `Repository validation` and `quality-integration`.
+- AC-007: Protected Ubuntu Worker deployment of exact main passes runtime safety/progression gates; VPS is skipped.
+- AC-008: Representative real Water traffic after deployment shows improved detection continuity and, where geometry permits, stable track assignment for small/distant vessels relative to the unstable Task 3B example.
+- AC-009: Representative traffic does not show materially uncontrolled false positives. If it does, acceptance fails and Water confidence is restored to `0.15`.
+- AC-010: Road remains at confidence `0.15` with no Road behavior/source changes outside the shared profile table value assertion.
+- AC-011: No further detector/tracker/ROI/class-map tuning occurs under Task 3C authorization.
 
 ## NFR assessment
 
-- NFR-001 | Area: RELIABILITY | Target: diagnostics-on and diagnostics-off return identical detector decisions for identical model output | Validation: deterministic equality tests in in-process and Ubuntu child paths | Evidence: `test_recall_diagnostics_sink_does_not_change_detector_result`; `test_child_side_channel_preserves_accepted_detection_semantics` | Status: PASS
-- NFR-002 | Area: PERFORMANCE | Target: zero extra `model.track` calls; diagnostic logging no more than once per 10 seconds by default with at most 12 records per emission | Validation: source contract plus bounded-emission test | Evidence: `maybe_emit_water_recall_diagnostics`; `tests/test_water_recall_ubuntu_ipc.py` | Status: PASS
-- NFR-003 | Area: SECURITY | Target: diagnostic payload contains no camera/media URL, API token, Basic Auth value, credential, frame or image crop | Validation: fixed payload allowlist and child source regression assertions | Evidence: `tests/test_worker_tracking_overlay.py`; `tests/test_water_recall_ubuntu_ipc.py` | Status: PASS
-- NFR-004 | Area: OPERABILITY | Target: one JSON object per emitted line with stable schema `sea_speed_water_recall_diagnostic_v1`; Ubuntu framed child response remains <=4 MiB | Validation: deterministic JSON parsing test plus parent response-size guard | Evidence: Worker diagnostics tests and `BoundedYoloSupervisor._roundtrip` | Status: PASS
+- NFR-001 | Area: RELIABILITY | Target: one-variable Water-only experiment | Validation: exact diff + profile tests | Status: PENDING CI
+- NFR-002 | Area: PERFORMANCE | Target: no additional inference pass and unchanged `imgsz=960`/sample cadence | Validation: protected-path review and existing worker architecture | Status: PENDING CI
+- NFR-003 | Area: SECURITY | Target: no secret/media/auth surface change | Validation: exact diff | Status: PENDING CI
+- NFR-004 | Area: OPERABILITY | Target: rollback is one Water profile value `0.10 -> 0.15`; protected deployment remains transactional | Validation: deployment evidence | Status: PENDING RUNTIME
 
 ## Compatibility and boundaries
 
-- Stable public interfaces: Water live/passage API envelopes, frontend behavior, Road runtime, operator Worker controls and deployment topology remain unchanged.
-- Internal compatibility: Ubuntu child/parent framed IPC carries an optional `diagnostics` response field; this is not a public API/storage schema and does not alter accepted detection semantics.
-- Task 3B source boundary: only `specs/074-water-detection-recall-evidence/{spec,plan,tasks}.md` may change.
-- Out of scope: detector threshold/resolution changes; alternate accepted classes; ByteTrack tuning; ROI processing/filter changes; speed changes; shadow inference; API schema/storage; frontend visualization; deployment/runtime tooling changes.
-- Security constraints: diagnostic payload is an allowlisted local Worker log structure only; no secret-bearing environment values, media URLs, frames or crops are serialized.
+Stable public interfaces remain unchanged: Water live/passage API envelopes, storage schema, frontend behavior, operator controls and Road runtime semantics.
+
+Task 3C repository scope is limited to:
+
+- `worker/analytics_profiles.py`
+- `tests/test_analytics_profiles.py`
+- `specs/074-water-detection-recall-evidence/spec.md`
+- `specs/074-water-detection-recall-evidence/plan.md`
+- `specs/074-water-detection-recall-evidence/tasks.md`
+
+Protected/out of scope: model binaries and weights; image size; device/FP16; ByteTrack config/state; accepted classes; ROI geometry/masking/filtering; Water speed/PassageEngine; API/storage/frontend; Road confidence/behavior; deployment/runtime verifier/systemd; camera/HLS/MediaMTX/nginx/Auth/ZeroTier; second/shadow inference.
 
 ## Runtime feedback
 
-- First Task 3A deployment of source `7b9902adca65d43151de629d15e526a5f79d3899`: FAILED twice at `no_exact_running_baseline` after AI self-test; updater automatically restored accepted production Worker `739947c11471c746e74af0dfee4d9a5edd0d7bac` both times.
-- Root cause: Ubuntu entrypoint monkey-patched `detect_vehicles(_model, frame)` while Water called `detect_vehicles(..., diagnostics=...)`; additionally the child discarded class-map rejects before parent diagnostics could observe them.
-- Remediation PR #358 carried accepted detections plus diagnostic records through the existing single-pass child IPC and made the parent monkey-patch diagnostics-compatible.
-- Exact remediation PR head `dd341242e54f4e01382e2322e9571ec407cd295a`: PR Validation run `33251179588` PASS; quality-integration run `33251179586` PASS.
-- Exact-green-head merge produced protected main `ea6f1e9d15252840d27721f004817ba35f11d0c6`.
-- Exact-main Repository validation run `33251243227` PASS; exact-main quality-integration run `33251243310` PASS.
-- Autonomous production deployment run `33251264466`: Ubuntu Worker REQUIRED/executed/PASS; VPS SKIPPED; standing delegation/source protection and production policy PASS.
-- Runtime progression: baseline frame sequence `17`, state posts `4`, AI inference successes `29`; accepted progression frame sequence `33`, state posts `9`, AI inference successes `54`; `frame_and_state_progression=PASS`; `sea-speed-worker.service` active; Road desired state remained stopped.
-- Accepted production Worker source is `ea6f1e9d15252840d27721f004817ba35f11d0c6`. Ubuntu artifact `sea-speed-ubuntu-worker-ea6f1e9d15252840d27721f004817ba35f11d0c6.tar.gz` has sha256 `c6d06ecffb35485a0551efc282d1c4b7784bbacf9810f52e6079a1025f770b1e`; deployment evidence artifact ID `9714438874`, ZIP digest `sha256:66556adea96476163403a1440fd7bdb1aa3c24a07945dce02ab36699e708c1e5`.
-- Task 3A source/deployment/runtime acceptance is COMPLETE.
-- Task 3B evidence status: PENDING representative bounded `WATER_RECALL_DIAGNOSTIC` sampling. The accepted deployment Actions log proves runtime progression but does not export the `sea-speed-worker.service` journal; absence of diagnostic lines in that Actions log is an evidence gap, not evidence of zero candidates.
-- Regressions/learning: diagnostics begin after the configured `model.track` confidence threshold; candidates below that threshold remain unobservable without a separately authorized experiment.
-- Follow-up work: review representative evidence and classify detector/class-map/ROI/tracker loss stage or `INCONCLUSIVE`. Recall tuning remains separately authorized work.
+### Task 3A
+
+- First Task 3A candidate failed Ubuntu runtime progression and automatically restored the prior accepted Worker.
+- PR #358 remediated Ubuntu child/parent diagnostic IPC without changing accepted detection semantics.
+- Exact remediation head `dd341242e54f4e01382e2322e9571ec407cd295a` passed PR Validation `33251179588` and quality-integration `33251179586`.
+- Protected main `ea6f1e9d15252840d27721f004817ba35f11d0c6` passed exact-main runs `33251243227` and `33251243310`.
+- Deployment run `33251264466` passed; Ubuntu REQUIRED/executed, VPS SKIPPED; `frame_and_state_progression=PASS`.
+
+### Task 3B
+
+- SDD reconciliation PR #359 merged to protected main `b5555c82d0c97fff4542de6776496fb57d7b57ad`; exact-main Repository validation `33255091247` and quality-integration `33255091254` passed.
+- Representative journal evidence overlapped real passages.
+- Healthy passage `P-20260829T231340-5d4b1ffb`: diagnostic frames showed `post_threshold_raw=1`, `class_mapping_accepted=1`, `track_assigned=1`, `accepted_after_roi=1`; `boat` confidence `0.8212/0.8326`, stable track `4183`.
+- Unstable passage `P-20260829T232107-c5dcf174`: one diagnostic candidate was `boat`, confidence `0.1781`, bbox `20x8`, class-map accepted, ROI-center accepted, `track_id=null`; surrounding inference repeatedly alternated between one detection and zero detections, with diagnostic frames returning `post_threshold_raw=0`.
+- Dominant classification: `DETECTOR_POST_THRESHOLD_VISIBILITY_INSTABILITY`; secondary consequence: `TRACKER_NON_ASSIGNMENT`.
+- Evidence does not support class-map or ROI rejection as the dominant cause.
+
+### Task 3C
+
+- Authorization `OUTCOME APPROVED` recorded against exact protected main `b5555c82d0c97fff4542de6776496fb57d7b57ad`.
+- Authorized experiment: Water confidence `0.15 -> 0.10` only; Road remains `0.15`.
+- Production acceptance is pending exact-head CI, exact-main CI, protected Ubuntu deployment and representative post-deploy traffic evidence.
