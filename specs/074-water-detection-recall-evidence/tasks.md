@@ -56,7 +56,7 @@
 - [x] T033 Reconcile SDD 074 with Task 3B evidence verdict and Task 3C one-variable experiment.
 - [x] T034 Verify exact base-to-head diff after CI remediation contains only the six authorized repository paths.
 - [x] T035 Open one bounded PR #360 with a complete Change Contract and Ubuntu Worker production impact declared.
-- [x] T035A Record first exact-head CI blocker: PR Validation `33284886697` and Quality `33284886705` failed only because `tests/test_frame_quality.py` still asserted Water confidence `0.15`; Change Contract, SDD and other shown quality domains passed.
+- [x] T035A Record first exact-head CI blocker: PR Validation `33284886697` and Quality `33284886705` failed only because `tests/test_frame_quality.py` still asserted Water confidence `0.15`; Change Contract, SDD and other shown independent quality domains passed.
 - [x] T035B Obtain fresh literal `OUTCOME APPROVED` for remediation scope `issue-346-task3c-frame-quality-contract-remediation-v1`, adding only `tests/test_frame_quality.py` and authorizing no additional production behavior.
 - [x] T035C Reconcile frame-quality detector invariants to Water confidence `0.10`, Road confidence `0.15`, and unchanged `image_size=960` for both profiles.
 - [x] T035D Record metadata sequencing failure on runs `33285212866`/`33285212862`; create a fresh authoritative PR event without changing production behavior.
@@ -82,6 +82,7 @@
 - [x] T051 Reconcile SDD 074 with completed Task 3C delivery, the production config contradiction and Task 3C1 acceptance gates.
 - [x] T052 Verify exact base-to-head diff contains only the five Task 3C1 authorized paths; behind=0.
 - [x] T053 Open one bounded Task 3C1 remediation PR #361 with complete Change Contract and Ubuntu Worker impact declared.
+- [x] T053A Normalize SDD schema-only CI findings on PR #361: NFR pending statuses use `CONCERNS`, the production-learning transaction audit includes all eight stages, and canonical Definition of Done marker vocabulary is present; no production behavior changed.
 - [ ] T054 Require exact-head `Repository validation` PASS and `quality-integration` PASS.
 - [ ] T055 Perform fresh merge probe and merge only the exact green Task 3C1 head.
 - [ ] T056 Require exact-main `Repository validation` PASS and `quality-integration` PASS.
@@ -106,13 +107,13 @@
 
 ## Definition of Done
 
-- [x] Issue/spec/plan/tasks current through Task 3C1 source admission and production-learning root cause.
-- [x] Exact Task 3C1 changed-file scope verified against the authorized five paths.
-- [ ] Required Task 3C1 exact-head and exact-main CI green.
-- [ ] Exact-green-head Task 3C1 merge complete.
-- [ ] Protected Ubuntu deployment state resolved with VPS application contour skipped.
-- [ ] Runtime Water threshold proven `0.10` after deployment.
-- [ ] Representative recall continuity and false-positive acceptance resolved, or controlled rollback completed.
+- [x] Issue/spec/plan/tasks current through Task 3C1 source admission, production-learning root cause and SDD schema remediation.
+- [x] Exact changed-file scope verified against the five Task 3C1 authorized paths.
+- [ ] Required tests and evidence complete after exact-head CI, exact-main CI, protected Ubuntu deployment and runtime threshold proof.
+- [ ] Required CI green on the final exact PR head and exact merged main.
+- [ ] Exact-green-head merge complete for Task 3C1 PR #361.
+- [ ] Deployment state resolved with protected Ubuntu deployment complete and VPS application contour skipped.
+- [ ] Runtime acceptance resolved after Water threshold `0.10` is proven and representative recall/false-positive evidence is evaluated, or controlled rollback is completed.
 - [x] Deferred work recorded: any tracker/imgsz/ROI/class-map tuning requires a new scope; insufficient traffic remains explicit evidence deferral.
 - [x] Risks resolved or explicitly accepted through one-variable scope, configuration-convergence regression coverage, protected deployment and rollback `0.10 -> 0.15`.
 - [x] Waivers resolved or current: no waiver is requested.
