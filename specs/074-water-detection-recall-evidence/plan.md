@@ -31,9 +31,9 @@ class map:            unchanged
 ROI:                  unchanged
 ```
 
-Ubuntu parent supervision already resolves the selected analytics profile and passes its confidence to the existing single persistent inference child. No new code path, second inference pass or alternate tracker is introduced.
+Ubuntu parent supervision already resolves the selected analytics profile and passes its confidence to the existing single persistent inference child. No new inference path, second pass or alternate tracker is introduced.
 
-## Evidence decision
+## Decisions
 
 ### D-074-006 - Dominant loss stage from Task 3B
 
@@ -47,7 +47,7 @@ Ubuntu parent supervision already resolves the selected analytics profile and pa
 - Decision: lower `water-v1.confidence` from `0.15` to `0.10`.
 - Road remains `0.15`.
 - Reason: current evidence shows detections close to the active threshold and repeated zero-detection frames for a real small/distant vessel.
-- Constraint: diagnostics cannot see candidates below current threshold, so the experiment must be evaluated by post-deploy continuity and false-positive behavior rather than claiming direct evidence for a specific hidden confidence distribution.
+- Constraint: diagnostics cannot see candidates below current threshold, so the experiment is evaluated by post-deploy continuity and false-positive behavior rather than claiming direct visibility into hidden below-threshold candidates.
 - Alternatives rejected for this task: imgsz increase, tracker tuning, ROI changes, class-map widening, model replacement, second/shadow inference.
 
 ## Affected contours
@@ -73,81 +73,67 @@ Authorized paths only:
 
 ### Source validation
 
-- Unit assertion: `water-v1.confidence == 0.10`.
-- Unit assertion: `road-v1.confidence == 0.15`.
-- Existing profile model/imgsz/tracker/sample FPS/class-map assertions remain unchanged.
+- Assert `water-v1.confidence == 0.10`.
+- Assert `road-v1.confidence == 0.15`.
+- Retain existing model/imgsz/tracker/sample FPS/class-map assertions.
 - Exact base-to-head compare must contain only the five authorized paths.
 - Protected-path review must confirm no model, tracker, ROI, speed, API, frontend, Road runtime or deployment change.
 
 ### Delivery validation
 
-1. Open one bounded PR from the authorized branch.
-2. Require exact-head `Repository validation` PASS.
-3. Require exact-head `quality-integration` PASS.
-4. Perform a fresh merge probe: current protected main, exact green head, exact diff and review threads.
-5. Merge only the exact green head.
-6. Require exact-main `Repository validation` and `quality-integration` PASS.
-7. Deploy exact main through the protected Ubuntu Worker contour; VPS skipped.
-8. Require runtime progression/readiness gates PASS.
+1. Require exact-head `Repository validation` PASS.
+2. Require exact-head `quality-integration` PASS.
+3. Perform a fresh merge probe: protected main, exact green head, exact diff and review threads.
+4. Merge only the exact green head.
+5. Require exact-main `Repository validation` and `quality-integration` PASS.
+6. Deploy exact main through the protected Ubuntu Worker contour; VPS skipped.
+7. Require runtime readiness/frame/state/inference progression PASS.
 
 ### Production acceptance
 
-Representative Water traffic must be observed after the new source is active.
+Representative Water traffic must be observed after the new source is active. Small/distant vessels should remain detected across more consecutive sampled frames and should obtain stable track assignment when geometry/time permits. Completed passage behavior must remain valid. False positives must remain controlled by visual/operator review and diagnostic counts.
 
-Compare against Task 3B evidence:
-
-- small/distant vessels should remain detected across more consecutive sampled frames;
-- stable `track_id` should form when geometry/time permits;
-- completed passage behavior should remain valid;
-- false positives must remain controlled by visual/operator review and diagnostic counts.
-
-Acceptance result:
-
-- PASS: continuity meaningfully improves without materially uncontrolled false positives;
-- FAIL: continuity does not improve or false positives materially increase; restore Water confidence to `0.15`;
-- INCONCLUSIVE: insufficient representative traffic; keep explicit evidence wait, do not widen tuning.
+Acceptance result is PASS only when continuity improves without materially uncontrolled false positives. If representative traffic is insufficient, remain evidence-deferred. If continuity does not improve or false positives materially increase, restore Water confidence to `0.15`.
 
 ## Risk profile
 
-Task 3C changes a production inference acceptance threshold and therefore has runtime behavior impact limited to Ubuntu Water inference. Primary risk is increased false positives. Controls:
+- Risk profile: NOT REQUIRED
 
-- one-variable change only;
-- Road confidence explicitly tested at `0.15`;
-- exact-head/exact-main gates;
-- protected transactional Ubuntu deployment;
-- explicit rollback value `0.15`;
-- representative production acceptance before Task 3 is considered complete.
-
-No destructive/data migration, public API schema, auth, media topology or model binary risk is introduced.
+The change is one bounded production threshold value with no destructive migration, security boundary, API/schema or mixed-contour change. False-positive risk is controlled by exact-head/exact-main gates, protected Ubuntu deployment, representative acceptance and a one-value rollback.
 
 ## Test design
 
-- TEST-074-001 | Unit | Assert Water profile confidence `0.10` and Road profile confidence `0.15` | P0
-- TEST-074-002 | Unit/integration | Existing analytics profile mapping/runtime-boundary tests remain green | P0
-- TEST-074-003 | Integration | Exact changed-file scope contains only authorized paths | P0
-- TEST-074-004 | CI | Exact-head Repository validation and quality-integration PASS | P0
-- TEST-074-005 | CI | Exact-main Repository validation and quality-integration PASS | P0
-- TEST-074-006 | Runtime | Protected Ubuntu deployment and frame/state/inference progression PASS | P0
-- TEST-074-007 | Production | Representative small/distant vessel continuity and false-positive review | P1
+- TEST-074-001 | Covers: AC-001,AC-010 | Level: unit | Priority: P0 | Evidence: `tests/test_analytics_profiles.py::AnalyticsProfilesTests::test_profile_defaults_are_exact`
+- TEST-074-002 | Covers: AC-002,AC-003,AC-011 | Level: integration | Priority: P0 | Evidence: exact base-to-head connector compare and protected-path review
+- TEST-074-003 | Covers: AC-004 | Level: integration | Priority: P0 | Evidence: exact-head `Repository validation` and `quality-integration` Actions runs
+- TEST-074-004 | Covers: AC-005 | Level: integration | Priority: P0 | Evidence: fresh main/head/diff/review merge probe plus expected-head merge
+- TEST-074-005 | Covers: AC-006 | Level: integration | Priority: P0 | Evidence: exact-main `Repository validation` and `quality-integration` Actions runs
+- TEST-074-006 | Covers: AC-007 | Level: end-to-end | Priority: P0 | Evidence: protected Ubuntu deployment audit and runtime progression gate
+- TEST-074-007 | Covers: AC-008,AC-009 | Level: runtime-manual | Priority: P1 | Evidence: representative post-deploy `WATER_RECALL_DIAGNOSTIC`, Worker inference/state/passages and visual false-positive review
 
 ## Correct-course check
 
-- Task 3A observability is complete and healthy.
-- Task 3B collected temporally overlapping representative evidence and classified the dominant stage.
-- Task 3C does not reuse Task 3A/3B authorization; fresh `OUTCOME APPROVED` was recorded immediately after a new six-field Scope.
-- The source change follows the evidence-supported detector stage and intentionally avoids simultaneous tracker/ROI/class/imgsz tuning.
-- If the experiment fails, rollback to Water confidence `0.15` is the only admitted corrective behavior inside the authorized result boundary; any different tuning direction requires a fresh scope.
+- Trigger: PRODUCTION_LEARNING
+- Issue impact: Task 3 representative evidence now identifies detector visibility instability as the dominant observed loss stage.
+- Specification impact: Task 3B evidence verdict and Task 3C one-variable Water threshold acceptance were added.
+- Plan impact: rollout, rollback and representative acceptance now target only the Water confidence value.
+- Tasks impact: Task 3B evidence gates are complete and Task 3C delivery/runtime gates are added.
+- Authorization impact: a new Task 3C six-field Scope and fresh literal `OUTCOME APPROVED` were required and recorded before source mutation.
+- Follow-up: finish exact-head CI, exact-green-head merge, exact-main CI, protected Ubuntu deployment and representative post-deploy recall/false-positive acceptance.
 
 ## Deployment transaction audit
 
-- TX-074-009 | Stage: TASK3C ADMISSION | Mutation: NO | Evidence: six-field Scope + literal `OUTCOME APPROVED` + Issue receipt | Status: PASS
-- TX-074-010 | Stage: TASK3C SOURCE | Mutation: YES | Scope: five authorized paths only | Status: IN PROGRESS
-- TX-074-011 | Stage: TASK3C PR QUALITY | Mutation: NO | Required: exact-head Repository validation + quality-integration | Status: PENDING
-- TX-074-012 | Stage: TASK3C MERGE | Mutation: YES | Required: fresh merge probe + exact-green-head merge | Status: PENDING
-- TX-074-013 | Stage: TASK3C EXACT-MAIN | Mutation: NO | Required: exact-main Repository validation + quality-integration | Status: PENDING
-- TX-074-014 | Stage: TASK3C UBUNTU DEPLOY | Mutation: YES | Protected deployment, VPS skipped | Status: PENDING
-- TX-074-015 | Stage: TASK3C PRODUCTION ACCEPTANCE | Mutation: NO | Representative continuity/false-positive evidence | Status: PENDING
-- TX-074-016 | Stage: TASK3C ROLLBACK | Mutation: YES | Water confidence `0.10 -> 0.15` if acceptance FAIL | Status: CONDITIONAL
+- Adjacent-stage review: COMPLETE
+- Production-learning root cause: representative small/distant Water vessels show intermittent post-threshold detector visibility near the current confidence boundary while class mapping and ROI acceptance remain healthy.
+- Production-learning adjacent-stage findings: tracker non-assignment follows intermittent detector visibility; evidence does not support class-map or ROI rejection as the dominant loss stage.
+- TX-074-009 | Stage: ADMISSION | Mutation: NO | Failure disposition: FATAL | State after failure: source admission remains closed and production remains at Water confidence 0.15 | Retry: re-read six-field Scope and exact authorization receipt before any source write | Rollback: no runtime rollback because admission performs no mutation | Evidence: Issue #346 Task 3C authorization receipt
+- TX-074-010 | Stage: PRE-MUTATION | Mutation: NO | Failure disposition: FATAL | State after failure: branch remains based on accepted protected main without production change | Retry: repeat exact base/scope inspection | Rollback: no runtime rollback because production is unchanged | Evidence: exact protected main `b5555c82d0c97fff4542de6776496fb57d7b57ad`
+- TX-074-011 | Stage: MUTATION | Mutation: YES | Failure disposition: FATAL | State after failure: candidate branch is not mergeable and production remains at Water confidence 0.15 | Retry: remediate only inside the authorized five paths | Rollback: discard or supersede unmerged candidate commits | Evidence: PR #360 exact changed-file set
+- TX-074-012 | Stage: VERIFICATION | Mutation: NO | Failure disposition: FATAL | State after failure: candidate remains unmerged and production remains unchanged | Retry: rerun or remediate failed exact-head validation with evidence | Rollback: no production rollback before merge | Evidence: required exact-head Repository validation and quality-integration
+- TX-074-013 | Stage: STATE-COMMIT | Mutation: YES | Failure disposition: FATAL | State after failure: protected main is not treated as accepted until exact-main quality passes | Retry: only merge an exact green head after a fresh merge probe | Rollback: restore prior protected main behavior through the authorized Water confidence rollback if post-merge acceptance fails | Evidence: expected-head PR merge plus exact-main checks
+- TX-074-014 | Stage: HOUSEKEEPING | Mutation: POSSIBLE | Failure disposition: BEST-EFFORT | State after failure: accepted runtime/source state remains authoritative even if non-critical cleanup is incomplete | Retry: repeat only bounded non-mutating cleanup evidence collection | Rollback: no behavior rollback for housekeeping-only failure | Evidence: deployment audit housekeeping records
+- TX-074-015 | Stage: EVIDENCE | Mutation: NO | Failure disposition: CONDITIONAL | State after failure: deployed candidate remains under explicit evidence-deferred acceptance until representative traffic is available | Retry: collect bounded representative Water diagnostics when suitable traffic is present | Rollback: restore Water confidence 0.15 if evidence shows no continuity gain or materially uncontrolled false positives | Evidence: post-deploy `WATER_RECALL_DIAGNOSTIC` plus visual/operator acceptance
+- TX-074-016 | Stage: ROLLBACK | Mutation: YES | Failure disposition: FATAL | State after failure: production must return to Water confidence 0.15 with Road unchanged | Retry: execute the protected repository-owned rollback delivery until runtime source and progression are verified | Rollback: rollback target is the prior accepted Water confidence 0.15 | Evidence: protected rollback deployment audit if Task 3C acceptance fails
 
 ## Rollout and rollback
 
@@ -158,7 +144,7 @@ Rollback target is the immediately previous Water profile confidence `0.15`. Roa
 ## Runtime feedback
 
 - Task 3A production diagnostics: COMPLETE.
-- Task 3B SDD reconciliation PR #359: merged to `b5555c82d0c97fff4542de6776496fb57d7b57ad`; exact-main checks PASS.
+- Task 3B SDD reconciliation PR #359 merged to `b5555c82d0c97fff4542de6776496fb57d7b57ad`; exact-main checks PASS.
 - Task 3B evidence: healthy `boat` detection around `0.82` with stable track versus unstable small `boat` detection at `0.1781` with `track_id=null` and repeated surrounding zero-detection frames.
 - Task 3B verdict: `DETECTOR_POST_THRESHOLD_VISIBILITY_INSTABILITY`; `TRACKER_NON_ASSIGNMENT` secondary.
 - Task 3C authorization base: `b5555c82d0c97fff4542de6776496fb57d7b57ad`.
