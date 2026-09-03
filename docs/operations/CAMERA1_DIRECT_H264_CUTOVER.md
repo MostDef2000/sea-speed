@@ -6,8 +6,9 @@ Canonical media path after Auth v1:
 
 ```text
 new camera
--> Ubuntu private RTSP relay
--> VPS FFmpeg H264 compatibility output
+-> Ubuntu private RTSP relay (cam1, HEVC)
+-> Ubuntu Worker FFmpeg H264 transcode -> rtsp://127.0.0.1:8554/cam1-h264
+-> VPS MediaMTX sources cam1-h264
 -> 127.0.0.1:18889/cam1/
 -> nginx
 -> /sea-speed/media/cam1/index.m3u8
@@ -15,6 +16,36 @@ new camera
 ```
 
 The retired `/cams/hls/cam1/index.m3u8` route is not a compatibility requirement after Issue #115 and must not be recreated.
+
+## Issue #335 — VPS→Ubuntu transcode relocation
+
+Issue #335 moves the Camera 1 HEVC→H264 compatibility transcode off the VPS single vCPU onto the Ubuntu Worker. The VPS no longer runs an FFmpeg transcode process for Camera 1; it becomes a pure H264→HLS packager that sources the Ubuntu-published `cam1-h264` RTSP stream and serves HLS directly at `127.0.0.1:18889/cam1/`.
+
+New transcode topology:
+
+```text
+camera (HEVC)
+-> Ubuntu private RTSP relay cam1
+-> Ubuntu Worker FFmpeg transcode (libx264, veryfast, zerolatency)
+     publishes rtsp://127.0.0.1:8554/cam1-h264
+-> VPS MediaMTX sources cam1-h264 (reader auth: VPS read + Ubuntu publish)
+-> VPS MediaMTX HLS at 127.0.0.1:18889/cam1/
+-> nginx UPSTREAM 127.0.0.1:18889/cam1/
+-> /sea-speed/media/cam1/index.m3u8
+```
+
+Repository components after #335:
+
+- `deploy/worker/ubuntu/camera1-h264-transcode.sh` + `sea-speed-camera1-h264.service` (Ubuntu) run the transcode and publish `cam1-h264`.
+- `deploy/worker/ubuntu/camera1-h264-freshness-watchdog.py` + `sea-speed-camera1-h264-freshness.service`/`.timer` (Ubuntu) supervise the produced `cam1-h264` stream and restart the Ubuntu transcode on stall.
+- `deploy/vps/camera-source-switch.sh` performs the cutover: sets VPS MediaMTX `hlsAddress` to `:18889`, points `cam1` at `cam1-h264`, and disables the external VPS `sea-speed-camera1-h264.service` + `sea-speed-camera1-hls-http.service` (recorded for rollback).
+- `scripts/operations/mediamtx_path_config.py` adds the `cam1-h264` reader rule for the VPS IP and the publisher rule for the Ubuntu transcode IP (combined credential-free relay path; VPS-only reader, public cannot publish/read).
+- `deploy/vps/camera1-h264-freshness-watchdog.py` and `deploy/vps/sea-speed-auth-privileged-helper.py` recovery now re-source `cam1` via the MediaMTX REST API PATCH (FR-008). They MUST NOT restart `mediamtx.service`, `nginx`, or the retired external VPS transcode/hls-http units.
+
+Cutover and rollback:
+
+- Cutover: `deploy/vps/camera-source-switch.sh --relay-path cam1-h264 --hls-address :18889 --retire-external` on VPS, then the protected Ubuntu deploy enables the Ubuntu transcode service + freshness watchdog.
+- Rollback: re-enable the external VPS `sea-speed-camera1-h264.service` + `sea-speed-camera1-hls-http.service`, revert the VPS relay path to `cam1`, and disable the Ubuntu transcode service. The Ubuntu transcode is additive and removable; the VPS path is restored to the pre-#335 behavior.
 
 ## Repository components
 
