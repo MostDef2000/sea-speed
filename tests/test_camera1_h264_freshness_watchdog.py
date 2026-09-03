@@ -46,30 +46,26 @@ class WatchdogTests(unittest.TestCase):
         self.assertFalse(any(argv[0] == "ffmpeg" for argv in calls))
         self.assertFalse(any(argv[:2] == ["systemctl", "restart"] for argv in calls))
 
-    def test_static_hls_healthy_relay_restarts_only_fixed_service(self) -> None:
+    def test_static_hls_healthy_source_resources_cam1_via_api(self) -> None:
         _, state_root = self.state_root()
         calls: list[list[str]] = []
         sequences = iter((40, 40, 1, 2))
 
         def runner(argv, **kwargs):
             calls.append(list(argv))
+            if argv[0] == "curl" and any("v3/paths/cam1/patch" in a for a in argv):
+                return self.completed(argv)
             if argv[0] == "curl":
                 return self.completed(argv, stdout=f"#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:{next(sequences)}\n")
             if argv[0] == "ffmpeg":
                 return self.completed(argv)
-            if argv == ["systemctl", "restart", watchdog.CAMERA1_H264_SERVICE]:
-                return self.completed(argv)
-            if argv == ["systemctl", "is-active", "--quiet", watchdog.CAMERA1_H264_SERVICE]:
-                return self.completed(argv)
             raise AssertionError(f"unexpected command: {argv}")
 
         lines = watchdog.run_once(runner=runner, sleeper=lambda _: None, clock=lambda: 1000.0, state_root=state_root)
-        self.assertIn("CAMERA1_H264_RECOVERY=RESTARTED", lines)
+        self.assertIn("CAMERA1_H264_RECOVERY=API_RESOURCE", lines)
         self.assertIn("CAMERA1_PRIVATE_RELAY=PASS", lines)
-        self.assertEqual(
-            [argv for argv in calls if argv[:2] == ["systemctl", "restart"]],
-            [["systemctl", "restart", "sea-speed-camera1-h264.service"]],
-        )
+        self.assertFalse(any(argv[:2] == ["systemctl", "restart"] for argv in calls))
+        self.assertTrue(any(any("v3/paths/cam1/patch" in a for a in argv) for argv in calls))
         relay = next(argv for argv in calls if argv[0] == "ffmpeg")
         self.assertEqual(
             relay,
@@ -83,7 +79,7 @@ class WatchdogTests(unittest.TestCase):
                 "-timeout",
                 "10000000",
                 "-i",
-                "rtsp://10.123.239.102:8554/cam1",
+                "rtsp://10.123.239.102:8554/cam1-h264",
                 "-frames:v",
                 "1",
                 "-f",
@@ -92,7 +88,7 @@ class WatchdogTests(unittest.TestCase):
             ],
         )
 
-    def test_static_hls_unavailable_relay_never_restarts(self) -> None:
+    def test_static_hls_unavailable_source_never_resources(self) -> None:
         _, state_root = self.state_root()
         calls: list[list[str]] = []
         sequences = iter((50, 50))
@@ -102,12 +98,13 @@ class WatchdogTests(unittest.TestCase):
             if argv[0] == "curl":
                 return self.completed(argv, stdout=f"#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:{next(sequences)}\n")
             if argv[0] == "ffmpeg":
-                return self.completed(argv, returncode=1, stdout="relay unavailable")
+                return self.completed(argv, returncode=1, stdout="source unavailable")
             raise AssertionError(f"unexpected command: {argv}")
 
         with self.assertRaises(watchdog.WatchdogError):
             watchdog.run_once(runner=runner, sleeper=lambda _: None, clock=lambda: 1000.0, state_root=state_root)
         self.assertFalse(any(argv[:2] == ["systemctl", "restart"] for argv in calls))
+        self.assertFalse(any(any("v3/paths/cam1/patch" in a for a in argv) for argv in calls))
 
     def test_cooldown_prevents_restart_storm(self) -> None:
         _, state_root = self.state_root()
@@ -127,29 +124,29 @@ class WatchdogTests(unittest.TestCase):
         self.assertFalse(any(argv[0] == "ffmpeg" for argv in calls))
         self.assertFalse(any(argv[:2] == ["systemctl", "restart"] for argv in calls))
 
-    def test_post_restart_static_hls_fails_and_keeps_cooldown(self) -> None:
+    def test_post_api_resource_static_hls_fails_and_keeps_cooldown(self) -> None:
         _, state_root = self.state_root()
         calls: list[list[str]] = []
         sequences = iter((10, 10, 20, 20))
 
         def runner(argv, **kwargs):
             calls.append(list(argv))
+            if argv[0] == "curl" and any("v3/paths/cam1/patch" in a for a in argv):
+                return self.completed(argv)
             if argv[0] == "curl":
                 return self.completed(argv, stdout=f"#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:{next(sequences)}\n")
-            if argv[0] == "ffmpeg" or argv[0] == "systemctl":
+            if argv[0] == "ffmpeg":
                 return self.completed(argv)
             raise AssertionError(f"unexpected command: {argv}")
 
         with self.assertRaises(watchdog.WatchdogError):
             watchdog.run_once(runner=runner, sleeper=lambda _: None, clock=lambda: 2000.0, state_root=state_root)
         self.assertTrue((state_root / "state.json").is_file())
-        self.assertEqual(
-            [argv for argv in calls if argv[:2] == ["systemctl", "restart"]],
-            [["systemctl", "restart", watchdog.CAMERA1_H264_SERVICE]],
-        )
+        self.assertFalse(any(argv[:2] == ["systemctl", "restart"] for argv in calls))
+        self.assertTrue(any(any("v3/paths/cam1/patch" in a for a in argv) for argv in calls))
 
     def test_runtime_entrypoint_has_no_selectable_topology(self) -> None:
-        self.assertEqual(watchdog.CAMERA1_PRIVATE_RELAY, "rtsp://10.123.239.102:8554/cam1")
+        self.assertEqual(watchdog.CAMERA1_H264_SOURCE, "rtsp://10.123.239.102:8554/cam1-h264")
         self.assertEqual(watchdog.CAMERA1_LOCAL_HLS, "http://127.0.0.1:18889/cam1/index.m3u8")
         self.assertEqual(watchdog.CAMERA1_H264_SERVICE, "sea-speed-camera1-h264.service")
         text = WATCHDOG_PATH.read_text(encoding="utf-8")

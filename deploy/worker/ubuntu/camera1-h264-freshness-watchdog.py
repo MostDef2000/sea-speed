@@ -1,33 +1,31 @@
 #!/usr/bin/env python3
-"""Continuous bounded freshness supervision for Camera 1 H264 HLS.
+"""Continuous bounded freshness supervision for the Ubuntu Camera 1 H264 transcode.
 
 The production entry point accepts no arguments and no environment overrides. It
-observes only the fixed local HLS playlist and fixed credential-free Ubuntu RTSP
-H264 source. On a stall it re-sources the fixed MediaMTX canonical path cam1 via
-the MediaMTX REST API (no MediaMTX/NGINX service restart, per FR-008). The retired
-VPS transcode producer service is never restarted by this watchdog.
+observes only the fixed local MediaMTX path cam1-h264 via the MediaMTX REST API
+and may restart only the fixed local Camera 1 H264 transcode producer service.
 """
 from __future__ import annotations
 
 import fcntl
 import json
 import os
-import re
 import stat
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
-HLS_MEDIA_SEQUENCE_RE = re.compile(r"(?m)^#EXT-X-MEDIA-SEQUENCE:(\d+)\s*$")
-CAMERA1_H264_SOURCE = "rtsp://10.123.239.102:8554/cam1-h264"
-CAMERA1_LOCAL_HLS = "http://127.0.0.1:18889/cam1/index.m3u8"
-CAMERA1_MEDIAMTX_API = "http://127.0.0.1:9997"
+CAMERA1_H264_PATH = "cam1-h264"
+CAMERA1_H264_SOURCE = "rtsp://10.123.239.102:8554/cam1"
+MEDIAMTX_API = "http://127.0.0.1:9997"
 CAMERA1_H264_SERVICE = "sea-speed-camera1-h264.service"
-STATE_ROOT = Path("/var/lib/sea-speed-camera1-freshness")
+STATE_ROOT = Path("/var/lib/sea-speed-camera1-h264-freshness")
 STATE_FILE = STATE_ROOT / "state.json"
 LOCK_FILE = STATE_ROOT / "watchdog.lock"
+STALE_SECONDS = 20
 SAMPLE_SECONDS = 3
 COOLDOWN_SECONDS = 300
 
@@ -52,7 +50,7 @@ def _run_fixed(
     )
 
 
-def _hls_sequence(runner: Callable[..., subprocess.CompletedProcess[str]]) -> int:
+def _path_ready(runner: Callable[..., subprocess.CompletedProcess[str]]) -> bool:
     argv = [
         "curl",
         "--fail",
@@ -60,28 +58,29 @@ def _hls_sequence(runner: Callable[..., subprocess.CompletedProcess[str]]) -> in
         "--show-error",
         "--max-time",
         "8",
-        CAMERA1_LOCAL_HLS,
+        f"{MEDIAMTX_API}/v3/paths/{CAMERA1_H264_PATH}",
     ]
     completed = _run_fixed(runner, argv, timeout=10)
     if completed.returncode != 0:
-        raise WatchdogError("Camera 1 local HLS playlist is unavailable")
-    match = HLS_MEDIA_SEQUENCE_RE.search(completed.stdout or "")
-    if match is None:
-        raise WatchdogError("Camera 1 local HLS playlist has no media sequence")
-    return int(match.group(1))
+        return False
+    try:
+        data = json.loads(completed.stdout or "")
+    except ValueError:
+        return False
+    if data.get("state") != "ready":
+        return False
+    last = data.get("lastFrameTime")
+    if not last:
+        return False
+    try:
+        ts = datetime.fromisoformat(str(last).replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    age = (datetime.now(timezone.utc) - ts).total_seconds()
+    return age <= STALE_SECONDS
 
 
-def _hls_advancing(
-    runner: Callable[..., subprocess.CompletedProcess[str]],
-    sleeper: Callable[[float], None],
-) -> tuple[bool, int, int]:
-    first = _hls_sequence(runner)
-    sleeper(SAMPLE_SECONDS)
-    second = _hls_sequence(runner)
-    return second > first, first, second
-
-
-def _probe_h264_source(runner: Callable[..., subprocess.CompletedProcess[str]]) -> None:
+def _probe_source(runner: Callable[..., subprocess.CompletedProcess[str]]) -> None:
     argv = [
         "ffmpeg",
         "-hide_banner",
@@ -101,34 +100,7 @@ def _probe_h264_source(runner: Callable[..., subprocess.CompletedProcess[str]]) 
     ]
     completed = _run_fixed(runner, argv, timeout=15)
     if completed.returncode != 0:
-        raise WatchdogError("Camera 1 Ubuntu H264 source did not produce a decodable frame")
-
-
-def _resource_camera1_via_api(runner: Callable[..., subprocess.CompletedProcess[str]]) -> None:
-    argv = [
-        "curl",
-        "--fail",
-        "--silent",
-        "--show-error",
-        "--max-time",
-        "10",
-        "-X",
-        "PATCH",
-        f"{CAMERA1_MEDIAMTX_API}/v3/paths/cam1/patch",
-        "-H",
-        "Content-Type: application/json",
-        "-d",
-        json.dumps(
-            {
-                "source": CAMERA1_H264_SOURCE,
-                "sourceOnDemand": True,
-                "rtspTransport": "tcp",
-            }
-        ),
-    ]
-    completed = _run_fixed(runner, argv, timeout=12)
-    if completed.returncode != 0:
-        raise WatchdogError("Camera 1 MediaMTX API re-source of canonical path cam1 failed")
+        raise WatchdogError("Camera 1 source did not produce a decodable frame for Ubuntu transcode")
 
 
 def _ensure_state_root(state_root: Path) -> None:
@@ -213,20 +185,19 @@ def run_once(
         try:
             fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as exc:
-            raise WatchdogError("Camera 1 freshness watchdog is already running") from exc
+            raise WatchdogError("Camera 1 H264 freshness watchdog is already running") from exc
 
-        advancing, first, second = _hls_advancing(runner, sleeper)
+        ready = _path_ready(runner)
         lines = [
             f"CAMERA1_H264_SERVICE={CAMERA1_H264_SERVICE}",
-            f"CAMERA1_HLS_SEQUENCE_FIRST={first}",
-            f"CAMERA1_HLS_SEQUENCE_SECOND={second}",
+            f"CAMERA1_H264_PATH={CAMERA1_H264_PATH}",
         ]
-        if advancing:
+        if ready:
             lines.extend(
                 (
                     "CAMERA1_H264_FRESHNESS=PASS",
                     "CAMERA1_H264_RECOVERY=NOOP",
-                    "CAMERA1_PRIVATE_RELAY=NOT_CHECKED",
+                    "CAMERA1_SOURCE=NOT_CHECKED",
                 )
             )
             return lines
@@ -239,26 +210,36 @@ def run_once(
                     "CAMERA1_H264_FRESHNESS=STALE",
                     "CAMERA1_H264_RECOVERY=COOLDOWN",
                     f"CAMERA1_H264_COOLDOWN_REMAINING_SECONDS={remaining}",
-                    "CAMERA1_PRIVATE_RELAY=NOT_CHECKED",
+                    "CAMERA1_SOURCE=NOT_CHECKED",
                 )
             )
             return lines
 
-        _probe_h264_source(runner)
+        _probe_source(runner)
         _write_last_attempt(state_file, now)
-        _resource_camera1_via_api(runner)
+        restarted = _run_fixed(
+            runner,
+            ["systemctl", "restart", CAMERA1_H264_SERVICE],
+            timeout=20,
+        )
+        if restarted.returncode != 0:
+            raise WatchdogError("fixed Camera 1 H264 transcode service restart failed")
+        active = _run_fixed(
+            runner,
+            ["systemctl", "is-active", "--quiet", CAMERA1_H264_SERVICE],
+            timeout=10,
+        )
+        if active.returncode != 0:
+            raise WatchdogError("fixed Camera 1 H264 transcode service is not active after restart")
 
         sleeper(SAMPLE_SECONDS)
-        post_advancing, post_first, post_second = _hls_advancing(runner, sleeper)
-        if not post_advancing:
-            raise WatchdogError("Camera 1 local HLS is still not advancing after MediaMTX API re-source")
+        if not _path_ready(runner):
+            raise WatchdogError("Camera 1 H264 path is still not ready after transcode restart")
         lines.extend(
             (
                 "CAMERA1_H264_FRESHNESS=PASS",
-                "CAMERA1_H264_RECOVERY=API_RESOURCE",
-                "CAMERA1_PRIVATE_RELAY=PASS",
-                f"CAMERA1_POST_RESTART_SEQUENCE_FIRST={post_first}",
-                f"CAMERA1_POST_RESTART_SEQUENCE_SECOND={post_second}",
+                "CAMERA1_H264_RECOVERY=RESTARTED",
+                "CAMERA1_SOURCE=PASS",
             )
         )
         return lines
@@ -266,10 +247,10 @@ def run_once(
 
 def main() -> int:
     if os.geteuid() != 0:
-        print("ERROR Camera 1 freshness watchdog must run as root", file=sys.stderr)
+        print("ERROR Camera 1 H264 freshness watchdog must run as root", file=sys.stderr)
         return 1
     if len(sys.argv) != 1:
-        print("ERROR Camera 1 freshness watchdog accepts no arguments", file=sys.stderr)
+        print("ERROR Camera 1 H264 freshness watchdog accepts no arguments", file=sys.stderr)
         return 2
     try:
         for line in run_once():

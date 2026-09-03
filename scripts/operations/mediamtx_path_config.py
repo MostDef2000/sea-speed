@@ -25,8 +25,20 @@ RFC1918_NETWORKS = tuple(
     ipaddress.ip_network(value)
     for value in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
 )
-READER_MARKER = "# Sea Speed least-privilege reader for canonical cam1"
+READER_MARKER_CAM1 = "# Sea Speed least-privilege reader for canonical cam1"
+READER_MARKER_CAM1_H264 = "# Sea Speed least-privilege reader for canonical cam1-h264"
 RTSP_TRANSPORTS = {"automatic", "udp", "multicast", "tcp"}
+
+
+def reader_marker(path_name: str) -> str:
+    """Return the least-privilege reader-rule marker for a MediaMTX path.
+
+    cam1 keeps its historical marker so already-deployed configs remain
+    recognizable; every other path (e.g. cam1-h264) gets a path-specific marker.
+    """
+    if path_name == "cam1":
+        return READER_MARKER_CAM1
+    return f"# Sea Speed least-privilege reader for canonical {path_name}"
 
 
 class ConfigError(ValueError):
@@ -214,6 +226,18 @@ def validate_reader_ip(value: str) -> None:
         raise ConfigError("reader IP must be a literal RFC1918 IPv4 address")
 
 
+def validate_peer_reader_ip(value: str) -> None:
+    """Validate a literal IPv4 reader peer that is allowed to be public (e.g. VPS)."""
+    try:
+        address = ipaddress.ip_address(value)
+    except ValueError as exc:
+        raise ConfigError("reader IP must be a literal IPv4 address") from exc
+    if address.version != 4:
+        raise ConfigError("reader IP must be a literal IPv4 address")
+    if address.is_loopback or address.is_link_local or address.is_multicast or address.is_reserved:
+        raise ConfigError("reader IP must not be loopback, link-local, multicast or reserved")
+
+
 def _auth_internal_users_bounds(lines: list[str]) -> tuple[int, int]:
     matches = _find_top_level(lines, "authInternalUsers")
     if len(matches) != 1:
@@ -232,51 +256,130 @@ def _auth_internal_users_bounds(lines: list[str]) -> tuple[int, int]:
     return start, end
 
 
-def _reader_rule_lines(path_name: str, reader_ip: str) -> list[str]:
+def _reader_rule_lines(
+    path_name: str,
+    reader_ips: list[str],
+    publisher_ips: list[str] | None = None,
+) -> list[str]:
     if not re.fullmatch(r"[A-Za-z0-9._-]+", path_name):
         raise ConfigError("MediaMTX path name must be a simple literal name")
-    validate_reader_ip(reader_ip)
+    for ip in reader_ips:
+        validate_peer_reader_ip(ip)
+    if publisher_ips is not None:
+        for ip in publisher_ips:
+            validate_reader_ip(ip)
+    permissions: list[str] = ["      - action: read\n", f"        path: {_yaml_string(path_name)}\n"]
+    if publisher_ips:
+        permissions += ["      - action: publish\n", f"        path: {_yaml_string(path_name)}\n"]
+    ips = list(reader_ips) + list(publisher_ips or [])
     return [
-        f"  {READER_MARKER}\n",
+        f"  {reader_marker(path_name)}\n",
         "  - user: any\n",
         "    pass:\n",
-        f"    ips: [{_yaml_string(reader_ip)}]\n",
+        f"    ips: [{', '.join(_yaml_string(ip) for ip in ips)}]\n",
         "    permissions:\n",
-        "      - action: read\n",
-        f"        path: {_yaml_string(path_name)}\n",
+        *permissions,
     ]
 
 
-def verify_internal_reader_rule(text: str, path_name: str, reader_ip: str) -> None:
+def _parse_rule_block(lines: list[str], marker_index: int, end: int) -> tuple[set[str], set[str]]:
+    ips: set[str] = set()
+    actions: set[str] = set()
+    in_ips = False
+    in_permissions = False
+    for line in lines[marker_index + 1 : end]:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("# Sea Speed least-privilege reader for canonical"):
+            break
+        if stripped.startswith("ips:"):
+            in_ips = True
+            in_permissions = False
+            value = stripped.split(":", 1)[1].strip()
+            if value.startswith("["):
+                inner = value[1:-1] if value.endswith("]") else value[1:]
+                for part in inner.split(","):
+                    part = part.strip().strip('"').strip("'")
+                    if part:
+                        ips.add(part)
+                in_ips = False
+            continue
+        if in_ips and stripped.startswith("- "):
+            item = stripped[2:].strip().strip('"').strip("'")
+            if item:
+                ips.add(item)
+            continue
+        if stripped.startswith("permissions:"):
+            in_permissions = True
+            in_ips = False
+            continue
+        if in_permissions and stripped.startswith("- action:"):
+            actions.add(stripped.split(":", 1)[1].strip())
+            continue
+        if in_permissions and (
+            stripped.startswith("ips:")
+            or stripped.startswith("user:")
+            or stripped.startswith("pass:")
+        ):
+            in_permissions = False
+    return ips, actions
+
+
+def verify_internal_reader_rule(
+    text: str,
+    path_name: str,
+    reader_ip: str | list[str],
+    publisher_ips: list[str] | None = None,
+) -> None:
     method = get_top_level_scalar(text, "authMethod")
     if method not in (None, "internal"):
         raise ConfigError("MediaMTX authMethod must be internal for bounded reader authorization")
+    reader_ips = [reader_ip] if isinstance(reader_ip, str) else list(reader_ip)
+    for ip in reader_ips:
+        validate_peer_reader_ip(ip)
+    if publisher_ips is not None:
+        for ip in publisher_ips:
+            validate_reader_ip(ip)
     lines = _split_lines(text)
     start, end = _auth_internal_users_bounds(lines)
-    expected = _reader_rule_lines(path_name, reader_ip)
-    markers = [index for index in range(start + 1, end) if lines[index].strip() == READER_MARKER]
+    marker = reader_marker(path_name)
+    markers = [index for index in range(start + 1, end) if lines[index].strip() == marker]
     if len(markers) != 1:
-        raise ConfigError("exactly one Sea Speed reader authorization rule is required")
-    index = markers[0]
-    if lines[index : index + len(expected)] != expected:
-        raise ConfigError("Sea Speed reader authorization rule differs from the expected least-privilege rule")
+        raise ConfigError("exactly one Sea Speed reader authorization rule is required for the path")
+    block_ips, block_actions = _parse_rule_block(lines, markers[0], end)
+    if not set(reader_ips) <= block_ips:
+        raise ConfigError("requested reader IPs are not a subset of the Sea Speed reader rule")
+    if publisher_ips is not None and not set(publisher_ips) <= block_ips:
+        raise ConfigError("requested publisher IPs are not a subset of the Sea Speed reader rule")
+    if "read" not in block_actions:
+        raise ConfigError("Sea Speed reader rule must grant read")
+    if publisher_ips is not None and "publish" not in block_actions:
+        raise ConfigError("Sea Speed reader rule must grant publish for the transcode publisher")
 
 
-def ensure_internal_reader_rule(text: str, path_name: str, reader_ip: str) -> str:
+def ensure_internal_reader_rule(
+    text: str,
+    path_name: str,
+    reader_ip: str | list[str],
+    publisher_ips: list[str] | None = None,
+) -> str:
     method = get_top_level_scalar(text, "authMethod")
     if method not in (None, "internal"):
         raise ConfigError("MediaMTX authMethod must be internal for bounded reader authorization")
+    reader_ips = [reader_ip] if isinstance(reader_ip, str) else list(reader_ip)
     lines = _split_lines(text)
     start, end = _auth_internal_users_bounds(lines)
-    expected = _reader_rule_lines(path_name, reader_ip)
-    markers = [index for index in range(start + 1, end) if lines[index].strip() == READER_MARKER]
+    expected = _reader_rule_lines(path_name, reader_ips, publisher_ips)
+    marker = reader_marker(path_name)
+    markers = [index for index in range(start + 1, end) if lines[index].strip() == marker]
     if markers:
         if len(markers) != 1 or lines[markers[0] : markers[0] + len(expected)] != expected:
-            raise ConfigError("existing Sea Speed reader authorization rule does not match the requested VPS reader IP")
+            raise ConfigError("existing Sea Speed reader authorization rule does not match the requested rule")
         return text
     lines[end:end] = expected
     rendered = "".join(lines)
-    verify_internal_reader_rule(rendered, path_name, reader_ip)
+    verify_internal_reader_rule(rendered, path_name, reader_ip=reader_ip, publisher_ips=publisher_ips)
     return rendered
 
 
@@ -431,6 +534,25 @@ def render_verify_reader_auth(args: argparse.Namespace) -> str:
     return ""
 
 
+def render_ubuntu_transcode_reader(args: argparse.Namespace) -> str:
+    text = read_config(args.config)
+    validate_peer_reader_ip(args.reader_ip)
+    validate_reader_ip(args.publisher_ip)
+    text = ensure_internal_reader_rule(
+        text,
+        args.path,
+        args.reader_ip,
+        publisher_ips=[args.publisher_ip],
+    )
+    digest = write_candidate(args.output, text)
+    print(
+        f"RENDERED mode=ubuntu-transcode-reader path={args.path} "
+        f"reader_scope=rfc1918-vps-peer publisher_scope=rfc1918-ubuntu-peer "
+        f"reader_permission=read+publish output_sha256={digest}"
+    )
+    return digest
+
+
 def render_verify_vps_switch(args: argparse.Namespace) -> str:
     text = read_config(args.config)
     verify_vps_relay_path(text, args.path, args.relay_url)
@@ -453,6 +575,17 @@ def render_vps_switch(args: argparse.Namespace) -> str:
     print(
         f"RENDERED mode=vps-switch path={args.path} relay_userinfo=NO "
         f"rtsp_transport=tcp output_sha256={digest}"
+    )
+    return digest
+
+
+def render_vps_set_hls_address(args: argparse.Namespace) -> str:
+    text = read_config(args.config)
+    text = set_top_level_scalar(text, "hlsAddress", args.hls_address, quote=True)
+    digest = write_candidate(args.output, text)
+    print(
+        f"RENDERED mode=vps-set-hls-address hls_address={args.hls_address} "
+        f"output_sha256={digest}"
     )
     return digest
 
@@ -490,6 +623,14 @@ def build_parser() -> argparse.ArgumentParser:
     verify.add_argument("--path", default="cam1")
     verify.set_defaults(handler=render_verify_reader_auth)
 
+    transcode = sub.add_parser("ubuntu-transcode-reader")
+    transcode.add_argument("--config", type=Path, required=True)
+    transcode.add_argument("--reader-ip", required=True)
+    transcode.add_argument("--publisher-ip", required=True)
+    transcode.add_argument("--path", default="cam1-h264")
+    transcode.add_argument("--output", type=Path, required=True)
+    transcode.set_defaults(handler=render_ubuntu_transcode_reader)
+
     verify_vps = sub.add_parser("verify-vps-switch")
     verify_vps.add_argument("--config", type=Path, required=True)
     verify_vps.add_argument("--relay-url", required=True)
@@ -502,6 +643,12 @@ def build_parser() -> argparse.ArgumentParser:
     switch.add_argument("--path", default="cam1")
     switch.add_argument("--output", type=Path, required=True)
     switch.set_defaults(handler=render_vps_switch)
+
+    hlsaddr = sub.add_parser("vps-set-hls-address")
+    hlsaddr.add_argument("--config", type=Path, required=True)
+    hlsaddr.add_argument("--hls-address", required=True)
+    hlsaddr.add_argument("--output", type=Path, required=True)
+    hlsaddr.set_defaults(handler=render_vps_set_hls_address)
 
     cleanup = sub.add_parser("vps-cleanup")
     cleanup.add_argument("--config", type=Path, required=True)

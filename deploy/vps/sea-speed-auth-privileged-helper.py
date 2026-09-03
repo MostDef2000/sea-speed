@@ -26,8 +26,9 @@ HLS_MEDIA_SEQUENCE_RE = re.compile(r"(?m)^#EXT-X-MEDIA-SEQUENCE:(\d+)\s*$")
 AUTHENTIK_UPSTREAM = "http://10.123.239.102:19000"
 WORKER_PRIVATE_LISTEN = "10.123.239.101:18080"
 WORKER_PRIVATE_PEER = "10.123.239.102"
-CAMERA1_PRIVATE_RELAY = "rtsp://10.123.239.102:8554/cam1"
+CAMERA1_H264_SOURCE = "rtsp://10.123.239.102:8554/cam1-h264"
 CAMERA1_LOCAL_HLS = "http://127.0.0.1:18889/cam1/index.m3u8"
+CAMERA1_MEDIAMTX_API = "http://127.0.0.1:9997"
 CAMERA1_H264_SERVICE = "sea-speed-camera1-h264.service"
 NGINX_ROOT = Path("/etc/nginx")
 AUTH_BACKUP_ROOT = Path("/var/lib/sea-speed-auth-v1/backups")
@@ -237,7 +238,7 @@ def _camera1_hls_advancing(
     return second > first
 
 
-def _probe_camera1_private_relay(
+def _probe_camera1_h264_source(
     runner: Callable[..., subprocess.CompletedProcess[str]],
 ) -> None:
     argv = [
@@ -250,7 +251,7 @@ def _probe_camera1_private_relay(
         "-timeout",
         "10000000",
         "-i",
-        CAMERA1_PRIVATE_RELAY,
+        CAMERA1_H264_SOURCE,
         "-frames:v",
         "1",
         "-f",
@@ -259,7 +260,36 @@ def _probe_camera1_private_relay(
     ]
     completed = _run_fixed(runner, argv, timeout=15)
     if completed.returncode != 0:
-        raise BoundaryError("Camera 1 private Ubuntu relay did not produce a decodable frame")
+        raise BoundaryError("Camera 1 Ubuntu H264 source did not produce a decodable frame")
+
+
+def _resource_camera1_via_api(
+    runner: Callable[..., subprocess.CompletedProcess[str]],
+) -> None:
+    argv = [
+        "curl",
+        "--fail",
+        "--silent",
+        "--show-error",
+        "--max-time",
+        "10",
+        "-X",
+        "PATCH",
+        f"{CAMERA1_MEDIAMTX_API}/v3/paths/cam1/patch",
+        "-H",
+        "Content-Type: application/json",
+        "-d",
+        json.dumps(
+            {
+                "source": CAMERA1_H264_SOURCE,
+                "sourceOnDemand": True,
+                "rtspTransport": "tcp",
+            }
+        ),
+    ]
+    completed = _run_fixed(runner, argv, timeout=12)
+    if completed.returncode != 0:
+        raise BoundaryError("Camera 1 MediaMTX API re-source of canonical path cam1 failed")
 
 
 def run_camera1_h264_recovery(
@@ -274,30 +304,17 @@ def run_camera1_h264_recovery(
             f"CAMERA1_H264_SERVICE={CAMERA1_H264_SERVICE}"
         )
 
-    _probe_camera1_private_relay(runner)
-    restarted = _run_fixed(
-        runner,
-        ["systemctl", "restart", CAMERA1_H264_SERVICE],
-        timeout=20,
-    )
-    if restarted.returncode != 0:
-        raise BoundaryError("fixed Camera 1 H264 service restart failed")
-    active = _run_fixed(
-        runner,
-        ["systemctl", "is-active", "--quiet", CAMERA1_H264_SERVICE],
-        timeout=10,
-    )
-    if active.returncode != 0:
-        raise BoundaryError("fixed Camera 1 H264 service is not active after restart")
+    _probe_camera1_h264_source(runner)
+    _resource_camera1_via_api(runner)
     startup_delay = _run_fixed(runner, ["sleep", "3"], timeout=5)
     if startup_delay.returncode != 0:
         raise BoundaryError("Camera 1 H264 startup delay failed")
     if not _camera1_hls_advancing(runner):
-        raise BoundaryError("Camera 1 local HLS is still not advancing after fixed H264 restart")
+        raise BoundaryError("Camera 1 local HLS is still not advancing after MediaMTX API re-source")
 
     return (
         "CAMERA1_H264_FRESHNESS=PASS\n"
-        "CAMERA1_H264_RECOVERY=RESTARTED\n"
+        "CAMERA1_H264_RECOVERY=API_RESOURCE\n"
         "CAMERA1_LOCAL_HLS_ADVANCING=PASS\n"
         "CAMERA1_PRIVATE_RELAY=PASS\n"
         f"CAMERA1_H264_SERVICE={CAMERA1_H264_SERVICE}"
