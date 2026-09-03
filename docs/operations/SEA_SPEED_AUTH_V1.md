@@ -26,7 +26,7 @@ Camera 1 browser playback remains:
 https://mostdef.ru/sea-speed/media/cam1/index.m3u8
 ```
 
-The camera source, Ubuntu relay, VPS H.264 compatibility output at `127.0.0.1:18889/cam1/`, and AI-independent live behavior do not change.
+The camera source, Ubuntu relay, Ubuntu Worker H.264 transcode publishing `cam1-h264`, VPS MediaMTX sourcing `cam1-h264` and serving HLS at `127.0.0.1:18889/cam1/`, and AI-independent live behavior do not change. Issue #335 relocates the transcode from the VPS to the Ubuntu Worker but preserves the authenticated browser path and the `cam1-h264` reader-auth boundary (VPS read + Ubuntu publish).
 
 ## Identity runtime topology
 

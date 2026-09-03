@@ -14,6 +14,9 @@ Options:
   --service NAME           VPS MediaMTX service (default: mediamtx.service)
   --state-root PATH        Root-only candidate/backup state (default: /var/lib/sea-speed-camera-switch)
   --hls-check-url URL      VPS-local canonical HLS URL (default: http://127.0.0.1:8888/cam1/index.m3u8)
+  --relay-path PATH        Canonical MediaMTX path to switch (default: cam1)
+  --hls-address ADDR       Also set global MediaMTX hlsAddress (e.g. :18889)
+  --retire-external        Disable retired external units sea-speed-camera1-h264.service and sea-speed-camera1-hls-http.service at activate
   --confirmed-public-hls   Required before retiring temporary cam1-new mapping
 
 prepare renders a candidate that changes only canonical MediaMTX path cam1 to
@@ -37,6 +40,9 @@ relay_url=""
 service_name="mediamtx.service"
 state_root="/var/lib/sea-speed-camera-switch"
 hls_check_url="http://127.0.0.1:8888/cam1/index.m3u8"
+relay_path="cam1"
+hls_address=""
+retire_external=false
 expected_sha256=""
 confirmed_public_hls=false
 
@@ -47,6 +53,9 @@ while [[ $# -gt 0 ]]; do
     --service) [[ $# -ge 2 ]] || { echo "ERROR --service requires a name" >&2; exit 2; }; service_name="$2"; shift 2 ;;
     --state-root) [[ $# -ge 2 ]] || { echo "ERROR --state-root requires a path" >&2; exit 2; }; state_root="$2"; shift 2 ;;
     --hls-check-url) [[ $# -ge 2 ]] || { echo "ERROR --hls-check-url requires a URL" >&2; exit 2; }; hls_check_url="$2"; shift 2 ;;
+    --relay-path) [[ $# -ge 2 ]] || { echo "ERROR --relay-path requires a value" >&2; exit 2; }; relay_path="$2"; shift 2 ;;
+    --hls-address) [[ $# -ge 2 ]] || { echo "ERROR --hls-address requires a value" >&2; exit 2; }; hls_address="$2"; shift 2 ;;
+    --retire-external) retire_external=true; shift ;;
     --expected-sha256) [[ $# -ge 2 ]] || { echo "ERROR --expected-sha256 requires a digest" >&2; exit 2; }; expected_sha256="$2"; shift 2 ;;
     --confirmed-public-hls) confirmed_public_hls=true; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -84,7 +93,7 @@ validate_common() {
 }
 
 validate_relay_url() {
-  python3 - "$relay_url" <<'PY'
+  python3 - "$relay_url" "$relay_path" <<'PY'
 import ipaddress
 import sys
 from urllib.parse import urlsplit
@@ -98,7 +107,7 @@ except Exception:
     raise SystemExit(1)
 if value.scheme.lower() != "rtsp" or value.username is not None or value.password is not None:
     raise SystemExit(1)
-if value.path.rstrip("/") != "/cam1" or address.version != 4 or not any(address in network for network in networks) or not (1 <= port <= 65535):
+if value.path.rstrip("/") != "/" + sys.argv[2] or address.version != 4 or not any(address in network for network in networks) or not (1 <= port <= 65535):
     raise SystemExit(1)
 print(host)
 print(port)
@@ -152,7 +161,7 @@ verify_vps_candidate() {
   python3 "$renderer" verify-vps-switch \
     --config "$source" \
     --relay-url "$relay_url" \
-    --path cam1 >/dev/null
+    --path "$relay_path" >/dev/null
 }
 
 install_candidate() {
@@ -210,17 +219,24 @@ if [[ "$command" == "prepare" ]]; then
   python3 "$renderer" vps-switch \
     --config "$config" \
     --relay-url "$relay_url" \
-    --path cam1 \
+    --path "$relay_path" \
     --output "$candidate"
+  if [[ -n "$hls_address" ]]; then
+    python3 "$renderer" vps-set-hls-address \
+      --config "$candidate" \
+      --hls-address "$hls_address" \
+      --output "$candidate"
+  fi
   verify_vps_candidate "$candidate" || { echo "ERROR prepared candidate does not match canonical TCP relay contract" >&2; exit 7; }
   digest="$(sha256sum "$candidate" | awk '{print $1}')"
   chown root:root "$candidate"
   chmod 0600 "$candidate"
   printf 'PREPARED_SWITCH_CANDIDATE=YES\n'
   printf 'CANDIDATE_SHA256=%s\n' "$digest"
-  printf 'CANONICAL_PATH=cam1\n'
+  printf 'CANONICAL_PATH=%s\n' "$relay_path"
   printf 'RELAY_USERINFO=NO\n'
   printf 'RTSP_TRANSPORT=tcp\n'
+  [[ -n "$hls_address" ]] && printf 'HLS_ADDRESS=%s\n' "$hls_address"
   printf 'PRIVATE_RELAY_TCP=PASS\n'
   printf 'MEDIAMTX_RESTARTED=NO\n'
   printf 'MUTATIONS=PROTECTED_CANDIDATE_ONLY\n'
@@ -236,8 +252,13 @@ if [[ "$command" == "activate" ]]; then
     printf 'BACKUP=%s\n' "$backup" >&2
     exit 32
   fi
+  if [[ "$retire_external" == true ]]; then
+    systemctl disable --now sea-speed-camera1-h264.service 2>/dev/null || true
+    systemctl disable --now sea-speed-camera1-hls-http.service 2>/dev/null || true
+    printf 'RETIRED_EXTERNAL_UNITS=YES\n'
+  fi
   printf 'CANONICAL_SWITCHED=YES\n'
-  printf 'CANONICAL_PATH=cam1\n'
+  printf 'CANONICAL_PATH=%s\n' "$relay_path"
   printf 'PRIVATE_RELAY_TCP=PASS\n'
   printf 'RTSP_TRANSPORT=tcp\n'
   printf 'LOCAL_CANONICAL_HLS=PASS\n'
@@ -256,7 +277,7 @@ if [[ "$command" == "prepare-cleanup" ]]; then
   python3 "$renderer" vps-cleanup \
     --config "$config" \
     --relay-url "$relay_url" \
-    --path cam1 \
+    --path "$relay_path" \
     --remove-path cam1-new \
     --output "$cleanup_candidate"
   verify_vps_candidate "$cleanup_candidate" || { echo "ERROR cleanup candidate lost canonical TCP relay contract" >&2; exit 7; }
@@ -280,7 +301,7 @@ if ! check_local_hls; then
   exit 33
 fi
 printf 'TEMP_CAM1_NEW_RETIRED=YES\n'
-printf 'CANONICAL_PATH=cam1\n'
+printf 'CANONICAL_PATH=%s\n' "$relay_path"
 printf 'RTSP_TRANSPORT=tcp\n'
 printf 'LOCAL_CANONICAL_HLS=PASS\n'
 printf 'BACKUP=%s\n' "$backup"

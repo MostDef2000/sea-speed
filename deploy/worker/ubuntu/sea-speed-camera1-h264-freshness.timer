@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Sea Speed Ubuntu Camera 1 H264 transcode freshness watchdog continuously
+
+[Timer]
+OnActiveSec=20s
+OnUnitInactiveSec=30s
+AccuracySec=1s
+Unit=sea-speed-camera1-h264-freshness.service
+
+[Install]
+WantedBy=timers.target

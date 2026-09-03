@@ -95,7 +95,7 @@ class PrivilegedHelperTests(unittest.TestCase):
         self.assertEqual(helper.AUTHENTIK_UPSTREAM, "http://10.123.239.102:19000")
         self.assertEqual(helper.WORKER_PRIVATE_LISTEN, "10.123.239.101:18080")
         self.assertEqual(helper.WORKER_PRIVATE_PEER, "10.123.239.102")
-        self.assertEqual(helper.CAMERA1_PRIVATE_RELAY, "rtsp://10.123.239.102:8554/cam1")
+        self.assertEqual(helper.CAMERA1_H264_SOURCE, "rtsp://10.123.239.102:8554/cam1-h264")
         self.assertEqual(helper.CAMERA1_LOCAL_HLS, "http://127.0.0.1:18889/cam1/index.m3u8")
         self.assertEqual(helper.CAMERA1_H264_SERVICE, "sea-speed-camera1-h264.service")
 
@@ -204,27 +204,25 @@ class CameraFreshnessRecoveryTests(unittest.TestCase):
         self.assertFalse(any(argv[:2] == ["systemctl", "restart"] for argv in calls))
         self.assertFalse(any(argv[0] == "ffmpeg" for argv in calls))
 
-    def test_stale_hls_restarts_only_fixed_h264_service_after_relay_frame(self) -> None:
+    def test_stale_hls_resources_cam1_via_api_after_source_frame(self) -> None:
         calls: list[list[str]] = []
         sequences = iter((70, 70, 90, 91))
 
         def runner(argv, **kwargs):
             calls.append(list(argv))
+            if argv[0] == "curl" and any("v3/paths/cam1/patch" in a for a in argv):
+                return self.completed(argv)
             if argv[0] == "curl":
                 return self.completed(argv, stdout=f"#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:{next(sequences)}\n")
             if argv[0] in {"sleep", "ffmpeg"}:
                 return self.completed(argv)
-            if argv == ["systemctl", "restart", helper.CAMERA1_H264_SERVICE]:
-                return self.completed(argv)
-            if argv == ["systemctl", "is-active", "--quiet", helper.CAMERA1_H264_SERVICE]:
-                return self.completed(argv)
             raise AssertionError(f"unexpected command: {argv}")
 
         output = helper.run_camera1_h264_recovery(runner)
-        self.assertIn("CAMERA1_H264_RECOVERY=RESTARTED", output)
+        self.assertIn("CAMERA1_H264_RECOVERY=API_RESOURCE", output)
         self.assertIn("CAMERA1_PRIVATE_RELAY=PASS", output)
-        restart_calls = [argv for argv in calls if argv[:2] == ["systemctl", "restart"]]
-        self.assertEqual(restart_calls, [["systemctl", "restart", "sea-speed-camera1-h264.service"]])
+        self.assertFalse(any(argv[:2] == ["systemctl", "restart"] for argv in calls))
+        self.assertTrue(any(any("v3/paths/cam1/patch" in a for a in argv) for argv in calls))
         ffmpeg_call = next(argv for argv in calls if argv[0] == "ffmpeg")
         self.assertEqual(
             ffmpeg_call,
@@ -238,7 +236,7 @@ class CameraFreshnessRecoveryTests(unittest.TestCase):
                 "-timeout",
                 "10000000",
                 "-i",
-                "rtsp://10.123.239.102:8554/cam1",
+                "rtsp://10.123.239.102:8554/cam1-h264",
                 "-frames:v",
                 "1",
                 "-f",
@@ -250,7 +248,7 @@ class CameraFreshnessRecoveryTests(unittest.TestCase):
         for forbidden in ("nginx.service", "sea-speed-camera1-hls-http.service", "mediamtx.service", "sea-speed-worker.service", "sea-speed-road-worker.service"):
             self.assertFalse(any(forbidden in argv for argv in calls))
 
-    def test_missing_private_relay_fails_before_restart(self) -> None:
+    def test_missing_h264_source_fails_before_resource(self) -> None:
         calls: list[list[str]] = []
         sequences = iter((11, 11))
 
@@ -261,35 +259,34 @@ class CameraFreshnessRecoveryTests(unittest.TestCase):
             if argv[0] == "sleep":
                 return self.completed(argv)
             if argv[0] == "ffmpeg":
-                return self.completed(argv, returncode=1, stdout="relay unavailable")
+                return self.completed(argv, returncode=1, stdout="source unavailable")
             raise AssertionError(f"unexpected command: {argv}")
 
         with self.assertRaises(helper.BoundaryError) as raised:
             helper.run_camera1_h264_recovery(runner)
-        self.assertIn("private Ubuntu relay", str(raised.exception))
+        self.assertIn("H264 source", str(raised.exception))
         self.assertFalse(any(argv[:2] == ["systemctl", "restart"] for argv in calls))
+        self.assertFalse(any("v3/paths/cam1/patch" in argv for argv in calls))
 
-    def test_post_restart_static_hls_fails_closed(self) -> None:
+    def test_post_api_resource_static_hls_fails_closed(self) -> None:
         calls: list[list[str]] = []
         sequences = iter((5, 5, 8, 8))
 
         def runner(argv, **kwargs):
             calls.append(list(argv))
+            if argv[0] == "curl" and any("v3/paths/cam1/patch" in a for a in argv):
+                return self.completed(argv)
             if argv[0] == "curl":
                 return self.completed(argv, stdout=f"#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:{next(sequences)}\n")
             if argv[0] in {"sleep", "ffmpeg"}:
-                return self.completed(argv)
-            if argv[0] == "systemctl":
                 return self.completed(argv)
             raise AssertionError(f"unexpected command: {argv}")
 
         with self.assertRaises(helper.BoundaryError) as raised:
             helper.run_camera1_h264_recovery(runner)
         self.assertIn("still not advancing", str(raised.exception))
-        self.assertEqual(
-            [argv for argv in calls if argv[:2] == ["systemctl", "restart"]],
-            [["systemctl", "restart", helper.CAMERA1_H264_SERVICE]],
-        )
+        self.assertFalse(any(argv[:2] == ["systemctl", "restart"] for argv in calls))
+        self.assertTrue(any(any("v3/paths/cam1/patch" in a for a in argv) for argv in calls))
 
     def test_deploy_runtime_verified_remains_behind_reconcile_gate(self) -> None:
         text = DEPLOY_SCRIPT.read_text(encoding="utf-8")

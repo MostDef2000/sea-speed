@@ -1,0 +1,18 @@
+[Unit]
+Description=Sea Speed Ubuntu Camera 1 H264 transcode freshness watchdog
+After=network-online.target sea-speed-stream.service sea-speed-camera1-h264.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+UMask=0077
+ExecStart=/usr/local/sbin/sea-speed-camera1-h264-freshness-watchdog
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
