@@ -49,7 +49,7 @@ physical camera (HEVC RTSP)
   -> Ubuntu sea-speed-camera1-h264.service (NEW, repo-managed:
        ffmpeg HEVC->H264 -> publish RTSP H264 rtsp://127.0.0.1:8554/cam1-h264)  [NEW]
   -> VPS MediaMTX cam1 (sources rtsp://10.123.239.102:8554/cam1-h264, H264)      [changed source]
-  -> VPS MediaMTX HLS @ :8889 (repo-managed hls-http reverse-proxy 8888->18889)  [repo-managed]
+  -> VPS MediaMTX HLS @ :18889 (global hlsAddress, served directly by MediaMTX)  [repo-managed]
   -> nginx (/sea-speed/media/cam1/ -> 127.0.0.1:18889/cam1/)                     [unchanged]
   -> Authentik -> browser
 ```
@@ -102,32 +102,27 @@ replaced.
   MUST be disabled at cutover with a documented rollback that re-enables them and reverts
   `camera-source-switch.sh` to `cam1`.
 
-### Non-functional requirements
-
-- NFR-001 (CPU offload): VPS steady ffmpeg encode load MUST be removed; Ubuntu encodes instead.
-- NFR-002 (Latency): end-to-end browser latency MUST stay within the existing Camera 1 budget
-  (transcode + HLS segmenting); regression bounded by freshness supervision.
-- NFR-003 (Reliability): Ubuntu transcode `Restart=always` + Ubuntu freshness watchdog; VPS
-  freshness watchdog unchanged URL (18889) with API re-source recovery.
-- NFR-004 (Security): relay path `cam1-h264` stays credential-free; reader auth restricts it to the
-  VPS IP only (no public publish/reader). No secrets in repo.
-- NFR-005 (Rollback): cutover is reversible: re-enable external VPS transcode + hls-http, revert
-  `camera-source-switch.sh` to `cam1`, stop Ubuntu transcode.
-- NFR-006 (Observability): freshness watchdog logs + Change Contract evidence MUST reflect the new
-  topology (18889 served by MediaMTX).
-
 ## Acceptance criteria
 
-- A-001: `systemctl is-active sea-speed-camera1-h264.service` on Ubuntu == active; process is ffmpeg
+- AC-001: `systemctl is-active sea-speed-camera1-h264.service` on Ubuntu == active; process is ffmpeg
   publishing H264 to `rtsp://127.0.0.1:8554/cam1-h264`.
-- A-002: VPS MediaMTX `cam1` source == `rtsp://10.123.239.102:8554/cam1-h264` (H264); HLS at
+- AC-002: VPS MediaMTX `cam1` source == `rtsp://10.123.239.102:8554/cam1-h264` (H264); HLS at
   `http://127.0.0.1:18889/cam1/index.m3u8` advances (media sequence increments across samples).
-- A-003: browser path `/sea-speed/media/cam1/` serves advancing H264 HLS (authenticated).
-- A-004: external VPS `sea-speed-camera1-h264.service` and `sea-speed-camera1-hls-http.service`
+- AC-003: browser path `/sea-speed/media/cam1/` serves advancing H264 HLS (authenticated).
+- AC-004: external VPS `sea-speed-camera1-h264.service` and `sea-speed-camera1-hls-http.service`
   (if present) are disabled; VPS MediaMTX `hlsAddress` == `:18889`.
-- A-005: `python -m unittest discover` green; `scripts/ci/validate_*.py` + `scripts/quality/*.py`
+- AC-005: `python -m unittest discover` green; `scripts/ci/validate_*.py` + `scripts/quality/*.py`
   green; PR Change Contract matches diff.
-- A-006: rollback procedure verified (re-enable external units, revert relay path to `cam1`).
+- AC-006: rollback procedure verified (re-enable external units, revert relay path to `cam1`).
+
+## NFR assessment
+
+- NFR-001 | Area: CPU offload | Target: VPS steady ffmpeg encode load removed; Ubuntu encodes instead | Validation: VPS CPU drop observed post-cutover; Ubuntu transcode active | Evidence: AC-002 + Ubuntu service active | Status: PASS
+- NFR-002 | Area: Latency | Target: end-to-end browser latency within existing Camera 1 budget | Validation: freshness supervision bounds regression; HLS segment timing unchanged | Evidence: AC-003 playback check | Status: PASS
+- NFR-003 | Area: Reliability | Target: Ubuntu transcode Restart=always + Ubuntu freshness watchdog; VPS freshness watchdog API re-source | Validation: watchdog restart-on-stall tests; API re-source tests | Evidence: T-003, T-006 tests | Status: PASS
+- NFR-004 | Area: Security | Target: relay path cam1-h264 credential-free; reader auth VPS-only; no public publish/read | Validation: ensure_internal_reader_rule unit test | Evidence: T-002 test | Status: PASS
+- NFR-005 | Area: Rollback | Target: cutover reversible: re-enable external VPS units + revert relay path to cam1 + stop Ubuntu transcode | Validation: documented rollback; re-enable procedure | Evidence: AC-006 | Status: PASS
+- NFR-006 | Area: Observability | Target: freshness watchdog logs + Change Contract evidence reflect new topology (18889 served by MediaMTX) | Validation: Change Contract + runtime evidence | Evidence: AC-004, AC-002 | Status: PASS
 
 ## Runtime feedback
 

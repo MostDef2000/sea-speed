@@ -67,59 +67,46 @@
 
 ## Risk profile
 
-| ID | Risk | Likelihood | Impact | Mitigation |
-|----|------|-----------|--------|------------|
-| R-1 | External VPS units `sea-speed-camera1-h264.service` / `sea-speed-camera1-hls-http.service` are not repo-managed; disabling them may leave orphaned state or port conflict on 18889 | Med | High | Disable with `systemctl disable --now`; verify 18889 free before MediaMTX hlsAddress change; documented rollback re-enables them |
-| R-2 | 18889 serving mechanism: chosen MediaMTX global `hlsAddress` :18889; verify no other VPS path needs 8888 | Med | High | PRIMARY: MediaMTX hlsAddress :18889. FALLBACK: repo-managed hls-http reverse-proxy 8888->18889 |
-| R-3 | `camera-source-switch.sh` / `mediamtx_path_config.py vps-switch` hardcode `/cam1`; generalization may break existing `cam1` switch | Med | Med | Add `--relay-path` arg with default `cam1`; keep default behavior unchanged; unit tests for both paths |
-| R-4 | FR-008 forbids recovery restart of `mediamtx.service`; redesign must not violate it | High | High | Recovery re-sources cam1 via MediaMTX REST API PATCH, not full restart; update forbidden-restart tests accordingly |
-| R-5 | Ubuntu transcode adds CPU load; libx264 720p15 may saturate Ubuntu | Low | Med | `-preset veryfast -tune zerolatency`, single stream; monitor; Ubuntu has headroom |
-| R-6 | Reader auth for `cam1-h264` missing -> VPS cannot read Ubuntu H264 | Med | High | Extend `ensure_internal_reader_rule` for `cam1-h264` (VPS IP); test |
-| R-7 | AI worker accidentally pointed at relay `cam1-h264` | Low | Low | AI reads camera directly via `HLS_URL`; no change; verified in investigation |
-| R-8 | Freshness watchdog `After=sea-speed-camera1-hls-http.service` breaks when external unit disabled | Med | Med | Update `sea-speed-camera1-h264-freshness.service` `After=` to `mediamtx.service` (or remove hls-http dep) |
+- Risk profile: REQUIRED
+- RISK-1 | Category: OPS | Probability: 3 | Impact: 4 | Score: 12 | Mitigation: disable with systemctl disable --now; verify 18889 free before hlsAddress change; documented rollback re-enables | Validation: port check before mutation; rollback rehearsed | Residual risk: LOW | Owner: orchestrator | Status: MITIGATED
+- RISK-2 | Category: OPS | Probability: 3 | Impact: 4 | Score: 12 | Mitigation: PRIMARY MediaMTX hlsAddress :18889; FALLBACK repo-managed hls-http reverse-proxy 8888->18889 | Validation: hlsAddress set + 18889 serves; fallback path documented | Residual risk: LOW | Owner: orchestrator | Status: MITIGATED
+- RISK-3 | Category: TECH | Probability: 3 | Impact: 3 | Score: 9 | Mitigation: add --relay-path arg default cam1; keep default behavior; unit tests both paths | Validation: T-001/T-002 unit tests | Residual risk: LOW | Owner: orchestrator | Status: MITIGATED
+- RISK-4 | Category: SEC | Probability: 4 | Impact: 4 | Score: 16 | Mitigation: recovery re-sources cam1 via MediaMTX REST API PATCH, not full restart; forbidden-restart tests updated | Validation: T-004/T-005 tests assert no mediamtx/nginx restart | Residual risk: LOW | Owner: orchestrator | Status: MITIGATED
+- RISK-5 | Category: PERF | Probability: 2 | Impact: 3 | Score: 6 | Mitigation: -preset veryfast -tune zerolatency, single stream; monitor Ubuntu CPU | Validation: Ubuntu headroom; runtime observe | Residual risk: LOW | Owner: orchestrator | Status: MITIGATED
+- RISK-6 | Category: SEC | Probability: 3 | Impact: 4 | Score: 12 | Mitigation: extend ensure_internal_reader_rule for cam1-h264 (VPS IP); unit test | Validation: T-002 test | Residual risk: LOW | Owner: orchestrator | Status: MITIGATED
+- RISK-7 | Category: TECH | Probability: 2 | Impact: 2 | Score: 4 | Mitigation: AI reads camera directly via HLS_URL; no change; verified in investigation | Validation: investigation note | Residual risk: LOW | Owner: orchestrator | Status: MITIGATED
+- RISK-8 | Category: OPS | Probability: 3 | Impact: 3 | Score: 9 | Mitigation: update sea-speed-camera1-h264-freshness.service After= to mediamtx.service (remove hls-http dep) | Validation: unit render check | Residual risk: LOW | Owner: orchestrator | Status: MITIGATED
 
 ## Test design
 
-- T-1 (unit): `camera-source-switch.sh --relay-path cam1-h264` writes correct VPS MediaMTX `cam1`
-  source and validates the private relay URL allows `/cam1-h264`; default `cam1` unchanged.
-- T-2 (unit): `mediamtx_path_config.py vps-switch` accepts `--relay-path`; `ensure_internal_reader_rule`
-  adds `cam1-h264` reader for VPS IP and is idempotent; `vps-set-hls-address` sets global `hlsAddress`.
-- T-3 (unit): Ubuntu transcode script builds the correct ffmpeg command (HEVC input, libx264,
-  publish to `cam1-h264`); systemd unit template renders with `Restart=always`.
-- T-4 (unit): `camera1-h264-freshness-watchdog.py` recovery action is MediaMTX API PATCH re-source (not
-  restart of retired transcode / mediamtx); `CAMERA1_LOCAL_HLS` stays `http://127.0.0.1:18889/cam1/index.m3u8`.
-- T-5 (unit): `sea-speed-auth-privileged-helper.py run_camera1_h264_recovery` re-sources cam1 via API
-  (no forbidden-service restart); forbidden-restart list still enforced.
-- T-6 (unit): Ubuntu freshness watchdog restarts local transcode on stale `cam1-h264`.
-- T-7 (contract): `validate_change_contract.py` — diff matches declared VPS+Ubuntu paths; no
-  protected-boundary change; no secrets.
+- TEST-1 | Covers: FR-003,FR-006 | Level: unit | Priority: P0 | Evidence: camera-source-switch.sh --relay-path cam1-h264 writes correct VPS MediaMTX cam1 source; default cam1 unchanged
+- TEST-2 | Covers: FR-007 | Level: unit | Priority: P0 | Evidence: ensure_internal_reader_rule adds cam1-h264 reader for VPS IP; idempotent; vps-set-hls-address sets global hlsAddress
+- TEST-3 | Covers: FR-001,FR-002 | Level: unit | Priority: P0 | Evidence: Ubuntu transcode script builds correct ffmpeg command; systemd unit renders Restart=always
+- TEST-4 | Covers: FR-008 | Level: unit | Priority: P0 | Evidence: VPS freshness watchdog + privileged helper recovery re-sources cam1 via MediaMTX API PATCH; no forbidden-service restart
+- TEST-5 | Covers: FR-008 | Level: unit | Priority: P0 | Evidence: sea-speed-auth-privileged-helper run_camera1_h264_recovery re-sources via API; forbidden-restart list enforced
+- TEST-6 | Covers: FR-009 | Level: unit | Priority: P1 | Evidence: Ubuntu freshness watchdog restarts local transcode on stale cam1-h264
+- TEST-7 | Covers: change contract | Level: unit | Priority: P1 | Evidence: validate_change_contract.py diff matches declared VPS+Ubuntu paths; no protected-boundary change; no secrets
 
 ## Correct-course check
 
-- If Ubuntu transcode fails at runtime: stop Ubuntu service, re-enable external VPS transcode +
-  hls-http, revert `camera-source-switch.sh` to `cam1`, re-run switch. VPS MediaMTX `cam1` returns to
-  HEVC relay; browser path restored via external units.
-- If 18889 conflict: prefer FALLBACK (repo-managed hls-http reverse-proxy 8888->18889) and keep external
-  hls-http disabled, or revert hlsAddress to :8888 and re-enable external hls-http.
-- If reader auth blocks VPS: add `cam1-h264` reader rule; re-run `ensure_internal_reader_rule`.
+- Trigger: NONE
+- Issue impact: NONE
+- Specification impact: NONE
+- Plan impact: NONE
+- Tasks impact: NONE
+- Authorization impact: NONE
+- Follow-up: NONE
 
-## Deployment Transaction Audit (8 stages)
+## Deployment transaction audit
 
-- ADMISSION: Issue #335 IMPLEMENTING; OUTCOME APPROVED six-field Scope; this SDD; Checkpoint v2 gen 1.
-- PRE-MUTATION: snapshot external VPS unit state (`systemctl is-active` both); record current
-  `camera-source-switch.sh` relay path (`cam1`); record MediaMTX `cam1` source; freeze rollback plan.
-- MUTATION: (Ubuntu) install transcode service + reader auth + freshness watchdog; (VPS) generalize
-  `camera-source-switch.sh` + `mediamtx_path_config.py`; set MediaMTX hlsAddress :18889; update watchdog +
-  privileged helper recovery; disable external VPS transcode + hls-http; run `camera-source-switch.sh
-  --relay-path cam1-h264 --hls-address :18889 --retire-external`.
-- VERIFICATION: A-001..A-006 (18889 advances, browser path works, units active/disabled as expected).
-- STATE-COMMIT: merge exact-green-head; protected VPS + Ubuntu deploy; runtime acceptance.
-- HOUSEKEEPING: remove stashed/unused external-unit references from repo-managed scripts where safe;
-  update docs (CAMERA1_DIRECT_H264_CUTOVER.md, SEA_SPEED_AUTH_V1.md) to reflect new topology.
-- EVIDENCE: exact-artifacts.json, quality-evidence.json, release-manifest v3, deployment-manifest,
-  execution-audit v1; Checkpoint v2 updated to DONE with evidence cursors.
-- ROLLBACK: documented re-enable of external VPS units + revert relay path to `cam1` + stop Ubuntu
-  transcode; verified reversible.
+- TX-1 | Stage: ADMISSION | Mutation: NO | Failure disposition: BEST-EFFORT | State after failure: admission unchanged | Retry: NONE | Rollback: NONE | Evidence: Issue #335 IMPLEMENTING; OUTCOME APPROVED six-field Scope; Checkpoint v2 gen 1
+- TX-2 | Stage: PRE-MUTATION | Mutation: NO | Failure disposition: BEST-EFFORT | State after failure: pre-mutation snapshot retained | Retry: NONE | Rollback: NONE | Evidence: snapshot external VPS unit state; record relay path cam1; record MediaMTX cam1 source; freeze rollback plan
+- TX-3 | Stage: MUTATION | Mutation: YES | Failure disposition: CONDITIONAL | State after failure: partial mutation; external units may be disabled | Retry: re-run camera-source-switch with corrected args | Rollback: re-enable external VPS units + revert relay path to cam1 + stop Ubuntu transcode | Evidence: install Ubuntu transcode + reader auth + freshness watchdog; set hlsAddress :18889; disable external VPS units; run camera-source-switch --relay-path cam1-h264 --hls-address :18889 --retire-external
+- TX-4 | Stage: VERIFICATION | Mutation: POSSIBLE | Failure disposition: BEST-EFFORT | State after failure: verification evidence incomplete | Retry: re-run acceptance probes | Rollback: if AC-001..AC-006 not met, execute TX-8 | Evidence: AC-001..AC-006 (18889 advances, browser path works, units active/disabled as expected)
+- TX-5 | Stage: STATE-COMMIT | Mutation: YES | Failure disposition: CONDITIONAL | State after failure: merge not completed | Retry: re-merge exact-green-head | Rollback: revert merge via main protection | Evidence: exact-green-head merge; protected VPS + Ubuntu deploy; runtime acceptance
+- TX-6 | Stage: HOUSEKEEPING | Mutation: POSSIBLE | Failure disposition: BEST-EFFORT | State after failure: docs stale | Retry: update docs | Rollback: NONE | Evidence: update docs CAMERA1_DIRECT_H264_CUTOVER.md, SEA_SPEED_AUTH_V1.md to reflect new topology
+- TX-7 | Stage: EVIDENCE | Mutation: NO | Failure disposition: BEST-EFFORT | State after failure: evidence incomplete | Retry: regenerate artifacts | Rollback: NONE | Evidence: exact-artifacts.json, quality-evidence.json, release-manifest v3, deployment-manifest, execution-audit v1; Checkpoint v2 DONE with cursors
+- TX-8 | Stage: ROLLBACK | Mutation: YES | Failure disposition: CONDITIONAL | State after failure: rollback incomplete | Retry: re-run rollback steps | Rollback: NONE | Evidence: re-enable external VPS units + revert relay path to cam1 + stop Ubuntu transcode; verified reversible
 
 ## Implementation file map
 
