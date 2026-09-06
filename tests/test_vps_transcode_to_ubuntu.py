@@ -57,6 +57,11 @@ class ReaderRuleGeneralizationTests(unittest.TestCase):
         self.assertIn("ips:", text)
         self.assertIn("read", text)
         self.assertIn("publish", text)
+        # The transcode publisher path must exist so the Ubuntu ffmpeg transcode
+        # has somewhere to publish H264 RTSP; without it the VPS relay stays empty.
+        self.assertIn("cam1-h264:", text)
+        self.assertIn('source: "publisher"', text)
+        self.assertIn("sourceOnDemand: no", text)
 
     def test_ensure_cam1_reader_is_subset_safe_when_adding_cam1_h264(self) -> None:
         # Adding cam1-h264 must not disturb the existing single-peer cam1 reader rule.

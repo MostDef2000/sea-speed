@@ -63,6 +63,17 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# Derive the canonical VPS-local HLS check URL from the configured hlsAddress
+# when provided, so post-activate HLS verification targets the real HLS port
+# instead of the MediaMTX default :8888.
+if [[ -n "$hls_address" ]]; then
+  if [[ "$hls_address" == :* ]]; then
+    hls_check_url="http://127.0.0.1${hls_address}/cam1/index.m3u8"
+  else
+    hls_check_url="http://${hls_address}/cam1/index.m3u8"
+  fi
+fi
+
 script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 repo_root="$(CDPATH= cd -- "$script_dir/../.." && pwd)"
 renderer="$repo_root/scripts/operations/mediamtx_path_config.py"
@@ -180,6 +191,10 @@ install_candidate() {
   install -o root -g root -m 0600 "$config" "$backup"
   install -o "$owner" -g "$group" -m "$mode" "$source" "${config}.next"
   mv -f "${config}.next" "$config"
+  # The live config carries legacy camera credentials and MediaMTX runs as the
+  # mediamtx user, so pin the secure owner/group/mode before restarting.
+  chown root:mediamtx "$config"
+  chmod 0640 "$config"
 
   if ! systemctl restart "$service_name"; then
     echo "ERROR VPS MediaMTX restart failed; automatic rollback is not authorized" >&2
@@ -246,16 +261,16 @@ fi
 
 if [[ "$command" == "activate" ]]; then
   check_relay_tcp || { echo "ERROR Ubuntu private relay TCP is not reachable" >&2; exit 8; }
+  if [[ "$retire_external" == true ]]; then
+    systemctl disable --now sea-speed-camera1-h264.service 2>/dev/null || true
+    systemctl disable --now sea-speed-camera1-hls-http.service 2>/dev/null || true
+    printf 'RETIRED_EXTERNAL_UNITS=YES\n'
+  fi
   backup="$(install_candidate "$candidate" "$expected_sha256")"
   if ! check_local_hls; then
     echo "ERROR canonical VPS-local HLS did not become available; automatic rollback is not authorized" >&2
     printf 'BACKUP=%s\n' "$backup" >&2
     exit 32
-  fi
-  if [[ "$retire_external" == true ]]; then
-    systemctl disable --now sea-speed-camera1-h264.service 2>/dev/null || true
-    systemctl disable --now sea-speed-camera1-hls-http.service 2>/dev/null || true
-    printf 'RETIRED_EXTERNAL_UNITS=YES\n'
   fi
   printf 'CANONICAL_SWITCHED=YES\n'
   printf 'CANONICAL_PATH=%s\n' "$relay_path"

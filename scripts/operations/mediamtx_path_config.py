@@ -542,6 +542,10 @@ def render_ubuntu_transcode_reader(args: argparse.Namespace) -> str:
     text = read_config(args.config)
     validate_peer_reader_ip(args.reader_ip)
     validate_reader_ip(args.publisher_ip)
+    # The Ubuntu ffmpeg transcode publishes H264 RTSP into this path, so the
+    # Worker MediaMTX must expose it as a publisher path. Without this block the
+    # transcode unit has nowhere to publish and the VPS relay stays empty.
+    text = set_path_source(text, args.path, "publisher", source_on_demand=False)
     text = ensure_internal_reader_rule(
         text,
         args.path,
