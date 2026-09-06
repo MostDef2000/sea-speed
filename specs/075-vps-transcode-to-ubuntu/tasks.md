@@ -62,6 +62,16 @@
   capability CONNECTOR, operator actions 0.
 - DoD: Change Contract matches diff; PR created; CI green. [IN PROGRESS]
 
+### T-011 — Fix cutover tooling relay-path validation (FR-003 correction)
+- Relax `scripts/operations/mediamtx_path_config.py::validate_private_relay_url` to stop requiring the
+  relay URL path to equal the switched path (VPS HLS path `cam1` sources the distinct Worker transcode
+  path `cam1-h264`); keep rtsp + RFC1918 literal-IP + no-userinfo checks.
+- Update `tests/test_camera1_live_replacement.py` path-mismatch assertion to a positive `cam1 -> cam1-h264`
+  case; keep userinfo/public-IP negative tests.
+- Correct `docs/operations/CAMERA1_DIRECT_H264_CUTOVER.md` cutover command and spec FR-003 / plan / tasks
+  to `--relay-path cam1 --relay-url rtsp://10.123.239.102:8554/cam1-h264`.
+- DoD: unittest green; validate_*.py + quality green; cutover command validated by prepare. [IN PROGRESS]
+
 ### T-010 — Merge + protected deploy + runtime acceptance (DONE gate)
 - Exact-green-head merge; protected VPS + Ubuntu deploy (`--require-allow`); runtime acceptance
   AC-001..AC-006; Checkpoint v2 -> DONE with evidence cursors.
@@ -70,7 +80,7 @@
 ## Requirements traceability
 
 - AC-001 | Task: T-001 | Evidence: camera1-h264-transcode.sh + sea-speed-camera1-h264.service active | Coverage: COVERED
-- AC-002 | Task: T-004,T-005 | Evidence: camera-source-switch --relay-path cam1-h264; 18889 advances | Coverage: COVERED
+- AC-002 | Task: T-004,T-005,T-011 | Evidence: camera-source-switch --relay-path cam1 --relay-url rtsp://10.123.239.102:8554/cam1-h264; 18889 advances | Coverage: COVERED
 - AC-003 | Task: T-005 | Evidence: nginx UPSTREAM unchanged; browser path serves 18889 | Coverage: COVERED
 - AC-004 | Task: T-005,T-007 | Evidence: external units disabled; hlsAddress :18889 | Coverage: COVERED
 - AC-005 | Task: T-008 | Evidence: unittest + validate_*.py + quality green; Change Contract matches diff | Coverage: COVERED

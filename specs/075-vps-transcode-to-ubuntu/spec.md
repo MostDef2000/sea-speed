@@ -79,8 +79,11 @@ replaced.
 - FR-002: The Ubuntu transcode MUST use software libx264 (`-an -vf fps=15,scale=-2:720 -c:v
   libx264 -preset veryfast -tune zerolatency`), no hardware accelerator.
 - FR-003: VPS MediaMTX `cam1` MUST source `rtsp://10.123.239.102:8554/cam1-h264` (H264) instead
-  of the HEVC relay, configured via the generalized `camera-source-switch.sh --relay-path
-  cam1-h264 --hls-address :18889 --retire-external`.
+  of the HEVC relay, configured via `camera-source-switch.sh --relay-path cam1
+  --relay-url rtsp://10.123.239.102:8554/cam1-h264 --hls-address :18889 --retire-external`.
+  The switched HLS path is `cam1`; the relay URL path `cam1-h264` is the distinct Ubuntu Worker
+  transcode output, so the relay path intentionally differs from the switched path (the relay-path
+  validation therefore does NOT require path equality).
 - FR-004: The browser HLS endpoint `http://127.0.0.1:18889/cam1/index.m3u8` MUST remain served and
   advance (video frames progress), with nginx config unchanged (`UPSTREAM` stays 18889).
 - FR-005: VPS MediaMTX global `hlsAddress` MUST be set to `:18889` at cutover (canonical HLS served

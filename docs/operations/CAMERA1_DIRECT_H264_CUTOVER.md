@@ -44,7 +44,7 @@ Repository components after #335:
 
 Cutover and rollback:
 
-- Cutover: `deploy/vps/camera-source-switch.sh --relay-path cam1-h264 --hls-address :18889 --retire-external` on VPS, then the protected Ubuntu deploy enables the Ubuntu transcode service + freshness watchdog.
+- Cutover: `deploy/vps/camera-source-switch.sh --relay-path cam1 --relay-url rtsp://10.123.239.102:8554/cam1-h264 --hls-address :18889 --retire-external` on VPS, then the protected Ubuntu deploy enables the Ubuntu transcode service + freshness watchdog.
 - Rollback: re-enable the external VPS `sea-speed-camera1-h264.service` + `sea-speed-camera1-hls-http.service`, revert the VPS relay path to `cam1`, and disable the Ubuntu transcode service. The Ubuntu transcode is additive and removable; the VPS path is restored to the pre-#335 behavior.
 
 ## Repository components
