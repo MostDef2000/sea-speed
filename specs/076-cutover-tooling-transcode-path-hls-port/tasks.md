@@ -14,7 +14,7 @@
 - T-006 [x] Pin live config to `root:mediamtx` / `0640` in `install_candidate` before restart.
 - T-007 [x] Extend `tests/test_vps_transcode_to_ubuntu.py` to assert the `cam1-h264` publisher path bytes.
 - T-008 [x] Run `bash -n`, `scripts/ci/validate_repo.py`, `scripts/ci/validate_sdd.py` and the full unit suite; all pass.
-- T-009 [ ] Open linked PR with Change Contract (VPS deployment NOT REQUIRED, Ubuntu worker/relay update NOT REQUIRED, production safety envelope NOT REQUIRED, operator actions expected 0).
+- T-009 [ ] Open linked PR with Change Contract (VPS deployment REQUIRED, Ubuntu worker/relay update NOT REQUIRED, production safety envelope REQUIRED, VPS execution capability CONNECTOR, Ubuntu worker execution capability NOT APPLICABLE, operator actions expected 0).
 
 ## Requirements traceability
 
@@ -22,7 +22,7 @@
 - AC-002 | Task: T-004,T-005,T-006 | Evidence: `bash -n` passes; review of derivation/ordering/perms | Coverage: COVERED
 - AC-003 | Task: T-008 | Evidence: `scripts/ci/validate_repo.py` passes on changed tree | Coverage: COVERED
 - AC-004 | Task: T-007,T-008 | Evidence: `python3 -m unittest tests/test_vps_transcode_to_ubuntu.py` passes (6 tests) | Coverage: COVERED
-- AC-005 | Task: T-009 | Evidence: PR Change Contract declares VPS/Ubuntu NOT REQUIRED, operator actions 0 | Coverage: PENDING
+- AC-005 | Task: T-009 | Evidence: PR Change Contract declares VPS REQUIRED, Ubuntu NOT REQUIRED, operator actions 0 | Coverage: PENDING
 
 ## Definition of Done
 
@@ -31,11 +31,11 @@
 - [x] Required tests and evidence complete — renderer unit test extended; `bash -n`, `validate_repo.py`, `validate_sdd.py` and full unit suite pass.
 - [ ] Required CI green — PR exact head must pass PR Validation and aggregate Quality, followed by exact-main Quality after merge.
 - [ ] Exact-green-head merge complete — merge PR only after fresh base/head/scope/review gate with expected-head protection.
-- [x] Deployment state resolved — no VPS/Ubuntu deployment is required; live hosts already carry equivalent manual edits.
-- [x] Runtime acceptance resolved — no runtime acceptance required; CONTROL_PLANE tooling change only.
+- [x] Deployment state resolved — this PR performs no deployment; the VPS contour is declared REQUIRED per policy, and live hosts already carry equivalent manual edits.
+- [x] Runtime acceptance resolved — no runtime acceptance required by this PR; VPS-contour tooling change only.
 - [x] Risks resolved or explicitly accepted — Risk profile REQUIRED; change is source-only and reuses unit-tested helpers.
 - [x] Waivers resolved or current — no waiver is active.
 
 ## Completion gate
 
-`DONE` is forbidden until the exact-head PR Validation and aggregate Quality pass on one head, the exact green head merges with expected-head protection, and exact-main Quality succeeds. No production deployment or runtime acceptance is required because the change is CONTROL_PLANE tooling only and the live hosts already carry equivalent manual edits; the PR simply makes the repository source correct for future cutover re-runs.
+`DONE` is forbidden until the exact-head PR Validation and aggregate Quality pass on one head, the exact green head merges with expected-head protection, and exact-main Quality succeeds. No production deployment or runtime acceptance is required by this PR because the change is VPS-contour tooling only and the live hosts already carry equivalent manual edits; the PR simply makes the repository source correct for future cutover re-runs.

@@ -19,12 +19,12 @@ The fix reuses the existing, unit-tested `set_path_source` helper for the publis
 - D-002: Derive `hls_check_url` from `--hls-address` when provided, supporting both `:port` and `host:port` forms, overriding the MediaMTX-default `:8888` check.
 - D-003: In `activate`, disable the retired external units (`sea-speed-camera1-h264.service`, `sea-speed-camera1-hls-http.service`) before `install_candidate` restarts MediaMTX, removing the `:18889` bind conflict.
 - D-004: In `install_candidate`, pin the live config to `root:mediamtx` / `0640` after install and before restart, so the `mediamtx` user can read the credential-bearing config.
-- D-005: Runtime contour is CONTROL_PLANE only; VPS deployment and Ubuntu Worker/relay update remain NOT REQUIRED.
+- D-005: VPS contour is in policy scope because the change touches `deploy/vps/**`; the PR declares `VPS deployment: REQUIRED` and `Production safety envelope: REQUIRED`. Ubuntu Worker/relay update remains NOT REQUIRED.
 
 ## Affected contours
 
-- VPS runtime: NOT REQUIRED — source-only tooling change; no deployment.
-- VPS execution capability: NOT APPLICABLE.
+- VPS runtime: in policy scope (change touches `deploy/vps/**`); this PR performs no deployment, but the contour is declared REQUIRED per policy.
+- VPS execution capability: CONNECTOR.
 - Operator actions expected: 0.
 - Ubuntu Worker/relay: NOT REQUIRED — source-only tooling change; no deployment.
 - Frontend/API/storage: unchanged.
@@ -50,7 +50,7 @@ This is a CONTROL_PLANE tooling change with no runtime deployment, so security-b
 - TEST-002 | Covers: AC-002 | Level: static | Priority: P0 | Evidence: `bash -n deploy/vps/camera-source-switch.sh` passes
 - TEST-003 | Covers: AC-003 | Level: static | Priority: P0 | Evidence: `scripts/ci/validate_repo.py` passes on changed tree
 - TEST-004 | Covers: AC-004 | Level: unit | Priority: P0 | Evidence: `python3 -m unittest tests/test_vps_transcode_to_ubuntu.py` passes (6 tests)
-- TEST-005 | Covers: AC-005 | Level: integration | Priority: P0 | Evidence: PR Change Contract declares VPS/Ubuntu NOT REQUIRED, operator actions 0
+- TEST-005 | Covers: AC-005 | Level: integration | Priority: P0 | Evidence: PR Change Contract declares VPS REQUIRED, Ubuntu NOT REQUIRED, operator actions 0
 
 ## Correct-course check
 
@@ -60,7 +60,7 @@ This is a CONTROL_PLANE tooling change with no runtime deployment, so security-b
 - Plan impact: preserves the existing cutover architecture; adds deterministic renderer coverage and VPS-script hardening.
 - Tasks impact: records T1-T6 as completed source work and T7 (PR) as the remaining step.
 - Authorization impact: this follow-up is a separate bounded source task admitted under its own `OUTCOME APPROVED`; it does not widen #335 and grants no production authority.
-- Follow-up: open PR with Change Contract (VPS/Ubuntu NOT REQUIRED); after merge, no host action is required because the live configs already carry equivalent manual edits.
+- Follow-up: open PR with Change Contract (VPS REQUIRED per policy, Ubuntu NOT REQUIRED); after merge, no host action is required because the live configs already carry equivalent manual edits.
 
 ## Runtime feedback
 

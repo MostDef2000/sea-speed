@@ -16,7 +16,7 @@ Two defects were worked around by hand during the #335 cutover and must be fixed
    - it restarted MediaMTX before disabling the retired external units `sea-speed-camera1-h264.service` and `sea-speed-camera1-hls-http.service`, which still occupied `:18889`, causing a bind conflict;
    - it did not pin `0640 root:mediamtx` on the live config before restart, so a config with wrong perms caused `permission denied` on the credential-bearing `/etc/mediamtx/mediamtx.yml`.
 
-This Outcome changes only repository tooling. It does NOT mutate any running host, does NOT change Issue #335 (already DONE), does NOT change API/frontend/contracts, and does NOT require a VPS or Ubuntu deployment.
+This Outcome changes only repository tooling. It does NOT mutate any running host, does NOT change Issue #335 (already DONE), and does NOT change API/frontend/contracts. The change touches `deploy/vps/**`, so the VPS contour is in policy scope and the PR declares `VPS deployment: REQUIRED` with `Production safety envelope: REQUIRED`; this PR performs no deployment itself.
 
 ## User scenarios
 
@@ -44,7 +44,7 @@ Given the live `/etc/mediamtx/mediamtx.yml` carries legacy camera credentials, w
 - FR-004: `camera-source-switch.sh activate` MUST disable `sea-speed-camera1-h264.service` and `sea-speed-camera1-hls-http.service` (when `--retire-external`) BEFORE `install_candidate` restarts MediaMTX.
 - FR-005: `install_candidate` MUST pin the live config to `root:mediamtx` owner/group and `0640` mode before restarting MediaMTX.
 - FR-006: Existing `validate_config_security` (no world-access) MUST remain satisfied by the pinned `0640` mode.
-- FR-007: Runtime impact is CONTROL_PLANE only. VPS deployment MUST remain NOT REQUIRED and Ubuntu Worker/relay update MUST remain NOT REQUIRED.
+- FR-007: The change touches `deploy/vps/**`, so the VPS contour is in policy scope; the PR MUST declare `VPS deployment: REQUIRED` and `Production safety envelope: REQUIRED`. Ubuntu Worker/relay update MUST remain NOT REQUIRED.
 
 ## Acceptance criteria
 
@@ -52,7 +52,7 @@ Given the live `/etc/mediamtx/mediamtx.yml` carries legacy camera credentials, w
 - AC-002: `bash -n deploy/vps/camera-source-switch.sh` passes (no syntax errors).
 - AC-003: `scripts/ci/validate_repo.py` passes on the changed tree.
 - AC-004: `python3 -m unittest tests/test_vps_transcode_to_ubuntu.py` passes (6 tests).
-- AC-005: PR Change Contract declares VPS deployment NOT REQUIRED, Ubuntu worker/relay update NOT REQUIRED, production safety envelope NOT REQUIRED, operator actions expected 0.
+- AC-005: PR Change Contract declares VPS deployment REQUIRED, Ubuntu worker/relay update NOT REQUIRED, production safety envelope REQUIRED, VPS execution capability CONNECTOR, Ubuntu worker execution capability NOT APPLICABLE, operator actions expected 0.
 
 ## Runtime feedback
 
