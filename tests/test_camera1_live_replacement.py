@@ -156,14 +156,15 @@ class Camera1LiveReplacementTests(unittest.TestCase):
 
     def test_vps_relay_must_be_private_and_credential_free(self) -> None:
         mediamtx.validate_private_relay_url("rtsp://10.0.0.8:8554/cam1", "cam1")
+        # Cutover topology: the switched HLS path `cam1` may source a distinct
+        # Worker transcode path `cam1-h264`; relay path need not equal switched path.
+        mediamtx.validate_private_relay_url("rtsp://10.0.0.8:8554/cam1-h264", "cam1")
         with self.assertRaises(mediamtx.ConfigError):
             mediamtx.validate_private_relay_url(
                 "rtsp://" + "u:k" + "@10.0.0.8:8554/cam1", "cam1"
             )
         with self.assertRaises(mediamtx.ConfigError):
             mediamtx.validate_private_relay_url("rtsp://203.0.113.8:8554/cam1", "cam1")
-        with self.assertRaises(mediamtx.ConfigError):
-            mediamtx.validate_private_relay_url("rtsp://10.0.0.8:8554/cam2", "cam1")
 
     def test_vps_renderer_writes_and_verifies_tcp_candidate(self) -> None:
         relay = "rtsp://10.0.0.8:8554/cam1"

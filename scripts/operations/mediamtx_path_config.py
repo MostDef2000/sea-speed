@@ -434,8 +434,12 @@ def validate_private_relay_url(source: str, expected_path: str) -> None:
         raise ConfigError("private relay source must use rtsp with a host")
     if parsed.username is not None or parsed.password is not None:
         raise ConfigError("private relay source must not contain userinfo")
-    if parsed.path.rstrip("/") != "/" + expected_path:
-        raise ConfigError("private relay source path does not match the canonical path")
+    # NOTE: the relay URL path is intentionally NOT required to equal the
+    # switched path. The Camera 1 cutover points the VPS HLS path `cam1` at a
+    # distinct Ubuntu Worker transcode path `cam1-h264`; requiring path equality
+    # would block the correct topology. Safety is provided by the rtsp + RFC1918
+    # literal-IP checks below, and the rendered candidate is reviewed (SHA) before
+    # activation.
     try:
         address = ipaddress.ip_address(host)
     except ValueError as exc:

@@ -41,8 +41,9 @@
 
 ## Validation
 
-- Unit: `camera-source-switch.sh --relay-path cam1-h264` writes correct VPS MediaMTX `cam1` source and
-  validates the private relay URL allows `/cam1-h264`; default `cam1` unchanged.
+- Unit: `camera-source-switch.sh --relay-path cam1 --relay-url rtsp://10.123.239.102:8554/cam1-h264`
+  writes correct VPS MediaMTX `cam1` source (H264 from Worker) and validates the private relay URL
+  (path need not equal switched path); default `cam1` unchanged.
 - Unit: `mediamtx_path_config.py vps-switch` accepts `--relay-path`; `ensure_internal_reader_rule`
   adds `cam1-h264` reader for VPS IP and is idempotent; `vps-set-hls-address` sets global `hlsAddress`.
 - Unit: Ubuntu transcode script builds the correct ffmpeg command (HEVC input, libx264, publish to
@@ -101,7 +102,7 @@
 
 - TX-1 | Stage: ADMISSION | Mutation: NO | Failure disposition: BEST-EFFORT | State after failure: admission unchanged | Retry: NONE | Rollback: NONE | Evidence: Issue #335 IMPLEMENTING; OUTCOME APPROVED six-field Scope; Checkpoint v2 gen 1
 - TX-2 | Stage: PRE-MUTATION | Mutation: NO | Failure disposition: BEST-EFFORT | State after failure: pre-mutation snapshot retained | Retry: NONE | Rollback: NONE | Evidence: snapshot external VPS unit state; record relay path cam1; record MediaMTX cam1 source; freeze rollback plan
-- TX-3 | Stage: MUTATION | Mutation: YES | Failure disposition: CONDITIONAL | State after failure: partial mutation; external units may be disabled | Retry: re-run camera-source-switch with corrected args | Rollback: re-enable external VPS units + revert relay path to cam1 + stop Ubuntu transcode | Evidence: install Ubuntu transcode + reader auth + freshness watchdog; set hlsAddress :18889; disable external VPS units; run camera-source-switch --relay-path cam1-h264 --hls-address :18889 --retire-external
+- TX-3 | Stage: MUTATION | Mutation: YES | Failure disposition: CONDITIONAL | State after failure: partial mutation; external units may be disabled | Retry: re-run camera-source-switch with corrected args | Rollback: re-enable external VPS units + revert relay path to cam1 + stop Ubuntu transcode | Evidence: install Ubuntu transcode + reader auth + freshness watchdog; set hlsAddress :18889; disable external VPS units; run camera-source-switch --relay-path cam1 --relay-url rtsp://10.123.239.102:8554/cam1-h264 --hls-address :18889 --retire-external
 - TX-4 | Stage: VERIFICATION | Mutation: POSSIBLE | Failure disposition: BEST-EFFORT | State after failure: verification evidence incomplete | Retry: re-run acceptance probes | Rollback: if AC-001..AC-006 not met, execute TX-8 | Evidence: AC-001..AC-006 (18889 advances, browser path works, units active/disabled as expected)
 - TX-5 | Stage: STATE-COMMIT | Mutation: YES | Failure disposition: CONDITIONAL | State after failure: merge not completed | Retry: re-merge exact-green-head | Rollback: revert merge via main protection | Evidence: exact-green-head merge; protected VPS + Ubuntu deploy; runtime acceptance
 - TX-6 | Stage: HOUSEKEEPING | Mutation: POSSIBLE | Failure disposition: BEST-EFFORT | State after failure: docs stale | Retry: update docs | Rollback: NONE | Evidence: update docs CAMERA1_DIRECT_H264_CUTOVER.md, SEA_SPEED_AUTH_V1.md to reflect new topology
