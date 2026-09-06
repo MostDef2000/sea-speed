@@ -23,6 +23,7 @@ The fix reuses the existing, unit-tested `set_path_source` helper for the publis
 
 ## Affected contours
 
+- Production impact (policy-derived): VPS — the change touches `deploy/vps/**`, so the VPS contour is in policy scope and the PR declares `Production impact: VPS` with `VPS deployment: REQUIRED` and `Production safety envelope: REQUIRED`.
 - VPS runtime: in policy scope (change touches `deploy/vps/**`); this PR performs no deployment, but the contour is declared REQUIRED per policy.
 - VPS execution capability: CONNECTOR.
 - Operator actions expected: 0.
