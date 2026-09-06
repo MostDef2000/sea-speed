@@ -107,7 +107,7 @@ except Exception:
     raise SystemExit(1)
 if value.scheme.lower() != "rtsp" or value.username is not None or value.password is not None:
     raise SystemExit(1)
-if value.path.rstrip("/") != "/" + sys.argv[2] or address.version != 4 or not any(address in network for network in networks) or not (1 <= port <= 65535):
+if address.version != 4 or not any(address in network for network in networks) or not (1 <= port <= 65535):
     raise SystemExit(1)
 print(host)
 print(port)
@@ -210,7 +210,7 @@ fi
 require_root
 [[ -n "$config" ]] || { echo "ERROR --config is required" >&2; exit 2; }
 [[ -n "$relay_url" ]] || { echo "ERROR --relay-url is required" >&2; exit 2; }
-validate_relay_url >/dev/null || { echo "ERROR relay URL must be credential-free RFC1918 RTSP ending in /cam1" >&2; exit 3; }
+validate_relay_url >/dev/null || { echo "ERROR relay URL must be credential-free RFC1918 RTSP" >&2; exit 3; }
 validate_config_security
 prepare_state
 
