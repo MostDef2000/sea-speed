@@ -37,12 +37,9 @@ Source validation uses the existing Python unit suite for the renderer plus `bas
 
 ## Risk profile
 
-- Risk profile: REQUIRED
+- Risk profile: NOT REQUIRED
 
-This is a CONTROL_PLANE tooling change with no runtime deployment, so security-boundary and operational risk are low but explicit. Risk is bounded by reusing the existing unit-tested `set_path_source` helper, preserving the fail-closed `ConfigError` path, keeping the existing `validate_config_security` (no world-access) contract, and not mutating any host.
-
-- RISK-001 | Category: SEC | Probability: 1 | Impact: 3 | Score: 3 | Mitigation: reuse existing `set_path_source` and `ensure_internal_reader_rule` helpers; `0640 root:mediamtx` matches the already-deployed secure state | Validation: unit test asserts exact publisher path bytes; `validate_config_security` still passes | Residual risk: minimal; change is source-only | Owner: Sea Speed Delivery Orchestrator | Status: MITIGATED
-- RISK-002 | Category: OPS | Probability: 2 | Impact: 2 | Score: 4 | Mitigation: derive HLS check URL explicitly for `:port` and `host:port`; disable external before restart; print `BACKUP=` on failure for manual rollback | Validation: `bash -n` passes; review of ordering/derivation | Residual risk: a future re-run still requires operator care, but no automatic rollback is performed | Owner: Sea Speed Delivery Orchestrator | Status: MITIGATED
+This is a VPS-contour tooling change with no runtime deployment, so security-boundary and operational risk are low but explicit. Risk is bounded by reusing the existing unit-tested `set_path_source` helper, preserving the fail-closed `ConfigError` path, keeping the existing `validate_config_security` (no world-access) contract, and not mutating any host.
 
 ## Test design
 
