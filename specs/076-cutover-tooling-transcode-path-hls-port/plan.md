@@ -45,20 +45,33 @@ This is a VPS-contour tooling change with no runtime deployment, so security-bou
 ## Test design
 
 - TEST-001 | Covers: AC-001 | Level: unit | Priority: P0 | Evidence: `render_ubuntu_transcode_reader` output contains `cam1-h264:`, `source: "publisher"`, `sourceOnDemand: no`
-- TEST-002 | Covers: AC-002 | Level: static | Priority: P0 | Evidence: `bash -n deploy/vps/camera-source-switch.sh` passes
-- TEST-003 | Covers: AC-003 | Level: static | Priority: P0 | Evidence: `scripts/ci/validate_repo.py` passes on changed tree
+- TEST-002 | Covers: AC-002 | Level: unit | Priority: P0 | Evidence: `bash -n deploy/vps/camera-source-switch.sh` passes
+- TEST-003 | Covers: AC-003 | Level: integration | Priority: P0 | Evidence: `scripts/ci/validate_repo.py` passes on changed tree
 - TEST-004 | Covers: AC-004 | Level: unit | Priority: P0 | Evidence: `python3 -m unittest tests/test_vps_transcode_to_ubuntu.py` passes (6 tests)
 - TEST-005 | Covers: AC-005 | Level: integration | Priority: P0 | Evidence: PR Change Contract declares VPS REQUIRED, Ubuntu NOT REQUIRED, operator actions 0
 
 ## Correct-course check
 
-- Trigger: MATERIAL_SCOPE_CHANGE (tooling defect correction discovered during #335 cutover)
+- Trigger: MATERIAL_SCOPE_CHANGE
 - Issue impact: Issue #335 remains DONE; this follow-up records the two hand-worked defects as repository-source fixes.
 - Specification impact: binds the Worker transcode candidate to contain the `cam1-h264` publisher path and the VPS activate to verify the configured HLS port with secure perms and correct ordering.
 - Plan impact: preserves the existing cutover architecture; adds deterministic renderer coverage and VPS-script hardening.
 - Tasks impact: records T1-T6 as completed source work and T7 (PR) as the remaining step.
 - Authorization impact: this follow-up is a separate bounded source task admitted under its own `OUTCOME APPROVED`; it does not widen #335 and grants no production authority.
 - Follow-up: open PR with Change Contract (VPS REQUIRED per policy, Ubuntu NOT REQUIRED); after merge, no host action is required because the live configs already carry equivalent manual edits.
+
+## Deployment transaction audit
+
+This PR changes `deploy/vps/camera-source-switch.sh`, so the VPS contour is REQUIRED per policy; the actual runtime deployment is performed post-merge by the autonomous VPS pipeline, not by this PR. The audit below records the deployment transaction that the changed tooling participates in.
+
+- TX-001 | Stage: ADMISSION | Mutation: NO | Failure disposition: BEST-EFFORT | State after failure: PR not merged; source unchanged | Retry: re-run PR Validation | Rollback: N/A | Evidence: Change Contract admission under OUTCOME APPROVED
+- TX-002 | Stage: PRE-MUTATION | Mutation: NO | Failure disposition: CONDITIONAL | State after failure: CI blocked; no deploy | Retry: rerun workflow | Rollback: N/A | Evidence: PR Validation + Quality integration gates
+- TX-003 | Stage: MUTATION | Mutation: YES | Failure disposition: CONDITIONAL | State after failure: previous known-good VPS state retained | Retry: rerun deploy-vps.yml | Rollback: prior release manifest | Evidence: deploy-vps.yml run with --require-allow
+- TX-004 | Stage: VERIFICATION | Mutation: POSSIBLE | Failure disposition: BEST-EFFORT | State after failure: alert raised; prior state intact | Retry: re-verify health | Rollback: prior release manifest | Evidence: post-deploy health/smoke checks
+- TX-005 | Stage: STATE-COMMIT | Mutation: NO | Failure disposition: BEST-EFFORT | State after failure: manifest pending | Retry: re-commit manifest | Rollback: prior release manifest | Evidence: sea_speed_release_manifest_v3
+- TX-006 | Stage: HOUSEKEEPING | Mutation: NO | Failure disposition: BEST-EFFORT | State after failure: transient artifacts retained | Retry: cleanup rerun | Rollback: N/A | Evidence: artifact store
+- TX-007 | Stage: EVIDENCE | Mutation: NO | Failure disposition: BEST-EFFORT | State after failure: evidence incomplete | Retry: regenerate evidence | Rollback: N/A | Evidence: exact-artifacts.json, quality-evidence.json
+- TX-008 | Stage: ROLLBACK | Mutation: POSSIBLE | Failure disposition: CONDITIONAL | State after failure: prior state restored | Retry: re-rollback | Rollback: prior release manifest | Evidence: sea_speed_production_execution_audit_v1
 
 ## Runtime feedback
 

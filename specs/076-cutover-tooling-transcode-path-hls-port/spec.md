@@ -54,6 +54,11 @@ Given the live `/etc/mediamtx/mediamtx.yml` carries legacy camera credentials, w
 - AC-004: `python3 -m unittest tests/test_vps_transcode_to_ubuntu.py` passes (6 tests).
 - AC-005: PR Change Contract declares VPS deployment REQUIRED, Ubuntu worker/relay update NOT REQUIRED, production safety envelope REQUIRED, VPS execution capability CONNECTOR, Ubuntu worker execution capability NOT APPLICABLE, operator actions expected 0.
 
+## NFR assessment
+
+- NFR-001 | Area: Security | Target: live MediaMTX config retains 0640 root:mediamtx (no world access) | Validation: validate_config_security (no world-access) remains satisfied by the pinned perms | Evidence: unit test asserts the perms pin; validate_repo passes | Status: PASS
+- NFR-002 | Area: Reliability | Target: a future cutover re-run needs no manual config edits | Validation: renderer emits the cam1-h264 publisher path; script derives the configured HLS port and frees :18889 before restart | Evidence: extended unit test; bash -n | Status: PASS
+
 ## Runtime feedback
 
 - During the #335 VPS cutover the operator inserted `cam1-h264: source: publisher` by hand on the Worker because `ubuntu-transcode-reader` omitted the path block.

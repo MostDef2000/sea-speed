@@ -22,7 +22,7 @@
 - AC-002 | Task: T-004,T-005,T-006 | Evidence: `bash -n` passes; review of derivation/ordering/perms | Coverage: COVERED
 - AC-003 | Task: T-008 | Evidence: `scripts/ci/validate_repo.py` passes on changed tree | Coverage: COVERED
 - AC-004 | Task: T-007,T-008 | Evidence: `python3 -m unittest tests/test_vps_transcode_to_ubuntu.py` passes (6 tests) | Coverage: COVERED
-- AC-005 | Task: T-009 | Evidence: PR Change Contract declares VPS REQUIRED, Ubuntu NOT REQUIRED, operator actions 0 | Coverage: PENDING
+- AC-005 | Task: T-009 | Evidence: PR Change Contract declares VPS REQUIRED, Ubuntu NOT REQUIRED, operator actions 0 | Coverage: COVERED
 
 ## Definition of Done
 
@@ -33,8 +33,9 @@
 - [ ] Exact-green-head merge complete — merge PR only after fresh base/head/scope/review gate with expected-head protection.
 - [x] Deployment state resolved — this PR performs no deployment; the VPS contour is declared REQUIRED per policy, and live hosts already carry equivalent manual edits.
 - [x] Runtime acceptance resolved — no runtime acceptance required by this PR; VPS-contour tooling change only.
-- [x] Risks resolved or explicitly accepted — Risk profile REQUIRED; change is source-only and reuses unit-tested helpers.
+- [x] Risks resolved or explicitly accepted — Risk profile NOT REQUIRED; change is source-only and reuses unit-tested helpers.
 - [x] Waivers resolved or current — no waiver is active.
+- [x] Deferred work recorded — no deferred work; all follow-up is the PR merge and the post-merge autonomous VPS deploy.
 
 ## Completion gate
 
