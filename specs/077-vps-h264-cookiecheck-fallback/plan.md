@@ -25,7 +25,9 @@ bash -n on deploy/vps/sea-speed-auth-cutover.sh, scripts/ci/validate_repo.py, sc
 
 ## Risk profile
 
-- Risk profile: NOT REQUIRED - single curl flag, no host mutation, preserves fail-closed behavior, reuses existing verification.
+- Risk profile: NOT REQUIRED
+
+Single curl flag, no host mutation, preserves fail-closed behavior, reuses existing verification.
 
 ## Test design
 
