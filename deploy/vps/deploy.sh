@@ -320,15 +320,45 @@ check_auth_privilege_boundary() {
   rc=$?
   set -e
   printf '%s\n' "$output"
-  [[ "$rc" -eq 0 ]] || {
-    echo "PRIVILEGE_BOUNDARY_BOOTSTRAP_REQUIRED=YES" >&2
-    return "$rc"
-  }
-  grep -Fq 'SEA_SPEED_AUTH_PRIVILEGE_BOUNDARY=PASS' <<<"$output" || return 42
-  grep -Fq "SOURCE_SHA=${COMMIT_SHA}" <<<"$output" || return 42
-  grep -Fq 'ACTION=status' <<<"$output" || return 42
-  grep -Fq 'ARBITRARY_ROOT_EXECUTION=NO' <<<"$output" || return 42
-  log "Restricted Auth privilege boundary preflight passed before live source mutation"
+  if [[ "$rc" -eq 0 ]]; then
+    grep -Fq 'SEA_SPEED_AUTH_PRIVILEGE_BOUNDARY=PASS' <<<"$output" || return 42
+    grep -Fq "SOURCE_SHA=${COMMIT_SHA}" <<<"$output" || return 42
+    grep -Fq 'ACTION=status' <<<"$output" || return 42
+    grep -Fq 'ARBITRARY_ROOT_EXECUTION=NO' <<<"$output" || return 42
+    log "Restricted Auth privilege boundary preflight passed before live source mutation"
+    return 0
+  fi
+
+  # Bounded auto-reconcile: the installed privileged bundle is bound to a
+  # different source SHA than the commit being deployed. Re-cut the bundle for
+  # the deployed commit via the existing reconcile action (which re-renders the
+  # Auth v1 nginx boundary from the exact release and re-binds the bundle to
+  # COMMIT_SHA), then re-verify the same restricted markers. This removes the
+  # recurring manual re-cutover step while preserving the exact-commit binding.
+  if grep -Fq 'PRIVILEGE_BOUNDARY_BOOTSTRAP_REQUIRED=YES' <<<"$output"; then
+    log "Auth privilege bundle SHA mismatch (bootstrap required); performing bounded auto-reconcile for ${COMMIT_SHA}"
+    write_privileged_request reconcile
+    set +e
+    output="$(invoke_privileged_helper 2>&1)"
+    rc=$?
+    set -e
+    printf '%s\n' "$output"
+    if [[ "$rc" -ne 0 ]]; then
+      echo "ERROR bounded Auth privilege auto-reconcile failed for ${COMMIT_SHA}" >&2
+      return "$rc"
+    fi
+    grep -Fq 'SEA_SPEED_AUTH_PRIVILEGE_BOUNDARY=PASS' <<<"$output" || return 44
+    grep -Fq "SOURCE_SHA=${COMMIT_SHA}" <<<"$output" || return 44
+    grep -Fq 'ACTION=reconcile' <<<"$output" || return 44
+    grep -Fq 'ARBITRARY_ROOT_EXECUTION=NO' <<<"$output" || return 44
+    grep -Fq 'SEA_SPEED_AUTH_RECOVERY=PASS' <<<"$output" || return 44
+    grep -Fq 'SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS' <<<"$output" || return 44
+    log "Restricted Auth privilege boundary auto-reconciled for ${COMMIT_SHA} before live source mutation"
+    return 0
+  fi
+
+  echo "ERROR restricted Auth privilege boundary preflight failed" >&2
+  return "$rc"
 }
 
 protected_frontend_status() {
