@@ -235,8 +235,11 @@ public_mode = os.environ.get('FAKE_PUBLIC_MODE', 'healthy')
 recovery_marker = Path(os.environ['FAKE_RECOVERY_MARKER'])
 if action == 'status':
     if mode in {'mismatch', 'reconcile-fail'}:
-        print('ERROR privileged bundle source SHA mismatch')
+        print('ERROR privileged bundle source SHA does not match request')
         print('PRIVILEGE_BOUNDARY_BOOTSTRAP_REQUIRED=YES')
+        raise SystemExit(41)
+    if mode == 'mismatch-plain':
+        print('ERROR privileged bundle source SHA does not match request')
         raise SystemExit(41)
     if mode == 'missing':
         print('ERROR privileged helper status failed')
@@ -397,6 +400,15 @@ if action == 'reconcile':
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assertEqual(self.current(), CANDIDATE)
         self.assertIn("PRIVILEGE_BOUNDARY_BOOTSTRAP_REQUIRED=YES", result.stdout)
+        self.assertIn("SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS", result.stdout)
+        checks = {item["name"]: item["status"] for item in self.manifest()["checks"]}
+        self.assertEqual(checks["auth_v1_road_private_m2m"], "passed")
+
+    def test_privilege_boundary_mismatch_plain_error_also_auto_reconciles(self) -> None:
+        result = self.run_deploy(priv_mode="mismatch-plain")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(self.current(), CANDIDATE)
+        self.assertIn("privileged bundle source SHA does not match request", result.stdout)
         self.assertIn("SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS", result.stdout)
         checks = {item["name"]: item["status"] for item in self.manifest()["checks"]}
         self.assertEqual(checks["auth_v1_road_private_m2m"], "passed")

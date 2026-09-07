@@ -335,7 +335,9 @@ check_auth_privilege_boundary() {
   # Auth v1 nginx boundary from the exact release and re-binds the bundle to
   # COMMIT_SHA), then re-verify the same restricted markers. This removes the
   # recurring manual re-cutover step while preserving the exact-commit binding.
-  if grep -Fq 'PRIVILEGE_BOUNDARY_BOOTSTRAP_REQUIRED=YES' <<<"$output"; then
+  # Real helper prints "privileged bundle source SHA does not match request";
+  # synthetic test/mock token is PRIVILEGE_BOUNDARY_BOOTSTRAP_REQUIRED=YES.
+  if grep -Fq 'privileged bundle source SHA does not match request' <<<"$output" || grep -Fq 'PRIVILEGE_BOUNDARY_BOOTSTRAP_REQUIRED=YES' <<<"$output"; then
     log "Auth privilege bundle SHA mismatch (bootstrap required); performing bounded auto-reconcile for ${COMMIT_SHA}"
     write_privileged_request reconcile
     set +e
