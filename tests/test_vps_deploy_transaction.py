@@ -233,15 +233,23 @@ action = request['action']
 mode = os.environ.get('FAKE_PRIV_MODE', 'success')
 public_mode = os.environ.get('FAKE_PUBLIC_MODE', 'healthy')
 recovery_marker = Path(os.environ['FAKE_RECOVERY_MARKER'])
-if action == 'status' and mode in {'missing', 'mismatch'}:
-    print('ERROR privileged bundle source SHA mismatch')
-    raise SystemExit(42)
+if action == 'status':
+    if mode in {'mismatch', 'reconcile-fail'}:
+        print('ERROR privileged bundle source SHA mismatch')
+        print('PRIVILEGE_BOUNDARY_BOOTSTRAP_REQUIRED=YES')
+        raise SystemExit(41)
+    if mode == 'missing':
+        print('ERROR privileged helper status failed')
+        raise SystemExit(42)
 print('SEA_SPEED_AUTH_PRIVILEGE_BOUNDARY=PASS')
 print('SOURCE_SHA=' + request['source_sha'])
 print('ACTION=' + action)
 print('PRIVILEGED_TOPOLOGY=FIXED')
 print('ARBITRARY_ROOT_EXECUTION=NO')
 if action == 'reconcile':
+    if mode == 'reconcile-fail':
+        print('ERROR bounded Auth privilege auto-reconcile failed')
+        raise SystemExit(36)
     if public_mode == 'broken-500' and not recovery_marker.exists():
         if mode == 'recovery-fail':
             print('SEA_SPEED_AUTH_RECOVERY_ROLLBACK=PASS')
@@ -259,6 +267,7 @@ if action == 'reconcile':
         raise SystemExit(35)
     print('SEA_SPEED_AUTH_CUTOVER=PASS')
     print('WORKER_PRIVATE_ROAD_API_BASE=http://10.123.239.101:18080/api/analytics/road1')
+    print('SEA_SPEED_AUTH_RECOVERY=PASS')
     print('ROLLBACK_CAPABILITY=VERIFIED')
     print('SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS')
 """,
@@ -383,15 +392,34 @@ if action == 'reconcile':
         self.assertIn("non-recoverable HTTP 502", result.stdout)
         self.assertFalse((self.state / "deployment-manifest.json").exists())
 
-    def test_privilege_boundary_mismatch_fails_before_live_source_mutation(self) -> None:
+    def test_privilege_boundary_mismatch_auto_reconciles_before_live_source_mutation(self) -> None:
+        result = self.run_deploy(priv_mode="mismatch")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(self.current(), CANDIDATE)
+        self.assertIn("PRIVILEGE_BOUNDARY_BOOTSTRAP_REQUIRED=YES", result.stdout)
+        self.assertIn("SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS", result.stdout)
+        checks = {item["name"]: item["status"] for item in self.manifest()["checks"]}
+        self.assertEqual(checks["auth_v1_road_private_m2m"], "passed")
+
+    def test_privilege_boundary_mismatch_reconcile_failure_stops_before_live_source_mutation(self) -> None:
         before_api = self.api.read_bytes()
         before_road = self.road.read_bytes()
-        result = self.run_deploy(priv_mode="mismatch")
+        result = self.run_deploy(priv_mode="reconcile-fail")
         self.assertNotEqual(result.returncode, 0, result.stdout)
         self.assertEqual(self.api.read_bytes(), before_api)
         self.assertEqual(self.road.read_bytes(), before_road)
         self.assertEqual(self.current(), OLD)
-        self.assertIn("PRIVILEGE_BOUNDARY_BOOTSTRAP_REQUIRED=YES", result.stdout)
+        self.assertIn("ERROR bounded Auth privilege auto-reconcile failed", result.stdout)
+        self.assertFalse((self.state / "deployment-manifest.json").exists())
+
+    def test_other_priv_status_error_without_bootstrap_aborts_before_live_source_mutation(self) -> None:
+        before_api = self.api.read_bytes()
+        result = self.run_deploy(priv_mode="missing")
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(self.api.read_bytes(), before_api)
+        self.assertEqual(self.current(), OLD)
+        self.assertNotIn("SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS", result.stdout)
+        self.assertNotIn("ERROR bounded Auth privilege auto-reconcile failed", result.stdout)
         self.assertFalse((self.state / "deployment-manifest.json").exists())
 
     def test_missing_helper_fails_before_live_source_mutation(self) -> None:
