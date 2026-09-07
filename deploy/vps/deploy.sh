@@ -339,6 +339,14 @@ check_auth_privilege_boundary() {
   # synthetic test/mock token is PRIVILEGE_BOUNDARY_BOOTSTRAP_REQUIRED=YES.
   if grep -Fq 'privileged bundle source SHA does not match request' <<<"$output" || grep -Fq 'PRIVILEGE_BOUNDARY_BOOTSTRAP_REQUIRED=YES' <<<"$output"; then
     log "Auth privilege bundle SHA mismatch (bootstrap required); performing bounded auto-reconcile for ${COMMIT_SHA}"
+    # The installed helper may be stale (old logic rejects reconcile when bundle is stale).
+    # Refresh it from the exact staged release before invoking reconcile so the new
+    # helper (which tolerates stale bundle for reconcile) is used. Only for the
+    # real production helper path; tests use a temp fake helper and must not be
+    # overwritten.
+    if [[ "$PRIVILEGED_HELPER" == "/usr/local/sbin/sea-speed-auth-privileged-helper" && -f "$TARGET_RELEASE/deploy/vps/sea-speed-auth-privileged-helper.py" ]]; then
+      install -m 0755 -o root -g root "$TARGET_RELEASE/deploy/vps/sea-speed-auth-privileged-helper.py" "$PRIVILEGED_HELPER" 2>/dev/null || log "warning: failed to refresh privileged helper from $TARGET_RELEASE"
+    fi
     write_privileged_request reconcile
     set +e
     output="$(invoke_privileged_helper 2>&1)"
