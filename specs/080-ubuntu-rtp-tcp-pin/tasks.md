@@ -17,7 +17,7 @@
 - AC-001 | Task: T-002 | Evidence: render_ubuntu_relay output contains rtspTransport: tcp | Coverage: COVERED
 - AC-002 | Task: T-003 | Evidence: py_compile / bash -n PASS | Coverage: COVERED
 - AC-003 | Task: T-003 | Evidence: validate_repo and validate_sdd PASS | Coverage: COVERED
-- AC-004 | Task: T-005 | Evidence: journalctl without RTP loss for 10+ min | Coverage: RUNTIME-MANUAL
+- AC-004 | Task: T-005 | Evidence: journalctl without RTP loss for 10+ min | Coverage: RUNTIME-MANUAL | Reason: requires the live physical camera and the deployed Ubuntu relay runtime over ZeroTier; not reproducible in CI without the production RTSP source and relay topology
 - AC-005 | Task: T-004 | Evidence: PR Change Contract declares Ubuntu REQUIRED | Coverage: COVERED
 
 ## Definition of Done
