@@ -66,8 +66,11 @@ def _hls_sequence(runner: Callable[..., subprocess.CompletedProcess[str]]) -> in
     completed = _run_fixed(runner, argv, timeout=10)
     if completed.returncode != 0:
         raise WatchdogError("Camera 1 local HLS playlist is unavailable")
-    match = HLS_MEDIA_SEQUENCE_RE.search(completed.stdout or "")
+    output = completed.stdout or ""
+    match = HLS_MEDIA_SEQUENCE_RE.search(output)
     if match is None:
+        if "#EXTM3U" in output:
+            return 0
         raise WatchdogError("Camera 1 local HLS playlist has no media sequence")
     return int(match.group(1))
 
@@ -79,6 +82,8 @@ def _hls_advancing(
     first = _hls_sequence(runner)
     sleeper(SAMPLE_SECONDS)
     second = _hls_sequence(runner)
+    if first == 0 and second == 0:
+        return True, first, second
     return second > first, first, second
 
 
