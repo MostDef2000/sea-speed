@@ -55,6 +55,7 @@ def _run_fixed(
 def _hls_sequence(runner: Callable[..., subprocess.CompletedProcess[str]]) -> int:
     argv = [
         "curl",
+        "-L",
         "--fail",
         "--silent",
         "--show-error",
