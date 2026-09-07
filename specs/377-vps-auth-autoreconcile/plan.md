@@ -76,7 +76,7 @@
 
 ## Correct-course check
 
-- Trigger: NONE (change is reversible)
+- Trigger: NONE
 - Issue impact: NONE
 - Specification impact: NONE
 - Plan impact: NONE
