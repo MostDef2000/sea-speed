@@ -425,7 +425,7 @@ bootstrap_public_authentik() {
 }
 
 check_h264() {
-  curl --fail --silent --show-error --max-time 8 "$local_h264" | grep -q '^#EXTM3U' || return 1
+  curl -L --fail --silent --show-error --max-time 8 "$local_h264" | grep -q '^#EXTM3U' || return 1
   local codec
   codec="$(timeout 15 ffprobe -v error -select_streams v:0 -show_entries stream=codec_name -of default=nw=1:nk=1 "$local_h264" 2>/dev/null | head -n1)"
   [[ "$codec" == "h264" ]]
