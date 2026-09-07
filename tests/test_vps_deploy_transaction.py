@@ -108,6 +108,7 @@ class VpsDeployTransactionTests(unittest.TestCase):
         self.cameras = self.live / "frontend/sea-speed/cameras/index.html"
         self.road = self.live / "frontend/sea-speed/road/index.html"
         self.live_sync = self.live / "frontend/sea-speed/live-sync.js"
+        self.overlay_canvas = self.live / "frontend/sea-speed/overlay-canvas.js"
         self.root_frontend = self.live / "frontend/root/index.html"
         self.fallback = self.live / "frontend/sea-speed-unavailable.html"
         for sha in (OLD, CANDIDATE, OLDER):
@@ -126,6 +127,7 @@ class VpsDeployTransactionTests(unittest.TestCase):
             "frontend/sea-speed/cameras/index.html": f"cameras {sha}\n",
             "frontend/sea-speed/road/index.html": f"road {sha}\n",
             "frontend/sea-speed/live-sync.js": f"live-sync {sha}\n",
+            "frontend/sea-speed/overlay-canvas.js": f"overlay-canvas {sha}\n",
             "frontend/root/index.html": f"root {sha}\n",
             "frontend/sea-speed/unavailable.html": f"fallback {sha}\n",
             "deploy/vps/sea-speed-auth-cutover.sh": "#!/usr/bin/env bash\nexit 0\n",
@@ -153,6 +155,7 @@ class VpsDeployTransactionTests(unittest.TestCase):
             self.cameras: release / "frontend/sea-speed/cameras/index.html",
             self.road: release / "frontend/sea-speed/road/index.html",
             self.live_sync: release / "frontend/sea-speed/live-sync.js",
+            self.overlay_canvas: release / "frontend/sea-speed/overlay-canvas.js",
             self.root_frontend: release / "frontend/root/index.html",
             self.fallback: release / "frontend/sea-speed/unavailable.html",
         }
@@ -280,6 +283,7 @@ if action == 'reconcile':
                 "SEA_SPEED_CAMERAS_FRONTEND_TARGET": str(self.cameras),
                 "SEA_SPEED_ROAD_FRONTEND_TARGET": str(self.road),
                 "SEA_SPEED_LIVE_SYNC_TARGET": str(self.live_sync),
+                "SEA_SPEED_OVERLAY_CANVAS_TARGET": str(self.overlay_canvas),
                 "SEA_SPEED_ROOT_FRONTEND_TARGET": str(self.root_frontend),
                 "SEA_SPEED_FALLBACK_FRONTEND_TARGET": str(self.fallback),
                 "SEA_SPEED_SYSTEMCTL_BIN": str(self.systemctl),
