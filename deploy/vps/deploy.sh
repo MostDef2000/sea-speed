@@ -15,6 +15,7 @@ OBJECTS_FRONTEND_TARGET="${SEA_SPEED_OBJECTS_FRONTEND_TARGET:-/var/www/mostdef.r
 CAMERAS_FRONTEND_TARGET="${SEA_SPEED_CAMERAS_FRONTEND_TARGET:-/var/www/mostdef.ru/sea-speed/cameras/index.html}"
 ROAD_FRONTEND_TARGET="${SEA_SPEED_ROAD_FRONTEND_TARGET:-/var/www/mostdef.ru/sea-speed/road/index.html}"
 LIVE_SYNC_TARGET="${SEA_SPEED_LIVE_SYNC_TARGET:-/var/www/mostdef.ru/sea-speed/live-sync.js}"
+OVERLAY_CANVAS_TARGET="${SEA_SPEED_OVERLAY_CANVAS_TARGET:-/var/www/mostdef.ru/sea-speed/overlay-canvas.js}"
 ROOT_FRONTEND_TARGET="${SEA_SPEED_ROOT_FRONTEND_TARGET:-/var/www/mostdef.ru/index.html}"
 FALLBACK_FRONTEND_TARGET="${SEA_SPEED_FALLBACK_FRONTEND_TARGET:-/var/www/mostdef.ru/sea-speed-unavailable.html}"
 SERVICE_NAME="sea-speed-api"
@@ -200,6 +201,7 @@ release_complete() {
      -f "$root/frontend/sea-speed/cameras/index.html" && \
      -f "$root/frontend/sea-speed/road/index.html" && \
      -f "$root/frontend/sea-speed/live-sync.js" && \
+     -f "$root/frontend/sea-speed/overlay-canvas.js" && \
      -f "$root/frontend/root/index.html" && \
      -f "$root/frontend/sea-speed/unavailable.html" && \
      -f "$root/deploy/vps/sea-speed-auth-cutover.sh" && \
@@ -235,6 +237,7 @@ download_release() {
     frontend/sea-speed/cameras/index.html \
     frontend/sea-speed/road/index.html \
     frontend/sea-speed/live-sync.js \
+    frontend/sea-speed/overlay-canvas.js \
     frontend/root/index.html \
     frontend/sea-speed/unavailable.html \
     deploy/vps/sea-speed-auth-cutover.sh \
@@ -260,6 +263,7 @@ download_release() {
   install -m 0644 "$extracted/frontend/sea-speed/cameras/index.html" "$TARGET_RELEASE/frontend/sea-speed/cameras/index.html"
   install -m 0644 "$extracted/frontend/sea-speed/road/index.html" "$TARGET_RELEASE/frontend/sea-speed/road/index.html"
   install -m 0644 "$extracted/frontend/sea-speed/live-sync.js" "$TARGET_RELEASE/frontend/sea-speed/live-sync.js"
+  install -m 0644 "$extracted/frontend/sea-speed/overlay-canvas.js" "$TARGET_RELEASE/frontend/sea-speed/overlay-canvas.js"
   install -m 0644 "$extracted/frontend/root/index.html" "$TARGET_RELEASE/frontend/root/index.html"
   install -m 0644 "$extracted/frontend/sea-speed/unavailable.html" "$TARGET_RELEASE/frontend/sea-speed/unavailable.html"
   install -m 0755 "$extracted/deploy/vps/sea-speed-auth-cutover.sh" "$TARGET_RELEASE/deploy/vps/sea-speed-auth-cutover.sh"
@@ -544,6 +548,7 @@ install_release() {
   [[ -f "$release_dir/frontend/sea-speed/cameras/index.html" || -f "$release_dir/frontend/sea-speed/cameras/.absent" ]] || { echo "Release ${release_name} has no cameras frontend state" >&2; return 1; }
   [[ -f "$release_dir/frontend/sea-speed/road/index.html" || -f "$release_dir/frontend/sea-speed/road/.absent" ]] || { echo "Release ${release_name} has no road frontend state" >&2; return 1; }
   [[ -f "$release_dir/frontend/sea-speed/live-sync.js" || -f "$release_dir/frontend/sea-speed/live-sync.js.absent" ]] || { echo "Release ${release_name} has no live-sync module state" >&2; return 1; }
+  [[ -f "$release_dir/frontend/sea-speed/overlay-canvas.js" || -f "$release_dir/frontend/sea-speed/overlay-canvas.js.absent" ]] || { echo "Release ${release_name} has no overlay-canvas module state" >&2; return 1; }
   [[ -f "$release_dir/frontend/root/index.html" ]] || { echo "Release ${release_name} has no root frontend file" >&2; return 1; }
   [[ -f "$release_dir/frontend/sea-speed/unavailable.html" || -f "$release_dir/frontend/sea-speed/unavailable.html.absent" ]] || { echo "Release ${release_name} has no fallback frontend state" >&2; return 1; }
 
@@ -561,6 +566,9 @@ install_release() {
   fi
   if [[ -f "$release_dir/frontend/sea-speed/live-sync.js" ]]; then
     install -m 0644 "$release_dir/frontend/sea-speed/live-sync.js" "${LIVE_SYNC_TARGET}.next"
+  fi
+  if [[ -f "$release_dir/frontend/sea-speed/overlay-canvas.js" ]]; then
+    install -m 0644 "$release_dir/frontend/sea-speed/overlay-canvas.js" "${OVERLAY_CANVAS_TARGET}.next"
   fi
   if [[ -f "$release_dir/frontend/sea-speed/unavailable.html" ]]; then
     install -m 0644 "$release_dir/frontend/sea-speed/unavailable.html" "${FALLBACK_FRONTEND_TARGET}.next"
@@ -588,6 +596,11 @@ install_release() {
     mv -f "${LIVE_SYNC_TARGET}.next" "$LIVE_SYNC_TARGET"
   else
     rm -f "$LIVE_SYNC_TARGET" "${LIVE_SYNC_TARGET}.next"
+  fi
+  if [[ -f "$release_dir/frontend/sea-speed/overlay-canvas.js" ]]; then
+    mv -f "${OVERLAY_CANVAS_TARGET}.next" "$OVERLAY_CANVAS_TARGET"
+  else
+    rm -f "$OVERLAY_CANVAS_TARGET" "${OVERLAY_CANVAS_TARGET}.next"
   fi
   if [[ -f "$release_dir/frontend/sea-speed/unavailable.html" ]]; then
     mv -f "${FALLBACK_FRONTEND_TARGET}.next" "$FALLBACK_FRONTEND_TARGET"
