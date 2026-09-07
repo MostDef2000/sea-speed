@@ -152,6 +152,7 @@ def validate_bundle(
     release: Path,
     *,
     required_uid: int,
+    require_source_match: bool = True,
 ) -> Path:
     manifest_path = paths.bundle_root / "manifest.json"
     require_regular_secure(manifest_path, required_uid)
@@ -161,7 +162,7 @@ def validate_bundle(
         raise BoundaryError("unexpected privileged bundle schema")
     if set(manifest) != {"schema", "source_sha", "helper_sha256", "assets"}:
         raise BoundaryError("privileged bundle manifest contains unexpected fields")
-    if manifest.get("source_sha") != source_sha:
+    if require_source_match and manifest.get("source_sha") != source_sha:
         raise BoundaryError("privileged bundle source SHA does not match request")
     helper_sha = manifest.get("helper_sha256")
     if not isinstance(helper_sha, str) or not SHA256_RE.fullmatch(helper_sha):
@@ -513,7 +514,13 @@ def execute_request(
     runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
 ) -> list[str]:
     action, source_sha, release = validate_request(paths)
-    repo_root = validate_bundle(paths, source_sha, release, required_uid=required_uid)
+    # For reconcile, allow a stale bundle (manifest source_sha != request source_sha)
+    # so bounded auto-reconcile can re-cut the bundle from the exact release.
+    # The cutover itself will re-bind the bundle to source_sha.
+    require_source_match = action != "reconcile"
+    repo_root = validate_bundle(
+        paths, source_sha, release, required_uid=required_uid, require_source_match=require_source_match
+    )
     lines = [
         "SEA_SPEED_AUTH_PRIVILEGE_BOUNDARY=PASS",
         f"SOURCE_SHA={source_sha}",
