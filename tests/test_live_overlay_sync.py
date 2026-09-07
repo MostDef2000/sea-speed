@@ -1,7 +1,11 @@
 """065 AC-001: unified live-sync module contract for Road and Water.
 
 Marker-based duplication checks plus real execution of live-sync.js
-through Node.js when available.
+through Node.js when available. The live-overlay contour rendering that
+previously lived as duplicated inline IIFEs in index.html and road/index.html
+now lives in overlay-canvas.js, which delegates the sync math to live-sync.js
+(SeaSpeedLiveSync). These tests verify the module boundary instead of the
+duplicated page source.
 """
 
 from __future__ import annotations
@@ -14,6 +18,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 FRONTEND = ROOT / "frontend" / "sea-speed"
 LIVE_SYNC = FRONTEND / "live-sync.js"
+OVERLAY_MODULE = FRONTEND / "overlay-canvas.js"
 WATER_HTML = FRONTEND / "index.html"
 ROAD_HTML = FRONTEND / "road" / "index.html"
 
@@ -32,35 +37,33 @@ class LiveSyncModuleTests(unittest.TestCase):
         ):
             self.assertIn(marker, source)
 
-    def test_both_pages_include_live_sync_before_main_script(self) -> None:
-        # Road is served from /sea-speed/road/, so it must reference the
-        # module by absolute path; Water is served from /sea-speed/ where
-        # the relative path resolves to the published module.
+    def test_both_pages_include_overlay_and_live_sync_modules(self) -> None:
         expected = {
-            WATER_HTML: '<script src="./live-sync.js"></script>',
-            ROAD_HTML: '<script src="/sea-speed/live-sync.js"></script>',
+            WATER_HTML: ('<script src="./live-sync.js"></script>', '<script src="/sea-speed/overlay-canvas.js"></script>'),
+            ROAD_HTML: ('<script src="/sea-speed/live-sync.js"></script>', '<script src="/sea-speed/overlay-canvas.js"></script>'),
         }
-        for html, include in expected.items():
+        for html, (live_sync_include, overlay_include) in expected.items():
             source = html.read_text(encoding="utf-8")
-            include_at = source.find(include)
-            self.assertGreaterEqual(include_at, 0, f"{html.name} missing include {include}")
-            main_open = source.find("<script>", include_at)
-            self.assertGreater(main_open, include_at, f"{html.name} include after main script")
+            self.assertIn(live_sync_include, source, f"{html.name} missing live-sync include")
+            self.assertIn(overlay_include, source, f"{html.name} missing overlay-canvas include")
 
     def test_pages_delegate_instead_of_duplicating_sync_math(self) -> None:
+        module = OVERLAY_MODULE.read_text(encoding="utf-8")
+        self.assertIn("SeaSpeedLiveSync.bracketForMedia(mediaMs, {", module)
+        self.assertIn("SeaSpeedLiveSync.closestEarlierEnvelope(compMs, {", module)
+        self.assertIn("SeaSpeedLiveSync.clampLag(SeaSpeedLiveSync.median(lagSamples))", module)
+        # Local duplicated implementations must be gone from both pages.
         for html in (WATER_HTML, ROAD_HTML):
             source = html.read_text(encoding="utf-8")
-            self.assertIn("SeaSpeedLiveSync.bracketForMedia(mediaMs,{", source)
-            self.assertIn("SeaSpeedLiveSync.closestEarlierEnvelope(compMs,{", source)
-            self.assertIn("SeaSpeedLiveSync.clampLag(SeaSpeedLiveSync.median(lagSamples))", source)
-            # Local duplicated implementations must be gone.
             self.assertNotIn("function bracketForMedia(mediaMs){ if(", source)
             self.assertNotIn("Math.min(600,m)", source)
+            self.assertNotIn("window.clearWaterLiveOverlay", source)
+            self.assertNotIn("window.clearRoadLiveOverlay", source)
 
     def test_road_uses_closest_earlier_fallback(self) -> None:
-        source = ROAD_HTML.read_text(encoding="utf-8")
-        self.assertIn("closestEarlierEnvelope(mediaMs)", source)
-        self.assertIn("mediaMs-2000", source)
+        module = OVERLAY_MODULE.read_text(encoding="utf-8")
+        self.assertIn("closestEarlierEnvelope(mediaMs)", module)
+        self.assertIn("LIVE_NEAR_MAX_AGE_MS", module)
 
 
 @unittest.skipIf(NODE is None, "node not available")

@@ -7,6 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 FRONTEND_SOURCE = ROOT / "frontend/sea-speed" / "index.html"
 LIVE_SYNC_SOURCE = ROOT / "frontend/sea-speed" / "live-sync.js"
+OVERLAY_MODULE = ROOT / "frontend/sea-speed" / "overlay-canvas.js"
 
 
 def closest_earlier_envelope(buffer, comp_ms):
@@ -131,20 +132,22 @@ class WaterOverlaySyncTest(unittest.TestCase):
     def test_frontend_source_contains_relative_sync_markers(self):
         source = FRONTEND_SOURCE.read_text(encoding="utf-8")
         live_sync = LIVE_SYNC_SOURCE.read_text(encoding="utf-8")
+        overlay = OVERLAY_MODULE.read_text(encoding="utf-8")
         for marker in (
             "function ssWaterPlaybackLatencyMs()",
             "function ssWaterTargetCaptureMs(opts)",
             "return Math.max(...captures) - latencyMs;",
-            "latest.camera_id === \"cam1\"",
+            'latest.camera_id === "cam1"',
             "ssInstallWaterMediaTimeProbe();",
         ):
             self.assertIn(marker, live_sync)
-        self.assertIn("const LIVE_NEAR_MAX_AGE_MS=2000;", source)
-        self.assertIn("const br=bracketForMedia(raw);", source)
+        self.assertIn("var LIVE_NEAR_MAX_AGE_MS = 2000;", overlay)
+        self.assertIn("var br = bracketForMedia(raw);", overlay)
+        self.assertNotIn("drawLive(liveBuffer[liveBuffer.length-1])", overlay)
         self.assertNotIn("drawLive(liveBuffer[liveBuffer.length-1])", source)
         self.assertNotIn(
             "Math.abs(raw-(liveBuffer.length?Math.max(...liveBuffer.map(e=>getCaptureMs(e)||0)):0))>6000",
-            source,
+            overlay,
         )
 
 

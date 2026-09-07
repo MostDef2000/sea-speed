@@ -10,6 +10,7 @@ OBJECTS_SOURCE = ROOT / "frontend/sea-speed/objects/index.html"
 CAMERAS_SOURCE = ROOT / "frontend/sea-speed/cameras/index.html"
 ROAD_SOURCE = ROOT / "frontend/sea-speed/road/index.html"
 ROOT_SOURCE = ROOT / "frontend/root/index.html"
+OVERLAY_MODULE = ROOT / "frontend/sea-speed/overlay-canvas.js"
 
 
 class FrontendContractTests(unittest.TestCase):
@@ -124,9 +125,9 @@ class FrontendContractTests(unittest.TestCase):
 
     def test_water_worker_lifecycle_only_controls_ai_overlay(self) -> None:
         self.assertIn('AI worker stopped; live HLS unchanged', self.source)
-        self.assertIn('if(!workerServiceActive)window.clearWaterLiveOverlay?.()', self.source)
-        self.assertIn('window.clearWaterLiveOverlay=()=>{', self.source)
-        self.assertIn('if(workerServiceActive===false){clearLive();return}', self.source)
+        self.assertIn('overlay.setWorkerActive(!!d.active)', self.source)
+        self.assertIn('SeaSpeedOverlayCanvas.init({cameraId:"cam1"', self.source)
+        self.assertNotIn('window.clearWaterLiveOverlay', self.source)
         self.assertNotRegex(self.source, r'toggleWorker\([^)]*\).*connectStream')
         self.assertNotRegex(self.source, r'toggleWorker\([^)]*\).*disconnectStream')
 
@@ -207,8 +208,9 @@ class FrontendContractTests(unittest.TestCase):
         self.assertIn('d.target!=="road1"', self.road)
         self.assertIn('Остановить только Road AI worker; live HLS продолжит работать', self.road)
         self.assertIn('Road AI worker stopped; live HLS unchanged', self.road)
-        self.assertIn('window.clearRoadLiveOverlay=()=>{', self.road)
-        self.assertIn('if(workerServiceActive===false){clearLive();return}', self.road)
+        self.assertIn('overlay.setWorkerActive(!!d.active)', self.road)
+        self.assertIn('SeaSpeedOverlayCanvas.init({cameraId:"road1"', self.road)
+        self.assertNotIn('window.clearRoadLiveOverlay', self.road)
         self.assertNotIn('/sea-speed/api/worker/control/start"', self.road)
         self.assertNotIn('/sea-speed/api/worker/control/stop"', self.road)
         self.assertNotRegex(self.road, r'toggleWorker\([^)]*\).*connectStream')
@@ -255,24 +257,40 @@ class FrontendContractTests(unittest.TestCase):
             self.assertIn(marker, self.objects)
 
     def test_water_hls_recovery_and_live_sync_markers_remain(self) -> None:
+        module = OVERLAY_MODULE.read_text(encoding="utf-8-sig")
         for marker in (
             'const STREAM_RETRY_DELAYS_MS=[1000,2000,4000,8000]', 'Hls.ErrorTypes.NETWORK_ERROR',
             'Hls.ErrorTypes.MEDIA_ERROR', 'function schedulePlaybackWatchdog', 'function disconnectStream(',
-            'SeaSpeedLiveSync.bracketForMedia(mediaMs,{',
-            'SeaSpeedLiveSync.closestEarlierEnvelope(compMs,{',
-            'SeaSpeedLiveSync.clampLag(SeaSpeedLiveSync.median(lagSamples))',
             '<script src="./live-sync.js"></script>',
         ):
             self.assertIn(marker, self.source)
+        for marker in (
+            'SeaSpeedLiveSync.bracketForMedia(mediaMs, {',
+            'SeaSpeedLiveSync.closestEarlierEnvelope(compMs, {',
+            'SeaSpeedLiveSync.clampLag(SeaSpeedLiveSync.median(lagSamples))',
+        ):
+            self.assertIn(marker, module)
 
     def test_road_live_sync_markers_remain(self) -> None:
+        module = OVERLAY_MODULE.read_text(encoding="utf-8-sig")
+        self.assertIn('<script src="/sea-speed/live-sync.js"></script>', self.road)
         for marker in (
-            'SeaSpeedLiveSync.bracketForMedia(mediaMs,{',
-            'SeaSpeedLiveSync.closestEarlierEnvelope(compMs,{',
+            'SeaSpeedLiveSync.bracketForMedia(mediaMs, {',
+            'SeaSpeedLiveSync.closestEarlierEnvelope(compMs, {',
             'SeaSpeedLiveSync.clampLag(SeaSpeedLiveSync.median(lagSamples))',
-            '<script src="/sea-speed/live-sync.js"></script>',
         ):
-            self.assertIn(marker, self.road)
+            self.assertIn(marker, module)
+
+    def test_live_overlay_unified_module(self) -> None:
+        module = OVERLAY_MODULE.read_text(encoding="utf-8-sig")
+        self.assertIn('SeaSpeedOverlayCanvas = { init:', module)
+        self.assertIn('(r.height-ch)/2', module)
+        self.assertNotIn('(r.height-ch)/h', module)
+        self.assertIn('workerServiceActive === false', module)
+        self.assertIn('raw == null', module)
+        self.assertIn('drawLive(latest)', module)
+        self.assertIn('<script src="/sea-speed/overlay-canvas.js"></script>', self.source)
+        self.assertIn('<script src="/sea-speed/overlay-canvas.js"></script>', self.road)
 
     def test_all_pages_keep_mobile_baseline(self) -> None:
         for page in (self.objects, self.cameras, self.road):
