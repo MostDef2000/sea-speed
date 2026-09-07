@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# RTSP source transport pinned to tcp for camera→Ubuntu relay (Issue #362: RTP loss)
 set -euo pipefail
 
 usage() {
