@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# RTSP source transport pinned to tcp for camera→Ubuntu relay (Issue #362: RTP loss)
 set -euo pipefail
 
 usage() {
@@ -186,6 +187,8 @@ if [[ "$command" == "prepare" ]]; then
   [[ -f "$source_env_file" && ! -L "$source_env_file" ]] || { echo "ERROR protected source env file is unavailable" >&2; exit 6; }
   [[ "$(stat -c '%a' "$source_env_file")" == "600" ]] || { echo "ERROR protected source env file mode must be 600" >&2; exit 6; }
 
+  # The renderer pins the cam1 RTSP source to rtsp_transport="tcp" (Issue #362)
+  # to eliminate RTP packet loss / invalid fragmentation unit on the camera->Ubuntu relay.
   python3 "$renderer" ubuntu-relay \
     --config "$config" \
     --source-env-file "$source_env_file" \

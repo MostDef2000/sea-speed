@@ -517,7 +517,7 @@ def render_ubuntu_relay(args: argparse.Namespace) -> str:
         ("srt", "no", False),
     ):
         text = set_top_level_scalar(text, key, value, quote=quote)
-    text = set_path_source(text, args.path, source, source_on_demand=True)
+    text = set_path_source(text, args.path, source, source_on_demand=True, rtsp_transport="tcp")
     text = ensure_internal_reader_rule(text, args.path, args.reader_ip)
     digest = write_candidate(args.output, text)
     print(
