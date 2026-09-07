@@ -210,6 +210,7 @@ def _camera1_hls_sequence(
 ) -> int:
     argv = [
         "curl",
+        "-L",
         "--fail",
         "--silent",
         "--show-error",
