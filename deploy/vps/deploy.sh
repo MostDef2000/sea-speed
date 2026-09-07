@@ -345,7 +345,11 @@ check_auth_privilege_boundary() {
     # real production helper path; tests use a temp fake helper and must not be
     # overwritten.
     if [[ "$PRIVILEGED_HELPER" == "/usr/local/sbin/sea-speed-auth-privileged-helper" && -f "$TARGET_RELEASE/deploy/vps/sea-speed-auth-privileged-helper.py" ]]; then
-      install -m 0755 -o root -g root "$TARGET_RELEASE/deploy/vps/sea-speed-auth-privileged-helper.py" "$PRIVILEGED_HELPER" 2>/dev/null || log "warning: failed to refresh privileged helper from $TARGET_RELEASE"
+      if [[ "$EUID" -eq 0 ]]; then
+        install -m 0755 -o root -g root "$TARGET_RELEASE/deploy/vps/sea-speed-auth-privileged-helper.py" "$PRIVILEGED_HELPER" 2>/dev/null || log "warning: failed to refresh privileged helper from $TARGET_RELEASE"
+      else
+        sudo -n install -m 0755 -o root -g root "$TARGET_RELEASE/deploy/vps/sea-speed-auth-privileged-helper.py" "$PRIVILEGED_HELPER" 2>/dev/null || log "warning: failed to refresh privileged helper from $TARGET_RELEASE (sudo)"
+      fi
     fi
     write_privileged_request reconcile
     set +e
