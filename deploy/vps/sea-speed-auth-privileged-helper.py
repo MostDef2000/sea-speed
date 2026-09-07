@@ -224,6 +224,8 @@ def _camera1_hls_sequence(
     output = completed.stdout or ""
     match = HLS_MEDIA_SEQUENCE_RE.search(output)
     if match is None:
+        if "#EXTM3U" in output:
+            return 0
         raise BoundaryError("Camera 1 local HLS playlist has no media sequence")
     return int(match.group(1))
 
@@ -236,6 +238,8 @@ def _camera1_hls_advancing(
     if slept.returncode != 0:
         raise BoundaryError("Camera 1 freshness sampling delay failed")
     second = _camera1_hls_sequence(runner)
+    if first == 0 and second == 0:
+        return True
     return second > first
 
 
