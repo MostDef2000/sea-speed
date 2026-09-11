@@ -271,5 +271,65 @@ class Camera1LiveReplacementTests(unittest.TestCase):
         self.assertNotIn("runtime remains `UNKNOWN`", source)
 
 
+class WaterRtspTransportTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.transcode_text = (ROOT / "deploy/worker/ubuntu/camera1-h264-transcode.sh").read_text(encoding="utf-8")
+        cls.entrypoint_text = (ROOT / "worker/ubuntu_worker_entrypoint.py").read_text(encoding="utf-8")
+
+    def test_transcode_run_hides_credentials_and_configures_transport(self) -> None:
+        subprocess.run(["bash", "-n", str(ROOT / "deploy/worker/ubuntu/camera1-h264-transcode.sh")], check=True)
+        self.assertIn("CAMERA1_RTSP_TRANSPORT", self.transcode_text)
+        self.assertIn("option rtsp_transport", self.transcode_text)
+        self.assertIn("-f concat -safe 0", self.transcode_text)
+        self.assertIn("rm -f /tmp/camera1-h264-input.ffconcat.", self.transcode_text)
+        self.assertIn("chmod 0600", self.transcode_text)
+        self.assertNotIn('-i "$HLS_URL"', self.transcode_text)
+
+    def test_entrypoint_transport_knob_and_ffconcat_contract(self) -> None:
+        self.assertIn("CAMERA1_RTSP_TRANSPORT", self.entrypoint_text)
+        self.assertIn('os.environ.get("CAMERA1_RTSP_TRANSPORT", "udp")', self.entrypoint_text)
+        self.assertIn("ffconcat version 1.0", self.entrypoint_text)
+        self.assertIn("option rtsp_transport", self.entrypoint_text)
+        self.assertIn('"-f", "concat"', self.entrypoint_text)
+        self.assertIn("O_NOFOLLOW", self.entrypoint_text)
+        self.assertNotIn("print(input_url)", self.entrypoint_text)
+
+    def test_entrypoint_transport_helpers_behavior(self) -> None:
+        import unittest.mock as mock
+
+        for name in ("numpy", "cv2", "ultralytics", "av", "requests"):
+            if name not in sys.modules:
+                sys.modules[name] = mock.MagicMock()
+        worker_dir = str(ROOT / "worker")
+        if worker_dir not in sys.path:
+            sys.path.insert(0, worker_dir)
+        import ubuntu_worker_entrypoint as entry
+
+        relay = "rtsp://10.0.0.8:8554/cam1"
+        cred = "rtsp://camera_user:camera_key@192.168.88.20:554/Streaming/Channels/101"
+        with mock.patch.dict(os.environ, {"CAMERA1_RTSP_TRANSPORT": "udp"}):
+            self.assertEqual(entry._camera1_rtsp_transport(relay), "tcp")
+            self.assertEqual(entry._camera1_rtsp_transport(cred), "udp")
+        with mock.patch.dict(os.environ, {"CAMERA1_RTSP_TRANSPORT": "tcp"}):
+            self.assertEqual(entry._camera1_rtsp_transport(cred), "tcp")
+        with mock.patch.dict(os.environ, {"CAMERA1_RTSP_TRANSPORT": "bogus"}):
+            with self.assertRaises(RuntimeError):
+                entry._camera1_rtsp_transport(cred)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.dict(os.environ, {"ANALYTICS_PROFILE": "water-v1"}), mock.patch.object(tempfile, "gettempdir", return_value=tmp):
+                path = entry._write_rtsp_ffconcat_input(cred, "udp")
+            self.assertTrue(str(path).startswith(tmp))
+            self.assertEqual(os.stat(path).st_mode & 0o777, 0o600)
+            self.assertNotIn("camera_key", path)
+            content = Path(path).read_text(encoding="utf-8")
+            self.assertIn("ffconcat version 1.0", content)
+            self.assertIn("option rtsp_transport udp", content)
+            self.assertIn(f"file '{cred}'", content)
+            with self.assertRaises(RuntimeError):
+                entry._write_rtsp_ffconcat_input("rtsp://u:se'cret@h/x", "udp")
+
+
 if __name__ == "__main__":
     unittest.main()

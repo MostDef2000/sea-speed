@@ -11,7 +11,9 @@ Usage:
 
 Offloads the Camera 1 HEVC->H264 transcode from the VPS to the Ubuntu Worker. The
 Ubuntu transcode reads the camera directly (HLS_URL, credential-bearing, never
-printed) and publishes H264 RTSP to the Ubuntu MediaMTX path cam1-h264. The VPS
+printed; camera-pull transport via CAMERA1_RTSP_TRANSPORT, default udp; the URL
+reaches ffmpeg through a 0600 ffconcat file in PrivateTmp, never argv) and
+publishes H264 RTSP to the Ubuntu MediaMTX path cam1-h264. The VPS
 reads rtsp://<ubuntu-ip>:8554/cam1-h264. A least-privilege reader+publish rule
 scoped to cam1-h264 (VPS reader IP + Ubuntu publisher IP) is added to the Ubuntu
 MediaMTX config.
@@ -170,9 +172,27 @@ if [[ "$command" == "run" ]]; then
   [[ -n "$publish_address" ]] || { echo "ERROR --publish-address is required for run" >&2; exit 2; }
   [[ -f "$source_env_file" && ! -L "$source_env_file" ]] || { echo "ERROR protected source env file unavailable" >&2; exit 6; }
   camera_source="$(read_camera_source)" || { echo "ERROR $camera_source" >&2; exit 6; }
+  transport="${CAMERA1_RTSP_TRANSPORT:-udp}"
+  case "$transport" in
+    udp|tcp|automatic) ;;
+    *) echo "ERROR CAMERA1_RTSP_TRANSPORT must be one of: udp, tcp, automatic" >&2; exit 6 ;;
+  esac
+  case "$camera_source" in
+    *"'"*) echo "ERROR HLS_URL must not contain single quotes" >&2; exit 6 ;;
+  esac
   export HLS_URL="$camera_source"
+  rm -f /tmp/camera1-h264-input.ffconcat.* 2>/dev/null || true
+  ffconcat_input="$(mktemp /tmp/camera1-h264-input.ffconcat.XXXXXX)"
+  {
+    printf 'ffconcat version 1.0\n'
+    printf 'option rtsp_transport %s\n' "$transport"
+    printf "file '%s'\n" "$camera_source"
+  } > "$ffconcat_input"
+  chmod 0600 "$ffconcat_input"
+  printf 'CAMERA1_RTSP_TRANSPORT=%s\n' "$transport"
+  printf 'CAMERA1_CREDENTIALS_IN_ARGV=NO\n'
   exec ffmpeg -nostdin -hide_banner -loglevel warning \
-    -rtsp_transport tcp -i "$HLS_URL" \
+    -f concat -safe 0 -i "$ffconcat_input" \
     -an -vf fps=15,scale=-2:720 -c:v libx264 -preset veryfast -tune zerolatency \
     -f rtsp "rtsp://${publish_address}:8554/cam1-h264"
 fi

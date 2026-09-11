@@ -4,6 +4,8 @@
 The production entry point accepts no arguments and no environment overrides. It
 observes only the fixed local MediaMTX path cam1-h264 via the MediaMTX REST API
 and may restart only the fixed local Camera 1 H264 transcode producer service.
+The source probe targets the same fixed product path cam1-h264; the legacy cam1
+relay leg is not consulted.
 """
 from __future__ import annotations
 
@@ -19,7 +21,7 @@ from pathlib import Path
 from typing import Callable
 
 CAMERA1_H264_PATH = "cam1-h264"
-CAMERA1_H264_SOURCE = "rtsp://10.123.239.102:8554/cam1"
+CAMERA1_H264_SOURCE = "rtsp://10.123.239.102:8554/cam1-h264"
 MEDIAMTX_API = "http://127.0.0.1:9997"
 CAMERA1_H264_SERVICE = "sea-speed-camera1-h264.service"
 STATE_ROOT = Path("/var/lib/sea-speed-camera1-h264-freshness")
