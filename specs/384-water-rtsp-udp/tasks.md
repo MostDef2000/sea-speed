@@ -22,7 +22,7 @@
 
 - AC-001 | Task: T-384-002, T-384-003, T-384-009, T-384-010, T-384-011 | Evidence: deploy evidence (deployment-manifest, execution-audit v1) + Worker journal | Coverage: RUNTIME-MANUAL | Reason: requires the exact deployed release on the physical Worker and live camera UDP pull; not reproducible in CI
 - AC-002 | Task: T-384-010, T-384-011 | Evidence: ffprobe from VPS + dashboard frame freshness | Coverage: RUNTIME-MANUAL | Reason: live VPS→Worker RTSP read and dashboard rendering require production runtime
-- AC-003 | Task: T-384-002, T-384-004, T-384-011 | Evidence: unit tests for argv/ffconcat construction + runtime `ps` check | Coverage: COVERED (runtime confirmation pending)
+- AC-003 | Task: T-384-002, T-384-004, T-384-011 | Evidence: unit tests for argv/ffconcat construction + runtime `ps` check | Coverage: COVERED
 - AC-004 | Task: T-384-006, T-384-007 | Evidence: new tests + full local suite + validators | Coverage: COVERED
 
 ## Definition of Done
