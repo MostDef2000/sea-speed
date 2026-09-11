@@ -12,8 +12,8 @@
 - T-384-004 [x] `worker/ubuntu_worker_entrypoint.py`: `_credential_bearing` / `_camera1_rtsp_transport` / `_write_rtsp_ffconcat_input` helpers; `_spawn_rtsp_ffmpeg` ffconcat branch for credential inputs, tcp relay branch preserved (R2)
 - T-384-005 [x] `worker.env.example` documents `CAMERA1_RTSP_TRANSPORT=udp`; `road-worker.env.example` documents tcp-only relay reads (R1/R2)
 - T-384-006 [x] Tests: watchdog source pin (test_camera1_h264_freshness_watchdog.py), transport/ffconcat contract + helper behavior (test_camera1_live_replacement.py) (R1–R3)
-- T-384-007 [ ] Local validation: `bash -n` + full unittest suite + validate_sdd/validate_repo/validate_contracts/quality validators
-- T-384-008 [ ] Push branch; open PR with exact Change Contract (Ubuntu REQUIRED, VPS NOT REQUIRED, operator actions 0)
+- T-384-007 [x] Local validation: `bash -n` + full unittest suite + validate_sdd/validate_repo/validate_contracts/quality validators
+- T-384-008 [x] Push branch; open PR with exact Change Contract (Ubuntu REQUIRED, VPS NOT REQUIRED, operator actions 0)
 - T-384-009 [ ] PR CI green (`Repository validation` + `quality-integration`); exact-green-head squash merge
 - T-384-010 [ ] Post-merge main Quality → `deploy-runtime-autonomous` → policy ALLOW → `deploy-ubuntu-worker` success
 - T-384-011 [ ] Runtime acceptance: journal without 461, transcode active without restart growth, freshness timer exit 0, ffprobe from VPS, dashboard cam20/cam16+, `ps` argv without credentials; close #384
