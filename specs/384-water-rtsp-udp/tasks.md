@@ -35,7 +35,7 @@
 - [ ] Deployment state resolved — autonomous Ubuntu deploy pending post-merge Quality
 - [ ] Runtime acceptance resolved — journal/ffprobe/dashboard/ps evidence pending
 - [ ] Deferred work recorded — reader consolidation (Variant C) as separate follow-up
-- [x] Risks resolved or explicitly accepted — Risk profile REQUIRED: 4 mitigated (SEC-6, REL-3, OPS-2, TECH-2), 1 accepted (TECH-1)
+- [x] Risks resolved or explicitly accepted — Risk profile REQUIRED: 4 mitigated (SEC-6, TECH-3, OPS-2, TECH-2), 1 accepted (TECH-1)
 - [x] Waivers resolved or current — no waiver
 
 ## Completion gate
