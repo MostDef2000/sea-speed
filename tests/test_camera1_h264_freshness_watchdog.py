@@ -19,6 +19,13 @@ watchdog = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = watchdog
 spec.loader.exec_module(watchdog)
 
+UBUNTU_WATCHDOG_PATH = ROOT / "deploy/worker/ubuntu/camera1-h264-freshness-watchdog.py"
+ubuntu_spec = importlib.util.spec_from_file_location("ubuntu_camera1_h264_freshness_watchdog", UBUNTU_WATCHDOG_PATH)
+assert ubuntu_spec and ubuntu_spec.loader
+ubuntu_watchdog = importlib.util.module_from_spec(ubuntu_spec)
+sys.modules[ubuntu_spec.name] = ubuntu_watchdog
+ubuntu_spec.loader.exec_module(ubuntu_watchdog)
+
 
 class WatchdogTests(unittest.TestCase):
     @staticmethod
@@ -171,6 +178,10 @@ class WatchdogTests(unittest.TestCase):
         self.assertIn('systemctl enable --now "$WATCHDOG_TIMER"', text)
         self.assertIn('restore_timer_runtime', text)
         self.assertIn('CAMERA1_FRESHNESS_WATCHDOG=INSTALLED', text)
+
+
+    def test_worker_source_probe_targets_product_path_cam1_h264(self) -> None:
+        self.assertEqual(ubuntu_watchdog.CAMERA1_H264_SOURCE, "rtsp://10.123.239.102:8554/cam1-h264")
 
 
 if __name__ == "__main__":

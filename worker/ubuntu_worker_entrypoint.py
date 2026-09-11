@@ -9,6 +9,7 @@ import select
 import struct
 import subprocess
 import sys
+import tempfile
 import time
 from copy import deepcopy
 from pathlib import Path
@@ -180,6 +181,68 @@ def _media_scheme(input_url: str) -> str:
         return ""
 
 
+_CAMERA1_RTSP_TRANSPORTS = ("udp", "tcp", "automatic")
+
+
+def _credential_bearing(input_url: str) -> bool:
+    """True when the RTSP URL authenticates against the physical Camera 1 directly."""
+    try:
+        return urlsplit(input_url).username is not None
+    except ValueError:
+        return False
+
+
+def _camera1_rtsp_transport(input_url: str) -> str:
+    """Resolve the RTSP transport for a bounded FFmpeg RTSP reader.
+
+    Credential-bearing inputs read the physical Camera 1 directly; the camera
+    rejects TCP SETUP (461 Unsupported Transport) since ~2026-08-23, so the
+    default is udp and `CAMERA1_RTSP_TRANSPORT` (udp|tcp|automatic) overrides it.
+    Non-credential private-relay inputs always use tcp and never consult the knob.
+    """
+    if not _credential_bearing(input_url):
+        return "tcp"
+    transport = os.environ.get("CAMERA1_RTSP_TRANSPORT", "udp").strip().lower() or "udp"
+    if transport not in _CAMERA1_RTSP_TRANSPORTS:
+        raise RuntimeError("CAMERA1_RTSP_TRANSPORT must be one of: udp, tcp, automatic")
+    return transport
+
+
+def _write_rtsp_ffconcat_input(input_url: str, transport: str) -> str:
+    """Persist the credential-bearing RTSP URL into a 0600 ffconcat input file.
+
+    ffmpeg opens the camera URL from this private file instead of argv, so the
+    camera password never appears in /proc/*/cmdline. The file lives in the
+    service PrivateTmp tmpfs, is recreated per spawn after removing the previous
+    incarnation, and carries the transport via the ffconcat `option` directive
+    (supported by ffmpeg >= 4.2).
+    """
+    if "'" in input_url:
+        raise RuntimeError("RTSP input URL must not contain single quotes")
+    profile = re.sub(r"[^a-z0-9-]+", "", os.environ.get("ANALYTICS_PROFILE", "water-v1").strip().lower()) or "water-v1"
+    ffconcat_path = Path(tempfile.gettempdir()) / f"sea-speed-rtsp-input-{profile}.ffconcat"
+    try:
+        os.unlink(ffconcat_path)
+    except FileNotFoundError:
+        pass
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    fd = os.open(ffconcat_path, flags, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write("ffconcat version 1.0\n")
+            handle.write(f"option rtsp_transport {transport}\n")
+            handle.write(f"file '{input_url}'\n")
+    except BaseException:
+        try:
+            os.unlink(ffconcat_path)
+        except OSError:
+            pass
+        raise
+    return str(ffconcat_path)
+
+
 def _spawn_rtsp_ffmpeg(
     input_url: str,
     width: int,
@@ -189,16 +252,19 @@ def _spawn_rtsp_ffmpeg(
     if sample_fps <= 0:
         raise RuntimeError("SAMPLE_FPS must be greater than zero")
 
+    if _credential_bearing(input_url):
+        ffconcat_input = _write_rtsp_ffconcat_input(input_url, _camera1_rtsp_transport(input_url))
+        media_input = ["-f", "concat", "-safe", "0", "-i", ffconcat_input]
+    else:
+        media_input = ["-rtsp_transport", "tcp", "-i", input_url]
+
     cmd = [
         "ffmpeg",
         "-hide_banner",
         "-loglevel",
         "error",
         "-nostdin",
-        "-rtsp_transport",
-        "tcp",
-        "-i",
-        input_url,
+        *media_input,
         "-an",
         "-sn",
         "-dn",
