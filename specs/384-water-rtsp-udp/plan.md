@@ -87,10 +87,10 @@
 ## Test design
 
 - TEST-384-001 | Covers: AC-004, R2 | Level: unit | Priority: P0 | Evidence: tests/test_camera1_live_replacement.py::WaterRtspTransportTests::test_entrypoint_transport_helpers_behavior — defaults (relay→tcp, credential→udp), env override, invalid value raises, ffconcat file 0600 + `option rtsp_transport` + `file '<url>'`, single-quote rejection
-- TEST-384-002 | Covers: AC-004, R1 | Level: shell-contract | Priority: P0 | Evidence: tests/test_camera1_live_replacement.py::WaterRtspTransportTests::test_transcode_run_hides_credentials_and_configures_transport — `bash -n` + no `-i "$HLS_URL"` in argv, ffconcat + transport + 0600 + stale cleanup present
-- TEST-384-003 | Covers: NFR-384-004, R1/R2 | Level: shell-contract | Priority: P1 | Evidence: tests/test_camera1_live_replacement.py::WaterRtspTransportTests::test_entrypoint_transport_knob_and_ffconcat_contract — knob name, default `udp`, ffconcat markers, O_NOFOLLOW
+- TEST-384-002 | Covers: AC-004, R1 | Level: integration | Priority: P0 | Evidence: tests/test_camera1_live_replacement.py::WaterRtspTransportTests::test_transcode_run_hides_credentials_and_configures_transport — `bash -n` + no `-i "$HLS_URL"` in argv, ffconcat + transport + 0600 + stale cleanup present
+- TEST-384-003 | Covers: NFR-384-004, R1/R2 | Level: unit | Priority: P1 | Evidence: tests/test_camera1_live_replacement.py::WaterRtspTransportTests::test_entrypoint_transport_knob_and_ffconcat_contract — knob name, default `udp`, ffconcat markers, O_NOFOLLOW
 - TEST-384-004 | Covers: R3 | Level: unit | Priority: P0 | Evidence: tests/test_camera1_h264_freshness_watchdog.py::test_worker_source_probe_targets_product_path_cam1_h264 — worker watchdog source constant pinned to `cam1-h264`
-- TEST-384-005 | Covers: NFR-384-003 | Level: regression | Priority: P0 | Evidence: full unittest suite incl. unchanged `test_worker_rtsp_media_security.py` (tcp strings preserved) and `test_camera1_h264_freshness_watchdog.py`
+- TEST-384-005 | Covers: NFR-384-003 | Level: unit | Priority: P0 | Evidence: full unittest suite incl. unchanged `test_worker_rtsp_media_security.py` (tcp strings preserved) and `test_camera1_h264_freshness_watchdog.py`
 
 ## Correct-course check
 
