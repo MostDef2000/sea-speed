@@ -214,8 +214,9 @@ def _write_rtsp_ffconcat_input(input_url: str, transport: str) -> str:
     ffmpeg opens the camera URL from this private file instead of argv, so the
     camera password never appears in /proc/*/cmdline. The file lives in the
     service PrivateTmp tmpfs, is recreated per spawn after removing the previous
-    incarnation, and carries the transport via the ffconcat `option` directive
-    (supported by ffmpeg >= 4.2).
+    incarnation, and carries the transport via the ffconcat `option` directive.
+    The `option` directive carries NEEDS_FILE in the concat demuxer parser
+    (libavformat/concatdec.c), so it MUST follow the `file` directive.
     """
     if "'" in input_url:
         raise RuntimeError("RTSP input URL must not contain single quotes")
@@ -232,8 +233,8 @@ def _write_rtsp_ffconcat_input(input_url: str, transport: str) -> str:
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write("ffconcat version 1.0\n")
-            handle.write(f"option rtsp_transport {transport}\n")
             handle.write(f"file '{input_url}'\n")
+            handle.write(f"option rtsp_transport {transport}\n")
     except BaseException:
         try:
             os.unlink(ffconcat_path)
