@@ -34,8 +34,14 @@ class WorkerRtspRuntimeContractTests(unittest.TestCase):
     def test_media_secrets_are_not_written_to_worker_logs(self) -> None:
         self.assertIn('worker.safe_media_input_label(input_url)', self.source)
         self.assertNotIn('print(input_url)', self.source)
-        self.assertNotIn('stderr=subprocess.PIPE', self.source)
-        self.assertIn('stderr=subprocess.DEVNULL', self.source)
+        # FFmpeg stderr is captured in-process and every drained line passes
+        # mandatory redaction before it can reach the journal: ffmpeg error
+        # text can embed the credential-bearing RTSP URL.
+        self.assertIn('stderr=subprocess.PIPE', self.source)
+        self.assertIn('def _redact_media_secrets', self.source)
+        self.assertIn('tail.append(_redact_media_secrets(', self.source)
+        self.assertIn('rtsp://[REDACTED]', self.source)
+        self.assertNotIn('stderr=subprocess.DEVNULL', self.source)
 
     def test_non_rtsp_inputs_keep_existing_worker_reader(self) -> None:
         self.assertIn('_ORIGINAL_START_MEDIA_READER', self.source)

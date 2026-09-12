@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections import deque
 from copy import deepcopy
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -244,6 +245,23 @@ def _write_rtsp_ffconcat_input(input_url: str, transport: str) -> str:
     return str(ffconcat_path)
 
 
+def _redact_media_secrets(text: str) -> str:
+    """Redact any rtsp:// URL (may embed camera credentials) from diagnostics."""
+    return re.sub(r"rtsp://[^'\"\s]+", "rtsp://[REDACTED]", text)
+
+
+def _drain_ffmpeg_stderr(proc: subprocess.Popen, tail: deque) -> None:
+    """Bounded stderr drain so the child never blocks on a full pipe."""
+    stream = proc.stderr
+    if stream is None:
+        return
+    try:
+        for raw in iter(stream.readline, b""):
+            tail.append(_redact_media_secrets(raw.decode("utf-8", "replace")).rstrip())
+    except Exception:
+        pass
+
+
 def _spawn_rtsp_ffmpeg(
     input_url: str,
     width: int,
@@ -255,7 +273,19 @@ def _spawn_rtsp_ffmpeg(
 
     if _credential_bearing(input_url):
         ffconcat_input = _write_rtsp_ffconcat_input(input_url, _camera1_rtsp_transport(input_url))
-        media_input = ["-f", "concat", "-safe", "0", "-i", ffconcat_input]
+        # The concat demuxer restricts nested inputs to file,crypto,data unless an
+        # explicit protocol whitelist admits the media protocols; without it any
+        # rtsp:// nested input fails to open regardless of transport.
+        media_input = [
+            "-f",
+            "concat",
+            "-safe",
+            "0",
+            "-protocol_whitelist",
+            "file,rtsp,tcp,udp,rtp",
+            "-i",
+            ffconcat_input,
+        ]
     else:
         media_input = ["-rtsp_transport", "tcp", "-i", input_url]
 
@@ -283,13 +313,23 @@ def _spawn_rtsp_ffmpeg(
     print(f"Frame: {width}x{height}")
     print(f"Sample FPS: {sample_fps}")
 
-    return subprocess.Popen(
+    proc = subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
         bufsize=0,
         close_fds=True,
     )
+    tail: deque[str] = deque(maxlen=8)
+    threading.Thread(
+        target=_drain_ffmpeg_stderr,
+        args=(proc, tail),
+        name="sea-speed-ffmpeg-stderr",
+        daemon=True,
+    ).start()
+    # Documented diagnostic attachment consumed by the resilient reader.
+    proc.stderr_tail = tail
+    return proc
 
 
 class ResilientFFmpegRtspReader:
@@ -336,11 +376,21 @@ class ResilientFFmpegRtspReader:
         except Exception:
             pass
 
+    def _log_stderr_tail(self) -> None:
+        proc = self.proc
+        tail = getattr(proc, "stderr_tail", None) if proc is not None else None
+        if not tail:
+            return
+        lines = [line for line in tail if line]
+        if lines:
+            print("ffmpeg stderr tail: " + " | ".join(lines[-8:]))
+
     def _restart(self, attempt: int, reason: str) -> None:
         print(
             f"RTSP reader restart attempt={attempt}/{self.restart_limit} "
             f"reason={reason} source={self.input_label}"
         )
+        self._log_stderr_tail()
         self._stop_process()
         if self.restart_backoff_sec:
             time.sleep(self.restart_backoff_sec)
