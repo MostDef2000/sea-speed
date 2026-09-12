@@ -70,6 +70,19 @@ class UbuntuWorkerExactUpdaterTests(unittest.TestCase):
         for marker in ("restore_previous()", "restore_previous_road()", "restore_previous_control()", "ACTIVATION_ABORTED", "ACTIVE_MARKER_UNCHANGED"):
             self.assertIn(marker, self.source)
 
+    def test_watchdog_copy_is_refreshed_from_release_source(self) -> None:
+        # Deferred from #384 / tracked in #389: the watchdog is not one of the three
+        # deploy-managed units, so its installed copy must be refreshed from the exact
+        # release source during activation to avoid a stale copy across deploys.
+        for marker in (
+            'watchdog_src="$release_root/source/deploy/worker/ubuntu/camera1-h264-freshness-watchdog.py"',
+            'watchdog_dst="/usr/local/sbin/sea-speed-camera1-h264-freshness-watchdog"',
+            'abort_activation "watchdog refresh source missing from release"',
+            'abort_activation "watchdog script install failed"',
+            'systemctl enable --now sea-speed-camera1-h264-freshness.timer',
+        ):
+            self.assertIn(marker, self.source)
+
 
 if __name__ == "__main__":
     unittest.main()

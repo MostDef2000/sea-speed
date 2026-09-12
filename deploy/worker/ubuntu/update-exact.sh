@@ -460,6 +460,23 @@ if ! (
   abort_activation "unit installation failed"
 fi
 
+# Refresh the camera1-h264 freshness watchdog copy from the exact release source.
+# The watchdog is not one of the three deploy-managed units, so its installed copy
+# would otherwise stay stale across deploys (deferred from issue #384 / #389). Only
+# its delivery is refreshed here; the watchdog logic itself is unchanged.
+watchdog_src="$release_root/source/deploy/worker/ubuntu/camera1-h264-freshness-watchdog.py"
+watchdog_unit_src="$release_root/source/deploy/worker/ubuntu/sea-speed-camera1-h264-freshness.service"
+watchdog_timer_src="$release_root/source/deploy/worker/ubuntu/sea-speed-camera1-h264-freshness.timer"
+watchdog_dst="/usr/local/sbin/sea-speed-camera1-h264-freshness-watchdog"
+if [[ ! -f "$watchdog_src" || ! -f "$watchdog_unit_src" || ! -f "$watchdog_timer_src" ]]; then
+  abort_activation "watchdog refresh source missing from release"
+fi
+install -o root -g root -m 0755 "$watchdog_src" "$watchdog_dst" || abort_activation "watchdog script install failed"
+install -o root -g root -m 0644 "$watchdog_unit_src" "/etc/systemd/system/sea-speed-camera1-h264-freshness.service" || abort_activation "watchdog unit install failed"
+install -o root -g root -m 0644 "$watchdog_timer_src" "/etc/systemd/system/sea-speed-camera1-h264-freshness.timer" || abort_activation "watchdog timer install failed"
+systemctl daemon-reload || abort_activation "watchdog daemon-reload failed"
+systemctl enable --now sea-speed-camera1-h264-freshness.timer || abort_activation "watchdog timer enable failed"
+
 if ! systemctl restart "$control_service_name"; then
   abort_activation "worker control service restart failed"
 fi
