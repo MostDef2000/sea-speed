@@ -17,12 +17,13 @@
 - T-384-009 [ ] PR CI green (`Repository validation` + `quality-integration`); exact-green-head squash merge
 - T-384-010 [ ] Post-merge main Quality → `deploy-runtime-autonomous` → policy ALLOW → `deploy-ubuntu-worker` success
 - T-384-011 [ ] Runtime acceptance: journal without 461, transcode active without restart growth, freshness timer exit 0, ffprobe from VPS, dashboard cam20/cam16+, `ps` argv without credentials; close #384
+- T-384-012 [x] Runtime remediation: ffconcat `option` directive must follow `file` (concat demuxer NEEDS_FILE, libavformat/concatdec.c); reordered in entrypoint + transcode, order asserted in tests (worker startup crash-loop on 7a6f92c)
 
 ## Requirements traceability
 
 - AC-001 | Task: T-384-002, T-384-003, T-384-009, T-384-010, T-384-011 | Evidence: deploy evidence (deployment-manifest, execution-audit v1) + Worker journal | Coverage: RUNTIME-MANUAL | Reason: requires the exact deployed release on the physical Worker and live camera UDP pull; not reproducible in CI
 - AC-002 | Task: T-384-010, T-384-011 | Evidence: ffprobe from VPS + dashboard frame freshness | Coverage: RUNTIME-MANUAL | Reason: live VPS→Worker RTSP read and dashboard rendering require production runtime
-- AC-003 | Task: T-384-002, T-384-004, T-384-011 | Evidence: unit tests for argv/ffconcat construction + runtime `ps` check | Coverage: COVERED
+- AC-003 | Task: T-384-002, T-384-004, T-384-011, T-384-012 | Evidence: unit tests for argv/ffconcat construction + runtime `ps` check | Coverage: COVERED
 - AC-004 | Task: T-384-006, T-384-007 | Evidence: new tests + full local suite + validators | Coverage: COVERED
 
 ## Definition of Done

@@ -285,6 +285,9 @@ class WaterRtspTransportTests(unittest.TestCase):
         self.assertIn("rm -f /tmp/camera1-h264-input.ffconcat.", self.transcode_text)
         self.assertIn("chmod 0600", self.transcode_text)
         self.assertNotIn('-i "$HLS_URL"', self.transcode_text)
+        file_idx = self.transcode_text.index('printf "file \'%s\'\\n"')
+        option_idx = self.transcode_text.index("printf 'option rtsp_transport")
+        self.assertLess(file_idx, option_idx, "concat `option` needs a preceding `file` directive (NEEDS_FILE)")
 
     def test_entrypoint_transport_knob_and_ffconcat_contract(self) -> None:
         self.assertIn("CAMERA1_RTSP_TRANSPORT", self.entrypoint_text)
@@ -294,6 +297,7 @@ class WaterRtspTransportTests(unittest.TestCase):
         self.assertIn('"-f", "concat"', self.entrypoint_text)
         self.assertIn("O_NOFOLLOW", self.entrypoint_text)
         self.assertNotIn("print(input_url)", self.entrypoint_text)
+        self.assertIn("NEEDS_FILE", self.entrypoint_text)
 
     def test_entrypoint_transport_helpers_behavior(self) -> None:
         import unittest.mock as mock
@@ -327,6 +331,11 @@ class WaterRtspTransportTests(unittest.TestCase):
             self.assertIn("ffconcat version 1.0", content)
             self.assertIn("option rtsp_transport udp", content)
             self.assertIn(f"file '{cred}'", content)
+            self.assertLess(
+                content.index(f"file '{cred}'"),
+                content.index("option rtsp_transport udp"),
+                "concat `option` needs a preceding `file` directive (NEEDS_FILE)",
+            )
             with self.assertRaises(RuntimeError):
                 entry._write_rtsp_ffconcat_input("rtsp://u:se'cret@h/x", "udp")
 

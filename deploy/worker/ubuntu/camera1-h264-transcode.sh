@@ -185,8 +185,8 @@ if [[ "$command" == "run" ]]; then
   ffconcat_input="$(mktemp /tmp/camera1-h264-input.ffconcat.XXXXXX)"
   {
     printf 'ffconcat version 1.0\n'
-    printf 'option rtsp_transport %s\n' "$transport"
     printf "file '%s'\n" "$camera_source"
+    printf 'option rtsp_transport %s\n' "$transport"
   } > "$ffconcat_input"
   chmod 0600 "$ffconcat_input"
   printf 'CAMERA1_RTSP_TRANSPORT=%s\n' "$transport"
