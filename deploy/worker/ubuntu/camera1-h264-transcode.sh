@@ -192,7 +192,7 @@ if [[ "$command" == "run" ]]; then
   printf 'CAMERA1_RTSP_TRANSPORT=%s\n' "$transport"
   printf 'CAMERA1_CREDENTIALS_IN_ARGV=NO\n'
   exec ffmpeg -nostdin -hide_banner -loglevel warning \
-    -f concat -safe 0 -i "$ffconcat_input" \
+    -f concat -safe 0 -protocol_whitelist file,rtsp,tcp,udp,rtp -i "$ffconcat_input" \
     -an -vf fps=15,scale=-2:720 -c:v libx264 -preset veryfast -tune zerolatency \
     -f rtsp "rtsp://${publish_address}:8554/cam1-h264"
 fi

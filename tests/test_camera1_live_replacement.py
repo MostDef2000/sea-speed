@@ -282,6 +282,7 @@ class WaterRtspTransportTests(unittest.TestCase):
         self.assertIn("CAMERA1_RTSP_TRANSPORT", self.transcode_text)
         self.assertIn("option rtsp_transport", self.transcode_text)
         self.assertIn("-f concat -safe 0", self.transcode_text)
+        self.assertIn("-protocol_whitelist file,rtsp,tcp,udp,rtp", self.transcode_text)
         self.assertIn("rm -f /tmp/camera1-h264-input.ffconcat.", self.transcode_text)
         self.assertIn("chmod 0600", self.transcode_text)
         self.assertNotIn('-i "$HLS_URL"', self.transcode_text)
@@ -294,7 +295,10 @@ class WaterRtspTransportTests(unittest.TestCase):
         self.assertIn('os.environ.get("CAMERA1_RTSP_TRANSPORT", "udp")', self.entrypoint_text)
         self.assertIn("ffconcat version 1.0", self.entrypoint_text)
         self.assertIn("option rtsp_transport", self.entrypoint_text)
-        self.assertIn('"-f", "concat"', self.entrypoint_text)
+        self.assertIn('"-f",', self.entrypoint_text)
+        self.assertIn('"concat",', self.entrypoint_text)
+        self.assertIn('"-protocol_whitelist"', self.entrypoint_text)
+        self.assertIn('"file,rtsp,tcp,udp,rtp"', self.entrypoint_text)
         self.assertIn("O_NOFOLLOW", self.entrypoint_text)
         self.assertNotIn("print(input_url)", self.entrypoint_text)
         self.assertIn("NEEDS_FILE", self.entrypoint_text)
@@ -320,6 +324,9 @@ class WaterRtspTransportTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {"CAMERA1_RTSP_TRANSPORT": "bogus"}):
             with self.assertRaises(RuntimeError):
                 entry._camera1_rtsp_transport(cred)
+
+        self.assertNotIn("camera_key", entry._redact_media_secrets(f"Impossible to open '{cred}'"))
+        self.assertIn("rtsp://[REDACTED]", entry._redact_media_secrets(f"Opening {cred}"))
 
         with tempfile.TemporaryDirectory() as tmp:
             with mock.patch.dict(os.environ, {"ANALYTICS_PROFILE": "water-v1"}), mock.patch.object(tempfile, "gettempdir", return_value=tmp):

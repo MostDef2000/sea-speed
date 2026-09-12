@@ -18,6 +18,7 @@
 - T-384-010 [ ] Post-merge main Quality → `deploy-runtime-autonomous` → policy ALLOW → `deploy-ubuntu-worker` success
 - T-384-011 [ ] Runtime acceptance: journal without 461, transcode active without restart growth, freshness timer exit 0, ffprobe from VPS, dashboard cam20/cam16+, `ps` argv without credentials; close #384
 - T-384-012 [x] Runtime remediation: ffconcat `option` directive must follow `file` (concat demuxer NEEDS_FILE, libavformat/concatdec.c); reordered in entrypoint + transcode, order asserted in tests (worker startup crash-loop on 7a6f92c)
+- T-384-013 [x] Runtime remediation: concat demuxer protocol whitelist — nested `rtsp://` inputs are rejected (`Impossible to open`, exit 234) without `-protocol_whitelist file,rtsp,tcp,udp,rtp`; added to entrypoint ffconcat invocation + transcode script; FFmpeg reader stderr now drained in-process with mandatory `_redact_media_secrets` and a bounded redacted tail printed on restart so EOFError no longer masks the child error (target-side proof 2026-09-12: ffconcat+udp/tcp both exit 234, direct tcp/udp exit 0)
 
 ## Requirements traceability
 
