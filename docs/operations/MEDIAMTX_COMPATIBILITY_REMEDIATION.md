@@ -134,6 +134,36 @@ The post-merge Windows/VPS orchestration must be regenerated from the corrected 
 
 A failed canary is a clean stop before production binary replacement. A failure after binary replacement preserves the current runtime state, durable activation phase and all backups, allowing the exact activation to resume or return for an explicit rollback decision. No speculative config edits, network changes, nginx changes, credential changes, Ubuntu relay mutations or AI worker mutations are part of this flow.
 
+## Ubuntu Worker relay API profile
+
+The Ubuntu Worker MediaMTX service is loaded by `sea-speed-stream.service` from
+`/etc/mediamtx/mediamtx.yml` (not the shared runtime config copy). The relay API
+profile on that host is deliberately narrower than the canary profile above and
+contains one exception to the "unused servers disabled" line:
+
+```yaml
+api: yes
+apiAddress: "127.0.0.1:9997"
+authInternalUsers:
+  - user: any
+    ips: [127.0.0.1]
+    permissions:
+      - action: api
+```
+
+This `api` enablement is a deliberate exception to the "unused servers disabled"
+profile line: its only purpose is local freshness-watchdog observation. The
+`sea-speed-camera1-h264-freshness.timer` watchdog reads
+`GET /v3/paths/get/{name}` on the loopback API and proves producer liveness by
+requiring `ready` and `available` to be true and `inboundBytes` to strictly grow
+between two samples (`readyTime` is the path start time, not frame age, and
+MediaMTX v1.19.1 exposes no `lastFrameTime`).
+
+Mitigation: the API binds loopback only — verified via `ss` as a listener on
+`127.0.0.1:9997` alone — and no proxy tuple forwards port 9997, so the endpoint
+is unreachable from outside the worker host. The watchdog observation uses no
+credentials and the `api` permission is restricted to loopback source IPs.
+
 ## Acceptance boundary
 
 Issue #87 is complete only when all of the following are proven at runtime:

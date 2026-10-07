@@ -2,10 +2,13 @@
 """Continuous bounded freshness supervision for the Ubuntu Camera 1 H264 transcode.
 
 The production entry point accepts no arguments and no environment overrides. It
-observes only the fixed local MediaMTX path cam1-h264 via the MediaMTX REST API
-and may restart only the fixed local Camera 1 H264 transcode producer service.
-The source probe targets the same fixed product path cam1-h264; the legacy cam1
-relay leg is not consulted.
+observes only the fixed local MediaMTX path cam1-h264 via the MediaMTX v1.19.1
+REST API (GET /v3/paths/get/{name}) and may restart only the fixed local Camera 1
+H264 transcode producer service. Producer liveness is proven by requiring the
+path to be ready and available and its inboundBytes to strictly grow between two
+samples taken SAMPLE_SECONDS apart; readyTime is the path start time, not frame
+age. The source probe targets the same fixed product path cam1-h264; the legacy
+cam1 relay leg is not consulted.
 """
 from __future__ import annotations
 
@@ -16,7 +19,6 @@ import stat
 import subprocess
 import sys
 import time
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
@@ -27,7 +29,6 @@ CAMERA1_H264_SERVICE = "sea-speed-camera1-h264.service"
 STATE_ROOT = Path("/var/lib/sea-speed-camera1-h264-freshness")
 STATE_FILE = STATE_ROOT / "state.json"
 LOCK_FILE = STATE_ROOT / "watchdog.lock"
-STALE_SECONDS = 20
 SAMPLE_SECONDS = 3
 COOLDOWN_SECONDS = 300
 
@@ -52,7 +53,10 @@ def _run_fixed(
     )
 
 
-def _path_ready(runner: Callable[..., subprocess.CompletedProcess[str]]) -> bool:
+def _path_ready(
+    runner: Callable[..., subprocess.CompletedProcess[str]],
+    sleeper: Callable[[float], None],
+) -> bool:
     argv = [
         "curl",
         "--fail",
@@ -60,26 +64,30 @@ def _path_ready(runner: Callable[..., subprocess.CompletedProcess[str]]) -> bool
         "--show-error",
         "--max-time",
         "8",
-        f"{MEDIAMTX_API}/v3/paths/{CAMERA1_H264_PATH}",
+        f"{MEDIAMTX_API}/v3/paths/get/{CAMERA1_H264_PATH}",
     ]
-    completed = _run_fixed(runner, argv, timeout=10)
-    if completed.returncode != 0:
-        return False
-    try:
-        data = json.loads(completed.stdout or "")
-    except ValueError:
-        return False
-    if data.get("state") != "ready":
-        return False
-    last = data.get("lastFrameTime")
-    if not last:
-        return False
-    try:
-        ts = datetime.fromisoformat(str(last).replace("Z", "+00:00"))
-    except ValueError:
-        return False
-    age = (datetime.now(timezone.utc) - ts).total_seconds()
-    return age <= STALE_SECONDS
+    samples: list[int] = []
+    for index in range(2):
+        if index:
+            sleeper(SAMPLE_SECONDS)
+        completed = _run_fixed(runner, argv, timeout=10)
+        if completed.returncode != 0:
+            return False
+        try:
+            data = json.loads(completed.stdout or "")
+        except ValueError:
+            return False
+        if not isinstance(data, dict):
+            return False
+        if data.get("ready") is not True:
+            return False
+        if data.get("available") is not True:
+            return False
+        raw = data.get("inboundBytes")
+        if isinstance(raw, bool) or not isinstance(raw, int) or raw < 0:
+            return False
+        samples.append(raw)
+    return samples[1] > samples[0]
 
 
 def _probe_source(runner: Callable[..., subprocess.CompletedProcess[str]]) -> None:
@@ -189,7 +197,7 @@ def run_once(
         except BlockingIOError as exc:
             raise WatchdogError("Camera 1 H264 freshness watchdog is already running") from exc
 
-        ready = _path_ready(runner)
+        ready = _path_ready(runner, sleeper)
         lines = [
             f"CAMERA1_H264_SERVICE={CAMERA1_H264_SERVICE}",
             f"CAMERA1_H264_PATH={CAMERA1_H264_PATH}",
@@ -235,7 +243,7 @@ def run_once(
             raise WatchdogError("fixed Camera 1 H264 transcode service is not active after restart")
 
         sleeper(SAMPLE_SECONDS)
-        if not _path_ready(runner):
+        if not _path_ready(runner, sleeper):
             raise WatchdogError("Camera 1 H264 path is still not ready after transcode restart")
         lines.extend(
             (
