@@ -4,7 +4,8 @@ Original Issue: #115
 Runtime topology revision: #122  
 Split nginx cutover remediation: #140  
 Browser auth routing remediation: #146  
-Session retention revision: #231
+Session retention revision: #231  
+Worker control token separation: #393
 
 Sea Speed Auth v1 replaces the legacy browser Basic Auth/public camera contour with self-hosted Authentik Forward Auth. Issue #122 relocated Authentik and PostgreSQL from the undersized public VPS to the commissioned Ubuntu worker. Issue #140 makes the final cutover compatible with the production `mostdef.ru` split nginx layout. Issue #146 corrects the canonical-host and Forward Auth callback routing discovered during authenticated browser acceptance. Issue #231 extends the managed Sea Speed browser session to 30 days without changing roles, Owner TOTP, Forward Auth routing or analytics behavior. Runtime execution follows the current standing-production-delegation policy; this runbook does not itself grant runtime authority.
 
@@ -152,6 +153,44 @@ SEA_SPEED_SPEED_LINES_URL=http://<vps-private-ip>:<port>/api/cam1/speed-lines
 ```
 
 Hosting Authentik on the same physical worker does not merge identity and M2M security contours.
+
+## Issue #393 - worker control token separation
+
+The control plane now uses a dedicated token, separate from the data-plane ingestion token:
+
+```text
+SEA_SPEED_API_TOKEN              data-plane ingestion only (worker -> VPS state/event writes)
+SEA_SPEED_WORKER_CONTROL_TOKEN   control plane only (VPS API -> root control agent on the worker)
+```
+
+`SEA_SPEED_API_TOKEN` keeps its exact existing meaning and distribution: it authenticates the fixed private M2M ingestion methods and paths above and must not appear in chat, argv, Issue comments or logs. `SEA_SPEED_WORKER_CONTROL_TOKEN` is known only to two parties: the VPS API (read from its operator-managed environment) and the root `sea-speed-worker-control` agent on the Ubuntu worker (read from `control.env`). Browser/operator control requests enter through the authenticated `/sea-speed/**` contour and are forwarded by the API with the control token; the ingestion token never authorizes worker start/stop.
+
+### Pre-merge operator provisioning
+
+Provision both sides before the issue #393 code is deployed (the merge triggers both deploy jobs):
+
+1. VPS: set `SEA_SPEED_WORKER_CONTROL_TOKEN` in the operator-managed API service environment (root-owned, mode 0600, never committed to Git and never written by deployments).
+2. Ubuntu worker: create `/opt/sea-speed-worker/shared/config/control.env` from `deploy/worker/ubuntu/control.env.example` with a non-empty value, as a regular file (no symlink) with mode `0600`.
+
+The control token must be a distinct value, never a copy of `SEA_SPEED_API_TOKEN`. `install-systemd.sh` fails closed with exit code 8 when `control.env` is missing, a symlink, not mode 600, or has an empty token. The control agent refuses to start without the token.
+
+### Hard cutover, no dual-accept
+
+Both sides switch atomically to the new token with no transition window in which the ingestion token is also accepted for control. Rationale: `SEA_SPEED_API_TOKEN` is the most widely distributed Sea Speed secret (it exists on every data-plane worker), and granting it service start/stop authority would widen the blast radius of that secret from data writes to full worker control. A dual-accept window would silently create exactly that escalation, so the implementation instead accepts a bounded control-availability gap: the agent accepts exactly one Bearer token, the API sends exactly one, and any missing/mismatched configuration fails closed (agent exits at startup; API returns 500 `SEA_SPEED_WORKER_CONTROL_TOKEN is not set` rather than silently falling back).
+
+### Bounded two-job deploy gap
+
+One exact merge fans out to two deployment jobs (VPS API, then Ubuntu worker units). Inside that window browser-initiated worker control fails closed while ingestion continues unaffected:
+
+- new API + old agent: the agent rejects the control token (403) and the API surfaces 503;
+- new API + agent not yet provisioned: the API fails closed with 500 before any connection;
+- new agent + old API: not targeted, and the old API's ingestion bearer is rejected by the agent (403).
+
+Data-plane ingestion (`POST state/events`, ROI/speed-config reads) does not depend on the control token and keeps working throughout the window.
+
+### Rollback semantics
+
+Rolling either side back to the previous release restores the single-token model that authenticates control with `SEA_SPEED_API_TOKEN`; because the ingestion token is unchanged, the previous code keeps working without any secret rotation. Leftover `SEA_SPEED_WORKER_CONTROL_TOKEN` environment entries and `control.env` are inert for the previous code and may be cleaned up afterwards. The new code never falls back to the ingestion token, so a partially provisioned state remains fail-closed instead of silently reverting to shared-token control.
 
 ## Issue #140 - production split nginx layout
 

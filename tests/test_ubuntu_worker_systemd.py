@@ -52,6 +52,11 @@ class UbuntuWorkerSystemdTests(unittest.TestCase):
         self.assertIn('road_env_file="$install_root/shared/config/road-worker.env"', source)
         self.assertIn("road-worker.env must be mode 600", source)
 
+    def test_control_unit_loads_dedicated_control_env_not_worker_env(self) -> None:
+        control = CONTROL_UNIT.read_text(encoding="utf-8")
+        self.assertIn("EnvironmentFile=__INSTALL_ROOT__/shared/config/control.env", control)
+        self.assertNotIn("worker.env", control)
+
     def test_control_service_remains_independent_and_write_bounded(self) -> None:
         control = CONTROL_UNIT.read_text(encoding="utf-8")
         self.assertIn("User=root", control)
