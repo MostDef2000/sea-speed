@@ -115,7 +115,12 @@ if [[ "$(stat -c '%a' "$control_env_file")" != "600" ]]; then
   echo "ERROR control environment file mode must be 600" >&2
   exit 8
 fi
-if ! grep -Eq '^SEA_SPEED_WORKER_CONTROL_TOKEN=.+$' "$control_env_file"; then
+token_value="$(sed -n 's/^SEA_SPEED_WORKER_CONTROL_TOKEN=//p' "$control_env_file" | tail -n 1)"
+token_value="${token_value%\"}"
+token_value="${token_value#\"}"
+token_value="${token_value%\'}"
+token_value="${token_value#\'}"
+if [[ -z "${token_value//[[:space:]]/}" ]]; then
   echo "ERROR control environment file must contain a non-empty SEA_SPEED_WORKER_CONTROL_TOKEN value" >&2
   exit 8
 fi
@@ -134,6 +139,10 @@ ln -sfn "$install_root/shared/datasets" "$road_runtime_root/datasets"
 chown -R "$service_user:$service_user" "$install_root/shared"
 chmod 750 "$install_root/shared" "$install_root/shared/config" "$install_root/shared/models" "$install_root/shared/datasets" "$install_root/shared/output" "$runtime_state_root" "$road_runtime_root" "$road_output_root"
 chmod 600 "$env_file"
+# control.env and its directory stay root-owned: the data-plane service user must never read or replace the control token.
+chown root:root "$install_root/shared/config" "$control_env_file"
+chmod 750 "$install_root/shared/config"
+chmod 600 "$control_env_file"
 if [[ -f "$road_env_file" ]]; then
   [[ "$(stat -c '%a' "$road_env_file")" == "600" ]] || { echo "ERROR road-worker.env must be mode 600" >&2; exit 7; }
 fi

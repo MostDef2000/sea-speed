@@ -213,12 +213,22 @@ class WorkerControlTokenSeparationTests(unittest.TestCase):
         gate_index = source.index('if [[ -L "$control_env_file" ]]')
         self.assertIn('if [[ ! -f "$control_env_file" ]]', source)
         self.assertIn('[[ "$(stat -c \'%a\' "$control_env_file")" != "600" ]]', source)
-        self.assertIn("grep -Eq '^SEA_SPEED_WORKER_CONTROL_TOKEN=.+$' \"$control_env_file\"", source)
+        self.assertIn("sed -n 's/^SEA_SPEED_WORKER_CONTROL_TOKEN=//p'", source)
+        self.assertIn("${token_value//[[:space:]]/}", source)
         self.assertIn("exit 8", source)
         self.assertIn("exit 6", source)
         self.assertIn("exit 7", source)
         self.assertLess(gate_index, source.index("useradd"))
         self.assertLess(gate_index, source.index("mkdir -p"))
+        # The recursive shared-tree chown hands ownership to the data-plane
+        # service user; the installer must re-assert root ownership of
+        # control.env and its config directory immediately afterwards, and
+        # never before that recursive chown.
+        chown_shared_index = source.index('chown -R "$service_user:$service_user" "$install_root/shared"')
+        chown_root_index = source.index('chown root:root "$install_root/shared/config" "$control_env_file"')
+        control_chmod_index = source.index('chmod 600 "$control_env_file"', chown_root_index)
+        self.assertLess(chown_shared_index, chown_root_index)
+        self.assertLess(chown_root_index, control_chmod_index)
 
     def test_installer_and_exact_updater_shell_syntax(self) -> None:
         for path in (INSTALLER, EXACT_UPDATER):

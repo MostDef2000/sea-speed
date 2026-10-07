@@ -172,21 +172,21 @@ Provision both sides before the issue #393 code is deployed (the merge triggers 
 1. VPS: set `SEA_SPEED_WORKER_CONTROL_TOKEN` in the operator-managed API service environment (root-owned, mode 0600, never committed to Git and never written by deployments).
 2. Ubuntu worker: create `/opt/sea-speed-worker/shared/config/control.env` from `deploy/worker/ubuntu/control.env.example` with a non-empty value, as a regular file (no symlink) with mode `0600`.
 
-The control token must be a distinct value, never a copy of `SEA_SPEED_API_TOKEN`. `install-systemd.sh` fails closed with exit code 8 when `control.env` is missing, a symlink, not mode 600, or has an empty token. The control agent refuses to start without the token.
+The control token must be a distinct value, never a copy of `SEA_SPEED_API_TOKEN`. `install-systemd.sh` fails closed with exit code 8 when `control.env` is missing, a symlink, not mode 600, or has an empty token. The control agent refuses to start without the token. On the worker, `control.env` stays root:root 0600: after its recursive `chown` of the shared tree the installer re-asserts root ownership on `control.env` and its config directory, so the data-plane service user can neither read nor replace the control token.
 
 ### Hard cutover, no dual-accept
 
-Both sides switch atomically to the new token with no transition window in which the ingestion token is also accepted for control. Rationale: `SEA_SPEED_API_TOKEN` is the most widely distributed Sea Speed secret (it exists on every data-plane worker), and granting it service start/stop authority would widen the blast radius of that secret from data writes to full worker control. A dual-accept window would silently create exactly that escalation, so the implementation instead accepts a bounded control-availability gap: the agent accepts exactly one Bearer token, the API sends exactly one, and any missing/mismatched configuration fails closed (agent exits at startup; API returns 500 `SEA_SPEED_WORKER_CONTROL_TOKEN is not set` rather than silently falling back).
+Each side switches to the new token atomically per process, with no transition window in which the ingestion token is also accepted for control. Rationale: `SEA_SPEED_API_TOKEN` is the most widely distributed Sea Speed secret (it exists on every data-plane worker), and granting it service start/stop authority would widen the blast radius of that secret from data writes to full worker control. A dual-accept window would silently create exactly that escalation, so the implementation instead accepts a bounded control-availability gap: the agent accepts exactly one Bearer token, the API sends exactly one, and any missing/mismatched configuration fails closed (agent exits at startup; API returns 500 `SEA_SPEED_WORKER_CONTROL_TOKEN is not set` rather than silently falling back).
 
 ### Bounded two-job deploy gap
 
-One exact merge fans out to two deployment jobs (VPS API, then Ubuntu worker units). Inside that window browser-initiated worker control fails closed while ingestion continues unaffected:
+One exact merge fans out to two independent deployment jobs (VPS API and Ubuntu worker units). The jobs are unordered: either skew direction is possible, and cross-host activation is NOT ordered. Each side switches atomically per process, so inside the skew window browser-initiated worker control fails closed (403/500/503) while ingestion continues unaffected:
 
 - new API + old agent: the agent rejects the control token (403) and the API surfaces 503;
 - new API + agent not yet provisioned: the API fails closed with 500 before any connection;
-- new agent + old API: not targeted, and the old API's ingestion bearer is rejected by the agent (403).
+- new agent + old API: possible when the worker job completes first, and the old API's ingestion bearer is rejected by the agent (403).
 
-Data-plane ingestion (`POST state/events`, ROI/speed-config reads) does not depend on the control token and keeps working throughout the window.
+Provisioning both sides before the merge keeps the window bounded. Data-plane ingestion (`POST state/events`, ROI/speed-config reads) does not depend on the control token and keeps working throughout the window.
 
 ### Rollback semantics
 
