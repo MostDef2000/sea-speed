@@ -60,12 +60,12 @@ jobs:
         run: |
           set -euo pipefail
           pip install ruff==0.16.10
-          ruff check .
+          ruff check --config scripts/quality/ruff.toml .
       - name: Progressive mypy (strict baseline)
         run: |
           set -euo pipefail
           pip install mypy==1.18.2
-          mypy --config-file mypy.ini scripts/quality/common.py worker/analytics_profiles.py worker/detection_performance.py scripts/release/production_policy.py scripts/ci/validate_delivery_checkpoint.py
+          mypy --config-file scripts/quality/mypy.ini scripts/quality/common.py worker/analytics_profiles.py worker/detection_performance.py scripts/release/production_policy.py scripts/ci/validate_delivery_checkpoint.py
       - name: Run repository behavioral tests
         run: python -W error::ResourceWarning -m unittest discover -s tests -p 'test_*.py' -v
 

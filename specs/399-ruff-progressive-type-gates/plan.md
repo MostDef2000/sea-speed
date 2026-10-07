@@ -16,14 +16,15 @@ concurrency, `if: always()` logic and the other three domains are untouched;
 no new required context is introduced.
 
 - `Ruff lint (non-mutating)` — `pip install ruff==0.16.10` then
-  `ruff check .`. The committed `ruff.toml` selects `["E9", "F"]` with
+  `ruff check --config scripts/quality/ruff.toml .`. The committed
+  `scripts/quality/ruff.toml` selects `["E9", "F"]` with
   `fix = false` and `target-version = "py314"`, so the step is analysis-only:
   it fails on findings and never rewrites source.
 - `Progressive mypy (strict baseline)` — `pip install mypy==1.18.2` then
-  `mypy --config-file mypy.ini` over exactly the five strict modules
+  `mypy --config-file scripts/quality/mypy.ini` over exactly the five strict modules
   (`scripts/quality/common.py`, `worker/analytics_profiles.py`,
   `worker/detection_performance.py`, `scripts/release/production_policy.py`,
-  `scripts/ci/validate_delivery_checkpoint.py`). The committed `mypy.ini`
+  `scripts/ci/validate_delivery_checkpoint.py`). The committed `scripts/quality/mypy.ini`
   keeps the global section permissive and enables full strict mode
   per-module — the adoption mechanism.
 
@@ -73,7 +74,11 @@ closed action allowlist is unaffected.
   contour under `data/contracts/change-control-policy-v1.json`; the edits
   themselves are behavior-preserving dead-code removals that reach the
   running worker through the normal release channel.
-- New committed configuration: `ruff.toml`, `mypy.ini` (repository root).
+- New committed configuration: `scripts/quality/ruff.toml`,
+  `scripts/quality/mypy.ini` (under `scripts/quality/` because the repository
+  structure validator enforces a closed top-level allowlist; ruff and mypy are
+  invoked with explicit `--config`/`--config-file` paths, so behavior is
+  identical).
 - Calibrated source files (dead code and unused imports only):
   `worker/detection_performance.py`,
   `worker/hls_motion_yolo_worker_events.py`,
@@ -93,9 +98,9 @@ closed action allowlist is unaffected.
 
 ## Validation
 
-- `ruff check .` (after `pip install ruff==0.16.10`) — zero findings on the
-  calibrated tree.
-- `mypy --config-file mypy.ini scripts/quality/common.py worker/analytics_profiles.py worker/detection_performance.py scripts/release/production_policy.py scripts/ci/validate_delivery_checkpoint.py` (after `pip install mypy==1.18.2`) — zero errors over the strict set.
+- `ruff check --config scripts/quality/ruff.toml .` (after
+  `pip install ruff==0.16.10`) — zero findings on the calibrated tree.
+- `mypy --config-file scripts/quality/mypy.ini scripts/quality/common.py worker/analytics_profiles.py worker/detection_performance.py scripts/release/production_policy.py scripts/ci/validate_delivery_checkpoint.py` (after `pip install mypy==1.18.2`) — zero errors over the strict set.
 - `python scripts/quality/validate_workflow_policy.py` — workflow policy
   validator with the two inserted steps present (markers byte-identical).
 - `python scripts/ci/validate_repo.py` — repository structure/secret rules.
@@ -146,7 +151,7 @@ covered by the behavioral suite baseline.
 
 ## Test design
 
-- TEST-001 | Covers: R-1,R-6 | Level: integration | Priority: P0 | Evidence: the `Ruff lint (non-mutating)` step present in static-contract-security between the JSON/py_compile and unittest steps; local `ruff check .` exits 0 with `fix = false` config (AC-001)
+- TEST-001 | Covers: R-1,R-6 | Level: integration | Priority: P0 | Evidence: the `Ruff lint (non-mutating)` step present in static-contract-security between the JSON/py_compile and unittest steps; local `ruff check --config scripts/quality/ruff.toml .` exits 0 with `fix = false` config (AC-001)
 - TEST-002 | Covers: R-2,R-6 | Level: integration | Priority: P0 | Evidence: the `Progressive mypy (strict baseline)` step present in the same position; local mypy 1.18.2 over the five strict modules exits 0 (AC-002)
 - TEST-003 | Covers: R-3 | Level: unit | Priority: P0 | Evidence: ruff 0.16.10 reports zero findings on the calibrated tree (14 baseline findings resolved per spec R-3 list); `python -m unittest discover -s tests -p 'test_*.py' -v` shows Ran 649 tests, OK, skipped=3 (AC-003)
 - TEST-004 | Covers: R-4 | Level: integration | Priority: P0 | Evidence: `python scripts/quality/validate_workflow_policy.py`, `validate_repo.py`, `validate_contracts.py`, `validate_quality_contracts.py` and `python -m py_compile scripts/quality/*.py scripts/release/*.py` all pass with the insertion present (AC-003)
@@ -167,7 +172,7 @@ covered by the behavioral suite baseline.
 
 - TX-399-01 | Stage: ADMISSION | Mutation: NO | Failure disposition: BEST-EFFORT | State after failure: scope recorded in #399 | Retry: NONE | Rollback: NONE | Evidence: Delivery Checkpoint gen 1 plus OUTCOME APPROVED recorded in #399
 - TX-399-02 | Stage: PRE-MUTATION | Mutation: NO | Failure disposition: BEST-EFFORT | State after failure: branch unchanged | Retry: NONE | Rollback: NONE | Evidence: branch agent/399-ruff-type-gates from origin/main 27c90b7
-- TX-399-03 | Stage: MUTATION | Mutation: YES | Failure disposition: BEST-EFFORT | State after failure: working tree revertible | Retry: NONE | Rollback: git revert of the feature commits | Evidence: workflow steps plus ruff.toml, mypy.ini, calibrated sources, docs section and the SDD trio
+- TX-399-03 | Stage: MUTATION | Mutation: YES | Failure disposition: BEST-EFFORT | State after failure: working tree revertible | Retry: NONE | Rollback: git revert of the feature commits | Evidence: workflow steps plus scripts/quality gate configs, calibrated sources, docs section and the SDD trio
 - TX-399-04 | Stage: VERIFICATION | Mutation: NO | Failure disposition: BEST-EFFORT | State after failure: CI red blocks merge | Retry: rerun failed jobs | Rollback: NONE | Evidence: required CI green on the PR exact head with both new steps green in static-contract-security
 - TX-399-05 | Stage: STATE-COMMIT | Mutation: YES | Failure disposition: BEST-EFFORT | State after failure: main protected, revert merge | Retry: NONE | Rollback: revert merge commit | Evidence: exact-green-head squash merge to main
 - TX-399-06 | Stage: HOUSEKEEPING | Mutation: NO | Failure disposition: BEST-EFFORT | State after failure: issue remains open | Retry: NONE | Rollback: NONE | Evidence: #399 updated at meaningful transitions

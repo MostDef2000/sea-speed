@@ -9,7 +9,7 @@ The merge-facing aggregate `Quality integration gate` gains two static-analysis
 steps inside its existing `static-contract-security` domain: a non-mutating
 Ruff lint gate (pinned `ruff==0.16.10`, rule set `select = ["E9", "F"]`,
 `fix = false`) and a progressive mypy gate (pinned `mypy==1.18.2`, committed
-`mypy.ini` baseline with a permissive global section and per-module
+`scripts/quality/mypy.ini` baseline with a permissive global section and per-module
 `strict = True` sections). Both tools are installed as plain pip installs with
 exact version pins — no native toolchain, no runtime downloads — and both run
 the exact commands documented in `docs/quality/testing-policy.md`.
@@ -28,13 +28,14 @@ exact-artifact check, workflow job, trigger or permission is modified.
   with zero operator actions, and any new lint or strict-typing finding fails
   the merge-facing aggregate.
 - US-2: A contributor introduces an unused import or an f-string without
-  placeholders; `ruff check .` exits nonzero naming file and rule, and the
+  placeholders; `ruff check --config scripts/quality/ruff.toml .` exits nonzero
+  naming file and rule, and the
   contributor removes the dead code instead of suppressing it.
 - US-3: A contributor edits one of the five strict modules in a way that
   breaks full strict typing; the mypy step exits nonzero with the exact
   error, holding new code to strict typing without a mass legacy rewrite.
 - US-4: A maintainer reviews the gate design from repository sources alone:
-  `ruff.toml` and `mypy.ini` are committed, pins are exact, the policy and
+  `scripts/quality/ruff.toml` and `scripts/quality/mypy.ini` are committed, pins are exact, the policy and
   the deterministic local invocation are documented in
   `docs/quality/testing-policy.md`, and `fix = false` proves CI can never
   rewrite source.
@@ -44,7 +45,7 @@ exact-artifact check, workflow job, trigger or permission is modified.
 - R-1: A non-mutating Ruff gate runs inside the existing
   `static-contract-security` domain of the merge-facing aggregate: step
   `Ruff lint (non-mutating)` installs `ruff==0.16.10` (exact pin) and runs
-  `ruff check .` against the committed `ruff.toml` with
+  `ruff check --config scripts/quality/ruff.toml .` against the committed config with
   `select = ["E9", "F"]` and `fix = false`. Zero blanket ignores: any future
   suppression must be narrow (per-file ignore for a named rule or an inline
   `# noqa: CODE` with the specific code) with written justification in
@@ -53,8 +54,8 @@ exact-artifact check, workflow job, trigger or permission is modified.
   `Progressive mypy (strict baseline)` installs `mypy==1.18.2` (exact pin —
   last release line with pure-Python dependencies; 1.19+ requires the librt
   C extension; 2.x additionally requires the Rust-based `ast_serialize`
-  parser) and runs `mypy --config-file mypy.ini` over the five strict
-  modules. The committed `mypy.ini` keeps the global section permissive;
+  parser) and runs `mypy --config-file scripts/quality/mypy.ini` over the five strict
+  modules. The committed `scripts/quality/mypy.ini` keeps the global section permissive;
   per-module `strict = True` sections are the adoption mechanism; new small,
   pure, well-tested modules enter the strict set during code review;
   suppressions must be narrow `# type: ignore[code]` only.
@@ -85,10 +86,11 @@ exact-artifact check, workflow job, trigger or permission is modified.
   markers remain byte-identical.
 - R-5: Deterministic documented local invocation: after
   `pip install ruff==0.16.10 mypy==1.18.2`, from the repository root,
-  `ruff check .` and the exact mypy command from the workflow (same five
+  `ruff check --config scripts/quality/ruff.toml .` and the exact mypy command
+  from the workflow (same five
   modules, same config file) reproduce the CI steps; the commands are
   documented in `docs/quality/testing-policy.md`.
-- R-6: No source mutation by CI: `fix = false` in `ruff.toml`; the mypy step
+- R-6: No source mutation by CI: `fix = false` in `scripts/quality/ruff.toml`; the mypy step
   is analysis-only; neither step writes, rewrites or reformats any file; no
   heredocs and no new `uses:` entries are introduced.
 
@@ -97,14 +99,17 @@ exact-artifact check, workflow job, trigger or permission is modified.
 - AC-001: The `Ruff lint (non-mutating)` step is present in the
   `static-contract-security` job of `.github/workflows/quality-integration.yml`
   (after the JSON/py_compile step, before the unittest step) and the step is
-  green — `ruff check .` exits zero on the merged head with the calibrated
+  green — `ruff check --config scripts/quality/ruff.toml .` exits zero on the
+  merged head with the calibrated
   fixes applied.
-  Validation: workflow diff review plus local `ruff check .` (exit 0).
+  Validation: workflow diff review plus local `ruff check --config
+  scripts/quality/ruff.toml .` (exit 0).
 - AC-002: The `Progressive mypy (strict baseline)` step is present in the
   same job in the same position and is green — mypy 1.18.2 over the five
   strict modules exits zero.
   Validation: workflow diff review plus the local mypy command (exit 0).
-- AC-003: The local battery is green: `ruff check .`, the mypy strict
+- AC-003: The local battery is green: `ruff check --config
+  scripts/quality/ruff.toml .`, the mypy strict
   command, `scripts/quality/validate_workflow_policy.py`,
   `scripts/ci/validate_repo.py`, `scripts/ci/validate_contracts.py`,
   `scripts/quality/validate_quality_contracts.py`,
@@ -118,7 +123,7 @@ exact-artifact check, workflow job, trigger or permission is modified.
   the no-blanket-ignores rule and the exact local commands; the
   `Status: Active` marker is untouched.
   Validation: read of `docs/quality/testing-policy.md`.
-- AC-005: The diff equals exactly the allowed files: `ruff.toml`, `mypy.ini`,
+- AC-005: The diff equals exactly the allowed files: `scripts/quality/ruff.toml`, `scripts/quality/mypy.ini`,
   `.github/workflows/quality-integration.yml`, `docs/quality/testing-policy.md`,
   the 11 calibrated source files and the `specs/399-ruff-progressive-type-gates/`
   trio — nothing else.
@@ -152,5 +157,5 @@ exact-artifact check, workflow job, trigger or permission is modified.
 
 - NFR-SECURITY | Area: Security | Target: Security impact NONE — no permission change, no secrets, no new actions, no heredocs; the gate only fails builds on findings and never mutates source (`fix = false`) | Validation: scripts/quality/validate_workflow_policy.py plus diff review of the two inserted steps | Evidence: validator output and PR files-changed list recorded in the PR | Status: PASS
 - NFR-SUPPLY-CHAIN | Area: supply chain | Target: both tools installed from exact pins (`ruff==0.16.10`, `mypy==1.18.2`) as pure pip installs with no runtime downloads, no node/rust toolchain fetch and no heredocs | Validation: run-block review of the two steps (pip install lines pinned; no curl/wget) | Evidence: workflow source plus PR files-changed list | Status: PASS
-- NFR-MAINTAINABILITY | Area: maintainability | Target: zero ruff findings and a committed progressive mypy baseline at merge; strict adoption path documented so new modules can be held to strict typing at review | Validation: local `ruff check .` (exit 0) and mypy strict command (exit 0); docs section review | Evidence: local battery output recorded in the PR | Status: PASS
+- NFR-MAINTAINABILITY | Area: maintainability | Target: zero ruff findings and a committed progressive mypy baseline at merge; strict adoption path documented so new modules can be held to strict typing at review | Validation: local `ruff check --config scripts/quality/ruff.toml .` (exit 0) and mypy strict command (exit 0); docs section review | Evidence: local battery output recorded in the PR | Status: PASS
 - NFR-SCOPE | Area: maintainability | Target: diff limited to the 18 allowed files (2 config + 2 docs/workflow + 11 calibrated sources + 3 SDD artifacts); no validator, test, deploy path or other workflow touched | Validation: git diff --stat review | Evidence: PR files-changed list | Status: PASS
