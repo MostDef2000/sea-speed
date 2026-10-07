@@ -55,6 +55,7 @@ CAMERA_PREVIEW_STATE_FILE = DATA_DIR / "camera-preview-state.json"
 CAMERA_PREVIEW_FFMPEG_BIN = os.environ.get("SEA_SPEED_CAMERA_PREVIEW_FFMPEG", "/usr/bin/ffmpeg")
 
 API_TOKEN = os.environ.get("SEA_SPEED_API_TOKEN", "")
+WORKER_CONTROL_TOKEN = os.environ.get("SEA_SPEED_WORKER_CONTROL_TOKEN", "")
 WORKER_CONTROL_URL = os.environ.get(
     "SEA_SPEED_WORKER_CONTROL_URL", "http://10.123.239.102:19001"
 ).strip()
@@ -171,12 +172,12 @@ def call_worker_control(method: str, path: str) -> Dict[str, Any]:
     }
     if (method, path) not in allowed:
         raise HTTPException(status_code=500, detail="Unsupported worker control operation")
-    if not API_TOKEN:
-        raise HTTPException(status_code=503, detail="Worker control authentication is unavailable")
+    if not WORKER_CONTROL_TOKEN:
+        raise HTTPException(status_code=500, detail="SEA_SPEED_WORKER_CONTROL_TOKEN is not set")
     host, port = worker_control_origin()
     connection = http.client.HTTPConnection(host, port, timeout=WORKER_CONTROL_TIMEOUT_SEC)
     try:
-        headers = {"Authorization": f"Bearer {API_TOKEN}", "Accept": "application/json"}
+        headers = {"Authorization": f"Bearer {WORKER_CONTROL_TOKEN}", "Accept": "application/json"}
         if method == "POST":
             headers["Content-Length"] = "0"
         connection.request(method, path, body=None, headers=headers)

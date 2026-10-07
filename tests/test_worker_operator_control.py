@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -63,11 +65,23 @@ def test_private_listener_rejects_public_loopback_and_privileged_ports():
 
 def test_bearer_auth_fails_closed(monkeypatch):
     module = load_agent()
-    monkeypatch.setenv("SEA_SPEED_API_TOKEN", "test-secret")
+    monkeypatch.setenv("SEA_SPEED_WORKER_CONTROL_TOKEN", "test-secret")
+    monkeypatch.setenv("SEA_SPEED_API_TOKEN", "ingest-secret")
     assert module.authorized(None) is False
     assert module.authorized("Bearer wrong") is False
     assert module.authorized("Basic test-secret") is False
+    assert module.authorized("Bearer ingest-secret") is False
     assert module.authorized("Bearer test-secret") is True
+
+
+def test_agent_startup_fails_closed_without_control_token():
+    env = {key: value for key, value in os.environ.items() if not key.startswith("SEA_SPEED_")}
+    env["SEA_SPEED_API_TOKEN"] = "ingest-secret"
+    result = subprocess.run(
+        [sys.executable, str(AGENT_PATH)], env=env, capture_output=True, text=True, timeout=15,
+    )
+    assert result.returncode != 0
+    assert "SEA_SPEED_WORKER_CONTROL_TOKEN" in (result.stdout + result.stderr)
 
 
 def test_water_start_failure_restores_previous_desired_state(monkeypatch, tmp_path):
@@ -164,6 +178,7 @@ def test_vps_api_contract_is_fixed_private_proxy_with_trusted_identity():
     assert "require_operator_identity" in source
     assert "http.client.HTTPConnection" in source
     assert "SEA_SPEED_API_TOKEN" in source
+    assert "SEA_SPEED_WORKER_CONTROL_TOKEN" in source
     assert "worker_control_origin" in source
     assert '/api/worker/control/{' not in source
 

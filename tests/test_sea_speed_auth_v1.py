@@ -389,6 +389,7 @@ class SeaSpeedAuthV1Tests(unittest.TestCase):
         ):
             self.assertIn(marker, source)
         self.assertNotIn("SEA_SPEED_API_TOKEN", source)
+        self.assertNotIn("SEA_SPEED_WORKER_CONTROL_TOKEN", source)
         self.assertNotIn("systemctl restart sea-speed-worker", source)
         self.assertNotIn("systemctl stop sea-speed-worker", source)
         self.assertNotIn("systemctl restart mediamtx", source)

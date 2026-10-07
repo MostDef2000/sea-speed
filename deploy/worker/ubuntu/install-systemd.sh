@@ -42,6 +42,7 @@ provenance="$release_root/source-commit"
 runtime_id_file="$release_root/runtime-id"
 env_file="$install_root/shared/config/worker.env"
 road_env_file="$install_root/shared/config/road-worker.env"
+control_env_file="$install_root/control.env"
 runtime_state_root="$install_root/shared/runtime"
 road_runtime_root="$install_root/shared/road-runtime"
 road_output_root="$install_root/shared/road-output"
@@ -98,6 +99,38 @@ fi
 if [[ "$(stat -c '%a' "$env_file")" != "600" ]]; then
   echo "ERROR environment file mode must be 600" >&2
   exit 7
+fi
+
+if [[ -L "$control_env_file" ]]; then
+  echo "ERROR control environment file must be a regular file, not a symlink: $control_env_file" >&2
+  echo "Create it from control.env.example, populate SEA_SPEED_WORKER_CONTROL_TOKEN locally, and chmod 600." >&2
+  exit 8
+fi
+if [[ ! -f "$control_env_file" ]]; then
+  echo "ERROR control environment file missing: $control_env_file" >&2
+  echo "Create it from control.env.example, populate SEA_SPEED_WORKER_CONTROL_TOKEN locally, and chmod 600." >&2
+  exit 8
+fi
+if [[ "$(stat -c '%a' "$control_env_file")" != "600" ]]; then
+  echo "ERROR control environment file mode must be 600" >&2
+  exit 8
+fi
+token_value="$(sed -n 's/^SEA_SPEED_WORKER_CONTROL_TOKEN=//p' "$control_env_file" | tail -n 1)"
+token_value="${token_value%\"}"
+token_value="${token_value#\"}"
+token_value="${token_value%\'}"
+token_value="${token_value#\'}"
+if [[ -z "${token_value//[[:space:]]/}" ]]; then
+  echo "ERROR control environment file must contain a non-empty SEA_SPEED_WORKER_CONTROL_TOKEN value" >&2
+  exit 8
+fi
+if [[ "$(stat -c '%U:%G' "$control_env_file")" != "root:root" ]]; then
+  echo "ERROR control environment file must be owned by root:root" >&2
+  exit 8
+fi
+if [[ "$(stat -c '%U' "$install_root")" != "root" ]]; then
+  echo "ERROR install root must be root-owned" >&2
+  exit 8
 fi
 
 if ! id "$service_user" >/dev/null 2>&1; then

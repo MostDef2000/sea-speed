@@ -9,7 +9,7 @@ Type=simple
 User=root
 Group=root
 WorkingDirectory=__INSTALL_ROOT__/shared/runtime
-EnvironmentFile=__INSTALL_ROOT__/shared/config/worker.env
+EnvironmentFile=__INSTALL_ROOT__/control.env
 Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=SEA_SPEED_WORKER_INSTALL_ROOT=__INSTALL_ROOT__

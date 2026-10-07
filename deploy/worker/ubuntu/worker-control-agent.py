@@ -180,7 +180,7 @@ def start_worker(target: str = "water") -> dict[str, Any]:
 
 
 def token() -> str:
-    return os.environ.get("SEA_SPEED_API_TOKEN", "")
+    return os.environ.get("SEA_SPEED_WORKER_CONTROL_TOKEN", "")
 
 
 def authorized(header: str | None) -> bool:
@@ -246,7 +246,7 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     if not token():
-        raise SystemExit("SEA_SPEED_API_TOKEN is required")
+        raise SystemExit("SEA_SPEED_WORKER_CONTROL_TOKEN is required")
     host, port = parse_private_listen(os.environ.get("SEA_SPEED_WORKER_CONTROL_LISTEN", DEFAULT_LISTEN))
     print(
         f"worker-control listen={host}:{port} services={SERVICE_NAME},{ROAD_SERVICE_NAME}",
