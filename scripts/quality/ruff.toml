@@ -1,0 +1,15 @@
+# Ruff configuration for the Sea Speed repository (task #399).
+#
+# Low-noise non-mutating lint gate: E9 (syntax/runtime-level errors) + F
+# (pyflakes: unused imports/variables, f-strings without placeholders).
+# The default E4/E7 rule families are deliberately deferred: the legacy
+# codebase uses a dense multi-statement style (267 findings on main for
+# E701/E702/E401 alone), and enabling them now would require a mass rewrite
+# that this task explicitly does not request. Line length (E501) is likewise
+# deferred: ~300 legacy lines exceed 120 characters.
+# fix = false: the gate must never mutate source, locally or in CI.
+target-version = "py314"
+fix = false
+
+[lint]
+select = ["E9", "F"]

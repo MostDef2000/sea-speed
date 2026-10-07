@@ -20,11 +20,11 @@ class StageTimers:
 @dataclass
 class PerformanceTracker:
     window_sec: float = 5.0
-    _times: collections.deque = field(default_factory=lambda: collections.deque())
-    _decoded_times: collections.deque = field(default_factory=lambda: collections.deque())
-    _inferred_times: collections.deque = field(default_factory=lambda: collections.deque())
-    _inference_ms: collections.deque = field(default_factory=lambda: collections.deque(maxlen=100))
-    _frame_ages_ms: collections.deque = field(default_factory=lambda: collections.deque(maxlen=100))
+    _times: collections.deque[float] = field(default_factory=lambda: collections.deque())
+    _decoded_times: collections.deque[float] = field(default_factory=lambda: collections.deque())
+    _inferred_times: collections.deque[float] = field(default_factory=lambda: collections.deque())
+    _inference_ms: collections.deque[float] = field(default_factory=lambda: collections.deque(maxlen=100))
+    _frame_ages_ms: collections.deque[float] = field(default_factory=lambda: collections.deque(maxlen=100))
     _dropped: int = 0
     _published: int = 0
 
@@ -36,7 +36,6 @@ class PerformanceTracker:
             self._decoded_times.popleft()
 
     def record_inferred(self, *, ingest_mono: float, inference_ms: float, frame_age_ms: float) -> None:
-        now = ingest_mono if ingest_mono else time.monotonic()
         # use wall time for window but ingest for age consistency
         wall = time.monotonic()
         self._inferred_times.append(wall)
