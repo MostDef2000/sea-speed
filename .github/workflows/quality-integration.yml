@@ -56,6 +56,16 @@ jobs:
           set -euo pipefail
           find data/contracts data/quality schemas -type f -name '*.json' -print0 | xargs -0 -n1 python -m json.tool >/dev/null
           python -m py_compile scripts/quality/*.py scripts/release/*.py
+      - name: Ruff lint (non-mutating)
+        run: |
+          set -euo pipefail
+          pip install ruff==0.16.10
+          ruff check .
+      - name: Progressive mypy (strict baseline)
+        run: |
+          set -euo pipefail
+          pip install mypy==1.18.2
+          mypy --config-file mypy.ini scripts/quality/common.py worker/analytics_profiles.py worker/detection_performance.py scripts/release/production_policy.py scripts/ci/validate_delivery_checkpoint.py
       - name: Run repository behavioral tests
         run: python -W error::ResourceWarning -m unittest discover -s tests -p 'test_*.py' -v
 
