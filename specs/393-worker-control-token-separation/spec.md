@@ -25,7 +25,8 @@ AI worker services via the root control agent is distributed to the widest
 credential population. Issue #393 separates these contours: ingestion
 keeps `SEA_SPEED_API_TOKEN` (name and value unchanged); a new dedicated
 `SEA_SPEED_WORKER_CONTROL_TOKEN`, operator-provisioned in
-`__INSTALL_ROOT__/shared/config/control.env` (mode 0600), is known only to
+`__INSTALL_ROOT__/control.env` (mode 0600, root:root, under the root-owned
+install root and outside the `shared/` tree), is known only to
 the VPS API and the root control agent.
 
 ### Contours
@@ -88,7 +89,7 @@ the VPS API and the root control agent.
   startup fail-closed message names it specifically, and the source contains
   no fallback to `SEA_SPEED_API_TOKEN` (no dual-accept).
 - R-2: The control unit template carries exactly one
-  `EnvironmentFile=` pointing at `__INSTALL_ROOT__/shared/config/control.env`;
+  `EnvironmentFile=` pointing at `__INSTALL_ROOT__/control.env`;
   the direct `SEA_SPEED_WORKER_INSTALL_ROOT` and `SEA_SPEED_SOURCE_COMMIT`
   `Environment=` injections are unchanged; the agent needs nothing else from
   `worker.env`.
@@ -158,7 +159,8 @@ the VPS API and the root control agent.
 ## Runtime feedback
 
 - RF-001: Operator actions expected before merge: provision
-  `<install-root>/shared/config/control.env` (mode 0600, non-empty
+  `<install-root>/control.env` (mode 0600, root:root, under the root-owned
+  install root and outside the `shared/` tree, non-empty
   `SEA_SPEED_WORKER_CONTROL_TOKEN`) on the Ubuntu worker and set
   `SEA_SPEED_WORKER_CONTROL_TOKEN` in the VPS API environment. Both are
   protected-channel operator steps; values never enter chat, Git or CI.

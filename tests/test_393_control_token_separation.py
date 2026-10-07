@@ -6,6 +6,8 @@ import importlib.util
 import ipaddress
 import json
 import os
+import posixpath
+import re
 import subprocess
 import sys
 import types
@@ -179,7 +181,8 @@ class WorkerControlTokenSeparationTests(unittest.TestCase):
 
     def test_control_unit_loads_dedicated_control_env_only(self) -> None:
         source = CONTROL_UNIT.read_text(encoding="utf-8")
-        self.assertIn("EnvironmentFile=__INSTALL_ROOT__/shared/config/control.env", source)
+        self.assertIn("EnvironmentFile=__INSTALL_ROOT__/control.env", source)
+        self.assertNotIn("shared/config/control.env", source)
         self.assertNotIn("worker.env", source)
 
     # --- Example hygiene ----------------------------------------------------
@@ -209,26 +212,66 @@ class WorkerControlTokenSeparationTests(unittest.TestCase):
 
     def test_installer_gates_control_env_before_mutation(self) -> None:
         source = INSTALLER.read_text(encoding="utf-8")
-        self.assertIn('control_env_file="$install_root/shared/config/control.env"', source)
+        self.assertIn('control_env_file="$install_root/control.env"', source)
         gate_index = source.index('if [[ -L "$control_env_file" ]]')
         self.assertIn('if [[ ! -f "$control_env_file" ]]', source)
         self.assertIn('[[ "$(stat -c \'%a\' "$control_env_file")" != "600" ]]', source)
         self.assertIn("sed -n 's/^SEA_SPEED_WORKER_CONTROL_TOKEN=//p'", source)
         self.assertIn("${token_value//[[:space:]]/}", source)
+        # Ownership gates: the credential file must be root:root and the
+        # install root itself must be root-owned; violations are rejected,
+        # never transferred or repaired.
+        self.assertIn("[[ \"$(stat -c '%U:%G' \"$control_env_file\")\" != \"root:root\" ]]", source)
+        self.assertIn("control environment file must be owned by root:root", source)
+        self.assertIn("[[ \"$(stat -c '%U' \"$install_root\")\" != \"root\" ]]", source)
+        self.assertIn("install root must be root-owned", source)
         self.assertIn("exit 8", source)
         self.assertIn("exit 6", source)
         self.assertIn("exit 7", source)
         self.assertLess(gate_index, source.index("useradd"))
         self.assertLess(gate_index, source.index("mkdir -p"))
-        # The recursive shared-tree chown hands ownership to the data-plane
-        # service user; the installer must re-assert root ownership of
-        # control.env and its config directory immediately afterwards, and
-        # never before that recursive chown.
-        chown_shared_index = source.index('chown -R "$service_user:$service_user" "$install_root/shared"')
-        chown_root_index = source.index('chown root:root "$install_root/shared/config" "$control_env_file"')
-        control_chmod_index = source.index('chmod 600 "$control_env_file"', chown_root_index)
-        self.assertLess(chown_shared_index, chown_root_index)
-        self.assertLess(chown_root_index, control_chmod_index)
+        # Ancestry invariant (executable logic, not just string markers):
+        # the control credential's pathname must live OUTSIDE the subtree
+        # the installer recursively chowns to the data-plane service user.
+        # Inside that subtree the recursive chown would transiently hand the
+        # credential to the data-plane user (TOCTOU) and leave its parent
+        # directory service-user-owned, which would let that account rename
+        # the credential's directory and plant an attacker-selected
+        # control.env for the root control agent to load on restart.
+        chown_targets = re.findall(
+            r'chown -R "\$service_user:\$service_user" "([^"]+)"', source
+        )
+        self.assertEqual(
+            len(chown_targets), 1,
+            "expected exactly one recursive service-user chown in the installer",
+        )
+        chown_target = chown_targets[0]
+        template = CONTROL_UNIT.read_text(encoding="utf-8")
+        env_files = re.findall(r"(?m)^EnvironmentFile=(.+)$", template)
+        self.assertEqual(len(env_files), 1)
+        env_path = env_files[0].strip()
+        self.assertTrue(
+            env_path.startswith("__INSTALL_ROOT__/"),
+            "control EnvironmentFile must be anchored to the install root",
+        )
+        env_relative = env_path[len("__INSTALL_ROOT__/"):]
+        # Resolve both paths against the same synthetic install root, then
+        # assert the credential is not a recursive-chown descendant: the
+        # credential's directory must never enter the service-user chown
+        # scope (no transient ownership transfer, no rename-and-replace
+        # window against a service-user-owned parent directory).
+        synthetic_root = "/sea-speed-393-ancestry-probe"
+        resolved_chown_target = posixpath.normpath(
+            chown_target.replace("$install_root", synthetic_root)
+        )
+        resolved_env_path = posixpath.normpath(
+            posixpath.join(synthetic_root, env_relative)
+        )
+        common = posixpath.commonpath([resolved_chown_target, resolved_env_path])
+        self.assertNotEqual(
+            common, resolved_chown_target,
+            "control.env must not live inside the recursively chowned subtree",
+        )
 
     def test_installer_and_exact_updater_shell_syntax(self) -> None:
         for path in (INSTALLER, EXACT_UPDATER):

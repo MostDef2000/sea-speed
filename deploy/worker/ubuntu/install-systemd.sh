@@ -42,7 +42,7 @@ provenance="$release_root/source-commit"
 runtime_id_file="$release_root/runtime-id"
 env_file="$install_root/shared/config/worker.env"
 road_env_file="$install_root/shared/config/road-worker.env"
-control_env_file="$install_root/shared/config/control.env"
+control_env_file="$install_root/control.env"
 runtime_state_root="$install_root/shared/runtime"
 road_runtime_root="$install_root/shared/road-runtime"
 road_output_root="$install_root/shared/road-output"
@@ -124,6 +124,14 @@ if [[ -z "${token_value//[[:space:]]/}" ]]; then
   echo "ERROR control environment file must contain a non-empty SEA_SPEED_WORKER_CONTROL_TOKEN value" >&2
   exit 8
 fi
+if [[ "$(stat -c '%U:%G' "$control_env_file")" != "root:root" ]]; then
+  echo "ERROR control environment file must be owned by root:root" >&2
+  exit 8
+fi
+if [[ "$(stat -c '%U' "$install_root")" != "root" ]]; then
+  echo "ERROR install root must be root-owned" >&2
+  exit 8
+fi
 
 if ! id "$service_user" >/dev/null 2>&1; then
   useradd --system --home-dir "$install_root" --shell /usr/sbin/nologin "$service_user"
@@ -139,10 +147,6 @@ ln -sfn "$install_root/shared/datasets" "$road_runtime_root/datasets"
 chown -R "$service_user:$service_user" "$install_root/shared"
 chmod 750 "$install_root/shared" "$install_root/shared/config" "$install_root/shared/models" "$install_root/shared/datasets" "$install_root/shared/output" "$runtime_state_root" "$road_runtime_root" "$road_output_root"
 chmod 600 "$env_file"
-# control.env and its directory stay root-owned: the data-plane service user must never read or replace the control token.
-chown root:root "$install_root/shared/config" "$control_env_file"
-chmod 750 "$install_root/shared/config"
-chmod 600 "$control_env_file"
 if [[ -f "$road_env_file" ]]; then
   [[ "$(stat -c '%a' "$road_env_file")" == "600" ]] || { echo "ERROR road-worker.env must be mode 600" >&2; exit 7; }
 fi

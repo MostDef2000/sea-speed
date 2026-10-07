@@ -54,7 +54,7 @@ class UbuntuWorkerSystemdTests(unittest.TestCase):
 
     def test_control_unit_loads_dedicated_control_env_not_worker_env(self) -> None:
         control = CONTROL_UNIT.read_text(encoding="utf-8")
-        self.assertIn("EnvironmentFile=__INSTALL_ROOT__/shared/config/control.env", control)
+        self.assertIn("EnvironmentFile=__INSTALL_ROOT__/control.env", control)
         self.assertNotIn("worker.env", control)
 
     def test_control_service_remains_independent_and_write_bounded(self) -> None:

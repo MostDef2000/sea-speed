@@ -170,9 +170,9 @@ SEA_SPEED_WORKER_CONTROL_TOKEN   control plane only (VPS API -> root control age
 Provision both sides before the issue #393 code is deployed (the merge triggers both deploy jobs):
 
 1. VPS: set `SEA_SPEED_WORKER_CONTROL_TOKEN` in the operator-managed API service environment (root-owned, mode 0600, never committed to Git and never written by deployments).
-2. Ubuntu worker: create `/opt/sea-speed-worker/shared/config/control.env` from `deploy/worker/ubuntu/control.env.example` with a non-empty value, as a regular file (no symlink) with mode `0600`.
+2. Ubuntu worker: create `/opt/sea-speed-worker/control.env` (adjust for a custom install root) from `deploy/worker/ubuntu/control.env.example` with a non-empty value, as a regular file (no symlink) with mode `0600`, owner `root:root`. The file must live under the root-owned install root, explicitly OUTSIDE the service-user-owned `shared/` tree, so the data-plane account can neither read, nor replace, nor rename the credential's directory. The installer rejects anything else.
 
-The control token must be a distinct value, never a copy of `SEA_SPEED_API_TOKEN`. `install-systemd.sh` fails closed with exit code 8 when `control.env` is missing, a symlink, not mode 600, or has an empty token. The control agent refuses to start without the token. On the worker, `control.env` stays root:root 0600: after its recursive `chown` of the shared tree the installer re-asserts root ownership on `control.env` and its config directory, so the data-plane service user can neither read nor replace the control token.
+The control token must be a distinct value, never a copy of `SEA_SPEED_API_TOKEN`. `install-systemd.sh` fails closed with exit code 8 when `control.env` is missing, a symlink, not mode 600, not owned by `root:root`, when the install root itself is not root-owned, or when the token is empty. The control agent refuses to start without the token. `control.env` lives under the root-owned install root, never enters the recursive service-user `chown` scope (so no transient ownership transfer exists), and the installer gates its ownership (`root:root`) and the install root's ownership — the data-plane service user can neither read, nor replace, nor rename the credential's directory.
 
 ### Hard cutover, no dual-accept
 
@@ -180,13 +180,21 @@ Each side switches to the new token atomically per process, with no transition w
 
 ### Bounded two-job deploy gap
 
-One exact merge fans out to two independent deployment jobs (VPS API and Ubuntu worker units). The jobs are unordered: either skew direction is possible, and cross-host activation is NOT ordered. Each side switches atomically per process, so inside the skew window browser-initiated worker control fails closed (403/500/503) while ingestion continues unaffected:
+One exact merge fans out to two independent deployment jobs (VPS API and Ubuntu worker units). The jobs are unordered: either skew direction is possible, and cross-host activation is NOT ordered. Each side switches atomically per process, so inside the skew window browser-initiated worker control fails closed while ingestion continues unaffected. Verified failure mapping of `call_worker_control()` in `api/app/main.py`: an unset `SEA_SPEED_WORKER_CONTROL_TOKEN` raises HTTP 500 `SEA_SPEED_WORKER_CONTROL_TOKEN is not set` before any connection is attempted; a refused/unreachable agent connection raises HTTP 503 `Worker control agent is unavailable`; any non-200 agent reply — including the agent's 403 `forbidden` bearer rejection — raises HTTP 503 `Worker control operation failed` (the agent status is not passed through). The skew directions:
 
-- new API + old agent: the agent rejects the control token (403) and the API surfaces 503;
-- new API + agent not yet provisioned: the API fails closed with 500 before any connection;
-- new agent + old API: possible when the worker job completes first, and the old API's ingestion bearer is rejected by the agent (403).
+- new API + old agent: the old agent still expects the ingestion token and rejects the control-token bearer with 403 `{"ok": false, "error": "forbidden"}`; the API maps the non-200 reply to 503 `Worker control operation failed`;
+- new API + agent unit not provisioned/failing: the connection fails and the API surfaces 503 `Worker control agent is unavailable`; if the VPS env var itself is unset, the API fails closed with 500 before any connection;
+- new agent + old API: possible when the worker job completes first; the old API still sends the ingestion bearer and the new agent rejects it with 403.
 
 Provisioning both sides before the merge keeps the window bounded. Data-plane ingestion (`POST state/events`, ROI/speed-config reads) does not depend on the control token and keeps working throughout the window.
+
+### Runtime acceptance
+
+After both deploy jobs complete:
+
+- worker-control status through the VPS API succeeds with the control token; ingestion state/event posts keep working with the unchanged `SEA_SPEED_API_TOKEN`;
+- a control call bearing the ingestion token is rejected by the agent (403);
+- negative probe (MUST fail): `sudo -u sea-speed test -r /opt/sea-speed-worker/control.env` — the data-plane service user must not be able to read the control credential, which lives outside the service-user-owned `shared/` tree.
 
 ### Rollback semantics
 

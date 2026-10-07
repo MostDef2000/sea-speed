@@ -14,7 +14,8 @@ Data plane (unchanged):
 Control plane (new separation):
   VPS env for sea-speed-api: SEA_SPEED_WORKER_CONTROL_TOKEN
       -> call_worker_control() Authorization: Bearer <control token>
-  worker control.env (operator-owned, 0600, __INSTALL_ROOT__/shared/config/)
+  worker control.env (operator-owned, 0600, __INSTALL_ROOT__/control.env,
+    under the root-owned install root, OUTSIDE the shared/ tree)
     SEA_SPEED_WORKER_CONTROL_TOKEN
       -> sea-speed-worker-control.service (EnvironmentFile=) -> worker-control-agent.py
 ```
@@ -34,7 +35,7 @@ Code changes:
   constant-time comparison; no dual-accept path exists or is added.
 - `deploy/worker/ubuntu/sea-speed-worker-control.service.template` — the
   single `EnvironmentFile=` switches from `worker.env` to
-  `shared/config/control.env`; the direct `Environment=` injections
+  `__INSTALL_ROOT__/control.env`; the direct `Environment=` injections
   (`SEA_SPEED_WORKER_INSTALL_ROOT`, `SEA_SPEED_SOURCE_COMMIT`) stay. The
   agent reads only the install root, the control token and the optional
   `SEA_SPEED_WORKER_CONTROL_LISTEN` (default `10.123.239.102:19001`), so it
@@ -45,7 +46,8 @@ Code changes:
 - `deploy/worker/ubuntu/install-systemd.sh` — fail-closed gate before any
   unit rendering/installation, mirroring the existing worker.env gate but
   stricter: file exists, is regular, is not a symlink, mode exactly 600,
-  and a silently-parsed non-empty `SEA_SPEED_WORKER_CONTROL_TOKEN` value.
+  a silently-parsed non-empty `SEA_SPEED_WORKER_CONTROL_TOKEN` value,
+  file ownership exactly `root:root`, and a root-owned install root.
   No chmod repair and no content echo: the file is operator-owned.
 
 ## Decisions
@@ -58,7 +60,9 @@ Code changes:
   listen variable, so nothing else from `worker.env` is required.
 - DEC-2: Names are `SEA_SPEED_WORKER_CONTROL_TOKEN` (env var, both hosts)
   and `control.env` / `control.env.example` (operator-provisioned file,
-  0600, `deploy/worker/ubuntu/` example in-repo).
+  0600, root:root, provisioned at `$install_root/control.env` — e.g.
+  `/opt/sea-speed-worker/control.env` — under the root-owned install root
+  and outside the `shared/` tree; `deploy/worker/ubuntu/` example in-repo).
 - DEC-3: `configure-analytics-profiles.py` is untouched: it writes
   data-plane env values into worker/road env files and has no relationship
   to the control plane.
@@ -66,12 +70,14 @@ Code changes:
   of symlink, mode exactly 600 and a non-empty
   `SEA_SPEED_WORKER_CONTROL_TOKEN` value (silent parse, never printed);
   empty, whitespace-only and quote-only values are rejected by the same
-  gate; failure exits before rendering/installing any unit. After the
-  recursive `chown` of the shared tree the installer re-asserts root
-  ownership on `control.env` and its parent config directory (file 0600,
-  directory 0750): the data-plane service user must never be able to read
-  or replace the control token. Gate error messages never include file
-  contents.
+  gate; failure exits before rendering/installing any unit. The gates also
+  require the file to be owned by `root:root` and the install root itself
+  to be root-owned — violations are rejected, never transferred or
+  repaired. The credential lives at `$install_root/control.env`, outside
+  the `shared/` tree, so it never enters the recursive service-user
+  `chown` scope: no transient ownership transfer (TOCTOU) exists and the
+  data-plane account can neither read, nor replace, nor rename the
+  credential's directory. Gate error messages never include file contents.
 - DEC-5: The API mirrors `require_auth`'s fail-closed posture for the
   control path: HTTP 500 naming the unset variable instead of the previous
   API-token-derived 503, and the Authorization header is built from
@@ -118,8 +124,8 @@ writes units only after every gate passes and never starts services.
 
 - TX-ADMISSION | Stage: ADMISSION | Mutation: NO | Failure disposition: FATAL | State after failure: no merge and no deploy; the control-token provisioning checklist remains an open operator prerequisite and the Change Contract is not admissible | Retry: after the operator provisions both token sides and the PR body matches the exact diff, re-run admission | Rollback: not applicable — no runtime state exists at this stage | Evidence: PR Change Contract (Production impact MIXED, Risk profile REQUIRED, Production safety envelope REQUIRED) plus the ops runbook pre-merge provisioning section
 - TX-PRE-MUTATION | Stage: PRE-MUTATION | Mutation: NO | Failure disposition: FATAL | State after failure: the installer gate (exit 6/7/8) fails inside the OUTER updater transaction after unit backups were taken, so update-exact.sh aborts and executes its restore path — previous worker/road/control units are reinstalled and restarted from backups per desired state; the failure is not a disturbance-free no-op (services may be restarted), but no target-release unit is ever installed and control.env itself is never mutated by deploy tooling (operator-owned) | Retry: after fixing the failing precondition (missing/non-regular/symlinked/non-0600/empty-or-quote-only-token control.env) re-run the transaction | Rollback: the outer updater's restore path IS the rollback for this stage — previous units are reinstalled from the taken backups; no target-release state was committed | Evidence: installer gate error messages naming path/mode/variable requirements only (never file contents), plus RESTORE/RESTORED lines from update-exact.sh in deploy logs
-- TX-MUTATION | Stage: MUTATION | Mutation: YES | Failure disposition: CONDITIONAL | State after failure: if unit rendering/installation or activation fails after backup — including a late installer-gate rejection — the OUTER updater transaction aborts and executes its restore path (previous worker/road/control units reinstalled and restarted from backups); it is not a disturbance-free no-op; a later-stage failure falls back to CRITICAL logging with ACTIVE_MARKER_UNCHANGED | Retry: re-run the exact deploy after remediation; unit installation is idempotent per exact source commit | Rollback: restore_previous_control() reinstalls the previous control unit, restores its enabled/active state and verifies the restored ExecStart matches the previous commit; control.env itself is never backed up, written, chowned or removed by deploy tooling (operator-owned; the installer only re-asserts its pre-existing root:root 0600 state) | Evidence: INSTALLED/ENABLED/NOT_STARTED installer output, ACTIVATION_ABORTED / RESTORED lines from update-exact.sh
-- TX-VERIFICATION | Stage: VERIFICATION | Mutation: NO | Failure disposition: FATAL | State after failure: deployment reported failed with active worker services unchanged (activation enables but never starts units); post-deploy acceptance probes report the failing contour | Retry: re-run verification after remediation; systemd-analyze verify is deterministic | Rollback: explicit rollback-exact.sh to the previous verified release if later runtime acceptance fails | Evidence: systemd-analyze verify output for the three units plus deploy workflow check results; the VPS API and Ubuntu worker deploy jobs are independent and unordered (either skew direction is possible), so verification evidence is per-job and no cross-host ordering is assumed
+- TX-MUTATION | Stage: MUTATION | Mutation: YES | Failure disposition: CONDITIONAL | State after failure: if unit rendering/installation or activation fails after backup — including a late installer-gate rejection — the OUTER updater transaction aborts and executes its restore path (previous worker/road/control units reinstalled and restarted from backups); it is not a disturbance-free no-op; a later-stage failure falls back to CRITICAL logging with ACTIVE_MARKER_UNCHANGED | Retry: re-run the exact deploy after remediation; unit installation is idempotent per exact source commit | Rollback: restore_previous_control() reinstalls the previous control unit, restores its enabled/active state and verifies the restored ExecStart matches the previous commit; control.env itself is never backed up, written, chowned or removed by deploy tooling (operator-owned; with the install-root placement deploy tooling does not chown it at all — the installer only gates its pre-existing root:root 0600 state) | Evidence: INSTALLED/ENABLED/NOT_STARTED installer output, ACTIVATION_ABORTED / RESTORED lines from update-exact.sh
+- TX-VERIFICATION | Stage: VERIFICATION | Mutation: NO | Failure disposition: FATAL | State after failure: deployment reported failed, but NOT with active worker services unchanged — the updater restarts the control unit (and may restart road/worker services) during activation BEFORE runtime verification, so verification failure can occur after those restarts; post-deploy acceptance probes report the failing contour | Retry: re-run verification after remediation; systemd-analyze verify is deterministic | Rollback: explicit rollback-exact.sh to the previous verified release if later runtime acceptance fails | Evidence: systemd-analyze verify output for the three units plus deploy workflow check results; the VPS API and Ubuntu worker deploy jobs are independent and unordered (either skew direction is possible), so verification evidence is per-job and no cross-host ordering is assumed
 - TX-STATE-COMMIT | Stage: STATE-COMMIT | Mutation: YES | Failure disposition: CONDITIONAL | State after failure: active-marker/state-commit writes are the final mutation; failure triggers abort_activation, which restores the previous marker and units together | Retry: re-run the deploy; the marker write is idempotent for the exact release identity | Rollback: rollback-exact.sh restores the previous active marker, units and runtime binding | Evidence: active-marker output lines and deploy workflow logs
 - TX-HOUSEKEEPING | Stage: HOUSEKEEPING | Mutation: YES | Failure disposition: BEST-EFFORT | State after failure: stale staging/temp/backup files may remain under the updater root; committed unit/marker state on hosts is unaffected | Retry: next deploy run reuses the updater root and re-cleans; no operator action required | Rollback: not applicable — housekeeping never touches operator env files (control.env included) or installed units | Evidence: cleanup() coverage pinned in tests/test_ubuntu_worker_exact_updater.py (unit/road/control backups and marker temp files)
 - TX-EVIDENCE | Stage: EVIDENCE | Mutation: NO | Failure disposition: FATAL | State after failure: missing or inconsistent evidence blocks PR admission and merge | Retry: rebuild artifacts/evidence at the exact head and re-run CI | Rollback: not applicable — evidence collection mutates nothing | Evidence: quality-integration run links, exact artifacts manifest and quality evidence bundle at the exact-green head

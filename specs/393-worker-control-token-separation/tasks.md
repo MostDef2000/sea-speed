@@ -13,12 +13,12 @@
   fail-closed message and no dual-accept of the ingestion token (implements
   R-1)
 - T-393-003: Point the control unit's single `EnvironmentFile=` at
-  `__INSTALL_ROOT__/shared/config/control.env`, keeping the direct
+  `__INSTALL_ROOT__/control.env`, keeping the direct
   `SEA_SPEED_WORKER_INSTALL_ROOT` / `SEA_SPEED_SOURCE_COMMIT` environment
   injections, and add `deploy/worker/ubuntu/control.env.example` (token
   line plus comment-style optional listen) (implements R-2, R-3)
 - T-393-004: Add the fail-closed installer gate for
-  `shared/config/control.env` in `install-systemd.sh` (exists, regular
+  `$install_root/control.env` in `install-systemd.sh` (exists, regular
   file, not a symlink, mode exactly 600, non-empty token parsed silently;
   messages never leak contents) before rendering/installing any unit
   (implements R-5)
