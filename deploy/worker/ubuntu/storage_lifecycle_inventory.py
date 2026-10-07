@@ -12,7 +12,6 @@ from storage_lifecycle_common import (
     SCHEMA_VERSION,
     UPDATER_DIR_RE,
     UPDATER_FILE_RE,
-    LifecycleError,
     canonical_json,
     determine_protected,
     fingerprint,
@@ -128,4 +127,3 @@ def build_plan(args) -> dict[str, Any]:
     }
     payload["plan_id"] = hashlib.sha256(canonical_json(payload)).hexdigest()
     return payload
-
