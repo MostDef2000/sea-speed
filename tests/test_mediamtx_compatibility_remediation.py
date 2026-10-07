@@ -150,13 +150,13 @@ class MediaMTXCompatibilityRemediationTests(unittest.TestCase):
         function = shell_function(source, "probe_two_frames")
 
         one_frame = subprocess.run(
-            ["bash", "-c", f"{function}\ntimeout() {{ printf 'frame=1\\nprogress=end\\n'; }}\nprobe_two_frames test"],
+            ["bash", "-c", f"{function}\ntimeout() {{ printf 'frame=1\nprogress=end\n'; }}\nprobe_two_frames test"],
             check=False,
         )
         self.assertNotEqual(one_frame.returncode, 0)
 
         subprocess.run(
-            ["bash", "-c", f"{function}\ntimeout() {{ printf 'frame=1\\nframe=2\\nprogress=end\\n'; }}\nprobe_two_frames test"],
+            ["bash", "-c", f"{function}\ntimeout() {{ printf 'frame=1\nframe=2\nprogress=end\n'; }}\nprobe_two_frames test"],
             check=True,
         )
 
@@ -191,11 +191,11 @@ class MediaMTXCompatibilityRemediationTests(unittest.TestCase):
         function = shell_function(source, "stop_transient_unit")
 
         with tempfile.TemporaryDirectory() as directory:
-            result = subprocess.run(
+            subprocess.run(
                 [
                     "bash",
                     "-c",
-                    f'{function}\nstate_file="$1/stopped"\nsystemctl() {{ if [[ "$1" == show ]]; then [[ -f "$state_file" ]] && printf "inactive\\n" || printf "active\\n"; elif [[ "$1" == stop ]]; then touch "$state_file"; fi; }}\nstop_transient_unit test.service\n[[ -f "$state_file" ]]',
+                    f'{function}\nstate_file="$1/stopped"\nsystemctl() {{ if [[ "$1" == show ]]; then [[ -f "$state_file" ]] && printf "inactive\n" || printf "active\n"; elif [[ "$1" == stop ]]; then touch "$state_file"; fi; }}\nstop_transient_unit test.service\n[[ -f "$state_file" ]]',
                     "_",
                     directory,
                 ],
