@@ -83,8 +83,8 @@
 - [ ] Issue/spec/plan/tasks current
 - [ ] Exact changed-file scope verified
 - [ ] Required tests and evidence complete
-- [ ] Required CI green
-- [ ] Exact-green-head merge complete
+- [x] Required CI green — auto-synced on merge to main (306cb1e5)
+- [x] Exact-green-head merge complete — auto-synced on merge to main (306cb1e5)
 - [ ] Deployment state resolved
 - [ ] Runtime acceptance resolved
 - [ ] Deferred work recorded
