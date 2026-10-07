@@ -77,6 +77,8 @@ def _path_ready(
             data = json.loads(completed.stdout or "")
         except ValueError:
             return False
+        if not isinstance(data, dict):
+            return False
         if data.get("ready") is not True:
             return False
         if data.get("available") is not True:

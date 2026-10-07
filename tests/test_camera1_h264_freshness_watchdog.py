@@ -368,6 +368,10 @@ class UbuntuWatchdogMediaMTXV1191Tests(unittest.TestCase):
             [self.completed(["curl"], returncode=7, stdout="curl: (7)Failed to connect")],
             ["not-json"],
             [""],
+            ["null"],
+            ["[]"],
+            ['"text"'],
+            ["42"],
             [cam1_h264_v1191_payload(ready=False)],
             [cam1_h264_v1191_payload(available=None)],
             [cam1_h264_v1191_payload(inboundBytes=None)],
@@ -382,6 +386,39 @@ class UbuntuWatchdogMediaMTXV1191Tests(unittest.TestCase):
                 calls, runner = self.ready_runner(list(payloads))
                 self.assertFalse(ubuntu_watchdog._path_ready(runner, noop_sleeper))
                 self.assert_v1191_route(calls)
+
+    def test_path_ready_fail_closed_on_non_object_second_sample(self) -> None:
+        sleeps: list[float] = []
+        calls, runner = self.ready_runner(
+            [
+                cam1_h264_v1191_payload(inboundBytes=V1191_BYTES_T0),
+                "null",
+            ]
+        )
+        self.assertFalse(ubuntu_watchdog._path_ready(runner, sleeps.append))
+        self.assert_v1191_route(calls)
+        self.assertEqual(sleeps, [ubuntu_watchdog.SAMPLE_SECONDS])
+
+    def test_non_object_body_recovers_via_restart(self) -> None:
+        _, state_root = self.state_root()
+        calls, runner = self.watchdog_runner(
+            [
+                "null",
+                cam1_h264_v1191_payload(inboundBytes=V1191_BYTES_T0),
+                cam1_h264_v1191_payload(inboundBytes=V1191_BYTES_T1),
+            ]
+        )
+        lines = ubuntu_watchdog.run_once(
+            runner=runner, sleeper=lambda _: None, clock=lambda: 1000.0, state_root=state_root
+        )
+        self.assertIn("CAMERA1_H264_FRESHNESS=PASS", lines)
+        self.assertIn("CAMERA1_H264_RECOVERY=RESTARTED", lines)
+        self.assertIn("CAMERA1_SOURCE=PASS", lines)
+        self.assert_v1191_route(calls)
+        self.assertEqual(
+            [argv for argv in calls if argv[:2] == ["systemctl", "restart"]],
+            [["systemctl", "restart", "sea-speed-camera1-h264.service"]],
+        )
 
     def test_path_ready_passes_on_growth(self) -> None:
         calls, runner = self.ready_runner(

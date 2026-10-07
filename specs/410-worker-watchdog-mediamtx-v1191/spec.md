@@ -43,14 +43,16 @@ unconsulted.
   `GET {MEDIAMTX_API}/v3/paths/get/{CAMERA1_H264_PATH}` twice with
   `sleeper(SAMPLE_SECONDS)` between samples, keeping per-call
   `_run_fixed(..., timeout=10)`.
-- R-2: A sample is ready only when curl succeeds, the body parses as JSON,
-  `ready is True`, `available is True` and `inboundBytes` is a non-boolean,
-  non-negative integer; overall readiness additionally requires the second
-  `inboundBytes` to be strictly greater than the first (`readyTime` must not be
-  used as a freshness signal).
-- R-3: All failure modes (non-zero curl returncode, unparseable JSON, missing
-  gates, missing/invalid/non-growing `inboundBytes`) fail closed to not-ready and
-  reuse the unchanged cooldown/recovery semantics.
+- R-2: A sample is ready only when curl succeeds, the body parses as JSON into a
+  top-level object, `ready is True`, `available is True` and `inboundBytes` is a
+  non-boolean, non-negative integer; overall readiness additionally requires the
+  second `inboundBytes` to be strictly greater than the first (`readyTime` must
+  not be used as a freshness signal).
+- R-3: All failure modes (non-zero curl returncode, unparseable JSON, non-object
+  JSON bodies — top level not a JSON object, such as `null`, `[]`, `"text"` or
+  numbers — in either sample position, missing gates, missing/invalid/non-growing
+  `inboundBytes`) fail closed to not-ready and reuse the unchanged
+  cooldown/recovery semantics.
 - R-4: `run_once` must pass its injectable sleeper to both `_path_ready` call
   sites; the dead `STALE_SECONDS` constant and its only consumer (the
   `lastFrameTime` age check) are removed without touching `SAMPLE_SECONDS` or
@@ -71,11 +73,15 @@ unconsulted.
 - AC-002: With two samples whose `inboundBytes` strictly grow, `run_once` returns
   `CAMERA1_H264_FRESHNESS=PASS` and `CAMERA1_H264_RECOVERY=NOOP`.
 - AC-003: Non-zero curl returncode (simulated 404), identical `inboundBytes`,
-  `ready: false`, missing `available`, non-integer `inboundBytes` and invalid
-  JSON all fail closed; within cooldown no restart is attempted.
+  `ready: false`, missing `available`, non-integer `inboundBytes`, invalid JSON
+  and non-object JSON bodies (`null`, `[]`, `"text"`, numbers) in either sample
+  position all fail closed; within cooldown no restart is attempted.
 - AC-004: The diff touches only the ubuntu watchdog script, its test file, the
-  remediation document and this SDD trio; ffmpeg probe, cooldown, lock, restart
-  flow, output labels and `main()` are byte-identical in behaviour.
+  two ubuntu-module test methods in `tests/test_vps_transcode_to_ubuntu.py`
+  (updated to the v1.19.1 contracts with their dead import removed, per the
+  durable scope receipt recorded on issue #410), the remediation document and
+  this SDD trio; ffmpeg probe, cooldown, lock, restart flow, output labels and
+  `main()` are byte-identical in behaviour.
 - AC-005: The remediation document documents the Ubuntu Worker relay API profile
   with loopback-only mitigation and no credentials.
 - AC-006: After production deploy, the installed watchdog reports

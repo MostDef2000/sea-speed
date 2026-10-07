@@ -21,6 +21,9 @@
 - T-410-005: Open PR with SDD linkage, reach exact-green-head and merge
 - T-410-006: Autonomous deploy to the Ubuntu Worker and runtime acceptance of
   the installed watchdog
+- T-410-007: Add the fail-closed top-level-object guard in `_path_ready`
+  (non-object JSON bodies fail closed to not-ready in both sample positions)
+  with RED-anchored regression tests, including an end-to-end recovery run
 
 ## Completion gate
 
@@ -30,13 +33,14 @@
 - [ ] T-410-004
 - [ ] T-410-005
 - [ ] T-410-006
+- [x] T-410-007
 
 ## Requirements traceability
 
 - AC-001 | Task: T-410-001,T-410-002 | Evidence: curl argv route pins in UbuntuWatchdogMediaMTXV1191Tests plus RED-anchor replay against the base script | Coverage: COVERED
 - AC-002 | Task: T-410-001,T-410-002 | Evidence: test_growing_inbound_bytes_is_pass_noop returns PASS/NOOP | Coverage: COVERED
-- AC-003 | Task: T-410-002 | Evidence: fail-closed tests: curl 404 within cooldown, no-growth recovery, direct _path_ready variants | Coverage: COVERED
-- AC-004 | Task: T-410-004 | Evidence: git diff scope review of the four allowed paths | Coverage: COVERED
+- AC-003 | Task: T-410-002,T-410-007 | Evidence: fail-closed tests: curl 404 within cooldown, no-growth recovery, direct _path_ready variants incl. non-object bodies in both sample positions, end-to-end recovery run | Coverage: COVERED
+- AC-004 | Task: T-410-004 | Evidence: git diff scope review against the admitted scope per the issue #410 receipt (watchdog script, the two test files, docs file, this SDD trio) | Coverage: COVERED
 - AC-005 | Task: T-410-003 | Evidence: remediation doc section Ubuntu Worker relay API profile | Coverage: COVERED
 - AC-006 | Task: T-410-006 | Evidence: post-deploy watchdog run on the worker | Coverage: RUNTIME-MANUAL | Reason: live v1.19.1 acceptance requires the deployed worker host after merge
 
