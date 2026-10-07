@@ -7,7 +7,6 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -97,11 +96,17 @@ class UbuntuFreshnessWatchdogTests(unittest.TestCase):
         state_root = self.state_root()
         calls = []
 
+        def v1191_payload(inbound_bytes: int) -> str:
+            # MediaMTX v1.19.1 path response (#410): readiness gates on
+            # ready/available and freshness on strict inboundBytes growth.
+            return json.dumps({"ready": True, "available": True, "inboundBytes": inbound_bytes})
+
+        payloads = iter((v1191_payload(1161959598), v1191_payload(1165817532)))
+
         def runner(argv, **kwargs):
             calls.append(list(argv))
             if argv[0] == "curl":
-                payload = json.dumps({"state": "ready", "lastFrameTime": datetime.now(timezone.utc).isoformat()})
-                return self.completed(argv, stdout=payload)
+                return self.completed(argv, stdout=next(payloads))
             raise AssertionError(f"unexpected command: {argv}")
 
         lines = ubuntu_watchdog.run_once(runner=runner, sleeper=lambda _: None, clock=lambda: 1000.0, state_root=state_root)
@@ -113,13 +118,18 @@ class UbuntuFreshnessWatchdogTests(unittest.TestCase):
         calls = []
         curl_count = [0]
 
+        def v1191_payload(inbound_bytes: int) -> str:
+            # MediaMTX v1.19.1 path response (#410): readiness gates on
+            # ready/available and freshness on strict inboundBytes growth.
+            return json.dumps({"ready": True, "available": True, "inboundBytes": inbound_bytes})
+
         def runner(argv, **kwargs):
             calls.append(list(argv))
             if argv[0] == "curl":
                 curl_count[0] += 1
-                stamp = datetime.now(timezone.utc).isoformat() if curl_count[0] >= 2 else "2020-01-01T00:00:00Z"
-                payload = json.dumps({"state": "ready", "lastFrameTime": stamp})
-                return self.completed(argv, stdout=payload)
+                # Stale until the restart (no byte growth), growing afterwards.
+                inbound = 1165817532 if curl_count[0] == 4 else 1161959598
+                return self.completed(argv, stdout=v1191_payload(inbound))
             if argv[0] == "ffmpeg":
                 return self.completed(argv)
             if argv == ["systemctl", "restart", ubuntu_watchdog.CAMERA1_H264_SERVICE]:
