@@ -127,3 +127,4 @@ def build_plan(args) -> dict[str, Any]:
     }
     payload["plan_id"] = hashlib.sha256(canonical_json(payload)).hexdigest()
     return payload
+
