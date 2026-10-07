@@ -127,6 +127,10 @@ chmod 0700 "$staging_root"
 unit_backup=""
 road_unit_backup=""
 control_unit_backup=""
+watchdog_script_backup=""
+watchdog_unit_backup=""
+watchdog_timer_backup=""
+watchdog_prestate_captured=false
 marker_tmp=""
 cleanup() {
   local status=$?
@@ -139,6 +143,15 @@ cleanup() {
   fi
   if [[ -n "$control_unit_backup" ]]; then
     rm -f "$control_unit_backup" || true
+  fi
+  if [[ -n "$watchdog_script_backup" ]]; then
+    rm -f "$watchdog_script_backup" || true
+  fi
+  if [[ -n "$watchdog_unit_backup" ]]; then
+    rm -f "$watchdog_unit_backup" || true
+  fi
+  if [[ -n "$watchdog_timer_backup" ]]; then
+    rm -f "$watchdog_timer_backup" || true
   fi
   if [[ -n "$marker_tmp" ]]; then
     rm -f "$marker_tmp" || true
@@ -411,6 +424,119 @@ restore_previous_control() {
   return 0
 }
 
+capture_watchdog_prestate() {
+  # Transactional watchdog refresh (issue #412): capture the pre-refresh watchdog
+  # state so any activation failure after the refresh started can restore exactly
+  # what the operator had before. Capture only reads and stages backups; the flag
+  # is raised only once every pre-state artifact is secured, so a capture failure
+  # still aborts before any watchdog mutation happened. Every allocation failure
+  # (mktemp or install) routes through abort_activation: this step runs after
+  # install-systemd.sh already swapped the deploy-managed units, so a bare set -e
+  # exit here would skip their restoration. Sets shared globals; no local scope.
+  watchdog_unit_dst="/etc/systemd/system/sea-speed-camera1-h264-freshness.service"
+  watchdog_timer_dst="/etc/systemd/system/sea-speed-camera1-h264-freshness.timer"
+  watchdog_timer_name="sea-speed-camera1-h264-freshness.timer"
+  previous_watchdog_script_present=false
+  previous_watchdog_unit_present=false
+  previous_watchdog_timer_present=false
+  previous_watchdog_timer_enabled=false
+  previous_watchdog_timer_active=false
+  if [[ -f "$watchdog_dst" ]]; then
+    previous_watchdog_script_present=true
+    watchdog_script_backup="$(mktemp "$updater_root/watchdog-script-backup.XXXXXX")" || abort_activation "watchdog pre-state capture failed"
+    install -o root -g root -m 0600 "$watchdog_dst" "$watchdog_script_backup" || abort_activation "watchdog pre-state capture failed"
+  fi
+  if [[ -f "$watchdog_unit_dst" ]]; then
+    previous_watchdog_unit_present=true
+    watchdog_unit_backup="$(mktemp "$updater_root/watchdog-unit-backup.XXXXXX")" || abort_activation "watchdog pre-state capture failed"
+    install -o root -g root -m 0600 "$watchdog_unit_dst" "$watchdog_unit_backup" || abort_activation "watchdog pre-state capture failed"
+  fi
+  if [[ -f "$watchdog_timer_dst" ]]; then
+    previous_watchdog_timer_present=true
+    watchdog_timer_backup="$(mktemp "$updater_root/watchdog-timer-backup.XXXXXX")" || abort_activation "watchdog pre-state capture failed"
+    install -o root -g root -m 0600 "$watchdog_timer_dst" "$watchdog_timer_backup" || abort_activation "watchdog pre-state capture failed"
+    if systemctl is-enabled --quiet "$watchdog_timer_name"; then
+      previous_watchdog_timer_enabled=true
+    fi
+    if systemctl is-active --quiet "$watchdog_timer_name"; then
+      previous_watchdog_timer_active=true
+    fi
+  fi
+  watchdog_prestate_captured=true
+}
+
+restore_previous_watchdog() {
+  # Transactional watchdog refresh (issue #412): restore the watchdog artifacts
+  # to the pre-refresh state captured before the refresh block mutated the host.
+  # Before capture nothing watchdog-related has been mutated, so this is a no-op.
+  if [[ "$watchdog_prestate_captured" != true ]]; then
+    return 0
+  fi
+  if [[ "$previous_watchdog_script_present" == true ]]; then
+    [[ -n "$watchdog_script_backup" ]] || return 1
+    install -o root -g root -m 0755 "$watchdog_script_backup" "$watchdog_dst" || return 1
+  else
+    rm -f "$watchdog_dst" || return 1
+  fi
+  if [[ "$previous_watchdog_unit_present" == true ]]; then
+    [[ -n "$watchdog_unit_backup" ]] || return 1
+    install -o root -g root -m 0644 "$watchdog_unit_backup" "$watchdog_unit_dst" || return 1
+  else
+    rm -f "$watchdog_unit_dst" || return 1
+  fi
+  if [[ "$previous_watchdog_timer_present" == true ]]; then
+    [[ -n "$watchdog_timer_backup" ]] || return 1
+    install -o root -g root -m 0644 "$watchdog_timer_backup" "$watchdog_timer_dst" || return 1
+    systemctl daemon-reload || return 1
+    if [[ "$previous_watchdog_timer_enabled" == true ]]; then
+      systemctl enable "$watchdog_timer_name" >/dev/null || return 1
+    else
+      systemctl disable "$watchdog_timer_name" >/dev/null || return 1
+    fi
+    if [[ "$previous_watchdog_timer_active" == true ]]; then
+      systemctl start "$watchdog_timer_name" >/dev/null || return 1
+      systemctl is-active --quiet "$watchdog_timer_name" || return 1
+    else
+      systemctl stop "$watchdog_timer_name" >/dev/null 2>&1 || true
+      ! systemctl is-active --quiet "$watchdog_timer_name" || return 1
+    fi
+  else
+    systemctl stop "$watchdog_timer_name" >/dev/null 2>&1 || true
+    systemctl disable "$watchdog_timer_name" >/dev/null 2>&1 || true
+    rm -f "$watchdog_timer_dst" || return 1
+    systemctl daemon-reload || return 1
+    [[ ! -e "$watchdog_timer_dst" ]] || return 1
+  fi
+  printf 'RESTORED watchdog_script_present=%s watchdog_unit_present=%s watchdog_timer_present=%s watchdog_timer_enabled=%s watchdog_timer_active=%s\n' \
+    "$previous_watchdog_script_present" "$previous_watchdog_unit_present" "$previous_watchdog_timer_present" "$previous_watchdog_timer_enabled" "$previous_watchdog_timer_active" >&2
+  return 0
+}
+
+reapply_watchdog_timer_state() {
+  # Reapply the captured timer pre-state instead of unconditionally enabling the
+  # timer (issue #412): a re-deploy must never flip the operator's enablement, and
+  # a timer that did not exist before must never end up freshly enabled.
+  if [[ "$previous_watchdog_timer_present" == true ]]; then
+    if [[ "$previous_watchdog_timer_enabled" == true ]]; then
+      systemctl enable "$watchdog_timer_name" >/dev/null || abort_activation "watchdog timer enable failed"
+    else
+      systemctl disable "$watchdog_timer_name" >/dev/null || abort_activation "watchdog timer disable failed"
+    fi
+    if [[ "$previous_watchdog_timer_active" == true ]]; then
+      systemctl start "$watchdog_timer_name" >/dev/null || abort_activation "watchdog timer start failed"
+    else
+      systemctl stop "$watchdog_timer_name" >/dev/null 2>&1 || true
+      ! systemctl is-active --quiet "$watchdog_timer_name" || abort_activation "watchdog timer stop verification failed"
+    fi
+  else
+    systemctl stop "$watchdog_timer_name" >/dev/null 2>&1 || true
+    systemctl disable "$watchdog_timer_name" >/dev/null 2>&1 || true
+    ! systemctl is-active --quiet "$watchdog_timer_name" || abort_activation "watchdog timer stop verification failed"
+  fi
+  printf 'WATCHDOG_TIMER_REAPPLIED timer_present=%s timer_enabled=%s timer_active=%s\n' \
+    "$previous_watchdog_timer_present" "$previous_watchdog_timer_enabled" "$previous_watchdog_timer_active" >&2
+}
+
 restore_previous() {
   if [[ "$previous_runtime_ready" != true ]] || [[ -z "$unit_backup" ]]; then
     return 1
@@ -444,12 +570,17 @@ restore_previous() {
 abort_activation() {
   local reason="$1"
   echo "ERROR activation failed: $reason" >&2
+  watchdog_prestate_restored=true
+  if ! restore_previous_watchdog; then
+    watchdog_prestate_restored=false
+    echo "CRITICAL watchdog pre-state could not be restored" >&2
+  fi
   if restore_previous; then
-    printf 'ACTIVATION_ABORTED target=%s restored=%s\n' "$source_commit" "$previous_commit" >&2
+    printf 'ACTIVATION_ABORTED target=%s restored=%s watchdog_prestate_restored=%s\n' "$source_commit" "$previous_commit" "$watchdog_prestate_restored" >&2
     exit 30
   fi
   echo "CRITICAL activation failed and no previous release could be restored" >&2
-  printf 'ACTIVE_MARKER_UNCHANGED source_commit=%s\n' "${previous_commit:-NONE}" >&2
+  printf 'ACTIVE_MARKER_UNCHANGED source_commit=%s watchdog_prestate_restored=%s\n' "${previous_commit:-NONE}" "$watchdog_prestate_restored" >&2
   exit 31
 }
 
@@ -471,11 +602,19 @@ watchdog_dst="/usr/local/sbin/sea-speed-camera1-h264-freshness-watchdog"
 if [[ ! -f "$watchdog_src" || ! -f "$watchdog_unit_src" || ! -f "$watchdog_timer_src" ]]; then
   abort_activation "watchdog refresh source missing from release"
 fi
+
+# Transactional watchdog refresh (issue #412): capture the pre-refresh watchdog
+# state before the first watchdog mutation. Every capture allocation failure
+# aborts through abort_activation so the already-swapped deploy-managed units
+# are restored instead of being abandoned by set -e.
+capture_watchdog_prestate
 install -o root -g root -m 0755 "$watchdog_src" "$watchdog_dst" || abort_activation "watchdog script install failed"
 install -o root -g root -m 0644 "$watchdog_unit_src" "/etc/systemd/system/sea-speed-camera1-h264-freshness.service" || abort_activation "watchdog unit install failed"
 install -o root -g root -m 0644 "$watchdog_timer_src" "/etc/systemd/system/sea-speed-camera1-h264-freshness.timer" || abort_activation "watchdog timer install failed"
 systemctl daemon-reload || abort_activation "watchdog daemon-reload failed"
-systemctl enable --now sea-speed-camera1-h264-freshness.timer || abort_activation "watchdog timer enable failed"
+# Reapply the captured timer pre-state (issue #412) instead of forcing timer
+# enablement; the captured-state gates live in reapply_watchdog_timer_state().
+reapply_watchdog_timer_state
 
 if ! systemctl restart "$control_service_name"; then
   abort_activation "worker control service restart failed"
