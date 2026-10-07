@@ -53,7 +53,7 @@ The API reads its secrets from the operator-managed service environment, never f
 - `SEA_SPEED_API_TOKEN` — data-plane ingestion token (worker → VPS state/event writes);
 - `SEA_SPEED_WORKER_CONTROL_TOKEN` — control-plane token the API presents to the worker control agent (issue #393).
 
-Deployments never overwrite operator-managed `.env` files or environment configuration: a code deploy replaces application files only and any existing operator-set values remain in force. Provision `SEA_SPEED_WORKER_CONTROL_TOKEN` before deploying the issue #393 code, keep it a distinct value (never a copy of `SEA_SPEED_API_TOKEN`), store it root-owned with mode 0600, and never commit it. The worker-side counterpart (`/opt/sea-speed-worker/shared/config/control.env`) and the cutover/rollback semantics are documented in `docs/operations/SEA_SPEED_AUTH_V1.md`.
+Deployments never overwrite operator-managed `.env` files or environment configuration: a code deploy replaces application files only and any existing operator-set values remain in force. Provision `SEA_SPEED_WORKER_CONTROL_TOKEN` before deploying the issue #393 code, keep it a distinct value (never a copy of `SEA_SPEED_API_TOKEN`), store it root-owned with mode 0600, and never commit it. The worker-side counterpart (`/opt/sea-speed-worker/control.env`) and the cutover/rollback semantics are documented in `docs/operations/SEA_SPEED_AUTH_V1.md`.
 
 Issue #115 adds a separate, explicitly production-gated nginx/Auth deployment helper: `deploy/vps/sea-speed-auth-cutover.sh`. It is not invoked by the normal code deployment workflow. See `docs/operations/SEA_SPEED_AUTH_V1.md`.
 
