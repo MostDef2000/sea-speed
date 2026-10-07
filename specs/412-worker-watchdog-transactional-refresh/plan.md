@@ -22,8 +22,10 @@ script's existing transactional patterns to the #389 watchdog refresh step:
   `restore_previous()` returns 1 early — restores the watchdog pre-state, and
   both abort evidence lines report `watchdog_prestate_restored=<bool>`.
 - The success path replaces the unconditional `systemctl enable --now` with a
-  reapply of the captured timer state (explicit enable/disable and start/stop
-  branches) and emits a `WATCHDOG_TIMER_REAPPLIED` evidence line.
+  reapply of the captured timer state, extracted into
+  `reapply_watchdog_timer_state()` (explicit enable/disable and start/stop
+  branches, fail-closed stop verification) with an executed-tested function
+  body and a `WATCHDOG_TIMER_REAPPLIED` evidence line.
 
 ## Decisions
 
@@ -61,10 +63,23 @@ script's existing transactional patterns to the #389 watchdog refresh step:
 - `ruff check` (0.16.10, `scripts/quality/ruff.toml`) on both touched test files.
 - `python3 -m unittest tests.test_ubuntu_worker_exact_updater
   tests.test_ubuntu_worker_rollback -v` green, including all pre-existing pins.
+- Executed fault-path battery: `UbuntuWorkerWatchdogExecutedTransactionTests`
+  runs `capture_watchdog_prestate`/`restore_previous_watchdog`/
+  `reapply_watchdog_timer_state` in a sandbox bash process with stub
+  mktemp/install/systemctl/rm on PATH (capture mktemp failure, capture install
+  failure, restore present+enabled+active, restore absent-before, reapply
+  captured enabled+inactive with the timer still active afterwards → abort,
+  reapply captured enabled+active → rc 0 with the evidence line). The updater
+  path is overridden module-wide through `SEA_SPEED_412_UPDATER_PATH` (all
+  classes in the module test the overridden script) for RED-vs-base and
+  RED-vs-pre-repair runs.
 - Full suite `python3 -m unittest discover -s tests -p 'test_*.py'` green.
 - `python3 scripts/ci/validate_sdd.py` green.
-- RED check: stash `update-exact.sh`, run the new test class (must fail), pop,
-  verify the working file via sha256 comparison.
+- RED check: `git show` the base (`9b2b56e2`) and pre-repair (`1b69a09`) updater
+  scripts into a temp dir and run the whole
+  `tests.test_ubuntu_worker_exact_updater` module with
+  `SEA_SPEED_412_UPDATER_PATH` pointed at each (structural failures and
+  executed extraction errors are the expected RED anchors).
 
 ## Runtime feedback
 
@@ -76,7 +91,7 @@ script's existing transactional patterns to the #389 watchdog refresh step:
 ## Risk profile
 
 - Risk profile: REQUIRED
-- RISK-001 | Category: TECH | Probability: 2 | Impact: 4 | Score: 8 | Mitigation: capture strictly before the first mutation, guarded abort hook that cannot block the managed-units restore, pattern-consistent restore function with verification, RED-anchored marker/structural tests, exact single-script scope | Validation: targeted unittest classes, full unittest suite, ruff, bash -n and SDD validators green locally; RED check against the base script | Residual risk: runtime behaviour of the transaction on a live host is verified only after production deploy | Owner: Delivery Orchestrator | Status: MITIGATED
+- RISK-001 | Category: TECH | Probability: 2 | Impact: 4 | Score: 8 | Mitigation: capture strictly before the first mutation with capture_watchdog_prestate() routing every allocation failure (mktemp and install) through abort_activation, guarded abort hook that cannot block the managed-units restore, pattern-consistent restore function with verification, success-path reapply extracted into reapply_watchdog_timer_state() with fail-closed stop verification, RED-anchored marker/structural tests, executed fault-path coverage for capture, restore AND the success-path reapply under stubbed mktemp/install/systemctl/rm, exact single-script scope | Validation: targeted unittest classes, full unittest suite, ruff, bash -n and SDD validators green locally; executed scenarios RED against both the base and the pre-repair script via the module-wide SEA_SPEED_412_UPDATER_PATH override | Residual risk: runtime behaviour of the transaction on a live host is verified only after production deploy (the former structural-only reapply residual is retired: the reapply is an executed-tested function; the structural marker pin is kept as an additional guard) | Owner: Delivery Orchestrator | Status: MITIGATED
 
 ## Test design
 
@@ -99,9 +114,9 @@ script's existing transactional patterns to the #389 watchdog refresh step:
 ## Deployment transaction audit
 
 - TX-001 | Stage: ADMISSION | Mutation: NO | Failure disposition: FATAL | State after failure: unchanged | Retry: NO | Rollback: NONE | Evidence: Issue #412 checkpoint + authorization receipt (OUTCOME APPROVED, issuecomment-6042860905)
-- TX-002 | Stage: PRE-MUTATION | Mutation: NO | Failure disposition: FATAL | State after failure: unchanged | Retry: NO | Rollback: NONE | Evidence: updater preflight gates; watchdog pre-state capture stages backups before mutation
-- TX-003 | Stage: MUTATION | Mutation: YES | Failure disposition: FATAL | State after failure: previous release restored for the deploy-managed units AND the watchdog artifacts restored to the captured pre-state (previous bytes or removal) with the captured timer enablement/active state; a previously absent timer is never left freshly enabled | Retry: NO | Rollback: restore_previous_watchdog() via abort_activation(), followed by the managed-units restore_previous(); rollback-exact.sh unchanged for its own contour | Evidence: ACTIVATION_ABORTED/ACTIVE_MARKER_UNCHANGED lines with watchdog_prestate_restored=<bool>; RESTORED watchdog_script_present=... line
-- TX-004 | Stage: VERIFICATION | Mutation: NO | Failure disposition: BEST-EFFORT | State after failure: verification gates abort via abort_activation and trigger the transactional watchdog restore | Retry: NO | Rollback: NONE | Evidence: control-service active gate, worker state gates, WATCHDOG_TIMER_REAPPLIED evidence line
+- TX-002 | Stage: PRE-MUTATION | Mutation: NO | Failure disposition: FATAL | State after failure: unchanged | Retry: NO | Rollback: NONE | Evidence: updater preflight gates; watchdog pre-state capture wrapped in capture_watchdog_prestate(), so BOTH mktemp and install allocation failures abort through abort_activation (with the deploy-managed units already swapped by install-systemd.sh, a bare set -e exit would have skipped their restoration) | Retry: NO | Rollback: NONE | Evidence: executed fault-path scenarios 1-2 (mktemp/install failure during capture → exit 99, abort reason recorded, no watchdog mutation)
+- TX-003 | Stage: MUTATION | Mutation: YES | Failure disposition: FATAL | State after failure: previous release restored for the deploy-managed units AND the watchdog artifacts restored to the captured pre-state (previous bytes or removal) with the captured timer enablement/active state; a previously absent timer is never left freshly enabled | Retry: NO | Rollback: restore_previous_watchdog() via abort_activation(), followed by the managed-units restore_previous(); rollback-exact.sh unchanged for its own contour | Evidence: ACTIVATION_ABORTED/ACTIVE_MARKER_UNCHANGED lines with watchdog_prestate_restored=<bool>; RESTORED watchdog_script_present=... line; executed restore scenarios 3-4
+- TX-004 | Stage: VERIFICATION | Mutation: NO | Failure disposition: BEST-EFFORT | State after failure: verification gates abort via abort_activation and trigger the transactional watchdog restore | Retry: NO | Rollback: NONE | Evidence: control-service active gate, worker state gates, WATCHDOG_TIMER_REAPPLIED evidence line; captured-inactive reapplication is fail-closed (still-active after stop aborts with "watchdog timer stop verification failed" in both the present-inactive and absent-before branches), executed in reapply scenarios 5-6
 - TX-005 | Stage: STATE-COMMIT | Mutation: NO | Failure disposition: FATAL | State after failure: unchanged | Retry: NO | Rollback: NONE | Evidence: active-source-commit marker
 - TX-006 | Stage: HOUSEKEEPING | Mutation: NO | Failure disposition: BEST-EFFORT | State after failure: staging may remain | Retry: NO | Rollback: NONE | Evidence: cleanup trap now covers the watchdog backups alongside the managed-unit backups
 - TX-007 | Stage: EVIDENCE | Mutation: NO | Failure disposition: BEST-EFFORT | State after failure: evidence partial | Retry: NO | Rollback: NONE | Evidence: execution-audit v1
