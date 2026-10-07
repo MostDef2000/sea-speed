@@ -794,7 +794,7 @@ def draw_overlay(frame, motion_now, motion_area, ai_active, detections, motion_b
         f"ai_active: {ai_active}",
         f"detections: {len(detections)}",
         f"tracks: {len(active_track_ids)}",
-        f"posted_to: mostdef.ru/sea-speed",
+        "posted_to: mostdef.ru/sea-speed",
     ]
     line_height = 25
     block_height = line_height * len(lines) + 10
@@ -813,7 +813,6 @@ def draw_overlay(frame, motion_now, motion_area, ai_active, detections, motion_b
         font = cv2.FONT_HERSHEY_SIMPLEX
         c_line_height = 24
         c_block_height = c_line_height * len(counter_lines) + 10
-        max_text_width = max(cv2.getTextSize(line, font, 0.58, 2)[0][0] for line in counter_lines)
         c_y = height - c_block_height + c_line_height - 4
         for line in counter_lines:
             (tw, th), baseline = cv2.getTextSize(line, font, 0.58, 2)
@@ -1963,7 +1962,6 @@ def main():
                 eff_fps = None
                 p95_ms = None
                 try:
-                    from detection_performance import PerformanceTracker as _PT
                     # try to get global tracker from entrypoint if available
                     import sys as _sys
                     _entry = _sys.modules.get("ubuntu_worker_entrypoint")
