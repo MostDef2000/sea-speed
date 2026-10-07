@@ -66,8 +66,13 @@ closed action allowlist is unaffected.
 
 ## Affected contours
 
-- CONTROL_PLANE only: `.github/workflows/quality-integration.yml` (two
+- CI/CONTROL_PLANE: `.github/workflows/quality-integration.yml` (two
   inserted steps in the existing `static-contract-security` domain).
+- UBUNTU_WORKER (classifier-derived): the calibrated `worker/**` and
+  `deploy/worker/ubuntu/**` files map the diff to the Ubuntu worker/relay
+  contour under `data/contracts/change-control-policy-v1.json`; the edits
+  themselves are behavior-preserving dead-code removals that reach the
+  running worker through the normal release channel.
 - New committed configuration: `ruff.toml`, `mypy.ini` (repository root).
 - Calibrated source files (dead code and unused imports only):
   `worker/detection_performance.py`,
@@ -128,13 +133,16 @@ actions, heredocs or download pipes appear. The one supply-chain
 consideration is bounded by design: both pip installs use exact pins
 (`ruff==0.16.10`, `mypy==1.18.2`), no runtime toolchain downloads occur, and
 neither tool executes repository code in a privileged context — mypy
-type-checks, ruff lints, both fail closed on findings. Runtime acceptance is
-not applicable: the change is classified CONTROL_PLANE
-(workflow step insertion plus configuration/documentation contours); it
-mutates no production runtime contour, deploys nothing and requires no
-operator action. Not destructive: the calibrated source edits are
-verified-side-effect-free dead-code removals covered by the behavioral
-suite baseline.
+type-checks, ruff lints, both fail closed on findings. Runtime acceptance
+beyond the behavioral suite is not applicable to this change itself: the
+workflow insertion is CI-only, and the calibrated worker-source edits are
+behavior-preserving dead-code removals. The diff nonetheless classifies
+UBUNTU_WORKER under `data/contracts/change-control-policy-v1.json`
+(`worker/**` and `deploy/worker/ubuntu/**` patterns), so the Change Contract
+declares the Ubuntu worker/relay update contour REQUIRED and the fixes reach
+the running worker through the normal release channel. Not destructive: the
+calibrated source edits are verified-side-effect-free dead-code removals
+covered by the behavioral suite baseline.
 
 ## Test design
 

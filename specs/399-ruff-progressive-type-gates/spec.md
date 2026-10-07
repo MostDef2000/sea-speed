@@ -123,8 +123,11 @@ exact-artifact check, workflow job, trigger or permission is modified.
   the 11 calibrated source files and the `specs/399-ruff-progressive-type-gates/`
   trio — nothing else.
   Validation: `git diff --stat` review; PR files-changed list.
-- AC-006: The Change Contract is valid and classified CONTROL_PLANE, and the
-  merge is an exact-green-head merge of the linked PR with required CI green.
+- AC-006: The Change Contract is valid and classified UBUNTU_WORKER (per
+  `data/contracts/change-control-policy-v1.json`: the calibrated `worker/**`
+  and `deploy/worker/ubuntu/**` files map the diff to the Ubuntu worker/relay
+  contour), and the merge is an exact-green-head merge of the linked PR with
+  required CI green.
   Validation: Change Contract in the PR body; exact-green-head merge
   evidence recorded by the Delivery Orchestrator.
 

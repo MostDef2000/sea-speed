@@ -39,7 +39,7 @@
   py_compile and the unittest suite on CPython 3.14 (expected baseline
   Ran 649 tests, OK, skipped=3) — and verify scope isolation with
   `git diff --stat` (implements R-3, R-4, R-5)
-- T-399-008: Open the PR with the Change Contract (CONTROL_PLANE), record
+- T-399-008: Open the PR with the Change Contract (UBUNTU_WORKER), record
   "Quality integration gate" CI evidence with both new steps green, reach
   exact-green-head CI and merge; close out the Definition of Done
 
@@ -68,7 +68,7 @@
 - AC-003 | Task: T-399-007 | Evidence: local battery green — ruff zero findings, mypy strict clean, validate_workflow_policy.py/validate_repo.py/validate_contracts.py/validate_quality_contracts.py pass, py_compile passes, unittest Ran 649 tests OK skipped=3 (R-3, R-4) | Coverage: COVERED
 - AC-004 | Task: T-399-005 | Evidence: docs/quality/testing-policy.md carries the "Static analysis (Ruff and mypy)" section with domain placement, pins/rationale, progressive-strict policy, suppression rules and exact commands; `Status: Active` marker untouched (R-5) | Coverage: COVERED
 - AC-005 | Task: T-399-007 | Evidence: `git diff --stat` shows exactly the 18 allowed files; no validator, test, deploy path, data/quality file or other workflow modified (R-4) | Coverage: COVERED
-- AC-006 | Task: T-399-008 | Evidence: PR Change Contract valid and classified CONTROL_PLANE; exact-green-head merge of the linked PR with required CI green, recorded by the Delivery Orchestrator (R-4) | Coverage: COVERED
+- AC-006 | Task: T-399-008 | Evidence: PR Change Contract valid and classified UBUNTU_WORKER; exact-green-head merge of the linked PR with required CI green, recorded by the Delivery Orchestrator (R-4) | Coverage: COVERED
 - R-1 | Task: T-399-001,T-399-002 | Evidence: ruff.toml committed (select E9+F, fix=false, py314) and the pinned non-mutating step in the aggregate's static domain; no blanket ignores introduced (AC-001) | Coverage: COVERED
 - R-2 | Task: T-399-001,T-399-003 | Evidence: mypy.ini committed with permissive global section and five strict per-module sections; pinned install and config-file invocation in the workflow (AC-002) | Coverage: COVERED
 - R-3 | Task: T-399-004 | Evidence: the 14 findings (10 F401, 3 F841, 1 F541) resolved mechanically per the spec R-3 list; ruff check . reports zero findings (AC-001, AC-003) | Coverage: COVERED
