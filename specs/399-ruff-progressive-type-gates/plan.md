@@ -162,3 +162,14 @@ covered by the behavioral suite baseline.
 - Tasks impact: NONE
 - Authorization impact: NONE
 - Follow-up: NONE
+
+## Deployment transaction audit
+
+- TX-399-01 | Stage: ADMISSION | Mutation: NO | Failure disposition: BEST-EFFORT | State after failure: scope recorded in #399 | Retry: NONE | Rollback: NONE | Evidence: Delivery Checkpoint gen 1 plus OUTCOME APPROVED recorded in #399
+- TX-399-02 | Stage: PRE-MUTATION | Mutation: NO | Failure disposition: BEST-EFFORT | State after failure: branch unchanged | Retry: NONE | Rollback: NONE | Evidence: branch agent/399-ruff-type-gates from origin/main 27c90b7
+- TX-399-03 | Stage: MUTATION | Mutation: YES | Failure disposition: BEST-EFFORT | State after failure: working tree revertible | Retry: NONE | Rollback: git revert of the feature commits | Evidence: workflow steps plus ruff.toml, mypy.ini, calibrated sources, docs section and the SDD trio
+- TX-399-04 | Stage: VERIFICATION | Mutation: NO | Failure disposition: BEST-EFFORT | State after failure: CI red blocks merge | Retry: rerun failed jobs | Rollback: NONE | Evidence: required CI green on the PR exact head with both new steps green in static-contract-security
+- TX-399-05 | Stage: STATE-COMMIT | Mutation: YES | Failure disposition: BEST-EFFORT | State after failure: main protected, revert merge | Retry: NONE | Rollback: revert merge commit | Evidence: exact-green-head squash merge to main
+- TX-399-06 | Stage: HOUSEKEEPING | Mutation: NO | Failure disposition: BEST-EFFORT | State after failure: issue remains open | Retry: NONE | Rollback: NONE | Evidence: #399 updated at meaningful transitions
+- TX-399-07 | Stage: EVIDENCE | Mutation: NO | Failure disposition: BEST-EFFORT | State after failure: re-run evidence collection | Retry: NONE | Rollback: NONE | Evidence: Change Contract UBUNTU_WORKER recorded in the PR body; calibrated worker-source fixes ride the normal autonomous release channel (release manifest v3 plus execution-audit v1)
+- TX-399-08 | Stage: ROLLBACK | Mutation: POSSIBLE | Failure disposition: CONDITIONAL | State after failure: previous release restored by deploy-authorized rollback target | Retry: NONE | Rollback: revert merge and redeploy the prior good main commit | Evidence: deploy-authorized.sh owns target rollback; main revert restores source; the two gate steps revert with the commit
