@@ -24,7 +24,6 @@ exist after the fix are skipped on the base via ``skipUnless``.
 import ast
 import contextlib
 import copy
-import hashlib
 import importlib.util
 import io
 import json
@@ -33,7 +32,7 @@ import sys
 import tempfile
 import threading
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -452,7 +451,7 @@ class LegacyMigrationTests(unittest.TestCase):
     # T-C — core lifecycle regression: import -> rollback-window writes by
     # the previous release -> re-upgrade must merge the new records in,
     # ignore duplicates, and respect the per-camera cap.
-    def test_rollback_window_records_are_merged_content_keyed(self) -> None:
+    def test_rollback_window_records_are_merged_idempotent(self) -> None:
         t1, t2, t3 = (
             "2026-01-01T00:00:00+00:00",
             "2026-01-02T00:00:00+00:00",
@@ -473,26 +472,9 @@ class LegacyMigrationTests(unittest.TestCase):
             ["e3", "e2", "e1"],
         )
 
-        # Repeated boots are no-ops: byte-identical duplicates are ignored.
+        # Repeated boots are no-ops: canonical-payload duplicates are skipped.
         self.assertEqual(STORE.import_legacy_records(self.state_db, "crossings", "cam1", upgraded_file, 5000), 0)
         self.assertEqual(len(STORE.read_crossings(self.state_db, "cam1")), 3)
-
-        # The content key is the documented SHA-256 of the canonical payload
-        # JSON, stable across boots and distinct per distinct content.
-        canonical = lambda record: hashlib.sha256(
-            json.dumps(record, ensure_ascii=False, sort_keys=True).encode("utf-8")
-        ).hexdigest()
-        with STORE.open_state_db(self.state_db) as connection:
-            keys = [
-                row["content_key"]
-                for row in connection.execute(
-                    "SELECT content_key FROM crossings WHERE camera_id = ? ORDER BY id DESC", ("cam1",)
-                ).fetchall()
-            ]
-        self.assertEqual(
-            keys,
-            [canonical({"event_id": "e3", "created_at": t3}), canonical({"event_id": "e2", "created_at": t2}), canonical({"event_id": "e1", "created_at": t1})],
-        )
 
         # The per-camera cap is applied to the merged result.
         self.assertEqual(STORE.import_legacy_records(self.state_db, "crossings", "cam1", upgraded_file, 2), 0)
@@ -505,6 +487,138 @@ class LegacyMigrationTests(unittest.TestCase):
             [record["event_id"] for record in STORE.read_crossings(self.state_db, "cam1")],
             ["e3", "e2"],
         )
+
+    # V-A — live-appended rows carry no dedupe key: a legacy mirror that
+    # contains a live row (exactly what the rollback-window JSON becomes)
+    # must never duplicate it, on any number of re-imports.
+    def test_live_rows_are_not_duplicated_by_mirror_import(self) -> None:
+        record = {"event_id": "c1", "created_at": "2026-01-01T00:00:00+00:00"}
+        STORE.append_crossing(self.state_db, "cam1", record)
+        mirror = [record]
+
+        self.assertEqual(
+            STORE.import_legacy_records(self.state_db, "crossings", "cam1", mirror, 5000),
+            0,
+            "the mirror copy of a live row must be deduped away",
+        )
+        self.assertEqual(STORE.read_crossings(self.state_db, "cam1"), [record])
+
+        # Restart equivalent: importing the same mirror again stays a no-op.
+        self.assertEqual(STORE.import_legacy_records(self.state_db, "crossings", "cam1", mirror, 5000), 0)
+        self.assertEqual(STORE.read_crossings(self.state_db, "cam1"), [record])
+
+    # V-B — mixed imported + live rows at the production caps (5000
+    # crossings / 500 events): a mirror of exactly the retained rows must
+    # be a complete no-op (no duplication, no eviction), and only genuinely
+    # new records may consume cap headroom with exact arithmetic.
+    def test_import_at_production_caps_preserves_retained_history(self) -> None:
+        base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        stamp = lambda i: (base + timedelta(seconds=i)).isoformat()
+
+        # Legacy files are newest-first: e2499 is the first list entry.
+        legacy = [{"event_id": f"e{i}", "created_at": stamp(i)} for i in range(2499, -1, -1)]
+        self.assertEqual(STORE.import_legacy_records(self.state_db, "crossings", "cam1", legacy, 5000), 2500)
+        live = [{"event_id": f"e{i}", "created_at": stamp(i)} for i in range(2500, 5000)]
+        for record in live:
+            STORE.append_crossing(self.state_db, "cam1", record)
+        self.assertEqual(len(STORE.read_crossings(self.state_db, "cam1")), 5000)
+
+        # Mirror holding exactly the retained rows (live rows included):
+        # zero inserts, zero evictions, live history intact.
+        mirror = list(reversed(legacy + live))  # newest-first, as the file is written
+        self.assertEqual(STORE.import_legacy_records(self.state_db, "crossings", "cam1", mirror, 5000), 0)
+        retained = STORE.read_crossings(self.state_db, "cam1")
+        self.assertEqual(len(retained), 5000)
+        self.assertEqual(retained[0], live[-1], "newest live record must survive")
+        self.assertEqual(retained[-1], legacy[-1], "oldest retained record must survive")
+
+        # +5 genuinely new records → exactly 5 inserts, cap evicts exactly
+        # the 5 oldest rows (new block appended newest-first, as in a file).
+        mirror = [{"event_id": f"e{i}", "created_at": stamp(i)} for i in range(5004, 4999, -1)] + mirror
+        self.assertEqual(STORE.import_legacy_records(self.state_db, "crossings", "cam1", mirror, 5000), 5)
+        retained = STORE.read_crossings(self.state_db, "cam1")
+        self.assertEqual(len(retained), 5000)
+        self.assertEqual(retained[0]["event_id"], "e5004")
+        self.assertEqual(retained[-1]["event_id"], "e5", "eviction removed exactly the 5 oldest")
+
+        # Same discipline at the event-feed cap (500).
+        legacy_events = [{"event_id": f"f{i}", "created_at": stamp(i)} for i in range(249, -1, -1)]
+        self.assertEqual(STORE.import_legacy_records(self.state_db, "events", "cam1", legacy_events, 500), 250)
+        for i in range(250, 500):
+            STORE.append_event(self.state_db, "cam1", {"event_id": f"f{i}", "created_at": stamp(i)})
+        events_mirror = [{"event_id": f"f{i}", "created_at": stamp(i)} for i in range(499, -1, -1)]
+        self.assertEqual(STORE.import_legacy_records(self.state_db, "events", "cam1", events_mirror, 500), 0)
+        self.assertEqual(len(STORE.read_events(self.state_db, "cam1")), 500)
+        self.assertEqual(STORE.read_events(self.state_db, "cam1")[0]["event_id"], "f499")
+
+    # V-C — anti-resurrection: records older than the oldest retained row
+    # were already pruned (or never authoritative); a lagged mirror carrying
+    # them must not resurrect them as newest rows, while newer
+    # rollback-window records still merge.
+    def test_stale_pruned_records_are_never_resurrected(self) -> None:
+        t1, t2, t3, t4, t5 = (
+            "2026-01-01T00:00:00+00:00",
+            "2026-01-02T00:00:00+00:00",
+            "2026-01-03T00:00:00+00:00",
+            "2026-01-04T00:00:00+00:00",
+            "2026-01-05T00:00:00+00:00",
+        )
+        legacy = [
+            {"event_id": "e4", "created_at": t4},
+            {"event_id": "e3", "created_at": t3},
+            {"event_id": "e2", "created_at": t2},
+            {"event_id": "e1", "created_at": t1},
+        ]
+        self.assertEqual(STORE.import_legacy_records(self.state_db, "crossings", "cam1", legacy, 3), 4)
+        self.assertEqual(
+            [record["event_id"] for record in STORE.read_crossings(self.state_db, "cam1")],
+            ["e4", "e3", "e2"],
+            "cap pruned e1; the retained window starts at e2",
+        )
+
+        # Lagged mirror still carrying the pruned e1: e1 must be skipped,
+        # the newer rollback-window record e5 must merge.
+        lagged_mirror = [
+            {"event_id": "e5", "created_at": t5},
+            {"event_id": "e4", "created_at": t4},
+            {"event_id": "e3", "created_at": t3},
+            {"event_id": "e2", "created_at": t2},
+            {"event_id": "e1", "created_at": t1},
+        ]
+        self.assertEqual(STORE.import_legacy_records(self.state_db, "crossings", "cam1", lagged_mirror, 3), 1)
+        merged = [record["event_id"] for record in STORE.read_crossings(self.state_db, "cam1")]
+        self.assertNotIn("e1", merged, "pruned records must never be resurrected")
+        self.assertEqual(merged, ["e5", "e4", "e3"], "cap arithmetic stays exact after the merge")
+
+        # Repeated boots of the same lagged mirror stay no-ops.
+        self.assertEqual(STORE.import_legacy_records(self.state_db, "crossings", "cam1", lagged_mirror, 3), 0)
+        self.assertEqual(
+            [record["event_id"] for record in STORE.read_crossings(self.state_db, "cam1")],
+            ["e5", "e4", "e3"],
+        )
+
+    # V-D — unusable/absent timestamps cannot displace stored camera
+    # state; only a genuinely newer ISO timestamp replaces it, and an
+    # undated payload only ever seeds an empty row.
+    def test_camera_state_import_ignores_unusable_timestamps(self) -> None:
+        stored = {"frame_no": 10, "updated_at": "2026-01-02T00:00:00+00:00"}
+        STORE.upsert_camera_state(self.state_db, "cam1", stored)
+
+        unparseable = {"frame_no": 1, "updated_at": "zzz"}
+        self.assertFalse(STORE.import_legacy_camera_state(self.state_db, "cam1", unparseable))
+        self.assertEqual(STORE.read_camera_state(self.state_db, "cam1"), stored)
+
+        newer = {"frame_no": 20, "updated_at": "2026-01-03T00:00:00+00:00"}
+        self.assertTrue(STORE.import_legacy_camera_state(self.state_db, "cam1", newer))
+        self.assertEqual(STORE.read_camera_state(self.state_db, "cam1"), newer)
+
+        undated = {"frame_no": 1}
+        self.assertFalse(STORE.import_legacy_camera_state(self.state_db, "cam1", undated))
+        self.assertEqual(STORE.read_camera_state(self.state_db, "cam1"), newer)
+
+        # Undated still seeds a genuinely empty camera.
+        self.assertTrue(STORE.import_legacy_camera_state(self.state_db, "road1", undated))
+        self.assertEqual(STORE.read_camera_state(self.state_db, "road1"), undated)
 
     # T-D — camera_state: legacy NEWER than stored wins; older loses.
     def test_camera_state_import_is_newer_wins(self) -> None:

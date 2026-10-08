@@ -16,11 +16,13 @@
       `append_event`/`read_events` (cap 500), `upsert_camera_state`
       (single-statement ON CONFLICT upsert), `read_camera_state`,
       `camera_has_rows` (per-camera emptiness probe), and the
-      transition-protocol primitives: `import_legacy_records` (content-keyed
-      `INSERT OR IGNORE` merge on `(camera_id, content_key)`, oldest-first,
-      cap applied in-transaction) and `import_legacy_camera_state`
-      (legacy wins only when strictly newer; undated legacy seeds empty rows
-      only).
+      transition-protocol primitives: `import_legacy_records` (canonical-
+      payload dedupe against the camera's current rows plus an
+      anti-resurrection skip for records older than the oldest retained
+      row, oldest-first, cap applied in-transaction) and
+      `import_legacy_camera_state`
+      (legacy wins only when strictly newer — both sides must parse as ISO
+      timestamps; undated legacy seeds empty rows only).
 2. `api/app/main.py` rewire — every hot-state mutation commits to SQLite
    first, then mirrors the committed projection to the legacy JSON file
    (best-effort, stderr log on failure); reads come from SQLite. Config
@@ -91,15 +93,25 @@ Three coordinated pieces:
 - D-7: Tests extract the real functions from `main.py` via the existing
   AST harness idiom; head-only functions are `skipUnless`-gated so the
   base run produces clean RED failures instead of collection errors.
-- D-8: The legacy-import dedupe key is the SHA-256 of the canonical
-  payload JSON (`ensure_ascii=False, sort_keys=True`) — the exact bytes
-  stored in `payload_json`. Record timestamps (created_at/updated_at/ts)
-  participate because they are fields of the record; no generated value
-  (the `_utc_now_iso` fallback for a missing created_at) ever does, so the
-  same record hashes identically on every boot and `INSERT OR IGNORE` on
-  `(camera_id, content_key)` is a deterministic content-keyed merge.
-  Runtime appends keep `content_key` NULL (NULLs are distinct in SQLite
-  UNIQUE constraints), preserving live-append duplicate semantics.
+- D-8: The legacy-import merge dedupes by canonical payload equality —
+  `json.dumps(record, ensure_ascii=False, sort_keys=True)`, the exact
+  bytes stored in `payload_json` — against the canonical payloads of the
+  target camera's current rows loaded in one query, and skips records
+  whose timestamp (parsed the same way the import derives the
+  `created_at` column) is older than the oldest retained row's timestamp
+  (anti-resurrection). A first-round design keyed rows on a SHA-256
+  `content_key` column with `UNIQUE(camera_id, content_key)` and kept
+  runtime appends NULL-keyed; independent validation rejected it because
+  the NULL/imported split meant the UNIQUE constraint never crossed the
+  domains — an ordinary restart re-imported a mirror of live rows as
+  keyed copies (reads returned both), at the cap the keyed copies evicted
+  retained history, and a lagged mirror resurrected pruned records with
+  new ids. The column was removed entirely: live appends keep no dedupe
+  key at all (identical live submissions stay distinct as today), import
+  dedupe is by stored-bytes equality (which also removes the
+  `CREATE TABLE IF NOT EXISTS` schema-drift risk — pre-#394 and new
+  tables are identical), and the anti-resurrection timestamp floor keeps
+  pruned history from being re-imported as newest rows.
 - D-9: Legacy reads are necessity-gated per (camera, kind) via
   `store.camera_has_rows`: an EMPTY target means this boot performs the
   authoritative initial migration (corrupt legacy input raises — the
@@ -127,18 +139,20 @@ Three coordinated pieces:
 ## Validation
 
 - Full suite on head: green (see tasks.md AC-009 for exact counts);
-  two-file behavioral battery 42 passed / 1 skipped (skip = head-only
+  two-file behavioral battery 46 passed / 1 skipped (skip = head-only
   collision test).
-- Transition-protocol repair tests (T-A..T-E) all green: StartupMigrationTests
-  (necessity gate: fail-closed on empty target, best-effort warning on
-  populated), LegacyMigrationTests (content-keyed merge, newer-wins
-  camera state), VpsDeployTransactionTests (release-bound activation with
-  store-less fixture + stale `.next`).
-- RED-on-base (git stash → main.py @ 30ba326, untracked files survive):
-  6 failed / 12 passed / 2 skipped — the six failures are exactly the
+- Transition-protocol repair tests (T-A..T-E, V-A..V-D) all green:
+  StartupMigrationTests (necessity gate: fail-closed on empty target,
+  best-effort warning on populated), LegacyMigrationTests (canonical-
+  payload dedupe merge with anti-resurrection, newer-wins camera state
+  that ignores unusable timestamps), VpsDeployTransactionTests
+  (release-bound activation with store-less fixture + stale `.next`).
+- RED-on-base (git stash → main.py @ 30ba326, untracked files survive;
+  session-4 run against the pre-repair test file): 6 failed / 12 passed /
+  2 skipped — the six failures are exactly the
   fixed defects (4 fail-loud endpoint reads, no-lost-update RMW, fixed-tmp
-  collision); stash pop restored the working tree. T-A..T-E are new
-  behavior (not RED-on-base).
+  collision); stash pop restored the working tree. T-A..T-E and V-A..V-D
+  are new behavior (not RED-on-base).
 - ruff (E9/F, `scripts/quality/ruff.toml`) on the changed Python files:
   All checks passed; `bash -n deploy/vps/deploy.sh` clean;
   `tests/test_vps_deploy_transaction.py` 20 passed (store.py install
@@ -158,11 +172,11 @@ Three coordinated pieces:
 - Risk profile: REQUIRED
 - Risk-profile rationale: derived from the VPS production impact; the
   deployment transaction audit below covers the contour.
-- RISK-001 | Category: OPS | Probability: 2 | Impact: 4 | Score: 8 | Mitigation: startup migration runs at import time so every name it uses (`CROSSINGS_STORE_LIMIT`, path helpers) is defined above the startup block; constants moved to the top block; migration reads via `analytics_data_file`; any import-time failure fails the deploy health gate loudly and the chain auto-rolls back | Validation: full suite green on head (764 passed); py_compile + ruff clean; deploy transaction behavioral suite exercises boot/verify ordering | Residual risk: LOW — corrupt legacy store fails boot closed by design (fail-closed acceptance) | Owner: Delivery Orchestrator | Status: MITIGATED
+- RISK-001 | Category: OPS | Probability: 2 | Impact: 4 | Score: 8 | Mitigation: startup migration runs at import time so every name it uses (`CROSSINGS_STORE_LIMIT`, path helpers) is defined above the startup block; constants moved to the top block; migration reads via `analytics_data_file`; any import-time failure fails the deploy health gate loudly and the chain auto-rolls back | Validation: full suite green on head (773 passed); py_compile + ruff clean; deploy transaction behavioral suite exercises boot/verify ordering | Residual risk: LOW — corrupt legacy store fails boot closed by design (fail-closed acceptance) | Owner: Delivery Orchestrator | Status: MITIGATED
 - RISK-002 | Category: DATA | Probability: 2 | Impact: 3 | Score: 6 | Mitigation: SQLite is authoritative; the legacy JSON mirror is a best-effort projection of committed rows written after the SQLite commit (mirror failure logs to stderr, never fails the request); drift self-heals on the next write | Validation: dual-write order verified by independent peer session (APPROVE); mirror exception paths reviewed | Residual risk: LOW — mirror amplification on crossings (full-file rewrite up to 5000 records per post) is bounded by the cap and lasts one release cycle | Owner: Delivery Orchestrator | Status: MITIGATED
 - RISK-003 | Category: OPS | Probability: 1 | Impact: 4 | Score: 4 | Mitigation: legacy JSON files are never deleted and stay fresh via mirrors; activation is bound to the selected release's content — staged `.next` is promoted only when the release ships `api/app/store.py` (same condition as staging), otherwise the live copy and any stale `.next` are removed; the bootstrap capture keeps a live store.py with the captured main.py | Validation: test_vps_deploy_transaction behavioral suite (20 tests) including the store-less fixture: test_store_less_rollback_removes_live_store_and_stale_next and test_store_release_stages_and_promotes_normally; peer rollback-completeness verdict | Residual risk: NONE — the downgrade branch is now exercised against a store-less release fixture with a stale `.next` present | Owner: Delivery Orchestrator | Status: MITIGATED
 - RISK-004 | Category: OPS | Probability: 1 | Impact: 2 | Score: 2 | Mitigation: store.py install plumbing is a disclosed deviation from the work order's "No other deploy.sh changes"; required for boot; follows the file's existing conditional-install idiom; documented in SDD trio + amendment receipt 6052476179 | Validation: amendment receipt on #394; SDD validate green | Residual risk: NONE | Owner: Delivery Orchestrator | Status: ACCEPTED
-- RISK-005 | Category: DATA | Probability: 2 | Impact: 4 | Score: 8 | Mitigation: independent validation blocked the merge with three lifecycle defects (rollback→retry abandoned records because imports no-op'd on populated tables; corrupt non-authoritative mirrors failed every boot; activation could promote a stale `.next`); repaired as a content-keyed idempotent merge with a documented SHA-256 canonical-payload key (D-8), newer-wins camera-state import, a necessity-gated read protocol (D-9) and release-bound activation; the bootstrap capture now also preserves a live store.py | Validation: T-A/T-B/T-C/T-D/T-E behavioral tests green on head (StartupMigrationTests, LegacyMigrationTests, VpsDeployTransactionTests); full suite green; ruff + bash -n clean | Residual risk: LOW — legacy records that already existed only in SQLite when a rollback-period mirror was lost are unrecoverable by design (the merge is additive; no record is deleted) | Owner: Delivery Orchestrator | Status: MITIGATED
+- RISK-005 | Category: DATA | Probability: 2 | Impact: 4 | Score: 8 | Mitigation: independent validation blocked the merge twice. Round 1 found three lifecycle defects (rollback→retry abandoned records because imports no-op'd on populated tables; corrupt non-authoritative mirrors failed every boot; activation could promote a stale `.next`). Round 2 rejected the SHA-256 content-key repair (D-8): the UNIQUE(camera_id, content_key) constraint never crossed the live-NULL/imported-keyed domains, so an ordinary restart duplicated live rows from their mirror and at the cap evicted retained history; a lagged mirror resurrected pruned records with new ids; and an unparseable `updated_at` displaced stored camera state via lexical fallback. Repaired by removing the `content_key` column entirely — canonical-payload dedupe (D-8), an anti-resurrection timestamp floor, strict both-sides-parse newer-wins camera-state import and the necessity-gated read protocol (D-9) with release-bound activation; the bootstrap capture preserves a live store.py | Validation: T-A..T-E behavioral tests green on head (StartupMigrationTests, LegacyMigrationTests, VpsDeployTransactionTests) plus the round-2 regression battery V-A (live row + mirror → no duplication across restarts), V-B (mixed imported + live rows at the 5000/500 caps → no eviction beyond exact arithmetic), V-C (lagged mirror: pruned records skipped, newer records merged), V-D (unusable/absent updated_at → stored state stays); full suite green; ruff + bash -n clean | Residual risk: LOW — legacy records that already existed only in SQLite when a rollback-period mirror was lost are unrecoverable by design (the merge is additive; no record is deleted) | Owner: Delivery Orchestrator | Status: MITIGATED
 
 ## Test design
 
@@ -172,9 +186,9 @@ Three coordinated pieces:
 - TEST-004 | Covers: RISK-002 | Level: unit | Priority: P0 | Evidence: caps tests (bulk-seed via one connection, append triggers same-transaction pruning 5000/500); camera_state upsert last-write-wins
 - TEST-005 | Covers: RISK-001,RISK-003 | Level: integration | Priority: P0 | Evidence: StartupMigrationTests (idempotency, order parity, fail-closed on corrupt legacy input, never deletes legacy files) + test_vps_deploy_transaction.py (20 behavioral deploy/rollback tests)
 - TEST-006 | Covers: RISK-005 | Level: unit | Priority: P0 | Evidence: T-A test_corrupt_legacy_mirror_is_best_effort_when_store_is_populated (populated store + corrupt mirror → no raise, stderr warning, authoritative data intact) + T-B test_corrupt_legacy_file_fails_closed (empty target + corrupt legacy → raises)
-- TEST-007 | Covers: RISK-005 | Level: unit | Priority: P0 | Evidence: T-C test_rollback_window_records_are_merged_content_keyed (import → rollback-window append → re-import merges with correct content keys, duplicates ignored, cap respected) + T-D test_camera_state_import_is_newer_wins (legacy newer wins, older loses, mixed-UTC-offset ordering)
+- TEST-007 | Covers: RISK-005 | Level: unit | Priority: P0 | Evidence: T-C test_rollback_window_records_are_merged_idempotent (import → rollback-window append → re-import merges, duplicates skipped, cap respected) + T-D test_camera_state_import_is_newer_wins (legacy newer wins, older loses, mixed-UTC-offset ordering) + V-A test_live_rows_are_not_duplicated_by_mirror_import (mirror of a live row → no duplication, restart-stable) + V-B test_import_at_production_caps_preserves_retained_history (mixed imported + live rows at the 5000/500 caps → no eviction beyond exact arithmetic) + V-C test_stale_pruned_records_are_never_resurrected (lagged mirror: pruned records skipped, newer records merged) + V-D test_camera_state_import_ignores_unusable_timestamps (unparseable/absent updated_at → stored state stays; undated seeds empty only)
 - TEST-008 | Covers: RISK-003,RISK-005 | Level: integration | Priority: P0 | Evidence: T-E test_store_less_rollback_removes_live_store_and_stale_next (store-less rollback release + stale `${STORE_TARGET}.next` → activation removes both, promotes nothing) + test_store_release_stages_and_promotes_normally
-- Regression: full suite (764 passed, 4 skipped) including the updated
+- Regression: full suite (773 passed, 4 skipped) including the updated
   harnesses and the untouched `test_roi_normalization.py`.
 
 ## Correct-course check

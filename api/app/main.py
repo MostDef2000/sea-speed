@@ -415,10 +415,12 @@ def import_legacy_state_store() -> None:
       warning to stderr and skips, so a corrupt mirror can never fail every
       boot of a healthy authoritative store.
 
-    Records are merged content-keyed (store.import_legacy_records), so
-    records the previous release wrote during a rollback window are picked
-    up on the next boot and repeated boots are no-ops. Legacy files are
-    never deleted.
+    Records are merged by canonical-payload equality with an
+    anti-resurrection guard (store.import_legacy_records): records the
+    previous release wrote during a rollback window are picked up on the
+    next boot, repeated boots and mirrors of live-appended rows are no-ops,
+    and records older than the oldest retained row are never resurrected.
+    Legacy files are never deleted.
     """
     store.initialize_state_db(STATE_DB_FILE)
     for camera_id in ANALYTICS_IDENTITIES:

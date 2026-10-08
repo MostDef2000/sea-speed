@@ -13,11 +13,14 @@ Two complementary layers:
    line-crossing records, the analytics event feed and the 1 Hz camera
    state. Every mutation is a single-statement or single-transaction write
    (no read-modify-write), per-camera rows are bounded by a same-transaction
-   DELETE cap, and the legacy-JSON migration is a content-keyed idempotent
-   merge: every legacy record is keyed on ``(camera_id, content_key)`` with
-   ``INSERT OR IGNORE``, so records the previous release appended during a
-   rollback window are picked up by the next boot, repeated boots are
-   no-ops, and camera-state imports take the legacy row only when it is
+   DELETE cap, and the legacy-JSON migration is a canonical-payload
+   idempotent merge: a legacy record is skipped when its canonical payload
+   (the exact stored ``payload_json`` bytes) already exists on the camera —
+   so records the previous release appended during a rollback window are
+   picked up by the next boot, repeated boots are no-ops and a mirror of
+   live-appended rows never duplicates them — and when its timestamp is
+   older than the oldest retained row's (pruned history is never
+   resurrected). Camera-state imports take the legacy row only when it is
    strictly newer than the stored one. Import fails closed on corrupt input
    and never deletes the legacy files (the rollback window keeps reading
    them).
@@ -26,7 +29,6 @@ Standard library only.
 """
 
 import fcntl
-import hashlib
 import json
 import os
 import sqlite3
@@ -68,9 +70,7 @@ _SCHEMA_STATEMENTS = (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         camera_id TEXT NOT NULL,
         payload_json TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        content_key TEXT,
-        UNIQUE(camera_id, content_key)
+        created_at TEXT NOT NULL
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_crossings_camera ON crossings(camera_id, id)",
@@ -79,9 +79,7 @@ _SCHEMA_STATEMENTS = (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         camera_id TEXT NOT NULL,
         payload_json TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        content_key TEXT,
-        UNIQUE(camera_id, content_key)
+        created_at TEXT NOT NULL
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_event_feed_camera ON event_feed(camera_id, id)",
@@ -250,22 +248,6 @@ def read_camera_state(db_path: Path, camera_id: str) -> Optional[Dict[str, Any]]
     return json.loads(row["payload_json"])
 
 
-def _content_key(record: Dict[str, Any], payload_json: str) -> str:
-    """Deterministic dedupe key for a legacy record.
-
-    The key is the SHA-256 of the canonical payload JSON — the exact bytes
-    stored in ``payload_json`` (``ensure_ascii=False, sort_keys=True``).
-    Every timestamp field inside the record (``created_at``, ``updated_at``,
-    ``ts``, ...) therefore participates in the key, while no *generated*
-    value ever does: the ``_utc_now_iso`` fallback used for a missing
-    ``created_at`` column lives outside the key. The same record always
-    hashes to the same key across boots and releases, which makes
-    ``INSERT OR IGNORE`` on ``(camera_id, content_key)`` an idempotent,
-    content-keyed merge.
-    """
-    return hashlib.sha256(payload_json.encode("utf-8")).hexdigest()
-
-
 def _parse_iso_or_none(value: Any) -> Optional[datetime]:
     try:
         parsed = datetime.fromisoformat(str(value))
@@ -279,15 +261,18 @@ def _parse_iso_or_none(value: Any) -> Optional[datetime]:
 def _is_newer(candidate: Any, incumbent: Any) -> bool:
     """True when the ``candidate`` ISO timestamp is strictly newer.
 
-    Compares as timezone-aware datetimes when both sides parse (so mixed
-    UTC-offset spellings order correctly) and falls back to lexicographic
-    comparison of the raw strings otherwise.
+    Both sides must parse as ISO timestamps, compared as timezone-aware
+    datetimes (so mixed UTC-offset spellings order by the actual instant).
+    If either side is missing or unparseable the candidate is NOT newer: a
+    timestamp that cannot be dated must never displace stored state — only
+    a genuinely absent stored row may be seeded by an undated payload
+    (the caller owns that empty-row case).
     """
     left = _parse_iso_or_none(candidate)
     right = _parse_iso_or_none(incumbent)
-    if left is not None and right is not None:
-        return left > right
-    return str(candidate) > str(incumbent)
+    if left is None or right is None:
+        return False
+    return left > right
 
 
 def camera_has_rows(db_path: Path, kind: str, camera_id: str) -> bool:
@@ -310,35 +295,65 @@ def camera_has_rows(db_path: Path, kind: str, camera_id: str) -> bool:
 
 
 def import_legacy_records(db_path: Path, kind: str, camera_id: str, records: List[Any], limit: int) -> int:
-    """Content-keyed idempotent merge of legacy newest-first JSON records.
+    """Canonical-payload idempotent merge of legacy newest-first JSON records.
 
     Unlike an empty-table-only import this merge tolerates a populated
-    target: each record is keyed on ``(camera_id, content_key)`` (see
-    ``_content_key``) and inserted with ``INSERT OR IGNORE``, so records the
-    previous release wrote during a rollback window are picked up by the
-    next boot while byte-identical duplicates are ignored. Legacy lists are
-    newest-first, so records are inserted oldest-first to keep the id order
-    identical to the legacy ordering semantics; the per-camera cap is then
-    applied inside the same transaction.
+    target. Two guards keep the merge lifecycle-safe:
+
+    * Dedupe by canonical payload equality — the canonical payload strings
+      (``json.dumps(record, ensure_ascii=False, sort_keys=True)``, the
+      exact bytes stored in ``payload_json``) of the camera's current rows
+      are loaded in one query, and a legacy record whose canonical payload
+      is already present is skipped. This makes repeated boots no-ops and
+      prevents a mirror of live-appended rows from duplicating them (live
+      appends carry no dedupe key at all; identical live submissions stay
+      distinct as always).
+    * Anti-resurrection — a legacy record whose ``created_at`` (parsed the
+      same way the import derives the ``created_at`` column) is OLDER than
+      the oldest retained row's timestamp is skipped: it was already pruned
+      by the cap or never authoritative, and re-importing it from a lagged
+      mirror would resurrect pruned history as the newest rows and evict
+      genuinely-newer records. Records without a parseable timestamp cannot
+      be ordered and therefore still merge.
+
+    Legacy lists are newest-first, so records are inserted oldest-first to
+    keep the id order identical to the legacy ordering semantics; the
+    per-camera cap is then applied inside the same transaction.
     """
     table = _TABLE_BY_KIND.get(kind)
     if table is None:
         raise ValueError(f"unknown legacy store kind: {kind}")
     imported = 0
     with open_state_db(db_path) as connection:
+        rows = connection.execute(
+            f"SELECT payload_json, created_at FROM {table} WHERE camera_id = ?", (camera_id,)
+        ).fetchall()
+        stored_payloads = {row["payload_json"] for row in rows}
+        oldest_retained = None
+        for row in rows:
+            parsed = _parse_iso_or_none(row["created_at"])
+            if parsed is not None and (oldest_retained is None or parsed < oldest_retained):
+                oldest_retained = parsed
         for record in reversed(records):
             if not isinstance(record, dict):
                 continue
             payload_json = json.dumps(record, ensure_ascii=False, sort_keys=True)
+            if payload_json in stored_payloads:
+                continue
+            record_created_at = _parse_iso_or_none(record.get("created_at"))
+            if (
+                oldest_retained is not None
+                and record_created_at is not None
+                and record_created_at < oldest_retained
+            ):
+                continue
             created_at = str(record.get("created_at") or _utc_now_iso())
-            before = connection.total_changes
             connection.execute(
-                f"INSERT OR IGNORE INTO {table} (camera_id, payload_json, created_at, content_key) "
-                "VALUES (?, ?, ?, ?)",
-                (camera_id, payload_json, created_at, _content_key(record, payload_json)),
+                f"INSERT INTO {table} (camera_id, payload_json, created_at) VALUES (?, ?, ?)",
+                (camera_id, payload_json, created_at),
             )
-            if connection.total_changes > before:
-                imported += 1
+            stored_payloads.add(payload_json)
+            imported += 1
         _prune_camera_rows(connection, table, camera_id, limit)
         return imported
 

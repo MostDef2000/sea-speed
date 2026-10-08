@@ -24,13 +24,13 @@ This change introduces `api/app/store.py` (standard library only):
    crossing records, the analytics event feed and the 1 Hz camera state —
    with per-operation connections (commit/rollback/raise), single-statement
    mutations, per-camera same-transaction DELETE caps (crossings 5000, events
-   500) and a legacy-JSON startup migration that is a **content-keyed
-   idempotent merge** (every legacy record inserted `INSERT OR IGNORE` on
-   `(camera_id, content_key)`, camera-state imported only when strictly
-   newer than the stored row) and **necessity-gated**: an empty target
-   fails closed on corrupt legacy input while a populated target reads the
-   legacy mirror best-effort (warning + skip). The migration never deletes
-   the legacy files.
+   500) and a legacy-JSON startup migration that is a **canonical-payload
+   idempotent merge** (a legacy record is skipped when its canonical payload
+   already exists on the camera or when it is older than the oldest retained
+   row, camera-state imported only when strictly newer than the stored row)
+   and **necessity-gated**: an empty target fails closed on corrupt legacy
+   input while a populated target reads the legacy mirror best-effort
+   (warning + skip). The migration never deletes the legacy files.
 
 `api/app/main.py` becomes SQLite-authoritative for state/events/crossings
 with a best-effort legacy JSON projection mirror (dual-write window for
@@ -52,13 +52,16 @@ corrupt storage as HTTP 500 instead of silently degrading.
 - US-4: Long-lived stores stay bounded: crossings prune to 5000 and the
   event feed to 500 rows per camera in the same transaction as the insert.
 - US-5: An existing VPS deploys this release; the startup migration merges
-  the legacy JSON stores into SQLite (content-keyed, so re-upgrades pick up
-  records the previous release wrote during a rollback window and repeated
-  boots are no-ops), fails closed on corrupt legacy input while the target
-  is still empty (deploy health gate rolls the release back), degrades to a
-  warning when the store is already populated (a corrupt non-authoritative
-  mirror must not fail every boot of a healthy store) and never deletes the
-  legacy files the previous release still reads.
+  the legacy JSON stores into SQLite (dedupe by canonical payload
+  equality, so re-upgrades pick up records the previous release wrote
+  during a rollback window, repeated boots are no-ops and mirrors of
+  live-appended rows never duplicate them; records older than the oldest
+  retained row are never resurrected), fails closed on corrupt legacy
+  input while the target is still empty (deploy health gate rolls the
+  release back), degrades to a warning when the store is already
+  populated (a corrupt non-authoritative mirror must not fail every boot
+  of a healthy store) and never deletes the legacy files the previous
+  release still reads.
 - US-6: A rollback to a pre-#394 release removes the live `store.py` copy
   cleanly; the old `main.py` does not import it. Activation promotes a
   staged `store.py` only when the selected release actually ships one, so a
@@ -99,18 +102,25 @@ the atomic write.
 - R-3: Startup migration — `import_legacy_state_store()` runs once at
   import time after the existing DB initialisations and is
   necessity-gated per (camera, kind) via `store.camera_has_rows`: an EMPTY
-  target makes the read authoritative (unreadable/corrupt legacy JSON
-  raises — fail closed), a NON-EMPTY target makes it best-effort (read or
-  parse failure prints a warning to stderr and skips). Import is a
-  content-keyed idempotent merge: each record is keyed
-  `(camera_id, content_key)` where `content_key` is the SHA-256 of the
-  canonical payload JSON (`ensure_ascii=False, sort_keys=True` — the exact
-  stored bytes, so record timestamps participate and generated values do
-  not), inserted with `INSERT OR IGNORE`, oldest-first to preserve legacy
-  newest-first read order, capped per camera as today; camera-state import
-  takes the legacy payload only when its `updated_at` is strictly newer
-  than the stored row's (an undated payload only seeds an empty row). The
-  migration never deletes the legacy files.
+   target makes the read authoritative (unreadable/corrupt legacy JSON
+   raises — fail closed), a NON-EMPTY target makes it best-effort (read or
+   parse failure prints a warning to stderr and skips). Import is a
+   canonical-payload idempotent merge: a record's canonical payload is
+   `json.dumps(record, ensure_ascii=False, sort_keys=True)` — the exact
+   bytes stored in `payload_json` — and the canonical payloads of the
+   target camera's current rows (one query) form the dedupe set, so a
+   legacy record already present is skipped (boot idempotency; mirrors of
+   live-appended rows never duplicate them, while identical live
+   submissions stay distinct as today); a legacy record whose timestamp is
+   older than the oldest retained row's timestamp is skipped
+   (anti-resurrection of pruned history; records without a parseable
+   timestamp cannot be ordered and still merge), inserted oldest-first to
+   preserve legacy newest-first read order, capped per camera as today;
+   camera-state import takes the legacy payload only when its `updated_at`
+   is strictly newer than the stored row's (both sides must parse as ISO
+   timestamps — an unusable timestamp never displaces stored state; an
+   undated payload only seeds an empty row). The migration never deletes
+   the legacy files.
 - R-4: `api/app/main.py` rewiring — SQLite is authoritative for
   state/events/crossings; every committed mutation is mirrored best-effort
   to the legacy JSON projection (stderr log on failure, request never
@@ -152,13 +162,17 @@ the atomic write.
   500 rows per camera, pruned in the same transaction as the insert.
 - AC-006: Camera state is last-write-wins via upsert; absent state reads
   None.
-- AC-007: The startup migration is a content-keyed idempotent merge —
+- AC-007: The startup migration is a canonical-payload idempotent merge —
   rollback-window records written by the previous release are picked up on
-  re-upgrade (T-C), duplicates are ignored, the cap holds, camera-state
-  import is newer-wins (T-D); empty target + corrupt legacy input fails
-  closed (T-B); populated store + corrupt legacy mirror warns to stderr,
-  skips and leaves authoritative data intact (T-A); legacy files are never
-  deleted.
+  re-upgrade (T-C), duplicates (including mirrors of live-appended rows,
+  V-A) are skipped, imports at the production caps preserve retained
+  history with exact cap arithmetic (V-B), records older than the oldest
+  retained row are never resurrected while newer rollback-window records
+  merge (V-C), the cap holds, camera-state import is newer-wins with
+  unusable timestamps never displacing stored state (T-D, V-D); empty
+  target + corrupt legacy input fails closed (T-B); populated store +
+  corrupt legacy mirror warns to stderr, skips and leaves authoritative
+  data intact (T-A); legacy files are never deleted.
 - AC-008: Activation is release-bound: a store-less rollback release with a
   stale `${STORE_TARGET}.next` present removes both files and promotes
   nothing (T-E); a release shipping `store.py` stages and promotes it
@@ -189,7 +203,7 @@ the atomic write.
 - NFR-003 | Area: compatibility | Target: public API surface unchanged (61 routes, response shapes, ordering semantics); legacy JSON files stay fresh (projection mirrors) for the previous release and operator tooling during the rollback window | Validation: AST-harness regression suites (contract/line-crossing/road-hygiene) green; route-decorator count parity checked by peer verification | Evidence: test_api_contract.py, test_line_crossing.py, test_road_event_hygiene.py | Status: PASS
 - NFR-004 | Area: security/robustness | Target: standard library only; parameterized SQL with whitelisted table names; per-camera row caps bound storage growth (5000 crossings / 500 events) | Validation: ruff clean; store.py code review (independent peer session); cap-enforcement tests | Evidence: test_caps_enforced_per_camera, peer verification report | Status: PASS
 - NFR-005 | Area: rollback safety | Target: legacy files are never deleted by the API; deploy activation removes store.py when rolling back to a pre-#394 release; corrupt legacy store fails boot closed (deploy auto-rollback) | Validation: deploy transaction behavioral suite (20 tests); soft-pattern code review; migration fail-closed tests | Evidence: test_vps_deploy_transaction.py, StartupMigrationTests | Status: PASS
-- NFR-006 | Area: reliability/data-integrity | Target: the legacy transition protocol survives the full rollback/retry lifecycle — imports are a content-keyed idempotent merge (rollback-window records written by the previous release are picked up on re-upgrade; byte-identical duplicates ignored; per-camera cap respected), camera-state import is newer-wins, and legacy reads are necessity-gated so a corrupt non-authoritative mirror can never fail a boot of a healthy authoritative store while the initial migration stays fail-closed; activation is bound to release content, not to a stale `.next` | Validation: T-A (populated store + corrupt mirror → no raise, stderr warning, authoritative data intact), T-B (empty target + corrupt legacy → raises), T-C (import → rollback-window append → re-import merges, dedupes, caps), T-D (newer/older camera-state), T-E (store-less rollback + stale `.next` removed; store release promotes) — all green on head | Evidence: test_rollback_window_records_are_merged_content_keyed, test_camera_state_import_is_newer_wins, test_corrupt_legacy_mirror_is_best_effort_when_store_is_populated, test_corrupt_legacy_file_fails_closed, test_store_less_rollback_removes_live_store_and_stale_next, test_store_release_stages_and_promotes_normally | Status: PASS
+- NFR-006 | Area: reliability/data-integrity | Target: the legacy transition protocol survives the full rollback/retry lifecycle — imports are a canonical-payload idempotent merge with anti-resurrection (rollback-window records written by the previous release are picked up on re-upgrade; duplicates — including mirrors of live-appended rows — are skipped by canonical payload equality; records older than the oldest retained row are never resurrected; per-camera cap respected with exact arithmetic), camera-state import is newer-wins with unusable timestamps never displacing stored state, and legacy reads are necessity-gated so a corrupt non-authoritative mirror can never fail a boot of a healthy authoritative store while the initial migration stays fail-closed; activation is bound to release content, not to a stale `.next` | Validation: T-A (populated store + corrupt mirror → no raise, stderr warning, authoritative data intact), T-B (empty target + corrupt legacy → raises), T-C (import → rollback-window append → re-import merges, dedupes, caps), T-D (newer/older camera-state), T-E (store-less rollback + stale `.next` removed; store release promotes), V-A (live row + mirror → no duplication across restarts), V-B (mixed imported + live rows at the 5000/500 caps → no eviction beyond exact arithmetic), V-C (lagged mirror with pruned records → skipped, newer records merged), V-D (unusable/absent updated_at → stored state stays) — all green on head | Evidence: test_rollback_window_records_are_merged_idempotent, test_live_rows_are_not_duplicated_by_mirror_import, test_import_at_production_caps_preserves_retained_history, test_stale_pruned_records_are_never_resurrected, test_camera_state_import_is_newer_wins, test_camera_state_import_ignores_unusable_timestamps, test_corrupt_legacy_mirror_is_best_effort_when_store_is_populated, test_corrupt_legacy_file_fails_closed, test_store_less_rollback_removes_live_store_and_stale_next, test_store_release_stages_and_promotes_normally | Status: PASS
 
 ## Deviations from the work order
 
