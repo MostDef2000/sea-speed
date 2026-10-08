@@ -14,14 +14,14 @@
       "torchvision": "0.28.0+cu130"
     },
     "artifact_sha256": {
-      "torch": "",
-      "torchvision": ""
+      "torch": "e231302a457298d0236f7bde31082568f6cd0613b66b4eb46849e8ad53c2e38d",
+      "torchvision": "19c2d18bbc8c3b1a666f0d41f91d8f624f912faffad421371061dddda52ba8ea"
     }
   },
   "runtime_requirements": "requirements-runtime.txt",
   "resolved_lock": {
     "file": "requirements-runtime.lock.txt",
-    "sha256": ""
+    "sha256": "0197b630d2324f7457faa524522136aca1f7a023cbc0df5cc2a104b27bc9da4c"
   },
   "verification_imports": [
     "cv2",

@@ -100,6 +100,27 @@ def complete_lock_fixture() -> tuple[bytes, str]:
     return lock_file_bytes, json.dumps(lock, indent=2) + "\n"
 
 
+def canonical_package_name(name: str) -> str:
+    """PEP 503-style normalization for fixture/lock name comparisons."""
+    return name.strip().lower().replace("_", "-")
+
+
+def lock_file_entries(lock_file_text: str) -> list[str]:
+    """Join uv-style continuation lines into logical requirement entries."""
+    joined: list[str] = []
+    buffer = ""
+    for raw in lock_file_text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.endswith("\\"):
+            buffer += line[:-1].strip() + " "
+            continue
+        joined.append((buffer + line).strip())
+        buffer = ""
+    return joined
+
+
 class PipHashMechanicsTests(unittest.TestCase):
     """Environment tests: pip --require-hashes mechanics over fixture wheels.
 
@@ -262,6 +283,13 @@ class RuntimeIdAndLockTests(unittest.TestCase):
 
     def test_placeholder_lock_fails_closed_before_any_mutation(self) -> None:
         fixture, script = self._fixture_dir()
+        # The committed lock file now carries the resolved hash-locked graph
+        # (commit 2), so the empty-graph placeholder behavior is exercised
+        # through a fixture the test builds itself.
+        (fixture / "requirements-runtime.lock.txt").write_text(
+            "# sea-speed-runtime-lock-v1\n",
+            encoding="utf-8",
+        )
         result = subprocess.run(
             ["bash", str(script)],
             capture_output=True,
@@ -402,19 +430,55 @@ class StructuralPinsTests(unittest.TestCase):
         self.assertEqual(lock["schema_version"], 2)
         self.assertEqual(
             lock["resolved_lock"],
-            {"file": "requirements-runtime.lock.txt", "sha256": ""},
+            {
+                "file": "requirements-runtime.lock.txt",
+                "sha256": hashlib.sha256(LOCK_FILE.read_bytes()).hexdigest(),
+            },
         )
-        self.assertEqual(lock["pytorch"]["index_provenance"], "official PyTorch cu130 index")
-        self.assertEqual(lock["pytorch"]["pypi_index_url"], "https://pypi.org/simple")
-        self.assertEqual(sorted(lock["pytorch"]["artifact_sha256"]), ["torch", "torchvision"])
-        for artifact in lock["pytorch"]["artifact_sha256"].values():
-            self.assertEqual(artifact, "")  # CI resolution lands in commit 2
+        self.assertTrue(lock["pytorch"]["index_provenance"])
+        self.assertTrue(lock["pytorch"]["pypi_index_url"])
+        entries = lock_file_entries(LOCK_FILE.read_text(encoding="utf-8"))
+        for package, artifact in sorted(lock["pytorch"]["artifact_sha256"].items()):
+            self.assertRegex(artifact, r"^[0-9a-f]{64}$", package)
+            package_entries = [
+                entry
+                for entry in entries
+                if canonical_package_name(entry.partition("==")[0]) == canonical_package_name(package)
+            ]
+            self.assertTrue(package_entries, f"pytorch package absent from the lock: {package}")
+            self.assertTrue(
+                any(f"--hash=sha256:{artifact}" in entry for entry in package_entries),
+                f"artifact digest absent from the lock hash lines: {package}",
+            )
 
-    def test_placeholder_lock_carries_schema_marker_but_no_pins(self) -> None:
-        lines = [line.strip() for line in LOCK_FILE.read_text(encoding="utf-8").splitlines()]
-        self.assertIn("# sea-speed-runtime-lock-v1", lines)
-        content = [line for line in lines if line and not line.startswith("#")]
-        self.assertEqual(content, [])  # placeholder: no resolved pins yet
+    def test_committed_lock_carries_marker_and_full_hash_pinned_graph(self) -> None:
+        text = LOCK_FILE.read_text(encoding="utf-8")
+        self.assertTrue(text.startswith("# sea-speed-runtime-lock-v1"))
+        entries = lock_file_entries(text)
+        # Every direct requirement from requirements-runtime.txt must appear
+        # exactly once in the committed graph, exact version, hash-pinned.
+        for raw in REQUIREMENTS.read_text(encoding="utf-8").splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            name, _, version = line.partition("==")
+            pin = f"{canonical_package_name(name)}=={version.strip()}"
+            matches = [
+                entry
+                for entry in entries
+                if canonical_package_name(entry.partition("==")[0]) == canonical_package_name(name)
+            ]
+            self.assertEqual(len(matches), 1, f"direct requirement not uniquely pinned: {line}")
+            self.assertTrue(matches[0].startswith(pin), f"lock pin drift: {line}")
+            self.assertIn("--hash=sha256:", matches[0], f"lock pin not hash-pinned: {line}")
+        # The pytorch closure pins must be present with their cu130 wheels and
+        # verified artifact hashes.
+        lock = json.loads(LOCK.read_text(encoding="utf-8"))
+        for package, version in sorted(lock["pytorch"]["packages"].items()):
+            pin = f"{package}=={version}"
+            matches = [entry for entry in entries if entry.startswith(pin)]
+            self.assertEqual(len(matches), 1, f"pytorch pin not uniquely present: {pin}")
+            self.assertIn("--hash=sha256:", matches[0], f"pytorch pin not hash-pinned: {pin}")
 
     def test_resolver_workflow_is_dispatch_only_without_deploy_logic(self) -> None:
         import yaml
