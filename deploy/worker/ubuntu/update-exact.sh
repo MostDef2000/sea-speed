@@ -89,7 +89,7 @@ if [[ ! "$service_user" =~ ^[a-z_][a-z0-9_-]*$ ]]; then
   exit 3
 fi
 
-for command_name in git python3 ffmpeg tar flock stat install grep mktemp mv; do
+for command_name in git python3 ffmpeg tar flock stat install grep mktemp mv sha256sum; do
   if ! command -v "$command_name" >/dev/null 2>&1; then
     echo "ERROR required command missing: $command_name" >&2
     exit 4
@@ -130,6 +130,7 @@ control_unit_backup=""
 watchdog_script_backup=""
 watchdog_unit_backup=""
 watchdog_timer_backup=""
+installed_copy_backup=""
 watchdog_prestate_captured=false
 marker_tmp=""
 cleanup() {
@@ -152,6 +153,9 @@ cleanup() {
   fi
   if [[ -n "$watchdog_timer_backup" ]]; then
     rm -f "$watchdog_timer_backup" || true
+  fi
+  if [[ -n "$installed_copy_backup" ]]; then
+    rm -f "$installed_copy_backup" || true
   fi
   if [[ -n "$marker_tmp" ]]; then
     rm -f "$marker_tmp" || true
@@ -537,6 +541,70 @@ reapply_watchdog_timer_state() {
     "$previous_watchdog_timer_present" "$previous_watchdog_timer_enabled" "$previous_watchdog_timer_active" >&2
 }
 
+refresh_installed_copies() {
+  # Inventory-driven installed-copy refresh (issue #406): every release-derived
+  # file installed outside the release tree (stale-copy class, audit 2026-10-07)
+  # is refreshed from the exact release source inside the deploy transaction, so
+  # production can never keep running an arbitrarily old copy while a fixed
+  # release sits in the release tree (precedents: #388 stale transcode script,
+  # #389/#390/#412 stale watchdog copy). Entries are
+  # "release-source|installed-path|mode". For each entry: a missing installed
+  # copy is a fresh install from the release (idempotent); an existing installed
+  # copy is backed up byte-for-byte before the first mutation, refreshed, and
+  # verified by SHA-256 parity against the release source. Any backup, install
+  # or verification failure restores the prior bytes from the backup and returns
+  # 1 so the caller fails closed through abort_activation. If the release tree
+  # lacks the source for an existing installed copy (installed-only leftover),
+  # it is reported and left untouched — the transaction never deletes installed
+  # artifacts. installed_copy_backup is a shared global so the EXIT cleanup trap
+  # removes any backup left behind by an abort; everything else is local.
+  local -a installed_copy_inventory=(
+    "$watchdog_src|$watchdog_dst|0755"
+    "$watchdog_unit_src|$watchdog_unit_dst|0644"
+    "$watchdog_timer_src|$watchdog_timer_dst|0644"
+  )
+  local entry src dst mode src_sha dst_sha
+  for entry in "${installed_copy_inventory[@]}"; do
+    src="${entry%%|*}"
+    dst="${entry#*|}"
+    dst="${dst%|*}"
+    mode="${entry##*|}"
+    if [[ ! -f "$src" ]]; then
+      if [[ -e "$dst" ]]; then
+        printf 'INSTALLED_COPY_LEFTOVER installed_path=%s action=reported_not_deleted\n' "$dst" >&2
+      fi
+      continue
+    fi
+    installed_copy_backup=""
+    if [[ -f "$dst" ]]; then
+      installed_copy_backup="$(mktemp "$updater_root/installed-copy-backup.XXXXXX")" || return 1
+      install -o root -g root -m 0600 "$dst" "$installed_copy_backup" || return 1
+    fi
+    if ! install -o root -g root -m "$mode" "$src" "$dst"; then
+      if [[ -n "$installed_copy_backup" ]]; then
+        install -o root -g root -m "$mode" "$installed_copy_backup" "$dst" || return 1
+      fi
+      return 1
+    fi
+    src_sha="$(sha256sum "$src")"
+    src_sha="${src_sha%% *}"
+    dst_sha="$(sha256sum "$dst")"
+    dst_sha="${dst_sha%% *}"
+    if [[ -z "$src_sha" || "$src_sha" != "$dst_sha" ]]; then
+      if [[ -n "$installed_copy_backup" ]]; then
+        install -o root -g root -m "$mode" "$installed_copy_backup" "$dst" || return 1
+      fi
+      return 1
+    fi
+    if [[ -n "$installed_copy_backup" ]]; then
+      rm -f "$installed_copy_backup" || true
+      installed_copy_backup=""
+    fi
+    printf 'INSTALLED_COPY_REFRESHED installed_path=%s mode=%s sha256=%s\n' "$dst" "$mode" "$dst_sha" >&2
+  done
+  return 0
+}
+
 restore_previous() {
   if [[ "$previous_runtime_ready" != true ]] || [[ -z "$unit_backup" ]]; then
     return 1
@@ -608,9 +676,11 @@ fi
 # aborts through abort_activation so the already-swapped deploy-managed units
 # are restored instead of being abandoned by set -e.
 capture_watchdog_prestate
-install -o root -g root -m 0755 "$watchdog_src" "$watchdog_dst" || abort_activation "watchdog script install failed"
-install -o root -g root -m 0644 "$watchdog_unit_src" "/etc/systemd/system/sea-speed-camera1-h264-freshness.service" || abort_activation "watchdog unit install failed"
-install -o root -g root -m 0644 "$watchdog_timer_src" "/etc/systemd/system/sea-speed-camera1-h264-freshness.timer" || abort_activation "watchdog timer install failed"
+# Inventory-driven installed-copy refresh (issue #406): backs up prior bytes,
+# refreshes every inventoried installed copy from the exact release source,
+# verifies SHA-256 parity, and restores the prior bytes on any failure; the
+# caller aborts activation so the whole deploy transaction fails closed.
+refresh_installed_copies || abort_activation "installed copy refresh failed"
 systemctl daemon-reload || abort_activation "watchdog daemon-reload failed"
 # Reapply the captured timer pre-state (issue #412) instead of forcing timer
 # enablement; the captured-state gates live in reapply_watchdog_timer_state().
