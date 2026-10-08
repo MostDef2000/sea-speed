@@ -7,8 +7,20 @@ import ipaddress
 import json
 import os
 import re
+import sys
 from pathlib import Path
 from urllib.parse import urlsplit
+
+# Canonical analytics profile values are owned by worker/analytics_profiles.py;
+# this configure step derives its non-secret env-file defaults from that module
+# and must fail closed rather than drift by carrying its own copies.
+_CANONICAL_WORKER_DIR = Path(__file__).resolve().parents[3] / "worker"
+if str(_CANONICAL_WORKER_DIR) not in sys.path:
+    sys.path.insert(0, str(_CANONICAL_WORKER_DIR))
+try:
+    import analytics_profiles
+except Exception as exc:
+    raise SystemExit(f"ERROR canonical analytics profile module unavailable: {exc}") from exc
 
 SAFE_KEY_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
 PROFILE_KEYS = {
@@ -99,6 +111,14 @@ def road_worker_api_urls(water: dict[str, str]) -> tuple[str, str]:
     )
 
 
+def derived_profile_defaults() -> dict[str, dict[str, str]]:
+    """Derive water/road env-file defaults from the canonical profile module."""
+    return {
+        profile_name: analytics_profiles.get_profile(profile_name).env_file_defaults()
+        for profile_name in ("water-v1", "road-v1")
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--install-root", type=Path, default=Path("/opt/sea-speed-worker"))
@@ -164,15 +184,11 @@ def main() -> int:
     water_frame_w = "1920" if water_frame_w in {"704", "576"} else water_frame_w
     water_frame_h = "1080" if water_frame_h in {"704", "576"} else water_frame_h
 
+    water_defaults = derived_profile_defaults()["water-v1"]
     water.update(
         {
-            "ANALYTICS_PROFILE": "water-v1",
-            "CAMERA_ID": "cam1",
-            "MODEL_NAME": "models/yolo26x.pt",
-            "YOLO_TRACKER": "bytetrack.yaml",
-            "YOLO_IMAGE_SIZE": "960",
-            "YOLO_CONFIDENCE": "0.10",
-            "SAMPLE_FPS": _preserve_float("SAMPLE_FPS", "10"),
+            **water_defaults,
+            "SAMPLE_FPS": _preserve_float("SAMPLE_FPS", water_defaults["SAMPLE_FPS"]),
             "FRAME_WIDTH": water_frame_w,
             "FRAME_HEIGHT": water_frame_h,
             "YOLO_HALF": water.get("YOLO_HALF", "1").strip() or "1",
@@ -202,20 +218,16 @@ def main() -> int:
                 continue
         return default
 
+    road_defaults = derived_profile_defaults()["road-v1"]
     road = {
-        "ANALYTICS_PROFILE": "road-v1",
-        "CAMERA_ID": "road1",
+        **road_defaults,
         "HLS_URL": road_source,
         "SEA_SPEED_API_URL": road_state_url,
         "SEA_SPEED_EVENT_API_URL": road_event_url,
         "SEA_SPEED_API_TOKEN": token,
-        "MODEL_NAME": "models/yolo26x.pt",
-        "YOLO_TRACKER": "bytetrack.yaml",
-        "YOLO_IMAGE_SIZE": "960",
-        "YOLO_CONFIDENCE": "0.15",
         "FRAME_WIDTH": water_frame_w,
         "FRAME_HEIGHT": water_frame_h,
-        "SAMPLE_FPS": _road_float("SAMPLE_FPS", "10"),
+        "SAMPLE_FPS": _road_float("SAMPLE_FPS", road_defaults["SAMPLE_FPS"]),
         "YOLO_HALF": (existing_road.get("YOLO_HALF", "") or water.get("YOLO_HALF", "1")).strip() or "1",
         "YOLO_CLASSES_FILTER": (existing_road.get("YOLO_CLASSES_FILTER", "") or water.get("YOLO_CLASSES_FILTER", "0")).strip() or "0",
         "MOTION_GATE_MODE": (existing_road.get("MOTION_GATE_MODE", "") or water.get("MOTION_GATE_MODE", "gated")).strip() or "gated",
