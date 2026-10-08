@@ -241,6 +241,37 @@ def validate_peer_reader_ip(value: str) -> None:
         raise ConfigError("reader IP must not be loopback, link-local, multicast or reserved")
 
 
+def _reader_ip_list(value: str | list[str]) -> list[str]:
+    """Normalize repeatable/comma-separated --reader-ip input (issue #372).
+
+    The live Ubuntu worker cam1 reader rule legitimately carries more than one
+    VPS reader IP, so the CLI accepts either repeated `--reader-ip` flags or
+    one comma-separated value. Order is preserved exactly as given (stable
+    documented order for the rendered `ips: [...]` list) and duplicates fail
+    closed instead of silently reordering.
+    """
+    raw_values = [value] if isinstance(value, str) else list(value)
+    ips: list[str] = []
+    for raw in raw_values:
+        for part in raw.split(","):
+            part = part.strip()
+            if not part:
+                continue
+            if part in ips:
+                raise ConfigError(f"duplicate reader IP is not allowed: {part}")
+            ips.append(part)
+    if not ips:
+        raise ConfigError("at least one reader IP is required")
+    return ips
+
+
+def reader_scope_token(count: int) -> str:
+    """Deterministic reader-scope evidence token; single-IP stays historical."""
+    if count == 1:
+        return "single-rfc1918-ip"
+    return f"multi-rfc1918-ip-count-{count}"
+
+
 def _auth_internal_users_bounds(lines: list[str]) -> tuple[int, int]:
     matches = _find_top_level(lines, "authInternalUsers")
     if len(matches) != 1:
@@ -563,7 +594,9 @@ def render_ubuntu_relay(args: argparse.Namespace) -> str:
     source = read_protected_env_value(args.source_env_file, args.source_env_key)
     validate_camera_source(source)
     validate_private_rtsp_address(args.private_rtsp_address)
-    validate_reader_ip(args.reader_ip)
+    reader_ips = _reader_ip_list(args.reader_ip)
+    for ip in reader_ips:
+        validate_reader_ip(ip)
     for key, value, quote in (
         ("rtsp", "yes", False),
         ("rtspAddress", args.private_rtsp_address, True),
@@ -579,12 +612,12 @@ def render_ubuntu_relay(args: argparse.Namespace) -> str:
     ):
         text = set_top_level_scalar(text, key, value, quote=quote)
     text = set_path_source(text, args.path, source, source_on_demand=True, rtsp_transport="tcp")
-    text = ensure_internal_reader_rule(text, args.path, args.reader_ip)
+    text = ensure_internal_reader_rule(text, args.path, reader_ips)
     text = ensure_internal_api_rule(text)
     digest = write_candidate(args.output, text)
     print(
         f"RENDERED mode=ubuntu-relay path={args.path} source_scheme=rtsp "
-        f"source_has_userinfo=YES reader_scope=single-rfc1918-ip "
+        f"source_has_userinfo=YES reader_scope={reader_scope_token(len(reader_ips))} "
         f"reader_permission=read-only api=loopback-watchdog output_sha256={digest}"
     )
     return digest
@@ -592,10 +625,11 @@ def render_ubuntu_relay(args: argparse.Namespace) -> str:
 
 def render_verify_reader_auth(args: argparse.Namespace) -> str:
     text = read_config(args.config)
-    verify_internal_reader_rule(text, args.path, args.reader_ip)
+    reader_ips = _reader_ip_list(args.reader_ip)
+    verify_internal_reader_rule(text, args.path, reader_ips)
     print(
         f"VERIFIED mode=reader-auth path={args.path} "
-        "reader_scope=single-rfc1918-ip reader_permission=read-only"
+        f"reader_scope={reader_scope_token(len(reader_ips))} reader_permission=read-only"
     )
     return ""
 
@@ -682,14 +716,16 @@ def build_parser() -> argparse.ArgumentParser:
     ubuntu.add_argument("--source-env-file", type=Path, required=True)
     ubuntu.add_argument("--source-env-key", default="HLS_URL")
     ubuntu.add_argument("--private-rtsp-address", required=True)
-    ubuntu.add_argument("--reader-ip", required=True)
+    # Repeatable (and comma-separated) since issue #372: live worker reader
+    # rules legitimately carry more than one VPS reader IP.
+    ubuntu.add_argument("--reader-ip", required=True, action="append")
     ubuntu.add_argument("--path", default="cam1")
     ubuntu.add_argument("--output", type=Path, required=True)
     ubuntu.set_defaults(handler=render_ubuntu_relay)
 
     verify = sub.add_parser("verify-reader-auth")
     verify.add_argument("--config", type=Path, required=True)
-    verify.add_argument("--reader-ip", required=True)
+    verify.add_argument("--reader-ip", required=True, action="append")
     verify.add_argument("--path", default="cam1")
     verify.set_defaults(handler=render_verify_reader_auth)
 

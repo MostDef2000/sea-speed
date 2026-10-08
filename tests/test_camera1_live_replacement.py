@@ -238,7 +238,12 @@ class Camera1LiveReplacementTests(unittest.TestCase):
 
         self.assertIn('worker_service="sea-speed-worker.service"', ubuntu)
         self.assertIn("--reader-ip", ubuntu)
-        self.assertIn("READER_AUTH_SCOPE=cam1-single-rfc1918-peer", ubuntu)
+        # Issue #372 re-pin: the scope evidence is count-generalized; the
+        # single-reader literal lives inside reader_auth_scope() so single-IP
+        # output stays byte-identical, and both prepare/activate print the token.
+        self.assertIn("printf 'cam1-single-rfc1918-peer'", ubuntu)
+        self.assertIn("cam1-multi-rfc1918-peer-count-", ubuntu)
+        self.assertEqual(ubuntu.count("READER_AUTH_SCOPE=%s"), 2)
         self.assertIn("verify-reader-auth", ubuntu)
         self.assertIn("MTX_AUTHMETHOD=", ubuntu)
         self.assertIn("AI worker must remain stopped", ubuntu)
