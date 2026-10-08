@@ -9,6 +9,16 @@ path to be ready and available and its inboundBytes to strictly grow between two
 samples taken SAMPLE_SECONDS apart; readyTime is the path start time, not frame
 age. The source probe targets the same fixed product path cam1-h264; the legacy
 cam1 relay leg is not consulted.
+
+Fail-safe liveness contract (issue #407): the loopback REST API is the ONLY
+freshness input. A liveness input that is unavailable (connection refused,
+timeout, unresolvable host) or uninterpretable (non-JSON / non-object body,
+corrupt freshness fields) must NEVER drive a restart: it reports
+CAMERA1_H264_FRESHNESS=UNKNOWN with CAMERA1_H264_RECOVERY=NOOP instead of
+assuming stale. Only an affirmative answer from a LIVE API (valid path object:
+ready/available false, or ready+available true without inboundBytes growth, or
+an HTTP-level not-found from the live endpoint) classifies the path STALE and
+may drive recovery.
 """
 from __future__ import annotations
 
@@ -31,6 +41,13 @@ STATE_FILE = STATE_ROOT / "state.json"
 LOCK_FILE = STATE_ROOT / "watchdog.lock"
 SAMPLE_SECONDS = 3
 COOLDOWN_SECONDS = 300
+PATH_READY = "READY"
+PATH_STALE = "STALE"
+LIVENESS_UNAVAILABLE = "UNAVAILABLE"
+# curl exit codes that mean the request never completed at the transport
+# layer: 6 resolve failure, 7 connection refused, 28 timeout, 35 TLS handshake,
+# 56 recv failure. Any of these means the liveness input is unavailable.
+CONNECTION_UNAVAILABLE_EXIT_CODES = frozenset({6, 7, 28, 35, 56})
 
 
 class WatchdogError(RuntimeError):
@@ -53,10 +70,17 @@ def _run_fixed(
     )
 
 
-def _path_ready(
+def _path_state(
     runner: Callable[..., subprocess.CompletedProcess[str]],
     sleeper: Callable[[float], None],
-) -> bool:
+) -> str:
+    """Classify the fixed path against a LIVE API: READY, STALE or UNAVAILABLE.
+
+    UNAVAILABLE (input down/uninterpretable) is fail-safe: the caller must not
+    restart. STALE requires an affirmative answer from the live API: a valid
+    path object that is not ready/available, that does not grow inboundBytes
+    between samples, or an HTTP-level error response from the live endpoint.
+    """
     argv = [
         "curl",
         "--fail",
@@ -72,22 +96,31 @@ def _path_ready(
             sleeper(SAMPLE_SECONDS)
         completed = _run_fixed(runner, argv, timeout=10)
         if completed.returncode != 0:
-            return False
+            if completed.returncode in CONNECTION_UNAVAILABLE_EXIT_CODES:
+                return LIVENESS_UNAVAILABLE
+            # Any other non-zero code with --fail is an HTTP-level response
+            # (e.g. 404 path not found): the API is live and answered.
+            return PATH_STALE
         try:
             data = json.loads(completed.stdout or "")
         except ValueError:
-            return False
+            return LIVENESS_UNAVAILABLE
         if not isinstance(data, dict):
-            return False
-        if data.get("ready") is not True:
-            return False
-        if data.get("available") is not True:
-            return False
+            return LIVENESS_UNAVAILABLE
+        ready = data.get("ready")
+        available = data.get("available")
+        if (ready is not True and ready is not False) or (
+            available is not True and available is not False
+        ):
+            # Corrupt freshness fields are not an affirmative staleness answer.
+            return LIVENESS_UNAVAILABLE
+        if ready is not True or available is not True:
+            return PATH_STALE
         raw = data.get("inboundBytes")
         if isinstance(raw, bool) or not isinstance(raw, int) or raw < 0:
-            return False
+            return LIVENESS_UNAVAILABLE
         samples.append(raw)
-    return samples[1] > samples[0]
+    return PATH_READY if samples[1] > samples[0] else PATH_STALE
 
 
 def _probe_source(runner: Callable[..., subprocess.CompletedProcess[str]]) -> None:
@@ -197,15 +230,28 @@ def run_once(
         except BlockingIOError as exc:
             raise WatchdogError("Camera 1 H264 freshness watchdog is already running") from exc
 
-        ready = _path_ready(runner, sleeper)
+        state = _path_state(runner, sleeper)
         lines = [
             f"CAMERA1_H264_SERVICE={CAMERA1_H264_SERVICE}",
             f"CAMERA1_H264_PATH={CAMERA1_H264_PATH}",
         ]
-        if ready:
+        if state == PATH_READY:
             lines.extend(
                 (
                     "CAMERA1_H264_FRESHNESS=PASS",
+                    "CAMERA1_H264_RECOVERY=NOOP",
+                    "CAMERA1_SOURCE=NOT_CHECKED",
+                )
+            )
+            return lines
+
+        if state == LIVENESS_UNAVAILABLE:
+            # Fail-safe (issue #407): the liveness input is down or
+            # uninterpretable. Never assume stale; never restart.
+            lines.extend(
+                (
+                    "CAMERA1_H264_FRESHNESS=UNKNOWN",
+                    "CAMERA1_H264_LIVENESS_INPUT=UNAVAILABLE",
                     "CAMERA1_H264_RECOVERY=NOOP",
                     "CAMERA1_SOURCE=NOT_CHECKED",
                 )
@@ -243,7 +289,10 @@ def run_once(
             raise WatchdogError("fixed Camera 1 H264 transcode service is not active after restart")
 
         sleeper(SAMPLE_SECONDS)
-        if not _path_ready(runner, sleeper):
+        state = _path_state(runner, sleeper)
+        if state == LIVENESS_UNAVAILABLE:
+            raise WatchdogError("Camera 1 H264 liveness input is unavailable after transcode restart")
+        if state != PATH_READY:
             raise WatchdogError("Camera 1 H264 path is still not ready after transcode restart")
         lines.extend(
             (

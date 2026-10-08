@@ -347,5 +347,127 @@ class WaterRtspTransportTests(unittest.TestCase):
                 entry._write_rtsp_ffconcat_input("rtsp://u:se'cret@h/x", "udp")
 
 
+class UbuntuRelayApiBlockTests(unittest.TestCase):
+    """#407: the ubuntu-relay profile durably carries the loopback watchdog API block."""
+
+    def rendered_candidate(self, config_text: str) -> tuple[str, str]:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            config = root / "mediamtx.yml"
+            env_file = root / "worker.env"
+            candidate = root / "candidate.yml"
+            config.write_text(config_text, encoding="utf-8")
+            secret = "rtsp://" + "camera_user:camera_key" + "@10.0.0.21/live"
+            env_file.write_text("HLS_URL=" + secret + "\n", encoding="utf-8")
+            os.chmod(env_file, 0o600)
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(RENDERER),
+                    "ubuntu-relay",
+                    "--config",
+                    str(config),
+                    "--source-env-file",
+                    str(env_file),
+                    "--private-rtsp-address",
+                    "10.0.0.8:8554",
+                    "--reader-ip",
+                    "10.0.0.9",
+                    "--path",
+                    "cam1",
+                    "--output",
+                    str(candidate),
+                ],
+                check=True,
+                text=True,
+                capture_output=True,
+            )
+            self.assertIn("api=loopback-watchdog", result.stdout)
+            return candidate.read_text(encoding="utf-8"), secret
+
+    def test_ubuntu_relay_renders_loopback_api_block(self) -> None:
+        rendered, _ = self.rendered_candidate(BASE_CONFIG)
+        self.assertIn("api: yes\n", rendered)
+        self.assertIn('apiAddress: "127.0.0.1:9997"\n', rendered)
+        self.assertIn(
+            "# Sea Speed loopback API observation rule for the freshness watchdog", rendered
+        )
+        self.assertIn('ips: ["127.0.0.1"]', rendered)
+        self.assertIn("      - action: api\n", rendered)
+        mediamtx.verify_internal_api_rule(rendered)
+        mediamtx.verify_internal_reader_rule(rendered, "cam1", "10.0.0.9")
+
+    def test_api_block_survives_re_render_idempotently(self) -> None:
+        first, _ = self.rendered_candidate(BASE_CONFIG)
+        self.assertEqual(
+            mediamtx.set_top_level_scalar(first, "api", "yes", quote=False),
+            first,
+        )
+        second, _ = self.rendered_candidate(first)
+        self.assertEqual(second, first)
+        source = mediamtx.get_path_field(second, "cam1", "source") or ""
+        self.assertTrue(source.startswith("rtsp://"), source)
+        self.assertTrue(source.endswith("@10.0.0.21/live"), source)
+        mediamtx.verify_internal_api_rule(second)
+
+    def test_api_rule_drift_is_rejected(self) -> None:
+        # Baseline without a pre-existing (marker-less) api rule: the marked
+        # rule is then the only api grant in its parse span, so drift of the
+        # marked rule itself is what the assertions exercise.
+        baseline = BASE_CONFIG.replace(
+            '  - user: any\n    pass:\n    ips: ["127.0.0.1"]\n    permissions:\n      - action: api\n',
+            "",
+            1,
+        )
+        rendered, _ = self.rendered_candidate(baseline)
+        self.assertEqual(
+            mediamtx.ensure_internal_api_rule(rendered),
+            rendered,
+        )
+        drifted = rendered.replace("- action: api\n", "- action: read\n", 1)
+        with self.assertRaises(mediamtx.ConfigError):
+            mediamtx.ensure_internal_api_rule(drifted)
+        with self.assertRaises(mediamtx.ConfigError):
+            mediamtx.verify_internal_api_rule(drifted)
+        no_loopback = rendered.replace('ips: ["127.0.0.1"]', 'ips: ["203.0.113.8"]', 1)
+        with self.assertRaises(mediamtx.ConfigError):
+            mediamtx.verify_internal_api_rule(no_loopback)
+        external = rendered.replace("authMethod: internal", "authMethod: http", 1)
+        with self.assertRaises(mediamtx.ConfigError):
+            mediamtx.ensure_internal_api_rule(external)
+
+    def test_non_relay_modes_do_not_render_the_api_block(self) -> None:
+        marker = "# Sea Speed loopback API observation rule for the freshness watchdog"
+        reader_only = mediamtx.ensure_internal_reader_rule(BASE_CONFIG, "cam1", "10.0.0.9")
+        self.assertNotIn("api: yes\n", reader_only)
+        self.assertNotIn(marker, reader_only)
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            config = root / "mediamtx.yml"
+            candidate = root / "candidate.yml"
+            config.write_text(BASE_CONFIG, encoding="utf-8")
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(RENDERER),
+                    "vps-switch",
+                    "--config",
+                    str(config),
+                    "--relay-url",
+                    "rtsp://10.0.0.8:8554/cam1",
+                    "--path",
+                    "cam1",
+                    "--output",
+                    str(candidate),
+                ],
+                check=True,
+                text=True,
+                capture_output=True,
+            )
+            rendered = candidate.read_text(encoding="utf-8")
+            self.assertNotIn("api: yes\n", rendered)
+            self.assertNotIn(marker, rendered)
+
+
 if __name__ == "__main__":
     unittest.main()
