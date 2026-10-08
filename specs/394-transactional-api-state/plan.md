@@ -147,11 +147,17 @@ Three coordinated pieces:
 
 ## Correct-course check
 
-- Public API surface unchanged; no new dependencies (stdlib only).
-- The `event_feed`/`crossings` `camera_id` column and the deploy.sh install
-  plumbing are recorded as deviations in spec.md.
-- No commits: changes are left in the working tree for orchestrator
-  admission.
+- Trigger: NONE during implementation; deviations (camera_id column,
+  deploy.sh install plumbing) were disclosed in the SDD trio and amendment
+  receipt issuecomment-6052476179 rather than handled by correct-course.
+- Issue impact: NONE
+- Specification impact: NONE
+- Plan impact: NONE
+- Tasks impact: NONE
+- Authorization impact: NONE (Block A owner approval covers the delivered
+  scope; deploy.sh plumbing amendment documented pre-PR)
+- Follow-up: NONE required; dual-write window retirement lands as a
+  follow-up release after the first VPS contour deploy verifies.
 
 ## Deployment transaction audit
 
