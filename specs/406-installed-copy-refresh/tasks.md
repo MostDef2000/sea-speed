@@ -71,9 +71,9 @@
 
 ## Requirements traceability
 
-- AC-001 | Task: T-406-002,T-406-003 | Evidence: test_stale_installed_copies_are_refreshed_to_release_bytes (executed harness: stale trio → exact release bytes + INSTALLED_COPY_REFRESHED per entry) | Coverage: COVERED
-- AC-002 | Task: T-406-002,T-406-003 | Evidence: test_install_failure_fails_closed_and_restores_prior_bytes, test_hash_mismatch_fails_closed_and_restores_prior_bytes, test_backup_mktemp_failure_aborts_before_any_mutation (abort + prior bytes restored, no partial inventory mutation) | Coverage: COVERED
-- AC-003 | Task: T-406-002,T-406-003 | Evidence: test_post_transaction_hash_parity_holds_for_whole_inventory (mixed host, whole-inventory SHA-256 parity post-transaction) | Coverage: COVERED
-- AC-004 | Task: T-406-002,T-406-003 | Evidence: test_fresh_host_installs_every_inventory_entry_from_release + test_second_run_is_byte_identical_idempotent | Coverage: COVERED
-- AC-005 | Task: T-406-002,T-406-003 | Evidence: test_release_tree_lacking_source_reports_leftover_without_deletion (report-not-delete, bytes preserved, no abort) | Coverage: COVERED
-- AC-006 | Task: T-406-005,T-406-006 | Evidence: full pytest suite green; new battery verbose green; bash -n clean; ruff clean; validate_sdd.py green; deploy-authorized.sh contour decision recorded (T-406-005) | Coverage: COVERED
+ - AC-1 | Task: T-406-002,T-406-003 | Evidence: test_stale_installed_copies_are_refreshed_to_release_bytes (executed harness: stale trio → exact release bytes + INSTALLED_COPY_REFRESHED per entry) | Coverage: COVERED
+ - AC-2 | Task: T-406-002,T-406-003 | Evidence: test_install_failure_fails_closed_and_restores_prior_bytes, test_hash_mismatch_fails_closed_and_restores_prior_bytes, test_backup_mktemp_failure_aborts_before_any_mutation (abort + prior bytes restored, no partial inventory mutation) | Coverage: COVERED
+ - AC-3 | Task: T-406-002,T-406-003 | Evidence: test_post_transaction_hash_parity_holds_for_whole_inventory (mixed host, whole-inventory SHA-256 parity post-transaction) | Coverage: COVERED
+ - AC-4 | Task: T-406-002,T-406-003 | Evidence: test_fresh_host_installs_every_inventory_entry_from_release + test_second_run_is_byte_identical_idempotent | Coverage: COVERED
+ - AC-5 | Task: T-406-002,T-406-003 | Evidence: test_release_tree_lacking_source_reports_leftover_without_deletion (report-not-delete, bytes preserved, no abort) | Coverage: COVERED
+ - AC-6 | Task: T-406-005,T-406-006 | Evidence: full pytest suite green; new battery verbose green; bash -n clean; ruff clean; validate_sdd.py green; deploy-authorized.sh contour decision recorded (T-406-005) | Coverage: COVERED
