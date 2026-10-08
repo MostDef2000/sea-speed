@@ -551,51 +551,171 @@ class LegacyMigrationTests(unittest.TestCase):
         self.assertEqual(len(STORE.read_events(self.state_db, "cam1")), 500)
         self.assertEqual(STORE.read_events(self.state_db, "cam1")[0]["event_id"], "f499")
 
-    # V-C — anti-resurrection: records older than the oldest retained row
-    # were already pruned (or never authoritative); a lagged mirror carrying
-    # them must not resurrect them as newest rows, while newer
-    # rollback-window records still merge.
-    def test_stale_pruned_records_are_never_resurrected(self) -> None:
-        t1, t2, t3, t4, t5 = (
+    # W-A — anti-resurrection by ingestion history (round-4 design). The
+    # round-3 timestamp floor failed when a pruned record's timestamp EQUALS
+    # the retained floor: it re-imported from a stale mirror with a new id,
+    # evicted retained records and churned on every restart. The
+    # ingestion-log registry is time-blind — a record that was ever
+    # ingested is skipped, whatever (or whether) it is dated.
+    def test_equal_timestamp_stale_mirror_never_resurrects_or_churns(self) -> None:
+        t = "2026-01-01T00:00:00+00:00"  # every record shares ONE timestamp
+        cap = 3
+        for event_id in ("a", "b", "c"):
+            STORE.append_crossing(self.state_db, "cam1", {"event_id": event_id, "created_at": t}, cap)
+        STORE.append_crossing(self.state_db, "cam1", {"event_id": "d", "created_at": t}, cap)
+        self.assertEqual(
+            [record["event_id"] for record in STORE.read_crossings(self.state_db, "cam1")],
+            ["d", "c", "b"],
+            "cap pruned a; b/c/d retained — all four records share one timestamp",
+        )
+
+        # The old release's mirror update failed, so its file is the stale
+        # snapshot [c, b, a] from before d was appended. Importing it must
+        # NOT resurrect the pruned a with a fresh id.
+        stale_mirror = [
+            {"event_id": "c", "created_at": t},
+            {"event_id": "b", "created_at": t},
+            {"event_id": "a", "created_at": t},
+        ]
+        self.assertEqual(
+            STORE.import_legacy_records(self.state_db, "crossings", "cam1", stale_mirror, cap),
+            0,
+            "equal-timestamp pruned record must be skipped via ingestion history",
+        )
+        self.assertEqual(
+            [record["event_id"] for record in STORE.read_crossings(self.state_db, "cam1")],
+            ["d", "c", "b"],
+            "b/c must not be evicted by a resurrected row",
+        )
+
+        # Repeated restarts: the same stale mirror must never churn retention.
+        for _ in range(2):
+            self.assertEqual(STORE.import_legacy_records(self.state_db, "crossings", "cam1", stale_mirror, cap), 0)
+            self.assertEqual(
+                [record["event_id"] for record in STORE.read_crossings(self.state_db, "cam1")],
+                ["d", "c", "b"],
+            )
+
+    # W-B — the registry is timestamp-blind, so undated records are
+    # covered: an undated record that was ingested and later pruned stays
+    # skipped (no timestamp comparison could order it), while a genuinely
+    # new undated rollback-period record (never ingested) merges.
+    def test_undated_records_obey_the_ingestion_registry(self) -> None:
+        undated = {"event_id": "u1"}  # no created_at at all
+        STORE.append_event(self.state_db, "cam1", undated, 1)
+        live = {"event_id": "x1"}
+        STORE.append_event(self.state_db, "cam1", live, 1)  # cap 1 prunes u1
+        self.assertEqual([event["event_id"] for event in STORE.read_events(self.state_db, "cam1")], ["x1"])
+
+        # Stale mirror still carrying the pruned undated record: skipped.
+        stale_mirror = [live, undated]
+        self.assertEqual(
+            STORE.import_legacy_records(self.state_db, "events", "cam1", stale_mirror, 1),
+            0,
+            "a pruned undated record must be skipped via the ingestion registry",
+        )
+        self.assertEqual([event["event_id"] for event in STORE.read_events(self.state_db, "cam1")], ["x1"])
+
+        # A genuinely new undated rollback-period record (never ingested) merges.
+        rollback = {"event_id": "r1"}  # undated, never seen by this store
+        self.assertEqual(
+            STORE.import_legacy_records(self.state_db, "events", "cam1", [rollback, live], 2),
+            1,
+        )
+        self.assertEqual(
+            sorted(event["event_id"] for event in STORE.read_events(self.state_db, "cam1")),
+            ["r1", "x1"],
+        )
+
+    # W-C — event time is not ingestion order: a rollback-period record
+    # with an event timestamp OLDER than every retained row (a delayed
+    # submission) must merge when it was never ingested. The round-3
+    # timestamp floor silently discarded exactly this record.
+    def test_delayed_rollback_record_with_old_event_time_merges(self) -> None:
+        t0, t1, t2 = (
+            "2025-12-31T00:00:00+00:00",
             "2026-01-01T00:00:00+00:00",
             "2026-01-02T00:00:00+00:00",
-            "2026-01-03T00:00:00+00:00",
-            "2026-01-04T00:00:00+00:00",
-            "2026-01-05T00:00:00+00:00",
         )
+        legacy = [{"event_id": "e2", "created_at": t2}, {"event_id": "e1", "created_at": t1}]
+        self.assertEqual(STORE.import_legacy_records(self.state_db, "crossings", "cam1", legacy, 10), 2)
+
+        # The old release ingests a delayed record (old event time, free cap
+        # headroom); its file becomes [e0, e2, e1] (newest-first).
+        delayed_mirror = [{"event_id": "e0", "created_at": t0}] + legacy
+        self.assertEqual(
+            STORE.import_legacy_records(self.state_db, "crossings", "cam1", delayed_mirror, 10),
+            1,
+            "a never-ingested record must merge regardless of its old event timestamp",
+        )
+        self.assertEqual(
+            [record["event_id"] for record in STORE.read_crossings(self.state_db, "cam1")],
+            ["e0", "e2", "e1"],
+        )
+        # The merged record is now registered: rebooting on the same mirror is a no-op.
+        self.assertEqual(STORE.import_legacy_records(self.state_db, "crossings", "cam1", delayed_mirror, 10), 0)
+
+    # W-D — repeated boots over a stable intact mirror are zero-mutation
+    # (only merged records are registered, so every boot after the first is
+    # a complete no-op), and ingestion_log stays bounded at 4×cap across
+    # churn far beyond the cap.
+    def test_repeated_boots_are_zero_mutation_and_registry_stays_bounded(self) -> None:
+        def registry_count() -> int:
+            with STORE.open_state_db(self.state_db) as connection:
+                return connection.execute(
+                    "SELECT COUNT(*) FROM ingestion_log WHERE camera_id = ? AND kind = ?",
+                    ("cam1", "crossings"),
+                ).fetchone()[0]
+
+        def table_snapshot() -> List[Any]:
+            with STORE.open_state_db(self.state_db) as connection:
+                return [
+                    tuple(row)
+                    for row in connection.execute(
+                        "SELECT id, payload_json, created_at FROM crossings WHERE camera_id = ? ORDER BY id",
+                        ("cam1",),
+                    )
+                ]
+
+        cap = 2  # registry window = 4 * cap = 8
         legacy = [
-            {"event_id": "e4", "created_at": t4},
-            {"event_id": "e3", "created_at": t3},
-            {"event_id": "e2", "created_at": t2},
-            {"event_id": "e1", "created_at": t1},
+            {"event_id": "e2", "created_at": "2026-01-02T00:00:00+00:00"},
+            {"event_id": "e1", "created_at": "2026-01-01T00:00:00+00:00"},
+            {"event_id": "e0", "created_at": "2025-12-31T00:00:00+00:00"},
         ]
-        self.assertEqual(STORE.import_legacy_records(self.state_db, "crossings", "cam1", legacy, 3), 4)
-        self.assertEqual(
-            [record["event_id"] for record in STORE.read_crossings(self.state_db, "cam1")],
-            ["e4", "e3", "e2"],
-            "cap pruned e1; the retained window starts at e2",
-        )
+        self.assertEqual(STORE.import_legacy_records(self.state_db, "crossings", "cam1", legacy, cap), 3)
+        self.assertEqual(len(table_snapshot()), 2)
+        self.assertEqual(registry_count(), 3)
 
-        # Lagged mirror still carrying the pruned e1: e1 must be skipped,
-        # the newer rollback-window record e5 must merge.
-        lagged_mirror = [
-            {"event_id": "e5", "created_at": t5},
-            {"event_id": "e4", "created_at": t4},
-            {"event_id": "e3", "created_at": t3},
-            {"event_id": "e2", "created_at": t2},
-            {"event_id": "e1", "created_at": t1},
-        ]
-        self.assertEqual(STORE.import_legacy_records(self.state_db, "crossings", "cam1", lagged_mirror, 3), 1)
-        merged = [record["event_id"] for record in STORE.read_crossings(self.state_db, "cam1")]
-        self.assertNotIn("e1", merged, "pruned records must never be resurrected")
-        self.assertEqual(merged, ["e5", "e4", "e3"], "cap arithmetic stays exact after the merge")
+        # Three consecutive boots on the SAME intact mirror (the file's e0
+        # was pruned from the table but is registered): zero mutations.
+        snapshot = table_snapshot()
+        for boot in range(3):
+            self.assertEqual(
+                STORE.import_legacy_records(self.state_db, "crossings", "cam1", legacy, cap),
+                0,
+                f"boot {boot + 2} must be a complete no-op",
+            )
+            self.assertEqual(table_snapshot(), snapshot, f"boot {boot + 2} mutated retained rows")
+        self.assertEqual(registry_count(), 3, "no-op boots must not write the registry either")
 
-        # Repeated boots of the same lagged mirror stay no-ops.
-        self.assertEqual(STORE.import_legacy_records(self.state_db, "crossings", "cam1", lagged_mirror, 3), 0)
-        self.assertEqual(
-            [record["event_id"] for record in STORE.read_crossings(self.state_db, "cam1")],
-            ["e5", "e4", "e3"],
-        )
+        # Churn far beyond the cap: 12 live appends (15 total ingestions)
+        # must leave the registry bounded at exactly 4 * cap.
+        base = datetime(2026, 2, 1, tzinfo=timezone.utc)
+        for index in range(12):
+            STORE.append_crossing(
+                self.state_db,
+                "cam1",
+                {"event_id": f"n{index}", "created_at": (base + timedelta(seconds=index)).isoformat()},
+                cap,
+            )
+        self.assertLessEqual(registry_count(), 4 * cap)
+        self.assertEqual(registry_count(), 4 * cap, "churn beyond the window must prune the registry")
+
+        # And a boot on the fresh intact mirror is still a no-op.
+        fresh_mirror = STORE.read_crossings(self.state_db, "cam1")  # newest-first, as the file is written
+        self.assertEqual(STORE.import_legacy_records(self.state_db, "crossings", "cam1", fresh_mirror, cap), 0)
+        self.assertEqual(len(table_snapshot()), 2)
 
     # V-D — unusable/absent timestamps cannot displace stored camera
     # state; only a genuinely newer ISO timestamp replaces it, and an

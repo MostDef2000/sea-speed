@@ -13,14 +13,18 @@ Two complementary layers:
    line-crossing records, the analytics event feed and the 1 Hz camera
    state. Every mutation is a single-statement or single-transaction write
    (no read-modify-write), per-camera rows are bounded by a same-transaction
-   DELETE cap, and the legacy-JSON migration is a canonical-payload
-   idempotent merge: a legacy record is skipped when its canonical payload
-   (the exact stored ``payload_json`` bytes) already exists on the camera —
-   so records the previous release appended during a rollback window are
-   picked up by the next boot, repeated boots are no-ops and a mirror of
-   live-appended rows never duplicates them — and when its timestamp is
-   older than the oldest retained row's (pruned history is never
-   resurrected). Camera-state imports take the legacy row only when it is
+   DELETE cap, and every ingestion — live append or legacy import — registers
+   the record's canonical payload hash in a durable ``ingestion_log`` table
+   inside the same transaction. The legacy-JSON migration is therefore an
+   idempotent merge governed by ingestion history, not by event time: a
+   legacy record is skipped when its canonical payload (the exact stored
+   ``payload_json`` bytes) is already retained on the camera, or when its
+   hash is already registered (it was ingested before and has since been
+   pruned) — so records the previous release appended during a rollback
+   window are picked up by the next boot, repeated boots are no-ops, and a
+   stale mirror can never resurrect pruned history: equal timestamps,
+   missing timestamps and lagged mirrors are all handled uniformly by the
+   registry. Camera-state imports take the legacy row only when it is
    strictly newer than the stored one. Import fails closed on corrupt input
    and never deletes the legacy files (the rollback window keeps reading
    them).
@@ -29,6 +33,7 @@ Standard library only.
 """
 
 import fcntl
+import hashlib
 import json
 import os
 import sqlite3
@@ -83,6 +88,15 @@ _SCHEMA_STATEMENTS = (
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_event_feed_camera ON event_feed(camera_id, id)",
+    """
+    CREATE TABLE IF NOT EXISTS ingestion_log (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        camera_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        payload_hash TEXT NOT NULL
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_ingestion_log_keys ON ingestion_log(camera_id, kind, payload_hash)",
     """
     CREATE TABLE IF NOT EXISTS camera_state (
         camera_id TEXT PRIMARY KEY,
@@ -176,8 +190,58 @@ def _prune_camera_rows(connection: sqlite3.Connection, table: str, camera_id: st
     )
 
 
+def _register_ingested(
+    connection: sqlite3.Connection,
+    camera_id: str,
+    kind: str,
+    records: List[Any],
+    cap: int,
+) -> None:
+    """Record ingested payloads in ``ingestion_log`` and bound the log.
+
+    Every ingestion path (``append_crossing``/``append_event`` live
+    appends, ``import_legacy_records`` imports) calls this inside its own
+    transaction, so a payload hash is durable exactly when its record is.
+    The hash covers the record's canonical payload bytes —
+    ``json.dumps(record, ensure_ascii=False, sort_keys=True)`` — the exact
+    bytes stored in ``payload_json`` by every writer.
+
+    The log is pruned to the newest ``4 * cap`` entries per (camera, kind),
+    where ``cap`` is the kind's store limit (the same constant the caller
+    enforces on the table). That window is why anti-resurrection needs no
+    timestamp comparison: the previous release maintains its own legacy
+    file within its own cap during the rollback window, and any mirror —
+    the current projection or one stale by any number of failed mirror
+    writes while the new release ran live — can only contain records that
+    were in the store within the last ``cap`` insertions. A ``4 * cap``
+    ingestion window therefore covers everything any mirror could
+    resurrect. Rollback-period records the old release wrote while the new
+    store was authoritative are unregistered by definition and still merge.
+    """
+    window = 4 * max(0, int(cap))
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        payload_json = json.dumps(record, ensure_ascii=False, sort_keys=True)
+        payload_hash = hashlib.sha256(payload_json.encode("utf-8")).hexdigest()
+        connection.execute(
+            "INSERT INTO ingestion_log (camera_id, kind, payload_hash) VALUES (?, ?, ?)",
+            (camera_id, kind, payload_hash),
+        )
+    connection.execute(
+        "DELETE FROM ingestion_log WHERE camera_id = ? AND kind = ? AND seq NOT IN "
+        "(SELECT seq FROM ingestion_log WHERE camera_id = ? AND kind = ? ORDER BY seq DESC LIMIT ?)",
+        (camera_id, kind, camera_id, kind, window),
+    )
+
+
 def append_crossing(db_path: Path, camera_id: str, record: Dict[str, Any], limit: int = 5000) -> None:
-    """Insert one crossing record and cap the camera to the newest ``limit`` rows."""
+    """Insert one crossing record and cap the camera to the newest ``limit`` rows.
+
+    The payload hash is registered in ``ingestion_log`` inside the same
+    transaction, so the anti-resurrection registry is durable exactly when
+    the record is (cheap: one INSERT plus an occasional log prune).
+    """
     payload_json = json.dumps(record, ensure_ascii=False, sort_keys=True)
     created_at = str(record.get("created_at") or _utc_now_iso())
     with open_state_db(db_path) as connection:
@@ -185,6 +249,7 @@ def append_crossing(db_path: Path, camera_id: str, record: Dict[str, Any], limit
             "INSERT INTO crossings (camera_id, payload_json, created_at) VALUES (?, ?, ?)",
             (camera_id, payload_json, created_at),
         )
+        _register_ingested(connection, camera_id, "crossings", [record], limit)
         _prune_camera_rows(connection, "crossings", camera_id, limit)
 
 
@@ -199,7 +264,11 @@ def read_crossings(db_path: Path, camera_id: str) -> List[Dict[str, Any]]:
 
 
 def append_event(db_path: Path, camera_id: str, event: Dict[str, Any], limit: int = 500) -> None:
-    """Insert one event-feed record and cap the camera to the newest ``limit`` rows."""
+    """Insert one event-feed record and cap the camera to the newest ``limit`` rows.
+
+    The payload hash is registered in ``ingestion_log`` inside the same
+    transaction (see :func:`_register_ingested`).
+    """
     payload_json = json.dumps(event, ensure_ascii=False, sort_keys=True)
     created_at = str(event.get("created_at") or _utc_now_iso())
     with open_state_db(db_path) as connection:
@@ -207,6 +276,7 @@ def append_event(db_path: Path, camera_id: str, event: Dict[str, Any], limit: in
             "INSERT INTO event_feed (camera_id, payload_json, created_at) VALUES (?, ?, ?)",
             (camera_id, payload_json, created_at),
         )
+        _register_ingested(connection, camera_id, "events", [event], limit)
         _prune_camera_rows(connection, "event_feed", camera_id, limit)
 
 
@@ -295,57 +365,59 @@ def camera_has_rows(db_path: Path, kind: str, camera_id: str) -> bool:
 
 
 def import_legacy_records(db_path: Path, kind: str, camera_id: str, records: List[Any], limit: int) -> int:
-    """Canonical-payload idempotent merge of legacy newest-first JSON records.
+    """Ingestion-history-gated idempotent merge of legacy newest-first JSON records.
 
     Unlike an empty-table-only import this merge tolerates a populated
-    target. Two guards keep the merge lifecycle-safe:
+    target. Two guards keep the merge lifecycle-safe, and neither consults
+    event timestamps (event time is not ingestion order):
 
-    * Dedupe by canonical payload equality — the canonical payload strings
+    * Dedupe by retained payload equality — the canonical payload strings
       (``json.dumps(record, ensure_ascii=False, sort_keys=True)``, the
       exact bytes stored in ``payload_json``) of the camera's current rows
       are loaded in one query, and a legacy record whose canonical payload
-      is already present is skipped. This makes repeated boots no-ops and
-      prevents a mirror of live-appended rows from duplicating them (live
-      appends carry no dedupe key at all; identical live submissions stay
-      distinct as always).
-    * Anti-resurrection — a legacy record whose ``created_at`` (parsed the
-      same way the import derives the ``created_at`` column) is OLDER than
-      the oldest retained row's timestamp is skipped: it was already pruned
-      by the cap or never authoritative, and re-importing it from a lagged
-      mirror would resurrect pruned history as the newest rows and evict
-      genuinely-newer records. Records without a parseable timestamp cannot
-      be ordered and therefore still merge.
+      is already present is skipped (live appends carry no dedupe key;
+      identical live submissions stay distinct as always).
+    * Anti-resurrection by ingestion history — every ingestion (live
+      append and import alike) registers the record's canonical payload
+      hash in ``ingestion_log`` inside the same transaction, and a legacy
+      record whose hash is already registered was ingested before (its row
+      may since have been pruned by the cap) and is skipped. This is a
+      durable ingestion/pruning identity, not a timestamp comparison:
+      pruned records with timestamps EQUAL to the retained floor, undated
+      or unparseable records are handled uniformly, and repeated boots
+      cannot churn. Only genuinely never-ingested records — e.g. a
+      rollback-period record with an old event timestamp — merge.
 
-    Legacy lists are newest-first, so records are inserted oldest-first to
-    keep the id order identical to the legacy ordering semantics; the
-    per-camera cap is then applied inside the same transaction.
+    Only merged records are registered, so repeated boots over an
+    unchanged mirror are complete no-ops (no table writes, no registry
+    writes). Legacy lists are newest-first, so records are inserted
+    oldest-first to keep the id order identical to the legacy ordering
+    semantics; the per-camera cap is then applied inside the same
+    transaction.
     """
     table = _TABLE_BY_KIND.get(kind)
     if table is None:
         raise ValueError(f"unknown legacy store kind: {kind}")
     imported = 0
+    merged: List[Dict[str, Any]] = []
     with open_state_db(db_path) as connection:
         rows = connection.execute(
-            f"SELECT payload_json, created_at FROM {table} WHERE camera_id = ?", (camera_id,)
+            f"SELECT payload_json FROM {table} WHERE camera_id = ?", (camera_id,)
         ).fetchall()
         stored_payloads = {row["payload_json"] for row in rows}
-        oldest_retained = None
-        for row in rows:
-            parsed = _parse_iso_or_none(row["created_at"])
-            if parsed is not None and (oldest_retained is None or parsed < oldest_retained):
-                oldest_retained = parsed
+        registered = {
+            row["payload_hash"]
+            for row in connection.execute(
+                "SELECT payload_hash FROM ingestion_log WHERE camera_id = ? AND kind = ?",
+                (camera_id, kind),
+            ).fetchall()
+        }
         for record in reversed(records):
             if not isinstance(record, dict):
                 continue
             payload_json = json.dumps(record, ensure_ascii=False, sort_keys=True)
-            if payload_json in stored_payloads:
-                continue
-            record_created_at = _parse_iso_or_none(record.get("created_at"))
-            if (
-                oldest_retained is not None
-                and record_created_at is not None
-                and record_created_at < oldest_retained
-            ):
+            payload_hash = hashlib.sha256(payload_json.encode("utf-8")).hexdigest()
+            if payload_json in stored_payloads or payload_hash in registered:
                 continue
             created_at = str(record.get("created_at") or _utc_now_iso())
             connection.execute(
@@ -353,7 +425,9 @@ def import_legacy_records(db_path: Path, kind: str, camera_id: str, records: Lis
                 (camera_id, payload_json, created_at),
             )
             stored_payloads.add(payload_json)
+            merged.append(record)
             imported += 1
+        _register_ingested(connection, camera_id, kind, merged, limit)
         _prune_camera_rows(connection, table, camera_id, limit)
         return imported
 
