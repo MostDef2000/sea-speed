@@ -140,7 +140,7 @@
 - TEST-004 | Covers: RISK-003 | Level: unit | Priority: P0 | Evidence: test_post_transaction_hash_parity_holds_for_whole_inventory (mixed host: only the script stale — whole-inventory SHA-256 parity post-transaction)
 - TEST-005 | Covers: RISK-003 | Level: unit | Priority: P1 | Evidence: test_release_tree_lacking_source_reports_leftover_without_deletion (INSTALLED_COPY_LEFTOVER action=reported_not_deleted, bytes preserved, other entries refreshed, no abort)
 - TEST-006 | Covers: RISK-004 | Level: integration | Priority: P0 | Evidence: tests/test_ubuntu_worker_exact_updater.py full suite (24 tests) green — #389/#412 transaction semantics preserved (prestate ordering, captured-state timer reapply, abort restoration, cleanup coverage)
-- TEST-006 covers the two-anchor-update regression discipline; the
+  TEST-006 covers the two-anchor-update regression discipline; the
   structural contract pins for the new mechanism live in
   UbuntuWorkerInstalledCopyRefreshContractTests (inventory completeness,
   transaction positioning, backup-before-mutation, hash gate,
