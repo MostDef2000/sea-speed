@@ -360,77 +360,122 @@ class UbuntuWatchdogMediaMTXV1191Tests(unittest.TestCase):
         self.assert_v1191_route(calls)
         self.assertTrue(any(argv[0] == "ffmpeg" for argv in calls))
 
-    def test_path_ready_fail_closed_variants(self) -> None:
+    def test_path_state_classification_table(self) -> None:
+        """#407 tri-state: transport failure/corrupt evidence -> UNAVAILABLE (no restart); live-API affirmative -> STALE."""
         sleeps: list[float] = []
         noop_sleeper = sleeps.append
-        cases: list[list[object]] = [
-            [self.completed(["curl"], returncode=22, stdout="404")],
+        unavailable_cases: list[list[object]] = [
             [self.completed(["curl"], returncode=7, stdout="curl: (7)Failed to connect")],
+            [self.completed(["curl"], returncode=28, stdout="curl: (28)Operation timed out")],
+            [self.completed(["curl"], returncode=6, stdout="curl: (6)Could not resolve host")],
             ["not-json"],
             [""],
             ["null"],
             ["[]"],
             ['"text"'],
             ["42"],
-            [cam1_h264_v1191_payload(ready=False)],
             [cam1_h264_v1191_payload(available=None)],
+            [cam1_h264_v1191_payload(ready=None)],
             [cam1_h264_v1191_payload(inboundBytes=None)],
             [cam1_h264_v1191_payload(inboundBytes="1161959598")],
             [cam1_h264_v1191_payload(inboundBytes=-1)],
             [cam1_h264_v1191_payload(inboundBytes=True)],
+        ]
+        for payloads in unavailable_cases:
+            with self.subTest(payloads=payloads, expected="UNAVAILABLE"):
+                calls, runner = self.ready_runner(list(payloads))
+                self.assertEqual(
+                    ubuntu_watchdog._path_state(runner, noop_sleeper),
+                    ubuntu_watchdog.LIVENESS_UNAVAILABLE,
+                )
+                self.assert_v1191_route(calls)
+        stale_cases: list[list[object]] = [
+            [self.completed(["curl"], returncode=22, stdout="curl: (22) The requested URL returned error: 404")],
+            [cam1_h264_v1191_payload(ready=False)],
+            [cam1_h264_v1191_payload(available=False)],
             [cam1_h264_v1191_payload(inboundBytes=V1191_BYTES_T0), cam1_h264_v1191_payload(inboundBytes=V1191_BYTES_T0)],
             [cam1_h264_v1191_payload(inboundBytes=V1191_BYTES_T1), cam1_h264_v1191_payload(inboundBytes=V1191_BYTES_T0)],
         ]
-        for payloads in cases:
-            with self.subTest(payloads=payloads):
+        for payloads in stale_cases:
+            with self.subTest(payloads=payloads, expected="STALE"):
                 calls, runner = self.ready_runner(list(payloads))
-                self.assertFalse(ubuntu_watchdog._path_ready(runner, noop_sleeper))
+                self.assertEqual(ubuntu_watchdog._path_state(runner, noop_sleeper), ubuntu_watchdog.PATH_STALE)
                 self.assert_v1191_route(calls)
 
-    def test_path_ready_fail_closed_on_non_object_second_sample(self) -> None:
+    def test_unavailable_input_wins_over_stale_second_sample(self) -> None:
         sleeps: list[float] = []
         calls, runner = self.ready_runner(
             [
                 cam1_h264_v1191_payload(inboundBytes=V1191_BYTES_T0),
-                "null",
+                self.completed(["curl"], returncode=7, stdout="curl: (7)Failed to connect"),
             ]
         )
-        self.assertFalse(ubuntu_watchdog._path_ready(runner, sleeps.append))
+        self.assertEqual(ubuntu_watchdog._path_state(runner, sleeps.append), ubuntu_watchdog.LIVENESS_UNAVAILABLE)
         self.assert_v1191_route(calls)
         self.assertEqual(sleeps, [ubuntu_watchdog.SAMPLE_SECONDS])
 
-    def test_non_object_body_recovers_via_restart(self) -> None:
+    def test_path_state_ready_on_growth(self) -> None:
+        calls, runner = self.ready_runner(
+            [
+                cam1_h264_v1191_payload(inboundBytes=V1191_BYTES_T0),
+                cam1_h264_v1191_payload(inboundBytes=V1191_BYTES_T1),
+            ]
+        )
+        sleeps: list[float] = []
+        self.assertEqual(ubuntu_watchdog._path_state(runner, sleeps.append), ubuntu_watchdog.PATH_READY)
+        self.assertEqual(sleeps, [ubuntu_watchdog.SAMPLE_SECONDS])
+        self.assert_v1191_route(calls)
+
+    def test_connection_refused_is_fail_safe_no_restart(self) -> None:
+        """#407: API disabled (connection refused) must NEVER restart the transcode."""
         _, state_root = self.state_root()
         calls, runner = self.watchdog_runner(
             [
-                "null",
-                cam1_h264_v1191_payload(inboundBytes=V1191_BYTES_T0),
-                cam1_h264_v1191_payload(inboundBytes=V1191_BYTES_T1),
+                self.completed(["curl"], returncode=7, stdout="curl: (7)Failed to connect to 127.0.0.1 port 9997"),
+                self.completed(["curl"], returncode=7, stdout="curl: (7)Failed to connect to 127.0.0.1 port 9997"),
             ]
         )
         lines = ubuntu_watchdog.run_once(
             runner=runner, sleeper=lambda _: None, clock=lambda: 1000.0, state_root=state_root
         )
-        self.assertIn("CAMERA1_H264_FRESHNESS=PASS", lines)
-        self.assertIn("CAMERA1_H264_RECOVERY=RESTARTED", lines)
-        self.assertIn("CAMERA1_SOURCE=PASS", lines)
-        self.assert_v1191_route(calls)
-        self.assertEqual(
-            [argv for argv in calls if argv[:2] == ["systemctl", "restart"]],
-            [["systemctl", "restart", "sea-speed-camera1-h264.service"]],
-        )
+        self.assertIn("CAMERA1_H264_FRESHNESS=UNKNOWN", lines)
+        self.assertIn("CAMERA1_H264_LIVENESS_INPUT=UNAVAILABLE", lines)
+        self.assertIn("CAMERA1_H264_RECOVERY=NOOP", lines)
+        self.assertIn("CAMERA1_SOURCE=NOT_CHECKED", lines)
+        self.assertFalse(any(argv[0] == "ffmpeg" for argv in calls))
+        self.assertFalse(any(argv[:2] == ["systemctl", "restart"] for argv in calls))
+        self.assertFalse((state_root / "state.json").exists())
 
-    def test_path_ready_passes_on_growth(self) -> None:
-        calls, runner = self.ready_runner(
+    def test_connection_timeout_is_fail_safe_no_restart(self) -> None:
+        _, state_root = self.state_root()
+        calls, runner = self.watchdog_runner(
             [
-                cam1_h264_v1191_payload(inboundBytes=V1191_BYTES_T0),
-                cam1_h264_v1191_payload(inboundBytes=V1191_BYTES_T1),
+                self.completed(["curl"], returncode=28, stdout="curl: (28)Connection timed out"),
+                self.completed(["curl"], returncode=28, stdout="curl: (28)Connection timed out"),
             ]
         )
-        sleeps: list[float] = []
-        self.assertTrue(ubuntu_watchdog._path_ready(runner, sleeps.append))
-        self.assertEqual(sleeps, [ubuntu_watchdog.SAMPLE_SECONDS])
-        self.assert_v1191_route(calls)
+        lines = ubuntu_watchdog.run_once(
+            runner=runner, sleeper=lambda _: None, clock=lambda: 1000.0, state_root=state_root
+        )
+        self.assertIn("CAMERA1_H264_FRESHNESS=UNKNOWN", lines)
+        self.assertIn("CAMERA1_H264_LIVENESS_INPUT=UNAVAILABLE", lines)
+        self.assertIn("CAMERA1_H264_RECOVERY=NOOP", lines)
+        self.assertFalse(any(argv[0] == "ffmpeg" for argv in calls))
+        self.assertFalse(any(argv[:2] == ["systemctl", "restart"] for argv in calls))
+
+    def test_non_object_body_is_fail_safe_no_restart(self) -> None:
+        """A live 2xx response that is not a valid path object is not an affirmative stale answer."""
+        _, state_root = self.state_root()
+        calls, runner = self.watchdog_runner(["null"])
+        lines = ubuntu_watchdog.run_once(
+            runner=runner, sleeper=lambda _: None, clock=lambda: 1000.0, state_root=state_root
+        )
+        self.assertIn("CAMERA1_H264_FRESHNESS=UNKNOWN", lines)
+        self.assertIn("CAMERA1_H264_LIVENESS_INPUT=UNAVAILABLE", lines)
+        self.assertIn("CAMERA1_H264_RECOVERY=NOOP", lines)
+        self.assertEqual([argv for argv in calls if argv[0] == "curl"].__len__(), 1)
+        self.assertFalse(any(argv[0] == "ffmpeg" for argv in calls))
+        self.assertFalse(any(argv[:2] == ["systemctl", "restart"] for argv in calls))
 
     def test_v1191_source_pins(self) -> None:
         text = UBUNTU_WATCHDOG_PATH.read_text(encoding="utf-8")

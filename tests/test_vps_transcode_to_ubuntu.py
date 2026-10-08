@@ -152,7 +152,10 @@ class UbuntuFreshnessWatchdogTests(unittest.TestCase):
         def runner(argv, **kwargs):
             calls.append(list(argv))
             if argv[0] == "curl":
-                payload = json.dumps({"state": "ready", "lastFrameTime": "2020-01-01T00:00:00Z"})
+                # Affirmative stale evidence from the live API (ready path,
+                # frozen inboundBytes) is what may drive the source precheck;
+                # a corrupt/legacy payload would now be fail-safe UNAVAILABLE.
+                payload = json.dumps({"ready": True, "available": True, "inboundBytes": 1161959598})
                 return self.completed(argv, stdout=payload)
             if argv[0] == "ffmpeg":
                 return self.completed(argv, returncode=1, stdout="source unavailable")

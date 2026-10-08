@@ -27,6 +27,9 @@ RFC1918_NETWORKS = tuple(
 )
 READER_MARKER_CAM1 = "# Sea Speed least-privilege reader for canonical cam1"
 READER_MARKER_CAM1_H264 = "# Sea Speed least-privilege reader for canonical cam1-h264"
+API_RULE_MARKER = "# Sea Speed loopback API observation rule for the freshness watchdog"
+LOOPBACK_API_ADDRESS = "127.0.0.1:9997"
+LOOPBACK_IP = "127.0.0.1"
 RTSP_TRANSPORTS = {"automatic", "udp", "multicast", "tcp"}
 
 
@@ -383,6 +386,59 @@ def ensure_internal_reader_rule(
     return rendered
 
 
+def _require_internal_auth_method(text: str, purpose: str) -> None:
+    method = get_top_level_scalar(text, "authMethod")
+    if method not in (None, "internal"):
+        raise ConfigError(f"MediaMTX authMethod must be internal for bounded {purpose}")
+
+
+def _api_rule_lines() -> list[str]:
+    """Return the loopback-only API observation rule (docs/operations/MEDIAMTX_COMPATIBILITY_REMEDIATION.md)."""
+    return [
+        f"  {API_RULE_MARKER}\n",
+        "  - user: any\n",
+        f"    ips: [{_yaml_string(LOOPBACK_IP)}]\n",
+        "    permissions:\n",
+        "      - action: api\n",
+    ]
+
+
+def verify_internal_api_rule(text: str) -> None:
+    """Verify the rendered loopback API observation profile for the freshness watchdog."""
+    _require_internal_auth_method(text, "API authorization")
+    if get_top_level_scalar(text, "api") != "yes":
+        raise ConfigError("MediaMTX api must be enabled for loopback freshness observation")
+    if get_top_level_scalar(text, "apiAddress") != LOOPBACK_API_ADDRESS:
+        raise ConfigError("MediaMTX apiAddress must bind the loopback watchdog endpoint")
+    lines = _split_lines(text)
+    start, end = _auth_internal_users_bounds(lines)
+    markers = [index for index in range(start + 1, end) if lines[index].strip() == API_RULE_MARKER]
+    if len(markers) != 1:
+        raise ConfigError("exactly one Sea Speed loopback API authorization rule is required")
+    block_ips, block_actions = _parse_rule_block(lines, markers[0], end)
+    if LOOPBACK_IP not in block_ips:
+        raise ConfigError("Sea Speed API rule must be restricted to the loopback source IP")
+    if "api" not in block_actions:
+        raise ConfigError("Sea Speed API rule must grant the api action")
+
+
+def ensure_internal_api_rule(text: str) -> str:
+    """Idempotently render the loopback API observation rule at the top of authInternalUsers."""
+    _require_internal_auth_method(text, "API authorization")
+    lines = _split_lines(text)
+    start, end = _auth_internal_users_bounds(lines)
+    expected = _api_rule_lines()
+    markers = [index for index in range(start + 1, end) if lines[index].strip() == API_RULE_MARKER]
+    if markers:
+        if len(markers) != 1 or lines[markers[0] : markers[0] + len(expected)] != expected:
+            raise ConfigError("existing Sea Speed loopback API rule does not match the requested rule")
+        return text
+    lines[start + 1 : start + 1] = expected
+    rendered = "".join(lines)
+    verify_internal_api_rule(rendered)
+    return rendered
+
+
 def read_protected_env_value(path: Path, key: str) -> str:
     try:
         info = os.lstat(path)
@@ -515,15 +571,21 @@ def render_ubuntu_relay(args: argparse.Namespace) -> str:
         ("hls", "no", False),
         ("webrtc", "no", False),
         ("srt", "no", False),
+        # The loopback REST API is the camera1-h264 freshness watchdog's only
+        # liveness input (issue #407); without it the watchdog deterministically
+        # false-positives STALE and restart-loops the transcode. Loopback-only.
+        ("api", "yes", False),
+        ("apiAddress", LOOPBACK_API_ADDRESS, True),
     ):
         text = set_top_level_scalar(text, key, value, quote=quote)
     text = set_path_source(text, args.path, source, source_on_demand=True, rtsp_transport="tcp")
     text = ensure_internal_reader_rule(text, args.path, args.reader_ip)
+    text = ensure_internal_api_rule(text)
     digest = write_candidate(args.output, text)
     print(
         f"RENDERED mode=ubuntu-relay path={args.path} source_scheme=rtsp "
         f"source_has_userinfo=YES reader_scope=single-rfc1918-ip "
-        f"reader_permission=read-only output_sha256={digest}"
+        f"reader_permission=read-only api=loopback-watchdog output_sha256={digest}"
     )
     return digest
 
