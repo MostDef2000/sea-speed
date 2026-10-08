@@ -83,11 +83,13 @@ class UbuntuWorkerExactUpdaterTests(unittest.TestCase):
         # Deferred from #384 / tracked in #389: the watchdog is not one of the three
         # deploy-managed units, so its installed copy must be refreshed from the exact
         # release source during activation to avoid a stale copy across deploys.
+        # Since #406 the delivery is the inventory-driven refresh_installed_copies()
+        # transaction; the watchdog trio is its declared inventory.
         for marker in (
             'watchdog_src="$release_root/source/deploy/worker/ubuntu/camera1-h264-freshness-watchdog.py"',
             'watchdog_dst="/usr/local/sbin/sea-speed-camera1-h264-freshness-watchdog"',
             'abort_activation "watchdog refresh source missing from release"',
-            'abort_activation "watchdog script install failed"',
+            'refresh_installed_copies || abort_activation "installed copy refresh failed"',
             'abort_activation "watchdog timer enable failed"',
         ):
             self.assertIn(marker, self.source)
@@ -128,7 +130,11 @@ class UbuntuWorkerWatchdogTransactionalRefreshTests(unittest.TestCase):
             self.assertIn(marker, self.source)
         self.assertLess(
             self.source.index("watchdog_prestate_captured=true"),
-            self.source.index('install -o root -g root -m 0755 "$watchdog_src" "$watchdog_dst"'),
+            # Since #406 the first watchdog mutation is the inventory-driven
+            # refresh_installed_copies() call, which itself is preceded by the
+            # prestate capture (mechanical anchor update; assertion strength
+            # unchanged: capture strictly precedes the first watchdog mutation).
+            self.source.index('refresh_installed_copies || abort_activation "installed copy refresh failed"'),
         )
 
     def test_restore_previous_watchdog_restores_captured_prestate(self) -> None:
