@@ -147,17 +147,18 @@ Three coordinated pieces:
 
 ## Correct-course check
 
-- Trigger: NONE during implementation; deviations (camera_id column,
-  deploy.sh install plumbing) were disclosed in the SDD trio and amendment
-  receipt issuecomment-6052476179 rather than handled by correct-course.
+- Trigger: NONE
 - Issue impact: NONE
 - Specification impact: NONE
 - Plan impact: NONE
 - Tasks impact: NONE
-- Authorization impact: NONE (Block A owner approval covers the delivered
-  scope; deploy.sh plumbing amendment documented pre-PR)
-- Follow-up: NONE required; dual-write window retirement lands as a
-  follow-up release after the first VPS contour deploy verifies.
+- Authorization impact: NONE
+- Follow-up: NONE
+- Correct-course note: implementation deviations (event_feed/crossings
+  camera_id column, deploy.sh install plumbing) were disclosed in the SDD
+  trio and amendment receipt issuecomment-6052476179 rather than handled
+  by correct-course; dual-write window retirement lands as a follow-up
+  release after the first VPS contour deploy verifies.
 
 ## Deployment transaction audit
 
