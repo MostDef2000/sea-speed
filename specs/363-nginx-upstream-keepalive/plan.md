@@ -108,11 +108,12 @@ region, exactly like the pre-existing checks.
 
 ## Risk profile
 
-- Risk profile: REQUIRED
-- Risk-profile rationale: the renderer output feeds the production VPS
-  nginx configuration serving public TLS traffic; a malformed or
-  duplicated upstream block would break the Camera 1 path (or the whole
-  reload), so risk assessment is required even though the diff is small.
+- Risk profile: NOT REQUIRED
+- Risk-profile rationale: derived NOT REQUIRED by the PR Change Contract
+  (CONTROL_PLANE impact, security NONE, schema NONE, no destructive
+  migration); the renderer-side mitigations below (loud verify(),
+  idempotent render, deploy-side nginx -t gate) stay in force
+  regardless and backstop the future VPS render cycle.
 - RISK-001 | Category: OPS | Probability: 2 | Impact: 4 | Score: 8 | Mitigation: the upstream block is emitted only by the managed renderer, immediately before the managed server block (http-level placement in real trees); render() strips any previously emitted same-name block before re-inserting so re-renders can never accumulate duplicates; verify() fails loudly on missing/duplicated upstream block or missing keepalive/Connection directives and runs at the end of every render(); the deploy-side nginx -t gate is unchanged | Validation: NEGATIVE-VERIFY=PASS (four loud-fail cases), test_renderer_is_idempotent, CLI render+verify PASS, full suite 777 passed / 4 skipped | Residual risk: LOW — hand-edited production config outside the managed markers is outside renderer scope (unchanged from before) | Owner: Delivery Orchestrator | Status: MITIGATED
 - RISK-002 | Category: PERF | Probability: 1 | Impact: 2 | Score: 2 | Mitigation: keepalive 8 per worker bounds idle socket count; proxy_http_version 1.1 + proxy_set_header Connection "" are the documented NGINX keepalive prerequisites, so the pool actually engages instead of silently closing | Validation: rendered-config assertions in test_camera1_direct_h264_cutover.py (upstream block, keepalive 8, Connection "") | Residual risk: NONE | Owner: Delivery Orchestrator | Status: MITIGATED
 - RISK-003 | Category: DATA | Probability: 1 | Impact: 2 | Score: 2 | Mitigation: the /cam1/ URI rewrite suffix is preserved in the named-upstream proxy_pass, cache no-store headers and legacy-marker migration semantics untouched; the combined auth render pipeline (cam renderer → auth renderer) and the split-layout include pipeline are re-run in the suite | Validation: test_combined_auth_render_protects_new_cam1_and_retires_all_cams + test_sea_speed_auth_v1 split-layout pipeline green | Residual risk: NONE | Owner: Delivery Orchestrator | Status: MITIGATED
