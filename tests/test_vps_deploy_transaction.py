@@ -122,6 +122,7 @@ class VpsDeployTransactionTests(unittest.TestCase):
         release = self.releases / sha
         files = {
             "api/app/main.py": f"SOURCE_COMMIT = '{sha}'\n",
+            "api/app/store.py": f"# store fixture {sha}\n",
             "frontend/sea-speed/index.html": f"operator {sha}\n",
             "frontend/sea-speed/objects/index.html": f"objects {sha}\n",
             "frontend/sea-speed/cameras/index.html": f"cameras {sha}\n",
