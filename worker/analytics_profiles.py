@@ -27,6 +27,24 @@ class AnalyticsProfile:
     def model_classes(self) -> frozenset[str]:
         return frozenset(self.class_map)
 
+    def env_file_defaults(self) -> dict[str, str]:
+        """String-serialized env-file defaults for the protected configure step.
+
+        Single source for the non-secret values the deploy-side configure step
+        writes into worker.env/road-worker.env; secret and operator overrides
+        always win over these defaults.
+        """
+        fps = str(int(self.sample_fps)) if float(self.sample_fps).is_integer() else str(self.sample_fps)
+        return {
+            "ANALYTICS_PROFILE": self.name,
+            "CAMERA_ID": self.default_camera_id,
+            "MODEL_NAME": self.model_name,
+            "YOLO_TRACKER": self.tracker,
+            "YOLO_IMAGE_SIZE": str(self.image_size),
+            "YOLO_CONFIDENCE": f"{self.confidence:.2f}",
+            "SAMPLE_FPS": fps,
+        }
+
 
 PROFILES: dict[str, AnalyticsProfile] = {
     "water-v1": AnalyticsProfile(
