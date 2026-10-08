@@ -481,15 +481,43 @@ class StructuralPinsTests(unittest.TestCase):
             self.assertIn("--hash=sha256:", matches[0], f"pytorch pin not hash-pinned: {pin}")
 
     def test_resolver_workflow_is_dispatch_only_without_deploy_logic(self) -> None:
-        import yaml
-
         workflow_path = ROOT / ".github/workflows/resolve-runtime-lock.yml"
-        text = workflow_path.read_text(encoding="utf-8")
-        doc = yaml.safe_load(text)
-        triggers = doc.get(True) or doc.get("on") or {}
-        self.assertEqual(list(triggers), ["workflow_dispatch"])
-        self.assertEqual(doc["permissions"], {"contents": "read"})
-        self.assertEqual(list(doc["jobs"]), ["resolve"])
+        lines = workflow_path.read_text(encoding="utf-8").splitlines()
+
+        def top_level_block(key: str) -> list[str]:
+            """Raw lines of the top-level `key:` block, up to the next key."""
+            start = next(i for i, line in enumerate(lines) if line == f"{key}:")
+            block = []
+            for line in lines[start + 1 :]:
+                if line and not line.startswith(" "):
+                    break
+                block.append(line)
+            return block
+
+        def direct_child_keys(block: list[str]) -> list[str]:
+            """Two-space-indented `key:` children of a top-level block."""
+            keys = []
+            for line in block:
+                stripped = line.strip()
+                if (
+                    line.startswith("  ")
+                    and not line.startswith("   ")
+                    and stripped.endswith(":")
+                    and not stripped.startswith("#")
+                ):
+                    keys.append(stripped[:-1])
+            return keys
+
+        # workflow_dispatch is the ONLY trigger of the workflow.
+        self.assertEqual(direct_child_keys(top_level_block("on")), ["workflow_dispatch"])
+        # contents: read is the ONLY permission granted anywhere at the
+        # top level (job-level permission blocks would not satisfy the
+        # strict equality even if added).
+        permission_lines = [line.strip() for line in top_level_block("permissions") if line.strip()]
+        self.assertEqual(permission_lines, ["contents: read"])
+        # resolve is the ONLY job.
+        self.assertEqual(direct_child_keys(top_level_block("jobs")), ["resolve"])
+        text = "\n".join(lines)
         self.assertIn("--generate-hashes", text)
         self.assertIn("uv pip compile", text)
         self.assertIn("actions/upload-artifact", text)
