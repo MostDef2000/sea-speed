@@ -400,34 +400,51 @@ def import_existing_events() -> int:
 
 
 def import_legacy_state_store() -> None:
-    """One-time idempotent import of legacy JSON hot state into state.sqlite3.
+    """Necessity-gated import of legacy JSON hot state into state.sqlite3.
 
-    Runs at startup: legacy JSON is imported only into empty target tables,
-    so restarts and re-deploys are no-ops. Failures propagate (fail closed)
-    so the deploy health gate rolls a corrupt legacy file back instead of
-    silently losing records. Legacy files are never deleted: the previous
-    release and operator tooling keep reading them during the dual-write
-    window.
+    Runs at startup. For every (camera, kind) pair the store decides whether
+    the target is still empty (see store.camera_has_rows):
+
+    * EMPTY target — this boot performs the authoritative initial migration:
+      the legacy JSON is read and merged, and an unreadable/corrupt legacy
+      file raises (fail closed) so the deploy health gate rolls the release
+      back instead of silently losing history.
+    * NON-EMPTY target — the migration already completed and the legacy file
+      is now a non-authoritative mirror that the rollback window keeps
+      reading. Its reads become best-effort: a read/parse failure prints a
+      warning to stderr and skips, so a corrupt mirror can never fail every
+      boot of a healthy authoritative store.
+
+    Records are merged content-keyed (store.import_legacy_records), so
+    records the previous release wrote during a rollback window are picked
+    up on the next boot and repeated boots are no-ops. Legacy files are
+    never deleted.
     """
     store.initialize_state_db(STATE_DB_FILE)
     for camera_id in ANALYTICS_IDENTITIES:
-        state_path = analytics_data_file(camera_id, "state")
-        if state_path.exists():
-            legacy_state = read_json_file(state_path, None)
-            if isinstance(legacy_state, dict):
-                store.import_legacy_camera_state(STATE_DB_FILE, camera_id, legacy_state)
-        events_path = analytics_data_file(camera_id, "events")
-        if events_path.exists():
-            legacy_events = read_json_file(events_path, [])
-            if isinstance(legacy_events, list) and legacy_events:
-                store.import_legacy_records(STATE_DB_FILE, "events", camera_id, legacy_events, EVENTS_FEED_LIMIT)
-        crossings_path = analytics_data_file(camera_id, "crossings")
-        if crossings_path.exists():
-            legacy_crossings = read_json_file(crossings_path, [])
-            if isinstance(legacy_crossings, list) and legacy_crossings:
-                store.import_legacy_records(
-                    STATE_DB_FILE, "crossings", camera_id, legacy_crossings, CROSSINGS_STORE_LIMIT
+        for kind, limit in (
+            ("state", None),
+            ("events", EVENTS_FEED_LIMIT),
+            ("crossings", CROSSINGS_STORE_LIMIT),
+        ):
+            path = analytics_data_file(camera_id, kind)
+            if not path.exists():
+                continue
+            try:
+                payload = read_json_file(path, None)
+            except store.JSON_READ_ERRORS as error:
+                if not store.camera_has_rows(STATE_DB_FILE, kind, camera_id):
+                    raise
+                print(
+                    f"legacy {camera_id} {kind} mirror is unreadable and will be skipped: {error}",
+                    file=sys.stderr,
                 )
+                continue
+            if kind == "state":
+                if isinstance(payload, dict):
+                    store.import_legacy_camera_state(STATE_DB_FILE, camera_id, payload)
+            elif isinstance(payload, list) and payload:
+                store.import_legacy_records(STATE_DB_FILE, kind, camera_id, payload, limit)
 
 
 def persist_passage_object(passage: Dict[str, Any]) -> bool:

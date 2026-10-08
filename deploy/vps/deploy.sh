@@ -488,6 +488,12 @@ bootstrap_current_release() {
   log "Capturing the existing live code once as bootstrap rollback"
   mkdir -p "$bootstrap_release/api/app" "$bootstrap_release/frontend/sea-speed/objects" "$bootstrap_release/frontend/sea-speed/cameras" "$bootstrap_release/frontend/sea-speed/road" "$bootstrap_release/frontend/root" "$bootstrap_release/frontend/sea-speed"
   install -m 0644 "$API_TARGET" "$bootstrap_release/api/app/main.py"
+  if [[ -f "$STORE_TARGET" ]]; then
+    # A live store.py belongs to the captured rollback release too: the
+    # captured main.py imports it at boot, so the bootstrap baseline must
+    # stay bootable on its own.
+    install -m 0644 "$STORE_TARGET" "$bootstrap_release/api/app/store.py"
+  fi
   install -m 0644 "$FRONTEND_TARGET" "$bootstrap_release/frontend/sea-speed/index.html"
   if [[ -f "$OBJECTS_FRONTEND_TARGET" ]]; then
     install -m 0644 "$OBJECTS_FRONTEND_TARGET" "$bootstrap_release/frontend/sea-speed/objects/index.html"
@@ -631,10 +637,12 @@ install_release() {
     install -m 0644 "$release_dir/frontend/sea-speed/unavailable.html" "${FALLBACK_FRONTEND_TARGET}.next"
   fi
 
-  if [[ -f "${STORE_TARGET}.next" ]]; then
+  if [[ -f "$release_dir/api/app/store.py" ]]; then
+    # Activation is bound to the selected release content — the same
+    # condition as staging above — never to the mere presence of a staged
+    # .next file: a stale .next left behind by an interrupted install must
+    # never be promoted, notably during a store-less rollback.
     # store.py must land before main.py: the new main imports it at boot.
-    # Absent .next means a pre-#394 rollback release whose main.py does not
-    # import store — remove the live copy for a clean downgrade.
     mv -f "${STORE_TARGET}.next" "$STORE_TARGET"
   else
     rm -f "$STORE_TARGET" "${STORE_TARGET}.next"

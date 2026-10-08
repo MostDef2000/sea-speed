@@ -22,8 +22,11 @@ exist after the fix are skipped on the base via ``skipUnless``.
 """
 
 import ast
+import contextlib
 import copy
+import hashlib
 import importlib.util
+import io
 import json
 import os
 import sys
@@ -437,12 +440,90 @@ class LegacyMigrationTests(unittest.TestCase):
         self.assertEqual(imported, 1)
         self.assertEqual(len(STORE.read_crossings(self.state_db, "cam1")), 1)
 
-    def test_import_legacy_camera_state_never_overwrites(self) -> None:
+    def test_import_legacy_camera_state_without_timestamp_never_displaces_stored_row(self) -> None:
+        # An undated legacy payload cannot be ordered against the stored row,
+        # so it may only seed an empty camera_state (T-D edge case).
         STORE.upsert_camera_state(self.state_db, "cam1", {"frame_no": 99})
         self.assertFalse(STORE.import_legacy_camera_state(self.state_db, "cam1", {"frame_no": 1}))
         self.assertEqual(STORE.read_camera_state(self.state_db, "cam1"), {"frame_no": 99})
         self.assertTrue(STORE.import_legacy_camera_state(self.state_db, "road1", {"frame_no": 1}))
         self.assertEqual(STORE.read_camera_state(self.state_db, "road1"), {"frame_no": 1})
+
+    # T-C — core lifecycle regression: import -> rollback-window writes by
+    # the previous release -> re-upgrade must merge the new records in,
+    # ignore duplicates, and respect the per-camera cap.
+    def test_rollback_window_records_are_merged_content_keyed(self) -> None:
+        t1, t2, t3 = (
+            "2026-01-01T00:00:00+00:00",
+            "2026-01-02T00:00:00+00:00",
+            "2026-01-03T00:00:00+00:00",
+        )
+        legacy = [{"event_id": "e2", "created_at": t2}, {"event_id": "e1", "created_at": t1}]
+        self.assertEqual(STORE.import_legacy_records(self.state_db, "crossings", "cam1", legacy, 5000), 2)
+
+        # Rollback window: the old release appends a NEW record to the JSON.
+        upgraded_file = legacy + [{"event_id": "e3", "created_at": t3}]
+        self.assertEqual(
+            STORE.import_legacy_records(self.state_db, "crossings", "cam1", upgraded_file, 5000),
+            1,
+            "only the rollback-window record may be inserted",
+        )
+        self.assertEqual(
+            [record["event_id"] for record in STORE.read_crossings(self.state_db, "cam1")],
+            ["e3", "e2", "e1"],
+        )
+
+        # Repeated boots are no-ops: byte-identical duplicates are ignored.
+        self.assertEqual(STORE.import_legacy_records(self.state_db, "crossings", "cam1", upgraded_file, 5000), 0)
+        self.assertEqual(len(STORE.read_crossings(self.state_db, "cam1")), 3)
+
+        # The content key is the documented SHA-256 of the canonical payload
+        # JSON, stable across boots and distinct per distinct content.
+        canonical = lambda record: hashlib.sha256(
+            json.dumps(record, ensure_ascii=False, sort_keys=True).encode("utf-8")
+        ).hexdigest()
+        with STORE.open_state_db(self.state_db) as connection:
+            keys = [
+                row["content_key"]
+                for row in connection.execute(
+                    "SELECT content_key FROM crossings WHERE camera_id = ? ORDER BY id DESC", ("cam1",)
+                ).fetchall()
+            ]
+        self.assertEqual(
+            keys,
+            [canonical({"event_id": "e3", "created_at": t3}), canonical({"event_id": "e2", "created_at": t2}), canonical({"event_id": "e1", "created_at": t1})],
+        )
+
+        # The per-camera cap is applied to the merged result.
+        self.assertEqual(STORE.import_legacy_records(self.state_db, "crossings", "cam1", upgraded_file, 2), 0)
+        with STORE.open_state_db(self.state_db) as connection:
+            self.assertEqual(
+                connection.execute("SELECT COUNT(*) FROM crossings WHERE camera_id = ?", ("cam1",)).fetchone()[0],
+                2,
+            )
+        self.assertEqual(
+            [record["event_id"] for record in STORE.read_crossings(self.state_db, "cam1")],
+            ["e3", "e2"],
+        )
+
+    # T-D — camera_state: legacy NEWER than stored wins; older loses.
+    def test_camera_state_import_is_newer_wins(self) -> None:
+        stored_updated_at = "2026-01-02T00:00:00+00:00"
+        STORE.upsert_camera_state(self.state_db, "cam1", {"frame_no": 10, "updated_at": stored_updated_at})
+
+        older = {"frame_no": 5, "updated_at": "2026-01-01T00:00:00+00:00"}
+        self.assertFalse(STORE.import_legacy_camera_state(self.state_db, "cam1", older))
+        self.assertEqual(STORE.read_camera_state(self.state_db, "cam1"), {"frame_no": 10, "updated_at": stored_updated_at})
+
+        newer = {"frame_no": 20, "updated_at": "2026-01-03T00:00:00+00:00"}
+        self.assertTrue(STORE.import_legacy_camera_state(self.state_db, "cam1", newer))
+        self.assertEqual(STORE.read_camera_state(self.state_db, "cam1"), newer)
+
+        # Mixed UTC offsets must order by the actual instant, not by string:
+        # 2026-01-03T01:00+03:00 == 2026-01-02T22:00Z, which is older.
+        stale_other_offset = {"frame_no": 7, "updated_at": "2026-01-03T01:00:00+03:00"}
+        self.assertFalse(STORE.import_legacy_camera_state(self.state_db, "cam1", stale_other_offset))
+        self.assertEqual(STORE.read_camera_state(self.state_db, "cam1"), newer)
 
 
 @unittest.skipUnless(
@@ -469,12 +550,42 @@ class StartupMigrationTests(unittest.TestCase, _ConfigEndpointMixin):
         _exec_functions(["import_legacy_state_store"], namespace)
         return namespace
 
+    # T-B — empty target + corrupt legacy JSON: the initial authoritative
+    # migration must fail closed so the deploy gate rolls the release back
+    # instead of silently losing history.
     def test_corrupt_legacy_file_fails_closed(self) -> None:
         crossings = Path(self.tmp.name) / "cam1_crossings.json"
         crossings.write_text("{corrupt", encoding="utf-8")
         namespace = self._namespace()
         with self.assertRaises((OSError, ValueError)):
             namespace["import_legacy_state_store"]()
+
+    # T-A — populated (healthy authoritative) store + corrupt non-authoritative
+    # legacy mirror: the boot import path must NOT raise, must log a warning to
+    # stderr, and the authoritative data must stay intact.
+    def test_corrupt_legacy_mirror_is_best_effort_when_store_is_populated(self) -> None:
+        crossings = Path(self.tmp.name) / "cam1_crossings.json"
+        crossings.write_text("{corrupt", encoding="utf-8")
+        STORE.append_crossing(self.state_db, "cam1", {"event_id": "c-live", "created_at": "2026-01-01T00:00:00+00:00"})
+        STORE.append_event(self.state_db, "cam1", {"event_id": "e-live", "created_at": "2026-01-01T00:00:00+00:00"})
+        STORE.upsert_camera_state(self.state_db, "cam1", {"frame_no": 1})
+
+        namespace = self._namespace()
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            namespace["import_legacy_state_store"]()
+
+        self.assertIn("legacy cam1 crossings mirror is unreadable", stderr.getvalue())
+        self.assertEqual(
+            [record["event_id"] for record in STORE.read_crossings(self.state_db, "cam1")],
+            ["c-live"],
+            "authoritative crossing rows must be untouched",
+        )
+        self.assertEqual(
+            [record["event_id"] for record in STORE.read_events(self.state_db, "cam1")],
+            ["e-live"],
+        )
+        self.assertEqual(STORE.read_camera_state(self.state_db, "cam1"), {"frame_no": 1})
 
     def test_import_never_deletes_legacy_files(self) -> None:
         crossings = Path(self.tmp.name) / "cam1_crossings.json"
