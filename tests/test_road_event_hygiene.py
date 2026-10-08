@@ -1,8 +1,7 @@
-from __future__ import annotations
-
 import ast
 import asyncio
 import copy
+import importlib.util
 import json
 import tempfile
 import unittest
@@ -12,7 +11,15 @@ from typing import Any, Dict
 ROOT = Path(__file__).resolve().parents[1]
 WORKER = ROOT / "worker" / "hls_motion_yolo_worker_events.py"
 API = ROOT / "api" / "app" / "main.py"
+STORE_FILE = ROOT / "api" / "app" / "store.py"
 PROFILES = ROOT / "worker" / "analytics_profiles.py"
+
+
+def _load_api_store():
+    spec = importlib.util.spec_from_file_location("api_store_road_hygiene_test", STORE_FILE)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 class RoadProfilePersonTests(unittest.TestCase):
@@ -112,6 +119,10 @@ class ApiPersonGuardTests(unittest.TestCase):
                     "TELEMETRY_SCHEMA": "sea_speed_telemetry_v1",
                     "VEHICLE_EVENT_SCHEMA": "sea_speed_vehicle_event_v1",
                     "WORKER_STATE_SCHEMA": "sea_speed_worker_state_v1",
+                    "store": _load_api_store(),
+                    "STATE_DB_FILE": Path(temp_dir) / "state.sqlite3",
+                    "EVENTS_FEED_LIMIT": 500,
+                    "sys": __import__("sys"),
                 }
                 exec(compile(module, str(API), "exec"), ns)
                 return ns, {}

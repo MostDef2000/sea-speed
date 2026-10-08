@@ -118,10 +118,11 @@ class VpsDeployTransactionTests(unittest.TestCase):
         (self.state / "previous-release").write_text(OLDER + "\n", encoding="utf-8")
         self.write_fakes()
 
-    def write_release(self, sha: str) -> None:
+    def write_release(self, sha: str, with_store: bool = True) -> None:
         release = self.releases / sha
         files = {
             "api/app/main.py": f"SOURCE_COMMIT = '{sha}'\n",
+            "api/app/store.py": f"# store fixture {sha}\n",
             "frontend/sea-speed/index.html": f"operator {sha}\n",
             "frontend/sea-speed/objects/index.html": f"objects {sha}\n",
             "frontend/sea-speed/cameras/index.html": f"cameras {sha}\n",
@@ -138,6 +139,10 @@ class VpsDeployTransactionTests(unittest.TestCase):
             "commit-sha": sha + "\n",
             "archive-sha256": (sha[0] * 64) + "\n",
         }
+        if not with_store:
+            # Store-less release (pre-#394 shape): activation must treat the
+            # live store.py as a clean downgrade and remove it.
+            files.pop("api/app/store.py")
         for relative, content in files.items():
             path = release / relative
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -496,6 +501,38 @@ if action == 'reconcile':
         self.assertTrue((self.releases / OLDER).is_dir(), result.stdout)
         self.assertIn("WARNING: unable to prune stale release", result.stdout)
         self.assertIn(f"FAKE_RM_REJECTED={self.releases / OLDER}", (self.root / "rm.log").read_text())
+
+    # T-E — activation is bound to the selected release's content, never to
+    # the presence of a staged .next file: a stale .next from an interrupted
+    # install must never be promoted, and a store-less rollback removes the
+    # live store.py for a clean downgrade.
+    def test_store_less_rollback_removes_live_store_and_stale_next(self) -> None:
+        self.write_release(OLD, with_store=False)
+        (self.releases / OLD / "api/app/store.py").unlink()
+        store_target = self.live / "api/app/store.py"
+        store_next = self.live / "api/app/store.py.next"
+        store_target.parent.mkdir(parents=True, exist_ok=True)
+        store_target.write_text("# live store from the previous #394 install\n", encoding="utf-8")
+        store_next.write_text("# STALE staged store from an interrupted install\n", encoding="utf-8")
+
+        result = self.run_deploy(mode="fail-candidate")
+
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertEqual(self.current(), OLD)
+        self.assertIn(OLD, self.api.read_text(), "rollback must restore the store-less release")
+        self.assertFalse(store_next.exists(), "stale .next must not survive activation")
+        self.assertFalse(
+            store_target.exists(),
+            "store-less rollback must not keep (or promote) a store.py",
+        )
+        self.assertEqual(self.manifest()["state"], "rolled_back")
+
+    def test_store_release_stages_and_promotes_normally(self) -> None:
+        result = self.run_deploy()
+        self.assertEqual(result.returncode, 0, result.stdout)
+        store_target = self.live / "api/app/store.py"
+        self.assertEqual(store_target.read_text(), f"# store fixture {CANDIDATE}\n")
+        self.assertFalse((self.live / "api/app/store.py.next").exists())
 
 
 if __name__ == "__main__":

@@ -16,7 +16,17 @@ from typing import Any, Dict, List, Optional
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "api" / "app" / "main.py"
+STORE_SOURCE = ROOT / "api" / "app" / "store.py"
 FRONTEND = ROOT / "frontend" / "sea-speed" / "index.html"
+
+
+def _load_api_store():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("api_store_contract_test", STORE_SOURCE)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 class HTTPExceptionStub(Exception):
@@ -58,7 +68,7 @@ def objects_namespace(temp_dir: str) -> dict[str, Any]:
 
 
 OBJECT_FUNCTIONS = {
-    "read_json_file", "open_objects_db", "prune_objects_registry", "initialize_objects_db",
+    "open_objects_db", "prune_objects_registry", "initialize_objects_db",
     "optional_float", "optional_int", "stable_object_id", "persist_object_event", "import_existing_events",
     "object_row_to_dict", "build_objects_where", "get_cam1_objects", "get_cam1_object",
     "patch_cam1_object", "delete_cam1_object", "prune_snapshotless_objects",
@@ -68,15 +78,16 @@ OBJECT_FUNCTIONS = {
 class ApiContractTests(unittest.TestCase):
     def test_legacy_state_function_remains_self_contained(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            state_file = Path(temp_dir) / "cam1_state.json"
             ns = {
-                "json": json, "Any": Any, "Dict": dict, "Path": Path, "STATE_FILE": state_file,
+                "json": json, "Any": Any, "Dict": dict, "Path": Path,
+                "STATE_DB_FILE": Path(temp_dir) / "state.sqlite3",
+                "store": _load_api_store(),
                 "datetime": datetime, "time": time, "WORKER_STATE_SCHEMA": "sea_speed_worker_state_v1",
                 "TELEMETRY_SCHEMA": "sea_speed_telemetry_v1",
             }
-            load_functions({"read_json_file", "default_state", "get_cam1_state"}, ns)
+            load_functions({"default_state", "get_cam1_state"}, ns)
             stale = (datetime.now(timezone.utc) - timedelta(seconds=31)).isoformat()
-            state_file.write_text(json.dumps({"updated_at": stale, "worker_online": True}), encoding="utf-8")
+            ns["store"].upsert_camera_state(ns["STATE_DB_FILE"], "cam1", {"updated_at": stale, "worker_online": True})
             state = ns["get_cam1_state"]()
             self.assertFalse(state["worker_online"])
             self.assertEqual(state["analytics_profile"], "water-v1")

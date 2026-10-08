@@ -10,6 +10,7 @@ COMMIT_SHA="$1"
 REPOSITORY="${SEA_SPEED_REPOSITORY:-MostDef2000/sea-speed}"
 DEPLOY_ROOT="${SEA_SPEED_DEPLOY_ROOT:-/opt/sea-speed-deploy}"
 API_TARGET="${SEA_SPEED_API_TARGET:-/opt/sea-speed-api/app/main.py}"
+STORE_TARGET="$(dirname "$API_TARGET")/store.py"
 FRONTEND_TARGET="${SEA_SPEED_FRONTEND_TARGET:-/var/www/mostdef.ru/sea-speed/index.html}"
 OBJECTS_FRONTEND_TARGET="${SEA_SPEED_OBJECTS_FRONTEND_TARGET:-/var/www/mostdef.ru/sea-speed/objects/index.html}"
 CAMERAS_FRONTEND_TARGET="${SEA_SPEED_CAMERAS_FRONTEND_TARGET:-/var/www/mostdef.ru/sea-speed/cameras/index.html}"
@@ -60,7 +61,9 @@ migrate_legacy_roi_to_normalized() {
   fi
   python3 - "$data_dir" <<'PYEOF'
 import json
+import os
 import sys
+import uuid
 from pathlib import Path
 data_dir = Path(sys.argv[1])
 DEFAULT_W, DEFAULT_H = 1920, 1080
@@ -129,7 +132,11 @@ for name in ["cam1_roi.json","road1_roi.json","cam1_speed_lines.json","road1_spe
             raw["line"]=[{"x": int(round(p["x_norm"]*DEFAULT_W)), "y": int(round(p["y_norm"]*DEFAULT_H))} for p in raw["line_norm"]]
             migrated=True
     if migrated:
-        fp.write_text(json.dumps(raw, ensure_ascii=False, indent=2)+"\n")
+        # unique tmp + os.replace: concurrent writers (API + migration while the
+        # old service is still running) must never share a fixed .tmp sibling
+        tmp = fp.with_name(f"{fp.name}.{uuid.uuid4().hex}.tmp")
+        tmp.write_text(json.dumps(raw, ensure_ascii=False, indent=2)+"\n")
+        os.replace(tmp, fp)
         print(f"ROI_MIGRATED {name} -> normalized")
         total_migrated+=1
 if total_migrated:
@@ -196,6 +203,7 @@ ensure_layout() {
 release_complete() {
   local root="$1"
   [[ -f "$root/api/app/main.py" && \
+     -f "$root/api/app/store.py" && \
      -f "$root/frontend/sea-speed/index.html" && \
      -f "$root/frontend/sea-speed/objects/index.html" && \
      -f "$root/frontend/sea-speed/cameras/index.html" && \
@@ -232,6 +240,7 @@ download_release() {
 
   for required in \
     api/app/main.py \
+    api/app/store.py \
     frontend/sea-speed/index.html \
     frontend/sea-speed/objects/index.html \
     frontend/sea-speed/cameras/index.html \
@@ -258,6 +267,7 @@ download_release() {
     "$TARGET_RELEASE/deploy/vps" \
     "$TARGET_RELEASE/scripts/operations"
   install -m 0644 "$extracted/api/app/main.py" "$TARGET_RELEASE/api/app/main.py"
+  install -m 0644 "$extracted/api/app/store.py" "$TARGET_RELEASE/api/app/store.py"
   install -m 0644 "$extracted/frontend/sea-speed/index.html" "$TARGET_RELEASE/frontend/sea-speed/index.html"
   install -m 0644 "$extracted/frontend/sea-speed/objects/index.html" "$TARGET_RELEASE/frontend/sea-speed/objects/index.html"
   install -m 0644 "$extracted/frontend/sea-speed/cameras/index.html" "$TARGET_RELEASE/frontend/sea-speed/cameras/index.html"
@@ -478,6 +488,12 @@ bootstrap_current_release() {
   log "Capturing the existing live code once as bootstrap rollback"
   mkdir -p "$bootstrap_release/api/app" "$bootstrap_release/frontend/sea-speed/objects" "$bootstrap_release/frontend/sea-speed/cameras" "$bootstrap_release/frontend/sea-speed/road" "$bootstrap_release/frontend/root" "$bootstrap_release/frontend/sea-speed"
   install -m 0644 "$API_TARGET" "$bootstrap_release/api/app/main.py"
+  if [[ -f "$STORE_TARGET" ]]; then
+    # A live store.py belongs to the captured rollback release too: the
+    # captured main.py imports it at boot, so the bootstrap baseline must
+    # stay bootable on its own.
+    install -m 0644 "$STORE_TARGET" "$bootstrap_release/api/app/store.py"
+  fi
   install -m 0644 "$FRONTEND_TARGET" "$bootstrap_release/frontend/sea-speed/index.html"
   if [[ -f "$OBJECTS_FRONTEND_TARGET" ]]; then
     install -m 0644 "$OBJECTS_FRONTEND_TARGET" "$bootstrap_release/frontend/sea-speed/objects/index.html"
@@ -597,6 +613,9 @@ install_release() {
   [[ -f "$release_dir/frontend/sea-speed/unavailable.html" || -f "$release_dir/frontend/sea-speed/unavailable.html.absent" ]] || { echo "Release ${release_name} has no fallback frontend state" >&2; return 1; }
 
   install -m 0644 "$release_dir/api/app/main.py" "${API_TARGET}.next"
+  if [[ -f "$release_dir/api/app/store.py" ]]; then
+    install -m 0644 "$release_dir/api/app/store.py" "${STORE_TARGET}.next"
+  fi
   install -m 0644 "$release_dir/frontend/sea-speed/index.html" "${FRONTEND_TARGET}.next"
   install -m 0644 "$release_dir/frontend/root/index.html" "${ROOT_FRONTEND_TARGET}.next"
   if [[ -f "$release_dir/frontend/sea-speed/objects/index.html" ]]; then
@@ -618,6 +637,16 @@ install_release() {
     install -m 0644 "$release_dir/frontend/sea-speed/unavailable.html" "${FALLBACK_FRONTEND_TARGET}.next"
   fi
 
+  if [[ -f "$release_dir/api/app/store.py" ]]; then
+    # Activation is bound to the selected release content — the same
+    # condition as staging above — never to the mere presence of a staged
+    # .next file: a stale .next left behind by an interrupted install must
+    # never be promoted, notably during a store-less rollback.
+    # store.py must land before main.py: the new main imports it at boot.
+    mv -f "${STORE_TARGET}.next" "$STORE_TARGET"
+  else
+    rm -f "$STORE_TARGET" "${STORE_TARGET}.next"
+  fi
   mv -f "${API_TARGET}.next" "$API_TARGET"
   mv -f "${FRONTEND_TARGET}.next" "$FRONTEND_TARGET"
   mv -f "${ROOT_FRONTEND_TARGET}.next" "$ROOT_FRONTEND_TARGET"

@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import ast
 import copy
+import importlib.util
 import json
+import sys
 import tempfile
 import time
 import unittest
@@ -14,6 +16,20 @@ from typing import Any, Dict, List
 ROOT = Path(__file__).resolve().parents[1]
 WORKER = ROOT / "worker" / "hls_motion_yolo_worker_events.py"
 API = ROOT / "api" / "app" / "main.py"
+STORE_FILE = ROOT / "api" / "app" / "store.py"
+
+
+def _load_api_store():
+    spec = importlib.util.spec_from_file_location("api_store_line_crossing_test", STORE_FILE)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _purge_crossings(namespace: dict[str, Any], camera_id: str) -> None:
+    """Reset a camera's crossings rows so exact-count summary tests stay isolated."""
+    with namespace["store"].open_state_db(namespace["STATE_DB_FILE"]) as connection:
+        connection.execute("DELETE FROM crossings WHERE camera_id = ?", (camera_id,))
 
 
 def extract_worker_functions(names: set[str]) -> dict[str, Any]:
@@ -252,6 +268,9 @@ class ApiCrossingTests(unittest.TestCase):
             "write_json_file": lambda path, data: Path(path).write_text(
                 json.dumps(data, ensure_ascii=False)
             ),
+            "store": _load_api_store(),
+            "STATE_DB_FILE": Path(cls.tmp.name) / "state.sqlite3",
+            "sys": sys,
         }
         cls.persisted: List[Dict[str, Any]] = []
         cls.namespace["persist_object_event"] = lambda event: cls.persisted.append(event) or True
@@ -366,14 +385,13 @@ class ApiCrossingTests(unittest.TestCase):
         now = datetime.now(timezone.utc)
         old_ts = (now - timedelta(hours=30)).isoformat()
         fresh_ts = (now - timedelta(hours=1)).isoformat()
-        ns["write_json_file"](
-            ns["crossings_store_path"]("cam1"),
-            [
-                {"object_type": "vessel", "direction": "left_to_right", "created_at": fresh_ts},
-                {"object_type": "vessel", "direction": "right_to_left", "created_at": fresh_ts},
-                {"object_type": "vessel", "direction": "left_to_right", "created_at": old_ts},
-            ],
-        )
+        _purge_crossings(ns, "cam1")
+        for record in (
+            {"object_type": "vessel", "direction": "left_to_right", "created_at": old_ts},
+            {"object_type": "vessel", "direction": "left_to_right", "created_at": fresh_ts},
+            {"object_type": "vessel", "direction": "right_to_left", "created_at": fresh_ts},
+        ):
+            ns["store"].append_crossing(ns["STATE_DB_FILE"], "cam1", record, 5000)
         summary = ns["get_analytics_crossings_summary"]("cam1", hours=24)
         self.assertEqual(summary["totals"], {"left_to_right": 1, "right_to_left": 1})
         self.assertEqual(summary["by_class"]["vessel"]["left_to_right"], 1)
@@ -585,6 +603,7 @@ class SummaryDateRangeTests(unittest.TestCase):
         self.assertIn("VLZ_TIMEZONE = timezone(timedelta(hours=10))", text)
 
     def test_summary_rejects_malformed_dates(self) -> None:
+        ApiCrossingTests.setUpClass()  # fresh tmp so the SQLite store is openable
         ns = dict(ApiCrossingTests.namespace)
         with self.assertRaises(_StubHTTPException):
             ns["get_analytics_crossings_summary"]("road1", hours=24, date_from="bad-date")
@@ -621,13 +640,14 @@ class SummaryVlzHappyPathTests(unittest.TestCase):
     def test_valid_date_window_returns_filtered_totals(self) -> None:
         ApiCrossingTests.setUpClass()
         ns = dict(ApiCrossingTests.namespace)
-        ns["write_json_file"](ns["crossings_store_path"]("road1"), [])  # isolate store
-        ns["write_json_file"](ns["crossings_store_path"]("road1"), [
-            {"object_type": "car", "direction": "left_to_right",
-             "created_at": "2026-08-23T02:00:00+00:00"},
+        _purge_crossings(ns, "road1")  # isolate store
+        for record in (
             {"object_type": "bus", "direction": "right_to_left",
              "created_at": "2026-08-22T20:00:00+00:00"},
-        ])
+            {"object_type": "car", "direction": "left_to_right",
+             "created_at": "2026-08-23T02:00:00+00:00"},
+        ):
+            ns["store"].append_crossing(ns["STATE_DB_FILE"], "road1", record, 5000)
         r = ns["get_analytics_crossings_summary"](
             "road1", hours=24, date_from="2026-08-23", date_to="2026-08-23")
         self.assertEqual(r["window"]["mode"], "vlz_days")
