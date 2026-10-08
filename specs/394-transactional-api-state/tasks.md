@@ -49,6 +49,19 @@
 - [ ] Risks resolved or explicitly accepted — RISK-001..RISK-004 mitigated or disclosed in plan.md
 - [ ] Waivers resolved or current — none
 
+## Definition of Done
+
+- [ ] Issue/spec/plan/tasks current
+- [ ] Exact changed-file scope verified
+- [ ] Required tests and evidence complete
+- [ ] Required CI green — orchestrator-owned (PR creation and exact-head CI) — auto-synced on merge to main
+- [ ] Exact-green-head merge complete — orchestrator-owned — auto-synced on merge to main
+- [ ] Deployment state resolved — orchestrator-owned (full autonomous VPS contour deploy fans out at merge)
+- [ ] Runtime acceptance resolved — orchestrator-owned (fail-closed boot health gate + dual-write window verified post-deploy; ИБ-пробы relayed per #393 tail plan)
+- [ ] Deferred work recorded — dual-write JSON mirror retirement in a follow-up release
+- [ ] Risks resolved or explicitly accepted — RISK-001..RISK-004 in plan.md Risk profile
+- [ ] Waivers resolved or current — none
+
 ## Requirements traceability
 
 - AC-001 | Task: T-394-001,T-394-003 | Evidence: test_write_round_trip_is_atomic, test_concurrent_writers_leave_one_valid_file_and_no_tmp (25+25 alternating writers, no tmp leftovers) | Coverage: COVERED
