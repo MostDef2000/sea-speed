@@ -50,8 +50,8 @@
 - [ ] Required tests and evidence complete
 - [x] Required CI green — orchestrator-owned (PR #425 exact-head CI: 8/8 checks green, run 37761022663)
 - [x] Exact-green-head merge complete — orchestrator-owned (PR #425 squash-merged; main @ b923fe8f061bcd44de25ec794703714bb150678a)
-- [ ] Deployment state resolved — orchestrator-owned
-- [ ] Runtime acceptance resolved — orchestrator-owned (Ubuntu worker deploy transaction; INSTALLED_COPY_REFRESHED evidence verified post-deploy)
+- [x] Deployment state resolved — autonomous UBUNTU_WORKER contour: DEPLOYMENT_ACCEPTED target=2176d1c previous=1f81c5e run 37798605482 (policy=allow) — orchestrator-owned
+- [x] Runtime acceptance resolved — orchestrator-owned (INSTALLED_COPY_REFRESHED ×3 verified on the worker in run 37798605482: watchdog 0755 sha 37f340ec…, service/timer 0644; per-entry SHA-256 parity emitted)
 - [ ] Deferred work recorded — none
 - [ ] Risks resolved or explicitly accepted — RISK-001..RISK-004 mitigated or disclosed in plan.md
 - [ ] Waivers resolved or current — none
@@ -63,8 +63,8 @@
 - [ ] Required tests and evidence complete
 - [x] Required CI green — orchestrator-owned (PR #425 exact-head CI: 8/8 checks green, run 37761022663)
 - [x] Exact-green-head merge complete — orchestrator-owned (PR #425 squash-merged; main @ b923fe8f061bcd44de25ec794703714bb150678a)
-- [ ] Deployment state resolved — orchestrator-owned (autonomous Ubuntu worker deploy fans out at merge)
-- [ ] Runtime acceptance resolved — orchestrator-owned (deploy transaction refreshes the installed watchdog trio; INSTALLED_COPY_REFRESHED evidence lines verified on the worker post-deploy)
+- [x] Deployment state resolved — autonomous UBUNTU_WORKER contour: DEPLOYMENT_ACCEPTED target=2176d1c previous=1f81c5e run 37798605482 (policy=allow) — orchestrator-owned (autonomous Ubuntu worker deploy fans out at merge)
+- [x] Runtime acceptance resolved — orchestrator-owned (INSTALLED_COPY_REFRESHED ×3 verified on the worker in run 37798605482)
 - [ ] Deferred work recorded — none (installed-copy inventory is declarative; future installed copies extend the inventory)
 - [ ] Risks resolved or explicitly accepted — RISK-001..RISK-004 in plan.md Risk profile
 - [ ] Waivers resolved or current — none

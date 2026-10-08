@@ -46,9 +46,9 @@
 - [ ] Issue/spec/plan/tasks current
 - [ ] Exact changed-file scope verified
 - [ ] Required tests and evidence complete
-- [ ] Required CI green — orchestrator-owned (PR creation and exact-head CI)
-- [ ] Exact-green-head merge complete — orchestrator-owned
-- [ ] Deployment state resolved — orchestrator-owned
+- [x] Required CI green — exact-head PR CI 8/8 green (merge-phase) — orchestrator-owned (PR creation and exact-head CI)
+- [x] Exact-green-head merge complete — squash merge; main @ 2176d1c517b08de2b5b2d0c006d8015d070a390f — orchestrator-owned
+- [x] Deployment state resolved — autonomous UBUNTU_WORKER contour: DEPLOYMENT_ACCEPTED target=2176d1c previous=1f81c5e run 37798605482 (policy=allow) — orchestrator-owned
 - [ ] Runtime acceptance resolved — orchestrator-owned (a future operator-scheduled 2-IP re-render through the canonical tool; no runtime change in this task)
 - [ ] Deferred work recorded — none
 - [ ] Risks resolved or explicitly accepted — RISK-001..RISK-004 mitigated or disclosed in plan.md
@@ -59,9 +59,9 @@
 - [ ] Issue/spec/plan/tasks current
 - [ ] Exact changed-file scope verified
 - [ ] Required tests and evidence complete
-- [ ] Required CI green — orchestrator-owned (PR creation and exact-head CI)
-- [ ] Exact-green-head merge complete — orchestrator-owned
-- [ ] Deployment state resolved — orchestrator-owned (tool-only change; activation of a 2-IP candidate remains a separate operator-gated transaction)
+- [x] Required CI green — exact-head PR CI 8/8 green (merge-phase) — orchestrator-owned (PR creation and exact-head CI)
+- [x] Exact-green-head merge complete — squash merge; main @ 2176d1c517b08de2b5b2d0c006d8015d070a390f — orchestrator-owned
+- [x] Deployment state resolved — autonomous UBUNTU_WORKER contour: DEPLOYMENT_ACCEPTED target=2176d1c previous=1f81c5e run 37798605482 (policy=allow) — orchestrator-owned (tool-only change; activation of a 2-IP candidate remains a separate operator-gated transaction)
 - [ ] Runtime acceptance resolved — orchestrator-owned (2-IP prepare renders ips: [...] with both reader IPs when first exercised on the worker)
 - [ ] Deferred work recorded — none (preview-relay single-IP regex rule stays deferred to #373 by design)
 - [ ] Risks resolved or explicitly accepted — RISK-001..RISK-004 in plan.md Risk profile

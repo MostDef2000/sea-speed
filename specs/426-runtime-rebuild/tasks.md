@@ -45,9 +45,9 @@
 - [ ] Issue/spec/plan/tasks current
 - [ ] Exact changed-file scope verified
 - [ ] Required tests and evidence complete
-- [ ] Required CI green — orchestrator-owned (PR creation and exact-head CI)
-- [ ] Exact-green-head merge complete — orchestrator-owned
-- [ ] Deployment state resolved — orchestrator-owned
+- [x] Required CI green — exact-head PR CI 8/8 green (merge-phase) — orchestrator-owned (PR creation and exact-head CI)
+- [x] Exact-green-head merge complete — squash merge; main @ 2176d1c517b08de2b5b2d0c006d8015d070a390f — orchestrator-owned
+- [x] Deployment state resolved — autonomous UBUNTU_WORKER contour: DEPLOYMENT_ACCEPTED target=2176d1c previous=1f81c5e run 37798605482 (policy=allow) — orchestrator-owned
 - [ ] Runtime acceptance resolved — orchestrator-owned (next UBUNTU_WORKER deploy over a drifted on-box runtime converges: RUNTIME_VERIFY_FAILED → RUNTIME_QUARANTINED → RUNTIME_REBUILT evidence in the deploy log)
 - [ ] Deferred work recorded — none
 - [ ] Risks resolved or explicitly accepted — RISK-001..RISK-004 mitigated or disclosed in plan.md
@@ -58,9 +58,9 @@
 - [ ] Issue/spec/plan/tasks current
 - [ ] Exact changed-file scope verified
 - [ ] Required tests and evidence complete
-- [ ] Required CI green — orchestrator-owned (PR creation and exact-head CI)
-- [ ] Exact-green-head merge complete — orchestrator-owned
-- [ ] Deployment state resolved — orchestrator-owned (rebuild reaches the worker through the existing deploy-authorized → update-exact → prepare-runtime transaction)
+- [x] Required CI green — exact-head PR CI 8/8 green (merge-phase) — orchestrator-owned (PR creation and exact-head CI)
+- [x] Exact-green-head merge complete — squash merge; main @ 2176d1c517b08de2b5b2d0c006d8015d070a390f — orchestrator-owned
+- [x] Deployment state resolved — autonomous UBUNTU_WORKER contour: DEPLOYMENT_ACCEPTED target=2176d1c previous=1f81c5e run 37798605482 (policy=allow) — orchestrator-owned (rebuild reaches the worker through the existing deploy-authorized → update-exact → prepare-runtime transaction)
 - [ ] Runtime acceptance resolved — orchestrator-owned (a drifted on-box runtime demonstrably rebuilds with RUNTIME_VERIFY_FAILED/RUNTIME_REBUILT evidence in an autonomous deploy log)
 - [ ] Deferred work recorded — none (quarantine dir pruning is deliberately out of scope; disk reclamation is an operator decision)
 - [ ] Risks resolved or explicitly accepted — RISK-001..RISK-004 in plan.md Risk profile
