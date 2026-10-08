@@ -149,18 +149,11 @@ the atomic write.
 
 ## NFR assessment
 
-- Reliability: concurrent writes can no longer destroy each other's
-  temporary files; lost-update window on crossings/events is eliminated
-  (SQLite single-statement writes).
-- Observability: corruption now surfaces as explicit HTTP 500 messages
-  instead of silent defaults; legacy mirror failures print to stderr.
-- Compatibility: public API surface unchanged; legacy JSON files remain
-  fresh (projection mirrors) so the previous release and operator tooling
-  keep working during the rollback window.
-- Security/robustness: standard library only; parameterized SQL; per-camera
-  row caps bound storage growth.
-- Rollback safety: legacy files are never deleted by the API; deploy
-  activation removes `store.py` when rolling back to a pre-#394 release.
+- NFR-001 | Area: reliability | Target: concurrent writers can no longer destroy each other's temporary files; the lost-update window on crossings/events is eliminated (SQLite single-statement writes) | Validation: barrier-forced concurrency tests (25+25 alternating JSON writers, 8 SQLite racers) RED against base's fixed-tmp RMW; no-lost-update and atomic round-trip tests green on head | Evidence: test_write_round_trip_is_atomic, test_concurrent_writers_leave_one_valid_file_and_no_tmp, test_concurrent_appenders_never_lose_records | Status: PASS
+- NFR-002 | Area: observability | Target: corruption surfaces as explicit HTTP 500 messages instead of silent defaults; legacy mirror failures print to stderr without failing requests | Validation: fail-loud endpoint tests RED on base (silent default); dual-write mirror exception-path review | Evidence: FailLoudReadTests, test_camera_preview_state_corruption_fails_loud | Status: PASS
+- NFR-003 | Area: compatibility | Target: public API surface unchanged (61 routes, response shapes, ordering semantics); legacy JSON files stay fresh (projection mirrors) for the previous release and operator tooling during the rollback window | Validation: AST-harness regression suites (contract/line-crossing/road-hygiene) green; route-decorator count parity checked by peer verification | Evidence: test_api_contract.py, test_line_crossing.py, test_road_event_hygiene.py | Status: PASS
+- NFR-004 | Area: security/robustness | Target: standard library only; parameterized SQL with whitelisted table names; per-camera row caps bound storage growth (5000 crossings / 500 events) | Validation: ruff clean; store.py code review (independent peer session); cap-enforcement tests | Evidence: test_caps_enforced_per_camera, peer verification report | Status: PASS
+- NFR-005 | Area: rollback safety | Target: legacy files are never deleted by the API; deploy activation removes store.py when rolling back to a pre-#394 release; corrupt legacy store fails boot closed (deploy auto-rollback) | Validation: deploy transaction behavioral suite (18 tests); soft-pattern code review; migration fail-closed tests | Evidence: test_vps_deploy_transaction.py, StartupMigrationTests | Status: PASS
 
 ## Deviations from the work order
 
