@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "python": {
     "implementation": "CPython",
     "major": 3,
@@ -7,12 +7,22 @@
   },
   "pytorch": {
     "index_url": "https://download.pytorch.org/whl/cu130",
+    "index_provenance": "official PyTorch cu130 index",
+    "pypi_index_url": "https://pypi.org/simple",
     "packages": {
       "torch": "2.13.0+cu130",
       "torchvision": "0.28.0+cu130"
+    },
+    "artifact_sha256": {
+      "torch": "",
+      "torchvision": ""
     }
   },
   "runtime_requirements": "requirements-runtime.txt",
+  "resolved_lock": {
+    "file": "requirements-runtime.lock.txt",
+    "sha256": ""
+  },
   "verification_imports": [
     "cv2",
     "lap",

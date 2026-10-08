@@ -10,10 +10,14 @@ Options:
   --runtime-id-only     Print the deterministic runtime ID and exit
 
 The runtime ID is the SHA-256 of the exact runtime-lock.json bytes plus the
-exact requirements-runtime.txt bytes. A ready runtime is immutable and reused
-without pip or network access. During migration from a legacy per-release venv,
-a matching local venv is copied locally into the shared runtime and no network
-fallback is allowed if safe adoption cannot be verified.
+exact requirements-runtime.txt bytes plus the exact
+requirements-runtime.lock.txt bytes. A ready runtime is immutable and reused
+without pip or network access. The hash-locked requirements-runtime.lock.txt
+is the complete dependency graph: fresh creation downloads every artifact with
+verified sha256 hashes and installs offline from that verified wheel set.
+During migration from a legacy per-release venv, a matching local venv is
+copied locally into the shared runtime and no network fallback is allowed if
+safe adoption cannot be verified.
 EOF
 }
 
@@ -46,8 +50,9 @@ done
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 lock_path="$script_dir/runtime-lock.json"
 requirements_path="$script_dir/requirements-runtime.txt"
+lock_file_path="$script_dir/requirements-runtime.lock.txt"
 
-for required in "$lock_path" "$requirements_path"; do
+for required in "$lock_path" "$requirements_path" "$lock_file_path"; do
   if [[ ! -f "$required" ]]; then
     echo "ERROR runtime definition component missing: $required" >&2
     exit 3
@@ -58,7 +63,7 @@ if ! command -v python3 >/dev/null 2>&1; then
   exit 3
 fi
 
-runtime_id="$(python3 - "$lock_path" "$requirements_path" <<'PY'
+runtime_id="$(python3 - "$lock_path" "$requirements_path" "$lock_file_path" <<'PY'
 from __future__ import annotations
 
 import hashlib
@@ -67,7 +72,14 @@ from pathlib import Path
 
 lock_path = Path(sys.argv[1])
 requirements_path = Path(sys.argv[2])
-payload = lock_path.read_bytes() + b"\0" + requirements_path.read_bytes()
+lock_file_path = Path(sys.argv[3])
+payload = (
+    lock_path.read_bytes()
+    + b"\0"
+    + requirements_path.read_bytes()
+    + b"\0"
+    + lock_file_path.read_bytes()
+)
 print(hashlib.sha256(payload).hexdigest())
 PY
 )"
@@ -82,11 +94,109 @@ if [[ "$runtime_id_only" == true ]]; then
   exit 0
 fi
 
+# Fail-closed runtime lock validation: the hash-locked complete dependency
+# graph must be present and well-formed before any mutation (venv creation,
+# pip download, adoption of a legacy venv). A missing, marker-less, empty or
+# incomplete lock aborts the prepare step here, before the root check.
+validate_runtime_lock() {
+  python3 - "$lock_path" "$requirements_path" "$lock_file_path" <<'PY'
+from __future__ import annotations
+
+import hashlib
+import json
+import re
+import sys
+from pathlib import Path
+
+lock_path = Path(sys.argv[1])
+requirements_path = Path(sys.argv[2])
+lock_file_path = Path(sys.argv[3])
+
+lock_file_bytes = lock_file_path.read_bytes()
+lock_file_text = lock_file_bytes.decode("utf-8")
+if "# sea-speed-runtime-lock-v1" not in lock_file_text:
+    raise SystemExit("ERROR runtime lock file schema marker missing: " + lock_file_path.name)
+
+# Join uv-style continuation lines ("... \") into logical requirement lines.
+joined: list[str] = []
+buffer = ""
+for raw in lock_file_text.splitlines():
+    line = raw.strip()
+    if line.endswith("\\"):
+        buffer += " " + line[:-1].strip()
+        continue
+    buffer += " " + line
+    joined.append(buffer.strip())
+    buffer = ""
+if buffer.strip():
+    joined.append(buffer.strip())
+
+graph: dict[str, str] = {}
+graph_hashes: dict[str, set[str]] = {}
+for text in joined:
+    if not text or text.startswith("#"):
+        continue
+    tokens = text.split()
+    if tokens[0].startswith("-"):
+        continue
+    pinned = re.fullmatch(r"([A-Za-z0-9._-]+)==([^\s]+)", tokens[0])
+    hashes = [token for token in tokens[1:] if token.startswith("--hash=sha256:")]
+    if pinned is None or not hashes:
+        raise SystemExit(f"ERROR runtime lock line is not sha256-hash-pinned: {text}")
+    name = pinned.group(1).lower()
+    graph[name] = pinned.group(2)
+    graph_hashes.setdefault(name, set()).update(
+        token.split(":", 1)[1] for token in hashes
+    )
+if not graph:
+    raise SystemExit("ERROR runtime lock graph is empty (resolver output not committed yet)")
+
+lock = json.loads(lock_path.read_text(encoding="utf-8"))
+if lock.get("schema_version") != 2:
+    raise SystemExit("ERROR runtime-lock.json schema_version must be 2 for hash-locked runtimes")
+resolved = lock.get("resolved_lock")
+if not isinstance(resolved, dict) or resolved.get("file") != lock_file_path.name:
+    raise SystemExit("ERROR runtime-lock.json resolved_lock.file must point at the lock file")
+if resolved.get("sha256") != hashlib.sha256(lock_file_bytes).hexdigest():
+    raise SystemExit("ERROR runtime-lock.json resolved_lock.sha256 does not match the lock file bytes")
+pytorch = lock.get("pytorch", {})
+artifact_sha256 = pytorch.get("artifact_sha256")
+if not isinstance(artifact_sha256, dict):
+    raise SystemExit("ERROR runtime-lock.json pytorch.artifact_sha256 section missing")
+for package_name, expected_version in sorted(pytorch.get("packages", {}).items()):
+    if graph.get(package_name) != expected_version:
+        raise SystemExit(f"ERROR runtime lock graph misses pytorch pin: {package_name}=={expected_version}")
+    artifact = artifact_sha256.get(package_name, "")
+    if not re.fullmatch(r"[0-9a-f]{64}", artifact):
+        raise SystemExit(f"ERROR pytorch artifact sha256 missing or malformed: {package_name}")
+    if artifact not in graph_hashes.get(package_name, set()):
+        raise SystemExit(f"ERROR pytorch artifact sha256 drift against lock file: {package_name}")
+
+requirements = requirements_path.read_text(encoding="utf-8")
+for raw in requirements.splitlines():
+    line = raw.strip()
+    if not line or line.startswith("#"):
+        continue
+    if "==" not in line:
+        raise SystemExit(f"ERROR runtime requirement is not exact: {line}")
+    name, _, expected_version = line.partition("==")
+    if graph.get(name.strip().lower()) != expected_version.strip():
+        raise SystemExit(f"ERROR runtime requirement absent from hash-locked graph: {line}")
+
+print("PASS runtime_lock_validated")
+PY
+}
+
+if ! validate_runtime_lock; then
+  echo "ERROR runtime lock inputs are invalid; refusing to prepare a runtime" >&2
+  exit 3
+fi
+
 if [[ "$EUID" -ne 0 ]]; then
   echo "ERROR run as root" >&2
   exit 1
 fi
-for command_name in cp mv mktemp chmod chown find sort cmp mkdir; do
+for command_name in cp mv mktemp chmod chown find sort cmp mkdir grep; do
   if ! command -v "$command_name" >/dev/null 2>&1; then
     echo "ERROR required command missing: $command_name" >&2
     exit 3
@@ -103,18 +213,22 @@ chmod 0750 "$install_root/cache" "$wheel_cache"
 
 verify_python() {
   local python_bin="$1"
-  "$python_bin" - "$lock_path" "$requirements_path" <<'PY'
+  local manifest_path="${2:-}"
+  "$python_bin" - "$lock_path" "$requirements_path" "$lock_file_path" "$manifest_path" <<'PY'
 from __future__ import annotations
 
 import importlib
 import json
 import platform
+import re
 import sys
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 lock = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
 requirements = Path(sys.argv[2]).read_text(encoding="utf-8")
+lock_file_path = Path(sys.argv[3])
+manifest_path = sys.argv[4] if len(sys.argv) > 4 else ""
 python_lock = lock["python"]
 if platform.python_implementation() != python_lock["implementation"]:
     raise SystemExit("runtime Python implementation mismatch")
@@ -124,7 +238,37 @@ if (sys.version_info.major, sys.version_info.minor) != (
 ):
     raise SystemExit("runtime Python ABI mismatch")
 
-expected: dict[str, str] = dict(lock["pytorch"]["packages"])
+# The hash-locked lock file is the complete graph: direct pins, every
+# transitive dependency and the pytorch cu130 closure must be installed.
+lock_file_text = lock_file_path.read_text(encoding="utf-8")
+joined: list[str] = []
+buffer = ""
+for raw in lock_file_text.splitlines():
+    line = raw.strip()
+    if line.endswith("\\"):
+        buffer += " " + line[:-1].strip()
+        continue
+    buffer += " " + line
+    joined.append(buffer.strip())
+    buffer = ""
+if buffer.strip():
+    joined.append(buffer.strip())
+
+graph: dict[str, str] = {}
+for text in joined:
+    if not text or text.startswith("#"):
+        continue
+    tokens = text.split()
+    if tokens[0].startswith("-"):
+        continue
+    pinned = re.fullmatch(r"([A-Za-z0-9._-]+)==([^\s]+)", tokens[0])
+    hashes = [token for token in tokens[1:] if token.startswith("--hash=sha256:")]
+    if pinned is None or not hashes:
+        raise SystemExit(f"runtime lock line is not sha256-hash-pinned: {text}")
+    graph[pinned.group(1).lower()] = pinned.group(2)
+if not graph:
+    raise SystemExit("runtime lock graph is empty")
+expected: dict[str, str] = dict(graph)
 for raw in requirements.splitlines():
     line = raw.strip()
     if not line or line.startswith("#"):
@@ -132,7 +276,8 @@ for raw in requirements.splitlines():
     if "==" not in line:
         raise SystemExit(f"runtime requirement is not exact: {line}")
     name, expected_version = line.split("==", 1)
-    expected[name.strip()] = expected_version.strip()
+    if graph.get(name.strip().lower()) != expected_version.strip():
+        raise SystemExit(f"runtime requirement absent from hash-locked graph: {line}")
 
 for name, expected_version in sorted(expected.items()):
     try:
@@ -143,6 +288,21 @@ for name, expected_version in sorted(expected.items()):
         raise SystemExit(
             f"runtime version mismatch: {name} expected={expected_version} actual={actual}"
         )
+
+if manifest_path:
+    import hashlib
+
+    manifest = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
+    expected_lock_hash = hashlib.sha256(lock_file_path.read_bytes()).hexdigest()
+    if manifest.get("requirements_lock_sha256") != expected_lock_hash:
+        raise SystemExit("runtime manifest requirements_lock_sha256 mismatch")
+    installed = manifest.get("installed_packages", {})
+    for name, expected_version in sorted(expected.items()):
+        actual = installed.get(name)
+        if actual != expected_version:
+            raise SystemExit(
+                f"runtime manifest graph drift: {name} expected={expected_version} actual={actual}"
+            )
 
 for module_name in lock["verification_imports"]:
     importlib.import_module(module_name)
@@ -155,7 +315,7 @@ write_manifest() {
   local python_bin="$1"
   local manifest_path="$2"
   local origin="$3"
-  "$python_bin" - "$runtime_id" "$lock_path" "$requirements_path" "$manifest_path" "$origin" <<'PY'
+  "$python_bin" - "$runtime_id" "$lock_path" "$requirements_path" "$lock_file_path" "$manifest_path" "$origin" <<'PY'
 from __future__ import annotations
 
 import hashlib
@@ -165,9 +325,10 @@ import sys
 from importlib.metadata import distributions
 from pathlib import Path
 
-runtime_id, lock_name, requirements_name, manifest_name, origin = sys.argv[1:]
+runtime_id, lock_name, requirements_name, lock_file_name, manifest_name, origin = sys.argv[1:]
 lock_path = Path(lock_name)
 requirements_path = Path(requirements_name)
+lock_file_path = Path(lock_file_name)
 packages = {}
 for dist in distributions():
     name = (dist.metadata.get("Name") or "").strip().lower()
@@ -183,6 +344,7 @@ manifest = {
     },
     "runtime_lock_sha256": hashlib.sha256(lock_path.read_bytes()).hexdigest(),
     "requirements_sha256": hashlib.sha256(requirements_path.read_bytes()).hexdigest(),
+    "requirements_lock_sha256": hashlib.sha256(lock_file_path.read_bytes()).hexdigest(),
     "installed_packages": dict(sorted(packages.items())),
 }
 Path(manifest_name).write_text(
@@ -196,11 +358,13 @@ verify_ready_runtime() {
   [[ -x "$runtime_root/venv/bin/python" ]] || return 1
   [[ -f "$runtime_root/runtime-lock.json" ]] || return 1
   [[ -f "$runtime_root/requirements-runtime.txt" ]] || return 1
+  [[ -f "$runtime_root/requirements-runtime.lock.txt" ]] || return 1
   [[ -f "$runtime_root/runtime-manifest.json" ]] || return 1
   [[ "$(cat "$runtime_root/ready")" == "runtime_id=$runtime_id" ]] || return 1
   cmp -s "$lock_path" "$runtime_root/runtime-lock.json" || return 1
   cmp -s "$requirements_path" "$runtime_root/requirements-runtime.txt" || return 1
-  verify_python "$runtime_root/venv/bin/python" >/dev/null
+  cmp -s "$lock_file_path" "$runtime_root/requirements-runtime.lock.txt" || return 1
+  verify_python "$runtime_root/venv/bin/python" "$runtime_root/runtime-manifest.json" >/dev/null
 }
 
 if [[ -e "$runtime_root" ]]; then
@@ -221,6 +385,7 @@ finalize_runtime() {
   verify_python "$staged_python"
   cp "$lock_path" "$staged_root/runtime-lock.json"
   cp "$requirements_path" "$staged_root/requirements-runtime.txt"
+  cp "$lock_file_path" "$staged_root/requirements-runtime.lock.txt"
   write_manifest "$staged_python" "$staged_root/runtime-manifest.json" "$origin"
   printf 'runtime_id=%s\n' "$runtime_id" > "$staged_root/ready"
   chown -R root:root "$staged_root"
@@ -228,6 +393,7 @@ finalize_runtime() {
   chmod 0444 \
     "$staged_root/runtime-lock.json" \
     "$staged_root/requirements-runtime.txt" \
+    "$staged_root/requirements-runtime.lock.txt" \
     "$staged_root/runtime-manifest.json" \
     "$staged_root/ready"
   chmod 0555 "$staged_root"
@@ -294,43 +460,61 @@ if [[ "$legacy_active" == true ]]; then
 fi
 
 staged_root="$(mktemp -d "$runtime_parent/.prepare.$runtime_id.XXXXXX")"
+wheelhouse_dir="$(mktemp -d "$wheel_cache/.wheelhouse.$runtime_id.XXXXXX")"
 cleanup_staged=true
 cleanup() {
-  if [[ "${cleanup_staged:-false}" == true ]] && [[ -d "${staged_root:-}" ]]; then
-    chmod -R u+w "$staged_root" 2>/dev/null || true
-    rm -rf "$staged_root"
+  if [[ "${cleanup_staged:-false}" == true ]]; then
+    if [[ -d "${staged_root:-}" ]]; then
+      chmod -R u+w "$staged_root" 2>/dev/null || true
+      rm -rf "$staged_root"
+    fi
+    if [[ -d "${wheelhouse_dir:-}" ]]; then
+      chmod -R u+w "$wheelhouse_dir" 2>/dev/null || true
+      rm -rf "$wheelhouse_dir"
+    fi
   fi
 }
 trap cleanup EXIT
 
 python3 -m venv "$staged_root/venv"
 runtime_python="$staged_root/venv/bin/python"
-readarray -t pytorch_values < <(python3 - "$lock_path" <<'PY'
+readarray -t index_values < <(python3 - "$lock_path" <<'PY'
 import json
 import sys
 from pathlib import Path
 lock = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
 print(lock["pytorch"]["index_url"])
-print(lock["pytorch"]["packages"]["torch"])
-print(lock["pytorch"]["packages"]["torchvision"])
+print(lock["pytorch"]["pypi_index_url"])
 PY
 )
-pytorch_index="${pytorch_values[0]}"
-torch_version="${pytorch_values[1]}"
-torchvision_version="${pytorch_values[2]}"
+pytorch_index="${index_values[0]}"
+pypi_index="${index_values[1]}"
 
+# Phase 1: download every artifact of the hash-locked graph — the PyPI-resolved
+# requirements graph plus the pytorch cu130 closure — and verify each artifact
+# sha256 at download time; any hash mismatch aborts before installation.
+PIP_DISABLE_PIP_VERSION_CHECK=1 PIP_CACHE_DIR="$wheel_cache" \
+  "$runtime_python" -m pip download \
+  --index-url "$pytorch_index" \
+  --extra-index-url "$pypi_index" \
+  --only-binary=:all: \
+  --require-hashes \
+  -r "$lock_file_path" \
+  --dest "$wheelhouse_dir"
+
+# Phase 2: install strictly offline from the verified wheel set. pip re-verifies
+# every artifact hash and refuses anything outside the locked graph. Directive
+# lines are stripped so the offline install cannot be re-pointed at an index.
+grep -v '^--' "$lock_file_path" > "$staged_root/requirements-runtime.resolved.lock.txt"
 PIP_DISABLE_PIP_VERSION_CHECK=1 PIP_CACHE_DIR="$wheel_cache" \
   "$runtime_python" -m pip install \
-  --index-url "$pytorch_index" \
-  --only-binary=:all: \
-  "torch==$torch_version" \
-  "torchvision==$torchvision_version"
-
-PIP_DISABLE_PIP_VERSION_CHECK=1 PIP_CACHE_DIR="$wheel_cache" \
-  "$runtime_python" -m pip install -r "$requirements_path"
+  --no-index \
+  --find-links "$wheelhouse_dir" \
+  --require-hashes \
+  -r "$staged_root/requirements-runtime.resolved.lock.txt"
 
 finalize_runtime "$staged_root" "network-cache:$wheel_cache"
 cleanup_staged=false
 trap - EXIT
-printf 'RUNTIME_CREATED runtime_id=%s cache=%s\n' "$runtime_id" "$wheel_cache"
+printf 'RUNTIME_CREATED runtime_id=%s cache=%s hash_locked=true\n' "$runtime_id" "$wheel_cache"
 printf 'RUNTIME_ID %s\n' "$runtime_id"

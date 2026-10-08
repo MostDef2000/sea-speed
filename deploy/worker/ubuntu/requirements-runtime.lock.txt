@@ -1,0 +1,9 @@
+# sea-speed-runtime-lock-v1
+# Complete hash-locked dependency graph for the shared worker runtime.
+# Resolved by .github/workflows/resolve-runtime-lock.yml (uv pip compile
+# --generate-hashes) from requirements-runtime.txt plus the pytorch cu130
+# pins declared in runtime-lock.json.
+# PLACEHOLDER: this commit intentionally carries no resolved pins. The
+# prepare-runtime step fails closed on an empty lock until the CI resolver
+# output (complete graph with --hash=sha256: lines for the PyPI graph and the
+# PyTorch cu130 closure) is committed in the follow-up commit of #392.

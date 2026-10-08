@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PREPARE = ROOT / "deploy/worker/ubuntu/prepare-runtime.sh"
 LOCK = ROOT / "deploy/worker/ubuntu/runtime-lock.json"
 REQUIREMENTS = ROOT / "deploy/worker/ubuntu/requirements-runtime.txt"
+LOCK_FILE = ROOT / "deploy/worker/ubuntu/requirements-runtime.lock.txt"
 
 
 class UbuntuWorkerSharedRuntimeTests(unittest.TestCase):
@@ -21,7 +22,7 @@ class UbuntuWorkerSharedRuntimeTests(unittest.TestCase):
         subprocess.run(["bash", "-n", str(PREPARE)], check=True)
 
     def test_runtime_lock_pins_python_and_cuda_pair(self) -> None:
-        self.assertEqual(self.lock["schema_version"], 1)
+        self.assertEqual(self.lock["schema_version"], 2)
         self.assertEqual(
             self.lock["python"],
             {"implementation": "CPython", "major": 3, "minor": 14},
@@ -38,7 +39,11 @@ class UbuntuWorkerSharedRuntimeTests(unittest.TestCase):
 
     def test_runtime_id_is_exact_definition_fingerprint(self) -> None:
         expected = hashlib.sha256(
-            LOCK.read_bytes() + b"\0" + REQUIREMENTS.read_bytes()
+            LOCK.read_bytes()
+            + b"\0"
+            + REQUIREMENTS.read_bytes()
+            + b"\0"
+            + LOCK_FILE.read_bytes()
         ).hexdigest()
         result = subprocess.run(
             ["bash", str(PREPARE), "--runtime-id-only"],
