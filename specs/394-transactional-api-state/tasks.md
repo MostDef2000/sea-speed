@@ -52,8 +52,8 @@
 - [ ] Issue/spec/plan/tasks current
 - [ ] Exact changed-file scope verified
 - [ ] Required tests and evidence complete
-- [ ] Required CI green — orchestrator-owned (PR creation and exact-head CI) — auto-synced on merge to main
-- [ ] Exact-green-head merge complete — orchestrator-owned — auto-synced on merge to main
+- [x] Required CI green — orchestrator-owned (PR creation and exact-head CI) — auto-synced on merge to main
+- [x] Exact-green-head merge complete — orchestrator-owned — auto-synced on merge to main
 - [ ] Deployment state resolved — orchestrator-owned
 - [ ] Runtime acceptance resolved — orchestrator-owned (VPS restart, health gate, dual-write window verified post-deploy)
 - [ ] Deferred work recorded — none
@@ -65,8 +65,8 @@
 - [ ] Issue/spec/plan/tasks current
 - [ ] Exact changed-file scope verified
 - [ ] Required tests and evidence complete
-- [ ] Required CI green — orchestrator-owned (PR creation and exact-head CI) — auto-synced on merge to main
-- [ ] Exact-green-head merge complete — orchestrator-owned — auto-synced on merge to main
+- [x] Required CI green — orchestrator-owned (PR creation and exact-head CI) — auto-synced on merge to main
+- [x] Exact-green-head merge complete — orchestrator-owned — auto-synced on merge to main
 - [ ] Deployment state resolved — orchestrator-owned (full autonomous VPS contour deploy fans out at merge)
 - [ ] Runtime acceptance resolved — orchestrator-owned (fail-closed boot health gate + dual-write window verified post-deploy; ИБ-пробы relayed per #393 tail plan)
 - [ ] Deferred work recorded — dual-write JSON mirror retirement in a follow-up release: trigger = first verified full VPS contour deploy of this release, deadline = the next release cycle after this merge (retirement = DROP ingestion_log + stop dual-write + drop import path, together; owner: Delivery Orchestrator)
