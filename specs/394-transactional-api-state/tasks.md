@@ -69,7 +69,7 @@
 - [ ] Exact-green-head merge complete — orchestrator-owned — auto-synced on merge to main
 - [ ] Deployment state resolved — orchestrator-owned (full autonomous VPS contour deploy fans out at merge)
 - [ ] Runtime acceptance resolved — orchestrator-owned (fail-closed boot health gate + dual-write window verified post-deploy; ИБ-пробы relayed per #393 tail plan)
-- [ ] Deferred work recorded — dual-write JSON mirror retirement in a follow-up release
+- [ ] Deferred work recorded — dual-write JSON mirror retirement in a follow-up release: trigger = first verified full VPS contour deploy of this release, deadline = the next release cycle after this merge (retirement = DROP ingestion_log + stop dual-write + drop import path, together; owner: Delivery Orchestrator)
 - [ ] Risks resolved or explicitly accepted — RISK-001..RISK-005 in plan.md Risk profile
 - [ ] Waivers resolved or current — none
 
