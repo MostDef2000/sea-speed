@@ -367,14 +367,55 @@ verify_ready_runtime() {
   verify_python "$runtime_root/venv/bin/python" "$runtime_root/runtime-manifest.json" >/dev/null
 }
 
+# Rebuild diagnostics (issue #426): mirrors the verify_ready_runtime sub-checks
+# in the exact same order and prints the name of the FIRST failing check. The
+# healthy path keeps using verify_ready_runtime verbatim; this helper runs only
+# on the failure branch, to record which sub-check invalidated the existing
+# runtime before it is quarantined and rebuilt.
+classify_ready_runtime_failure() {
+  [[ -f "$runtime_root/ready" ]] || { echo "ready_file"; return 0; }
+  [[ -x "$runtime_root/venv/bin/python" ]] || { echo "venv_python"; return 0; }
+  [[ -f "$runtime_root/runtime-lock.json" ]] || { echo "runtime_lock_file"; return 0; }
+  [[ -f "$runtime_root/requirements-runtime.txt" ]] || { echo "requirements_file"; return 0; }
+  [[ -f "$runtime_root/requirements-runtime.lock.txt" ]] || { echo "lock_file"; return 0; }
+  [[ -f "$runtime_root/runtime-manifest.json" ]] || { echo "manifest_file"; return 0; }
+  [[ "$(cat "$runtime_root/ready")" == "runtime_id=$runtime_id" ]] || { echo "ready_marker"; return 0; }
+  cmp -s "$lock_path" "$runtime_root/runtime-lock.json" || { echo "cmp_runtime_lock"; return 0; }
+  cmp -s "$requirements_path" "$runtime_root/requirements-runtime.txt" || { echo "cmp_requirements"; return 0; }
+  cmp -s "$lock_file_path" "$runtime_root/requirements-runtime.lock.txt" || { echo "cmp_lock_file"; return 0; }
+  if ! verify_python "$runtime_root/venv/bin/python" "$runtime_root/runtime-manifest.json" >/dev/null 2>&1; then
+    echo "manifest_python"
+    return 0
+  fi
+  echo "unknown"
+}
+
+# Non-empty iff the pre-existing runtime dir failed verification and was
+# quarantined for a deterministic in-transaction rebuild (issue #426).
+rebuild_reason=""
+
 if [[ -e "$runtime_root" ]]; then
   if verify_ready_runtime; then
     printf 'RUNTIME_REUSED runtime_id=%s\n' "$runtime_id"
     printf 'RUNTIME_ID %s\n' "$runtime_id"
     exit 0
   fi
-  echo "ERROR existing runtime ID is incomplete or fails verification: $runtime_root" >&2
-  exit 12
+  rebuild_reason="$(classify_ready_runtime_failure)"
+  : "${rebuild_reason:=unknown}"
+  echo "RUNTIME_VERIFY_FAILED runtime_id=$runtime_id check=$rebuild_reason" >&2
+  if [[ "$rebuild_reason" == "manifest_python" ]]; then
+    verify_python "$runtime_root/venv/bin/python" "$runtime_root/runtime-manifest.json" 2>&1 |
+      sed 's/^/RUNTIME_VERIFY_DETAIL /' >&2 || true
+  fi
+  # Quarantine, never delete: the failed dir is moved intact (still read-only)
+  # to a hidden, collision-proof sibling inside runtimes/, following the
+  # existing ".prepare.$runtime_id.XXXXXX" convention. mktemp allocates a
+  # unique name; the throwaway placeholder dir is removed and the rename is a
+  # same-filesystem mv, so the evidence bytes are preserved exactly.
+  quarantine_root="$(mktemp -d "$runtime_parent/.quarantine.$runtime_id.XXXXXX")"
+  rmdir "$quarantine_root"
+  mv "$runtime_root" "$quarantine_root"
+  echo "RUNTIME_QUARANTINED runtime_id=$runtime_id path=$quarantine_root" >&2
 fi
 
 finalize_runtime() {
@@ -400,6 +441,10 @@ finalize_runtime() {
   mv "$staged_root" "$runtime_root"
 }
 
+# A quarantined runtime is always rebuilt through the fresh staging path
+# (issue #426): legacy adoption is a migration-only path and shares the same
+# on-box python state that just failed verification.
+if [[ -z "$rebuild_reason" ]]; then
 legacy_active=false
 candidates=()
 if [[ -f "$active_marker" ]]; then
@@ -458,6 +503,7 @@ if [[ "$legacy_active" == true ]]; then
   echo "RUNTIME_NETWORK_FALLBACK_BLOCKED runtime_id=$runtime_id" >&2
   exit 21
 fi
+fi
 
 staged_root="$(mktemp -d "$runtime_parent/.prepare.$runtime_id.XXXXXX")"
 wheelhouse_dir="$(mktemp -d "$wheel_cache/.wheelhouse.$runtime_id.XXXXXX")"
@@ -472,6 +518,12 @@ cleanup() {
       chmod -R u+w "$wheelhouse_dir" 2>/dev/null || true
       rm -rf "$wheelhouse_dir"
     fi
+  fi
+  # Fail-closed rebuild evidence (issue #426): this trap only runs when the
+  # staging/install path died before finalize, so a pending rebuild reason
+  # here means the rebuild failed closed; the quarantine dir is preserved.
+  if [[ -n "${rebuild_reason:-}" ]]; then
+    echo "RUNTIME_REBUILD_FAILED runtime_id=$runtime_id reason=$rebuild_reason" >&2
   fi
 }
 trap cleanup EXIT
@@ -516,5 +568,9 @@ PIP_DISABLE_PIP_VERSION_CHECK=1 PIP_CACHE_DIR="$wheel_cache" \
 finalize_runtime "$staged_root" "network-cache:$wheel_cache"
 cleanup_staged=false
 trap - EXIT
-printf 'RUNTIME_CREATED runtime_id=%s cache=%s hash_locked=true\n' "$runtime_id" "$wheel_cache"
+if [[ -n "$rebuild_reason" ]]; then
+  printf 'RUNTIME_REBUILT runtime_id=%s reason=%s\n' "$runtime_id" "$rebuild_reason"
+else
+  printf 'RUNTIME_CREATED runtime_id=%s cache=%s hash_locked=true\n' "$runtime_id" "$wheel_cache"
+fi
 printf 'RUNTIME_ID %s\n' "$runtime_id"
