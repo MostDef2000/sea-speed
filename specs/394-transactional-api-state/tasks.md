@@ -11,7 +11,7 @@
   camera-state upsert) and the transition-protocol primitives:
   ingestion-history-gated legacy merge (`ingestion_log` registry written
   by `_register_ingested` inside the same transaction as every ingestion
-  and bounded at 4×cap per (camera, kind); `camera_has_rows` probe; skip
+  and never pruned during the dual-write window; `camera_has_rows` probe; skip
   decided by retained canonical payload set OR registered hash — no
   timestamp comparison, no dedupe key column — live
   appends stay key-free), newer-wins camera-state import that never
@@ -25,8 +25,8 @@
   at the top block for import-time ordering)
 - T-394-003: Add `tests/test_api_state_transaction.py` (fail-loud, no
   lost updates, unique-tmp collision, caps, upsert, transition-protocol
-  T-A..T-D, round-2 regression V-A..V-D and round-4 ingestion-identity
-  W-A..W-D; RED on the base
+  T-A..T-D, round-2 regression V-A..V-D and round-4/5 ingestion-identity
+  W-A..W-E; RED on the base
   implementation, store-level tests green) and
   update the harnesses (`test_api_contract.py`, `test_line_crossing.py`,
   `test_road_event_hygiene.py`, `test_vps_deploy_transaction.py`) minimally
@@ -81,6 +81,6 @@
 - AC-004 | Task: T-394-002,T-394-003 | Evidence: test_concurrent_appenders_never_lose_records (8 barrier-forced racers, zero lost records on head, RED on base RMW) | Coverage: COVERED
 - AC-005 | Task: T-394-001,T-394-003 | Evidence: StoreCapTests — crossings prune to 5000, events to 500, caps per camera | Coverage: COVERED
 - AC-006 | Task: T-394-001,T-394-003 | Evidence: CameraStateTests (last-write-wins upsert, absent state reads None) | Coverage: COVERED
-- AC-007 | Task: T-394-002,T-394-003 | Evidence: T-A test_corrupt_legacy_mirror_is_best_effort_when_store_is_populated, T-B test_corrupt_legacy_file_fails_closed, T-C test_rollback_window_records_are_merged_idempotent, T-D test_camera_state_import_is_newer_wins, V-A test_live_rows_are_not_duplicated_by_mirror_import, V-B test_import_at_production_caps_preserves_retained_history, W-A test_equal_timestamp_stale_mirror_never_resurrects_or_churns, W-B test_undated_records_obey_the_ingestion_registry, W-C test_delayed_rollback_record_with_old_event_time_merges, W-D test_repeated_boots_are_zero_mutation_and_registry_stays_bounded, V-D test_camera_state_import_ignores_unusable_timestamps + StartupMigrationTests (never deletes legacy files, restart-idempotent) | Coverage: COVERED
+- AC-007 | Task: T-394-002,T-394-003 | Evidence: T-A test_corrupt_legacy_mirror_is_best_effort_when_store_is_populated, T-B test_corrupt_legacy_file_fails_closed, T-C test_rollback_window_records_are_merged_idempotent, T-D test_camera_state_import_is_newer_wins, V-A test_live_rows_are_not_duplicated_by_mirror_import, V-B test_import_at_production_caps_preserves_retained_history, W-A test_equal_timestamp_stale_mirror_never_resurrects_or_churns, W-B test_undated_records_obey_the_ingestion_registry, W-C test_delayed_rollback_record_with_old_event_time_merges, W-D test_repeated_boots_are_zero_mutation_and_identities_never_expire, W-E test_rollback_after_churn_beyond_window_keeps_retention_stable, V-D test_camera_state_import_ignores_unusable_timestamps + StartupMigrationTests (never deletes legacy files, restart-idempotent) | Coverage: COVERED
 - AC-008 | Task: T-394-003,T-394-004 | Evidence: T-E test_store_less_rollback_removes_live_store_and_stale_next, test_store_release_stages_and_promotes_normally (release-bound activation, stale .next never promoted, bootstrap captures live store.py) | Coverage: COVERED
 - AC-009 | Task: T-394-003,T-394-005 | Evidence: tests.test_api_contract (14), tests.test_line_crossing (45), tests.test_road_event_hygiene (7), tests.test_roi_normalization (unchanged green), tests.test_vps_deploy_transaction (20) — full suite green (exact counts in the verification transcript); two-file battery 46 passed / 1 skipped; RED on base (session-4 run against the pre-repair test file): 6 failed / 12 passed / 2 skipped | Coverage: COVERED

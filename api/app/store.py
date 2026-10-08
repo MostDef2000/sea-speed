@@ -195,9 +195,8 @@ def _register_ingested(
     camera_id: str,
     kind: str,
     records: List[Any],
-    cap: int,
 ) -> None:
-    """Record ingested payloads in ``ingestion_log`` and bound the log.
+    """Record ingested payloads in ``ingestion_log`` (pure append, never pruned).
 
     Every ingestion path (``append_crossing``/``append_event`` live
     appends, ``import_legacy_records`` imports) calls this inside its own
@@ -206,19 +205,26 @@ def _register_ingested(
     ``json.dumps(record, ensure_ascii=False, sort_keys=True)`` — the exact
     bytes stored in ``payload_json`` by every writer.
 
-    The log is pruned to the newest ``4 * cap`` entries per (camera, kind),
-    where ``cap`` is the kind's store limit (the same constant the caller
-    enforces on the table). That window is why anti-resurrection needs no
-    timestamp comparison: the previous release maintains its own legacy
-    file within its own cap during the rollback window, and any mirror —
-    the current projection or one stale by any number of failed mirror
-    writes while the new release ran live — can only contain records that
-    were in the store within the last ``cap`` insertions. A ``4 * cap``
-    ingestion window therefore covers everything any mirror could
-    resurrect. Rollback-period records the old release wrote while the new
-    store was authoritative are unregistered by definition and still merge.
+    The log is NEVER pruned: identities live for the entire dual-write /
+    rollback compatibility window of this release. That completeness is
+    the anti-resurrection proof and is why it needs no timestamp
+    comparison and no bounded window — a stale legacy mirror has bounded
+    SIZE but unbounded AGE (it can stay arbitrarily old while mirror
+    writes keep failing), so any window shorter than the window itself
+    would expire identities and let that file resurrect pruned records
+    with fresh ids, evicting retained history. Here, any legacy file that
+    is still eligible for import can only contain records ingested before
+    the dual-write window ends, so registry membership is a complete
+    anti-resurrection proof for this release's lifetime: no pruning means
+    no expiration. Rollback-period records the old release wrote while
+    the new store was authoritative are unregistered by definition and
+    still merge. Disk bound: ≈120 bytes per ingested record (hex sha256 +
+    row overhead); at realistic rates growth stays well under 10 MB/day,
+    and pathological ingestion bursts are accepted and documented in
+    RISK-005 (plan.md). Retirement — ``DROP TABLE ingestion_log``, stop
+    dual-write and drop the import path — is the recorded follow-up
+    release work.
     """
-    window = 4 * max(0, int(cap))
     for record in records:
         if not isinstance(record, dict):
             continue
@@ -228,11 +234,6 @@ def _register_ingested(
             "INSERT INTO ingestion_log (camera_id, kind, payload_hash) VALUES (?, ?, ?)",
             (camera_id, kind, payload_hash),
         )
-    connection.execute(
-        "DELETE FROM ingestion_log WHERE camera_id = ? AND kind = ? AND seq NOT IN "
-        "(SELECT seq FROM ingestion_log WHERE camera_id = ? AND kind = ? ORDER BY seq DESC LIMIT ?)",
-        (camera_id, kind, camera_id, kind, window),
-    )
 
 
 def append_crossing(db_path: Path, camera_id: str, record: Dict[str, Any], limit: int = 5000) -> None:
@@ -240,7 +241,8 @@ def append_crossing(db_path: Path, camera_id: str, record: Dict[str, Any], limit
 
     The payload hash is registered in ``ingestion_log`` inside the same
     transaction, so the anti-resurrection registry is durable exactly when
-    the record is (cheap: one INSERT plus an occasional log prune).
+    the record is (cheap: one INSERT — the log is never pruned during the
+    dual-write window).
     """
     payload_json = json.dumps(record, ensure_ascii=False, sort_keys=True)
     created_at = str(record.get("created_at") or _utc_now_iso())
@@ -249,7 +251,7 @@ def append_crossing(db_path: Path, camera_id: str, record: Dict[str, Any], limit
             "INSERT INTO crossings (camera_id, payload_json, created_at) VALUES (?, ?, ?)",
             (camera_id, payload_json, created_at),
         )
-        _register_ingested(connection, camera_id, "crossings", [record], limit)
+        _register_ingested(connection, camera_id, "crossings", [record])
         _prune_camera_rows(connection, "crossings", camera_id, limit)
 
 
@@ -276,7 +278,7 @@ def append_event(db_path: Path, camera_id: str, event: Dict[str, Any], limit: in
             "INSERT INTO event_feed (camera_id, payload_json, created_at) VALUES (?, ?, ?)",
             (camera_id, payload_json, created_at),
         )
-        _register_ingested(connection, camera_id, "events", [event], limit)
+        _register_ingested(connection, camera_id, "events", [event])
         _prune_camera_rows(connection, "event_feed", camera_id, limit)
 
 
@@ -427,7 +429,7 @@ def import_legacy_records(db_path: Path, kind: str, camera_id: str, records: Lis
             stored_payloads.add(payload_json)
             merged.append(record)
             imported += 1
-        _register_ingested(connection, camera_id, kind, merged, limit)
+        _register_ingested(connection, camera_id, kind, merged)
         _prune_camera_rows(connection, table, camera_id, limit)
         return imported
 

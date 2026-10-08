@@ -657,9 +657,13 @@ class LegacyMigrationTests(unittest.TestCase):
 
     # W-D — repeated boots over a stable intact mirror are zero-mutation
     # (only merged records are registered, so every boot after the first is
-    # a complete no-op), and ingestion_log stays bounded at 4×cap across
-    # churn far beyond the cap.
-    def test_repeated_boots_are_zero_mutation_and_registry_stays_bounded(self) -> None:
+    # a complete no-op), and identities NEVER expire (round-5: the registry
+    # has no prune at all). After churn far beyond any 4×cap-scale window —
+    # enough that a pruned registry would have expired every original
+    # identity — importing the ORIGINAL stale mirror is still a complete
+    # no-op: zero new rows, retained rows byte-identical, registry count
+    # unchanged.
+    def test_repeated_boots_are_zero_mutation_and_identities_never_expire(self) -> None:
         def registry_count() -> int:
             with STORE.open_state_db(self.state_db) as connection:
                 return connection.execute(
@@ -677,7 +681,7 @@ class LegacyMigrationTests(unittest.TestCase):
                     )
                 ]
 
-        cap = 2  # registry window = 4 * cap = 8
+        cap = 2  # a round-4 4×cap window would have been 8
         legacy = [
             {"event_id": "e2", "created_at": "2026-01-02T00:00:00+00:00"},
             {"event_id": "e1", "created_at": "2026-01-01T00:00:00+00:00"},
@@ -699,23 +703,106 @@ class LegacyMigrationTests(unittest.TestCase):
             self.assertEqual(table_snapshot(), snapshot, f"boot {boot + 2} mutated retained rows")
         self.assertEqual(registry_count(), 3, "no-op boots must not write the registry either")
 
-        # Churn far beyond the cap: 12 live appends (15 total ingestions)
-        # must leave the registry bounded at exactly 4 * cap.
+        # Churn far beyond any window scale: 40 live appends (43 total
+        # ingestions, window would have been 8) evict the original rows
+        # from retention — and would have expired their identities from a
+        # pruned registry.
         base = datetime(2026, 2, 1, tzinfo=timezone.utc)
-        for index in range(12):
+        for index in range(40):
             STORE.append_crossing(
                 self.state_db,
                 "cam1",
                 {"event_id": f"n{index}", "created_at": (base + timedelta(seconds=index)).isoformat()},
                 cap,
             )
-        self.assertLessEqual(registry_count(), 4 * cap)
-        self.assertEqual(registry_count(), 4 * cap, "churn beyond the window must prune the registry")
+        self.assertEqual(
+            {record["event_id"] for record in STORE.read_crossings(self.state_db, "cam1")},
+            {"n39", "n38"},
+            "churn evicted the original rows from retention",
+        )
+        self.assertEqual(registry_count(), 43, "the registry never prunes — identities never expire")
 
-        # And a boot on the fresh intact mirror is still a no-op.
-        fresh_mirror = STORE.read_crossings(self.state_db, "cam1")  # newest-first, as the file is written
-        self.assertEqual(STORE.import_legacy_records(self.state_db, "crossings", "cam1", fresh_mirror, cap), 0)
-        self.assertEqual(len(table_snapshot()), 2)
+        # The validator's missing assertion: importing the ORIGINAL stale
+        # mirror after all that churn is still a complete no-op — zero new
+        # rows, retained rows byte-identical, registry count unchanged.
+        churned_snapshot = table_snapshot()
+        self.assertEqual(
+            STORE.import_legacy_records(self.state_db, "crossings", "cam1", legacy, cap),
+            0,
+            "stale identities must never expire — the original mirror stays a no-op",
+        )
+        self.assertEqual(table_snapshot(), churned_snapshot, "the stale mirror must not evict retained rows")
+        self.assertEqual(registry_count(), 43, "the no-op boot must not write the registry either")
+
+    # W-E — the validator's production-cap failure sequence, scaled down:
+    # import file F at the cap → churn with FAILING mirror writes far
+    # beyond the round-4 4×cap window (SQLite retention evicts every
+    # original row; the legacy file stays stale) → rollback (the old
+    # release appends rollback-period records to the stale file → F') →
+    # re-upgrade imports F'. The rollback records must merge, F's stale
+    # records must NOT resurrect with fresh ids, and the retained set must
+    # stay stable. The round-4 4×cap prune failed exactly this sequence:
+    # every original identity expired, the intact stale file re-imported
+    # and evicted the authoritative records.
+    def test_rollback_after_churn_beyond_window_keeps_retention_stable(self) -> None:
+        def registry_count() -> int:
+            with STORE.open_state_db(self.state_db) as connection:
+                return connection.execute(
+                    "SELECT COUNT(*) FROM ingestion_log WHERE camera_id = ? AND kind = ?",
+                    ("cam1", "crossings"),
+                ).fetchone()[0]
+
+        cap = 5  # a round-4 4×cap window would have been 20
+        base = datetime(2026, 3, 1, tzinfo=timezone.utc)
+        stamp = lambda i: (base + timedelta(seconds=i)).isoformat()
+
+        # Boot 1: import F (50 records, newest-first file) at the cap.
+        f_file = [{"event_id": f"f{i}", "created_at": stamp(i)} for i in range(49, -1, -1)]
+        self.assertEqual(STORE.import_legacy_records(self.state_db, "crossings", "cam1", f_file, cap), 50)
+        self.assertEqual(len(STORE.read_crossings(self.state_db, "cam1")), cap)
+        self.assertEqual(registry_count(), 50)
+
+        # Churn with failing mirror writes: 60 live appends (>> 20) —
+        # retention evicts every f-record and a pruned registry would have
+        # expired every f-identity. File F never updates (writes fail).
+        for index in range(50, 110):
+            STORE.append_crossing(self.state_db, "cam1", {"event_id": f"n{index}", "created_at": stamp(index)}, cap)
+        self.assertEqual(
+            {record["event_id"] for record in STORE.read_crossings(self.state_db, "cam1")},
+            {f"n{i}" for i in range(105, 110)},
+            "churn evicted all original rows from retention",
+        )
+        self.assertEqual(registry_count(), 110, "no identities expired during churn")
+
+        # Rollback: the old release appends two rollback-period records to
+        # the STALE file → F' (newest-first: rollback records on top).
+        f_prime = [
+            {"event_id": "rb1", "created_at": stamp(200)},
+            {"event_id": "rb0", "created_at": stamp(199)},
+        ] + f_file
+
+        # Re-upgrade: import F'. Exactly the two rollback records merge;
+        # the stale f-records do NOT resurrect; retention stays stable.
+        self.assertEqual(
+            STORE.import_legacy_records(self.state_db, "crossings", "cam1", f_prime, cap),
+            2,
+            "only the rollback-period records may merge",
+        )
+        merged = [record["event_id"] for record in STORE.read_crossings(self.state_db, "cam1")]
+        self.assertEqual(merged, ["rb1", "rb0", "n109", "n108", "n107"])
+        self.assertEqual(
+            {event_id for event_id in merged if event_id.startswith("f")},
+            set(),
+            "stale file records must not resurrect with fresh ids",
+        )
+
+        # Repeated boots on F' stay no-ops with the retained set stable.
+        self.assertEqual(STORE.import_legacy_records(self.state_db, "crossings", "cam1", f_prime, cap), 0)
+        self.assertEqual(
+            [record["event_id"] for record in STORE.read_crossings(self.state_db, "cam1")],
+            ["rb1", "rb0", "n109", "n108", "n107"],
+        )
+        self.assertEqual(registry_count(), 112, "no-op boots register nothing")
 
     # V-D — unusable/absent timestamps cannot displace stored camera
     # state; only a genuinely newer ISO timestamp replaces it, and an

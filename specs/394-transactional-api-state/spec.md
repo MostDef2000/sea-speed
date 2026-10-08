@@ -113,18 +113,21 @@ the atomic write.
    bytes stored in `payload_json` — and the canonical payloads of the
    target camera's current rows (one query) form the dedupe set, so a
    legacy record already present is skipped (boot idempotency; mirrors of
-    live-appended rows never duplicate them, while identical live
-    submissions stay distinct as today); anti-resurrection is a durable
-    ingestion identity, not a timestamp comparison — every ingestion
-    (live append and import) registers the record's canonical payload
-    hash in `ingestion_log` inside the same transaction, and a legacy
-    record whose hash is already registered was ingested before (its row
-    may since have been pruned) and is skipped, uniformly covering
-    equal-timestamp, undated and unparseable records, while genuinely
-    never-ingested rollback-period records merge regardless of their
-    event timestamps; the log is bounded at 4×cap per (camera, kind)),
-    inserted oldest-first to
-    preserve legacy newest-first read order, capped per camera as today;
+   live-appended rows never duplicate them, while identical live
+   submissions stay distinct as today); anti-resurrection is a durable
+   ingestion identity, not a timestamp comparison — every ingestion
+   (live append and import) registers the record's canonical payload
+   hash in `ingestion_log` inside the same transaction, and a legacy
+   record whose hash is already registered was ingested before (its row
+   may since have been pruned) and is skipped, uniformly covering
+   equal-timestamp, undated and unparseable records, while genuinely
+   never-ingested rollback-period records merge regardless of their
+   event timestamps; the log is never pruned — identities live for the
+   whole dual-write/rollback window of this release, so registry
+   membership is a complete anti-resurrection proof for its lifetime
+   (retirement in the follow-up release)),
+   inserted oldest-first to
+   preserve legacy newest-first read order, capped per camera as today;
    camera-state import takes the legacy payload only when its `updated_at`
    is strictly newer than the stored row's (both sides must parse as ISO
    timestamps — an unusable timestamp never displaces stored state; an
@@ -181,7 +184,12 @@ the atomic write.
   undated records stay skipped while genuinely new undated rollback
   records merge (W-B), delayed rollback-period records with old event
   timestamps merge under free cap headroom (W-C), and repeated boots are
-  zero-mutation with the registry bounded at 4×cap (W-D); camera-state
+  zero-mutation with identities that never expire: after churn far
+  beyond any window scale the ORIGINAL stale mirror still imports as a
+  complete no-op (W-D), and the production-cap sequence — churn with
+  failing mirror writes, then rollback appends to the stale file —
+  merges exactly the rollback records without resurrecting stale ones
+  (W-E); camera-state
   import is newer-wins with
   unusable timestamps never displacing stored state (T-D, V-D); empty
   target + corrupt legacy input fails closed (T-B); populated store +
@@ -217,7 +225,7 @@ the atomic write.
 - NFR-003 | Area: compatibility | Target: public API surface unchanged (61 routes, response shapes, ordering semantics); legacy JSON files stay fresh (projection mirrors) for the previous release and operator tooling during the rollback window | Validation: AST-harness regression suites (contract/line-crossing/road-hygiene) green; route-decorator count parity checked by peer verification | Evidence: test_api_contract.py, test_line_crossing.py, test_road_event_hygiene.py | Status: PASS
 - NFR-004 | Area: security/robustness | Target: standard library only; parameterized SQL with whitelisted table names; per-camera row caps bound storage growth (5000 crossings / 500 events) | Validation: ruff clean; store.py code review (independent peer session); cap-enforcement tests | Evidence: test_caps_enforced_per_camera, peer verification report | Status: PASS
 - NFR-005 | Area: rollback safety | Target: legacy files are never deleted by the API; deploy activation removes store.py when rolling back to a pre-#394 release; corrupt legacy store fails boot closed (deploy auto-rollback) | Validation: deploy transaction behavioral suite (20 tests); soft-pattern code review; migration fail-closed tests | Evidence: test_vps_deploy_transaction.py, StartupMigrationTests | Status: PASS
-- NFR-006 | Area: reliability/data-integrity | Target: the legacy transition protocol survives the full rollback/retry lifecycle — imports are an ingestion-history idempotent merge (rollback-window records written by the previous release are picked up on re-upgrade; duplicates — including mirrors of live-appended rows — are skipped by canonical payload equality; anti-resurrection is decided by the durable `ingestion_log` registry, not event time: ever-ingested records are never resurrected whatever their timestamps, never-ingested delayed rollback records merge; per-camera cap respected with exact arithmetic), camera-state import is newer-wins with unusable timestamps never displacing stored state, and legacy reads are necessity-gated so a corrupt non-authoritative mirror can never fail a boot of a healthy authoritative store while the initial migration stays fail-closed; activation is bound to release content, not to a stale `.next` | Validation: T-A (populated store + corrupt mirror → no raise, stderr warning, authoritative data intact), T-B (empty target + corrupt legacy → raises), T-C (import → rollback-window append → re-import merges, dedupes, caps), T-D (newer/older camera-state), T-E (store-less rollback + stale `.next` removed; store release promotes), V-A (live row + mirror → no duplication across restarts), V-B (mixed imported + live rows at the 5000/500 caps → no eviction beyond exact arithmetic), W-A (equal-timestamp stale mirror → pruned record skipped, retention stable across repeated boots, no churn), W-B (pruned undated record skipped via registry, genuinely new undated rollback record merged), W-C (delayed rollback record with old event time + free cap headroom → merged), W-D (≥3 boots on a stable intact mirror → zero mutations after the first import; registry bounded at 4×cap after churn beyond the cap), V-D (unusable/absent updated_at → stored state stays) — all green on head | Evidence: test_rollback_window_records_are_merged_idempotent, test_live_rows_are_not_duplicated_by_mirror_import, test_import_at_production_caps_preserves_retained_history, test_equal_timestamp_stale_mirror_never_resurrects_or_churns, test_undated_records_obey_the_ingestion_registry, test_delayed_rollback_record_with_old_event_time_merges, test_repeated_boots_are_zero_mutation_and_registry_stays_bounded, test_camera_state_import_is_newer_wins, test_camera_state_import_ignores_unusable_timestamps, test_corrupt_legacy_mirror_is_best_effort_when_store_is_populated, test_corrupt_legacy_file_fails_closed, test_store_less_rollback_removes_live_store_and_stale_next, test_store_release_stages_and_promotes_normally | Status: PASS
+- NFR-006 | Area: reliability/data-integrity | Target: the legacy transition protocol survives the full rollback/retry lifecycle — imports are an ingestion-history idempotent merge (rollback-window records written by the previous release are picked up on re-upgrade; duplicates — including mirrors of live-appended rows — are skipped by canonical payload equality; anti-resurrection is decided by the durable `ingestion_log` registry, not event time: ever-ingested records are never resurrected whatever their timestamps, never-ingested delayed rollback records merge; per-camera cap respected with exact arithmetic), camera-state import is newer-wins with unusable timestamps never displacing stored state, and legacy reads are necessity-gated so a corrupt non-authoritative mirror can never fail a boot of a healthy authoritative store while the initial migration stays fail-closed; activation is bound to release content, not to a stale `.next` | Validation: T-A (populated store + corrupt mirror → no raise, stderr warning, authoritative data intact), T-B (empty target + corrupt legacy → raises), T-C (import → rollback-window append → re-import merges, dedupes, caps), T-D (newer/older camera-state), T-E (store-less rollback + stale `.next` removed; store release promotes), V-A (live row + mirror → no duplication across restarts), V-B (mixed imported + live rows at the 5000/500 caps → no eviction beyond exact arithmetic), W-A (equal-timestamp stale mirror → pruned record skipped, retention stable across repeated boots, no churn), W-B (pruned undated record skipped via registry, genuinely new undated rollback record merged), W-C (delayed rollback record with old event time + free cap headroom → merged), W-D (≥3 boots on a stable intact mirror → zero mutations after the first import; after churn far beyond any window scale the ORIGINAL stale mirror is still a complete no-op — identities never expire), W-E (production-cap sequence scaled down: churn with failing mirror writes → rollback appends to the stale file → re-upgrade merges exactly the rollback records, stale records never resurrect, retained set stable), V-D (unusable/absent updated_at → stored state stays) — all green on head | Evidence: test_rollback_window_records_are_merged_idempotent, test_live_rows_are_not_duplicated_by_mirror_import, test_import_at_production_caps_preserves_retained_history, test_equal_timestamp_stale_mirror_never_resurrects_or_churns, test_undated_records_obey_the_ingestion_registry, test_delayed_rollback_record_with_old_event_time_merges, test_repeated_boots_are_zero_mutation_and_identities_never_expire, test_rollback_after_churn_beyond_window_keeps_retention_stable, test_camera_state_import_is_newer_wins, test_camera_state_import_ignores_unusable_timestamps, test_corrupt_legacy_mirror_is_best_effort_when_store_is_populated, test_corrupt_legacy_file_fails_closed, test_store_less_rollback_removes_live_store_and_stale_next, test_store_release_stages_and_promotes_normally | Status: PASS
 
 ## Deviations from the work order
 
