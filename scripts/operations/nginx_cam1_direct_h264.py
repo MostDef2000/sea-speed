@@ -12,7 +12,9 @@ OLD_END = "# SEA-SPEED-CAM1-DIRECT-H264-END"
 CAM1_PREFIX = "/sea-speed/media/cam1/"
 LEGACY_CAM1_PREFIX = "/cams/hls/cam1/"
 SEA_SPEED_PREFIX = "/sea-speed/"
-UPSTREAM = "http://127.0.0.1:18889/cam1/"
+CAM1_BACKEND = "127.0.0.1:18889"
+HLS_UPSTREAM = "sea_speed_cam1_hls"
+PROXY_PASS = f"http://{HLS_UPSTREAM}/cam1/"
 
 
 class ConfigError(RuntimeError):
@@ -157,6 +159,22 @@ def _indent_at(text: str, index: int) -> str:
     return match.group(0) if match else ""
 
 
+def _remove_upstream(text: str, name: str) -> str:
+    for start, open_index, close_index in reversed(_blocks(text, "upstream")):
+        if name not in text[start:open_index]:
+            continue
+        remove_start = text.rfind("\n", 0, start) + 1
+        remove_end = close_index + 1
+        while remove_end < len(text) and text[remove_end] in " \t":
+            remove_end += 1
+        if remove_end < len(text) and text[remove_end] == "\n":
+            remove_end += 1
+        if remove_end < len(text) and text[remove_end] == "\n":
+            remove_end += 1
+        text = text[:remove_start] + text[remove_end:]
+    return text
+
+
 def render(text: str, host: str = "mostdef.ru") -> str:
     if BEGIN in text and END in text:
         try:
@@ -170,6 +188,22 @@ def render(text: str, host: str = "mostdef.ru") -> str:
         text = _strip_marked_section(text, OLD_BEGIN, OLD_END)
     text = _remove_location(text, host, CAM1_PREFIX)
     text = _remove_location(text, host, LEGACY_CAM1_PREFIX)
+    text = _remove_upstream(text, HLS_UPSTREAM)
+
+    server_start, _, _ = _server_for_host(text, host)
+    upstream_indent = _indent_at(text, server_start)
+    upstream_inner = upstream_indent + "    "
+    upstream_block = "\n".join(
+        [
+            upstream_indent + f"upstream {HLS_UPSTREAM} {{",
+            upstream_inner + f"server {CAM1_BACKEND};",
+            upstream_inner + "keepalive 8;",
+            upstream_indent + "}",
+            "",
+            "",
+        ]
+    )
+    text = text[:server_start] + upstream_block + text[server_start:]
 
     server_start, _, server_close = _server_for_host(text, host)
     server_text = text[server_start : server_close + 1]
@@ -189,8 +223,9 @@ def render(text: str, host: str = "mostdef.ru") -> str:
         [
             indent + BEGIN,
             indent + f"location ^~ {CAM1_PREFIX} {{",
-            inner + f"proxy_pass {UPSTREAM};",
+            inner + f"proxy_pass {PROXY_PASS};",
             inner + "proxy_http_version 1.1;",
+            inner + 'proxy_set_header Connection "";',
             inner + "proxy_buffering off;",
             inner + "proxy_cache off;",
             inner + "proxy_hide_header Cache-Control;",
@@ -209,18 +244,36 @@ def render(text: str, host: str = "mostdef.ru") -> str:
 
 
 def verify(text: str, host: str = "mostdef.ru") -> None:
+    upstream_matches = [
+        (open_index, close_index)
+        for start, open_index, close_index in _blocks(text, "upstream")
+        if HLS_UPSTREAM in text[start:open_index]
+    ]
+    if len(upstream_matches) != 1:
+        raise ConfigError("Camera 1 HLS upstream block missing or duplicated")
+    upstream_open, upstream_close = upstream_matches[0]
+    upstream_body = text[upstream_open + 1 : upstream_close]
+    for required in (f"server {CAM1_BACKEND};", "keepalive 8;"):
+        if required not in upstream_body:
+            raise ConfigError(f"required Camera 1 HLS upstream directive missing: {required}")
     server_start, _, server_close = _server_for_host(text, host)
     server_text = text[server_start : server_close + 1]
     if server_text.count(BEGIN) != 1 or server_text.count(END) != 1:
         raise ConfigError("managed protected Camera 1 block missing or duplicated")
     if f"location ^~ {CAM1_PREFIX} {{" not in server_text:
         raise ConfigError("protected Camera 1 location missing")
-    if f"proxy_pass {UPSTREAM};" not in server_text:
+    if f"proxy_pass {PROXY_PASS};" not in server_text:
         raise ConfigError("Camera 1 H264 upstream missing")
     if LEGACY_CAM1_PREFIX in server_text:
         raise ConfigError("legacy public Camera 1 location remains")
     managed = server_text.split(BEGIN, 1)[1].split(END, 1)[0]
-    for required in ("proxy_cache off;", "proxy_buffering off;", "Cache-Control"):
+    for required in (
+        "proxy_cache off;",
+        "proxy_buffering off;",
+        "Cache-Control",
+        "proxy_http_version 1.1;",
+        'proxy_set_header Connection "";',
+    ):
         if required not in managed:
             raise ConfigError(f"required Camera 1 directive missing: {required}")
     if "127.0.0.1:8888" in managed or "mediamtx" in managed.lower():
