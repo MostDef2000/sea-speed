@@ -48,8 +48,8 @@
 - [ ] Issue/spec/plan/tasks current
 - [ ] Exact changed-file scope verified
 - [ ] Required tests and evidence complete
-- [ ] Required CI green — orchestrator-owned (PR creation and exact-head CI)
-- [ ] Exact-green-head merge complete — orchestrator-owned
+- [x] Required CI green — orchestrator-owned (PR #425 exact-head CI: 8/8 checks green, run 37761022663)
+- [x] Exact-green-head merge complete — orchestrator-owned (PR #425 squash-merged; main @ b923fe8f061bcd44de25ec794703714bb150678a)
 - [ ] Deployment state resolved — orchestrator-owned
 - [ ] Runtime acceptance resolved — orchestrator-owned (Ubuntu worker deploy transaction; INSTALLED_COPY_REFRESHED evidence verified post-deploy)
 - [ ] Deferred work recorded — none
@@ -61,8 +61,8 @@
 - [ ] Issue/spec/plan/tasks current
 - [ ] Exact changed-file scope verified
 - [ ] Required tests and evidence complete
-- [ ] Required CI green — orchestrator-owned (PR creation and exact-head CI)
-- [ ] Exact-green-head merge complete — orchestrator-owned
+- [x] Required CI green — orchestrator-owned (PR #425 exact-head CI: 8/8 checks green, run 37761022663)
+- [x] Exact-green-head merge complete — orchestrator-owned (PR #425 squash-merged; main @ b923fe8f061bcd44de25ec794703714bb150678a)
 - [ ] Deployment state resolved — orchestrator-owned (autonomous Ubuntu worker deploy fans out at merge)
 - [ ] Runtime acceptance resolved — orchestrator-owned (deploy transaction refreshes the installed watchdog trio; INSTALLED_COPY_REFRESHED evidence lines verified on the worker post-deploy)
 - [ ] Deferred work recorded — none (installed-copy inventory is declarative; future installed copies extend the inventory)
