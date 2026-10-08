@@ -42,8 +42,8 @@
 - [x] Issue/spec/plan/tasks current
 - [x] Exact changed-file scope verified
 - [x] Required tests and evidence complete
-- [ ] Required CI green — orchestrator-owned (PR creation and exact-head CI)
-- [ ] Exact-green-head merge complete — orchestrator-owned
+- [x] Required CI green — orchestrator-owned (PR creation and exact-head CI) — auto-synced on merge to main (a996d665)
+- [x] Exact-green-head merge complete — orchestrator-owned — auto-synced on merge to main (a996d665)
 - [ ] Deployment state resolved — orchestrator-owned
 - [ ] Runtime acceptance resolved — orchestrator-owned (TIME-WAIT churn drop verified on the VPS after the next deploy)
 - [x] Deferred work recorded — none
@@ -64,8 +64,8 @@
   CAM1_PROTECTED_H264_CONFIG=PASS; NEGATIVE-VERIFY=PASS (four loud-fail
   cases); ruff All checks passed! on changed py files; `bash -n` not
   applicable (no shell files changed)
-- [ ] Required CI green — orchestrator-owned (PR creation and exact-head CI)
-- [ ] Exact-green-head merge complete — orchestrator-owned
+- [x] Required CI green — orchestrator-owned (PR creation and exact-head CI) — auto-synced on merge to main (a996d665)
+- [x] Exact-green-head merge complete — orchestrator-owned — auto-synced on merge to main (a996d665)
 - [ ] Deployment state resolved — orchestrator-owned (next VPS deploy
   renders the config through this script; nginx -t gates reload)
 - [ ] Runtime acceptance resolved — orchestrator-owned (TIME-WAIT churn
