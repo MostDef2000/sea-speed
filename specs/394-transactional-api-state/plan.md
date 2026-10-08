@@ -127,8 +127,9 @@ Three coordinated pieces:
 
 ## Risk profile
 
-- Risk profile: REQUIRED (derived from VPS production impact; deployment
-  transaction audit below covers the contour)
+- Risk profile: REQUIRED
+- Risk-profile rationale: derived from the VPS production impact; the
+  deployment transaction audit below covers the contour.
 - RISK-001 (main.py boot order): the startup migration runs at import
   time; names it uses (`CROSSINGS_STORE_LIMIT`, path helpers) must be
   defined above the startup block. Mitigation: constants moved to the top
