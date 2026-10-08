@@ -1,0 +1,98 @@
+name: resolve-runtime-lock
+
+# Resolver for the hash-locked shared worker runtime dependency graph (#392).
+# Operator-triggered resolution only: compiles requirements-runtime.txt plus
+# the pytorch cu130 pins declared in runtime-lock.json into a complete
+# --generate-hashes lock file and uploads it as a build artifact. This workflow
+# performs resolution only: no repository write, no secrets, no deploy logic.
+
+on:
+  workflow_dispatch:
+    inputs:
+      python_version:
+        description: "Python version used for resolution (default from runtime-lock.json)"
+        required: false
+        default: "3.14"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: resolve-runtime-lock-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    name: resolve-runtime-lock
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Set up resolution Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "${{ inputs.python_version }}"
+
+      - name: Install resolver (uv)
+        run: |
+          python3 -m pip install --disable-pip-version-check "uv==0.9.8"
+          python3 -m uv --version
+
+      - name: Build resolution input from runtime-lock.json
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          lock = json.loads(Path("deploy/worker/ubuntu/runtime-lock.json").read_text(encoding="utf-8"))
+          if lock.get("schema_version") != 2:
+              raise SystemExit("ERROR runtime-lock.json schema_version must be 2")
+          pytorch = lock["pytorch"]
+          input_lines = ["-r deploy/worker/ubuntu/requirements-runtime.txt"]
+          input_lines += [
+              f"{package}=={version}"
+              for package, version in sorted(pytorch["packages"].items())
+          ]
+          Path("runtime-lock-input.txt").write_text("\n".join(input_lines) + "\n", encoding="utf-8")
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
+              env.write(f"PYTORCH_INDEX_URL={pytorch['index_url']}\n")
+          print(Path("runtime-lock-input.txt").read_text(encoding="utf-8"))
+          PY
+
+      - name: Compile the hash-locked runtime lock
+        run: |
+          python3 -m uv pip compile \
+            --generate-hashes \
+            --index-url "$PYTORCH_INDEX_URL" \
+            --extra-index-url "https://pypi.org/simple" \
+            --index-strategy unsafe-best-match \
+            --python-version "${{ inputs.python_version }}" \
+            runtime-lock-input.txt \
+            -o requirements-runtime.lock.txt
+
+      - name: Prepend the schema marker for a commit-ready artifact
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          lock_file = Path("requirements-runtime.lock.txt")
+          text = lock_file.read_text(encoding="utf-8")
+          if not text.startswith("# sea-speed-runtime-lock-v1"):
+              lock_file.write_text("# sea-speed-runtime-lock-v1\n" + text, encoding="utf-8")
+          print(lock_file.read_text(encoding="utf-8").splitlines()[0])
+          PY
+
+      - name: Show resolution summary
+        run: |
+          echo "hash pin count: $(grep -c -- '--hash=sha256:' requirements-runtime.lock.txt || true)"
+          head -40 requirements-runtime.lock.txt
+
+      - name: Upload resolved lock
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: requirements-runtime-lock-txt
+          path: requirements-runtime.lock.txt
+          if-no-files-found: error
+          retention-days: 30
