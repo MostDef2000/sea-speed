@@ -46,8 +46,8 @@
 - [ ] Issue/spec/plan/tasks current
 - [ ] Exact changed-file scope verified
 - [ ] Required tests and evidence complete
-- [ ] Required CI green — orchestrator-owned (PR creation and exact-head CI)
-- [ ] Exact-green-head merge complete — orchestrator-owned
+- [x] Required CI green — orchestrator-owned (PR creation and exact-head CI) — auto-synced on merge to main (dc833b09)
+- [x] Exact-green-head merge complete — orchestrator-owned — auto-synced on merge to main (dc833b09)
 - [ ] Deployment state resolved — orchestrator-owned
 - [ ] Runtime acceptance resolved — orchestrator-owned (derived defaults land on a live protected deploy)
 - [ ] Deferred work recorded — none in this unit
