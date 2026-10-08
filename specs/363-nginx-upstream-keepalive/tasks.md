@@ -47,7 +47,7 @@
 - [ ] Deployment state resolved — orchestrator-owned
 - [ ] Runtime acceptance resolved — orchestrator-owned (TIME-WAIT churn drop verified on the VPS after the next deploy)
 - [x] Deferred work recorded — none
-- [x] Risks resolved or explicitly accepted — RISK-001..RISK-003 mitigated in plan.md Risk profile
+- [x] Risks resolved or explicitly accepted — informative risk analysis (prose, no formal register per NOT REQUIRED derivation) in plan.md Risk profile
 - [x] Waivers resolved or current — none
 
 ## Definition of Done
@@ -71,7 +71,7 @@
 - [ ] Runtime acceptance resolved — orchestrator-owned (TIME-WAIT churn
   toward 127.0.0.1:18889 drops after the next deploy)
 - [x] Deferred work recorded — none
-- [x] Risks resolved or explicitly accepted — RISK-001..RISK-003 in
+- [x] Risks resolved or explicitly accepted — informative risk analysis in
   plan.md Risk profile, all MITIGATED
 - [x] Waivers resolved or current — none
 

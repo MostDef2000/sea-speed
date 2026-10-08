@@ -111,19 +111,40 @@ region, exactly like the pre-existing checks.
 - Risk profile: NOT REQUIRED
 - Risk-profile rationale: derived NOT REQUIRED by the PR Change Contract
   (CONTROL_PLANE impact, security NONE, schema NONE, no destructive
-  migration); the renderer-side mitigations below (loud verify(),
-  idempotent render, deploy-side nginx -t gate) stay in force
-  regardless and backstop the future VPS render cycle.
-- RISK-001 | Category: OPS | Probability: 2 | Impact: 4 | Score: 8 | Mitigation: the upstream block is emitted only by the managed renderer, immediately before the managed server block (http-level placement in real trees); render() strips any previously emitted same-name block before re-inserting so re-renders can never accumulate duplicates; verify() fails loudly on missing/duplicated upstream block or missing keepalive/Connection directives and runs at the end of every render(); the deploy-side nginx -t gate is unchanged | Validation: NEGATIVE-VERIFY=PASS (four loud-fail cases), test_renderer_is_idempotent, CLI render+verify PASS, full suite 777 passed / 4 skipped | Residual risk: LOW — hand-edited production config outside the managed markers is outside renderer scope (unchanged from before) | Owner: Delivery Orchestrator | Status: MITIGATED
-- RISK-002 | Category: PERF | Probability: 1 | Impact: 2 | Score: 2 | Mitigation: keepalive 8 per worker bounds idle socket count; proxy_http_version 1.1 + proxy_set_header Connection "" are the documented NGINX keepalive prerequisites, so the pool actually engages instead of silently closing | Validation: rendered-config assertions in test_camera1_direct_h264_cutover.py (upstream block, keepalive 8, Connection "") | Residual risk: NONE | Owner: Delivery Orchestrator | Status: MITIGATED
-- RISK-003 | Category: DATA | Probability: 1 | Impact: 2 | Score: 2 | Mitigation: the /cam1/ URI rewrite suffix is preserved in the named-upstream proxy_pass, cache no-store headers and legacy-marker migration semantics untouched; the combined auth render pipeline (cam renderer → auth renderer) and the split-layout include pipeline are re-run in the suite | Validation: test_combined_auth_render_protects_new_cam1_and_retires_all_cams + test_sea_speed_auth_v1 split-layout pipeline green | Residual risk: NONE | Owner: Delivery Orchestrator | Status: MITIGATED
+  migration); the formal risk register is therefore omitted per policy,
+  and the renderer-side mitigations below stay in force regardless.
+- Informative risk analysis (prose, no formal register): (1) a malformed
+  or duplicated upstream block could break the Camera 1 path or the whole
+  nginx reload — mitigated by emitting the upstream block only from the
+  managed renderer immediately before the managed server block (http-level
+  in real trees), stripping any previously emitted same-name block before
+  re-inserting (renders can never accumulate duplicates), and verify()
+  failing loudly on missing/duplicated upstream or missing
+  keepalive/Connection directives at the end of every render(); the
+  deploy-side nginx -t gate is unchanged. (2) per-request proxying
+  regression (keepalive not engaged) — mitigated by the updated output
+  pin asserting the upstream name, `server 127.0.0.1:18889;`,
+  `keepalive 8;`, pooled proxy_pass with the /cam1/ URI, HTTP/1.1 and
+  `Connection ""`, plus the auth-render pipeline test proving the block
+  survives the auth renderer. (3) hand-edited production config outside
+  the managed markers — outside renderer scope, unchanged from before;
+  the deploy-side nginx -t gate backstops. (4) keepalive pool silently
+  not engaging or the /cam1/ URI rewrite suffix lost — mitigated by the
+  documented NGINX keepalive prerequisites (proxy_http_version 1.1 +
+  proxy_set_header Connection "") rendered alongside the upstream, and by
+  pipeline tests re-running the combined auth render and the split-layout
+  include pipeline (cache no-store headers and legacy-marker migration
+  semantics untouched). Negative coverage observed:
+  NEGATIVE-VERIFY=PASS (four loud-fail cases), 9 additional peer negative
+  probes all raising precise ConfigError, test_renderer_is_idempotent,
+  CLI render+verify PASS, full suite 777 passed / 4 skipped.
 
 ## Test design
 
-- TEST-001 | Covers: RISK-001,RISK-002 | Level: unit | Priority: P0 | Evidence: test_renderer_moves_cam1_under_sea_speed_and_preserves_h264_upstream asserts upstream sea_speed_cam1_hls {, server 127.0.0.1:18889;, keepalive 8;, proxy_pass http://sea_speed_cam1_hls/cam1/;, proxy_http_version 1.1, proxy_set_header Connection ""
-- TEST-002 | Covers: RISK-001 | Level: unit | Priority: P0 | Evidence: NEGATIVE-VERIFY=PASS — verify() raises ConfigError for: missing upstream block, missing keepalive 8, missing Connection "" header, legacy direct proxy_pass (session transcript)
-- TEST-003 | Covers: RISK-001 | Level: unit | Priority: P0 | Evidence: test_renderer_is_idempotent (byte-identical re-render) + CLI render/verify PASS on a fresh fixture (CAM1_PROTECTED_H264_RENDER=PASS, CAM1_PROTECTED_H264_CONFIG=PASS)
-- TEST-004 | Covers: RISK-003 | Level: integration | Priority: P0 | Evidence: test_combined_auth_render_protects_new_cam1_and_retires_all_cams + test_sea_speed_auth_v1 split-layout include pipeline (invokes the cam renderer render CLI, then auth render + both verifies)
+- TEST-001 | Covers: upstream emission and keepalive engagement | Level: unit | Priority: P0 | Evidence: test_renderer_moves_cam1_under_sea_speed_and_preserves_h264_upstream asserts upstream sea_speed_cam1_hls {, server 127.0.0.1:18889;, keepalive 8;, proxy_pass http://sea_speed_cam1_hls/cam1/;, proxy_http_version 1.1, proxy_set_header Connection ""
+- TEST-002 | Covers: loud verify negative coverage | Level: unit | Priority: P0 | Evidence: NEGATIVE-VERIFY=PASS — verify() raises ConfigError for: missing upstream block, missing keepalive 8, missing Connection "" header, legacy direct proxy_pass (session transcript)
+- TEST-003 | Covers: idempotent render | Level: unit | Priority: P0 | Evidence: test_renderer_is_idempotent (byte-identical re-render) + CLI render/verify PASS on a fresh fixture (CAM1_PROTECTED_H264_RENDER=PASS, CAM1_PROTECTED_H264_CONFIG=PASS)
+- TEST-004 | Covers: auth-render pipeline compatibility | Level: integration | Priority: P0 | Evidence: test_combined_auth_render_protects_new_cam1_and_retires_all_cams + test_sea_speed_auth_v1 split-layout include pipeline (invokes the cam renderer render CLI, then auth render + both verifies)
 - Regression: full suite 777 passed / 4 skipped / 119 subtests; ruff clean on changed files; no shell files changed (bash -n not applicable).
 
 ## Correct-course check
