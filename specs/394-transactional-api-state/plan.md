@@ -125,7 +125,7 @@ Three coordinated pieces:
   file; stderr lines for best-effort mirror failures; rollback removes
   `store.py` when returning to a pre-#394 release.
 
-## Risk profile and mitigations
+## Risk profile
 
 - RISK-001 (main.py boot order): the startup migration runs at import
   time; names it uses (`CROSSINGS_STORE_LIMIT`, path helpers) must be
@@ -164,3 +164,14 @@ Three coordinated pieces:
   plumbing are recorded as deviations in spec.md.
 - No commits: changes are left in the working tree for orchestrator
   admission.
+
+## Deployment transaction audit
+
+- TX-001 | Stage: ADMISSION | Mutation: NO | Failure disposition: FATAL | State after failure: unchanged | Retry: NO | Rollback: NONE | Evidence: Block A owner approval (OUTCOME APPROVED session 2026-10-08) + receipts issuecomment-6051940042 (base scope) and issuecomment-6052476179 (deploy.sh install-plumbing amendment, peer rollback verdict)
+- TX-002 | Stage: PRE-MUTATION | Mutation: NO | Failure disposition: FATAL | State after failure: unchanged VPS state | Retry: NO | Rollback: NONE | Evidence: release_complete + download_release required-list gate exits before rm -rf of the staged target (deploy.sh:203-286)
+- TX-003 | Stage: MUTATION | Mutation: YES | Failure disposition: FATAL | State after failure: staged .next copies discarded; live API unchanged | Retry: NO | Rollback: install_release stages to .next and promotes via mv only after all copies stage successfully; store.py mv precedes main.py mv (new main cannot boot without it) | Evidence: install_release soft pattern (deploy.sh:607-641); test_vps_deploy_transaction behavioral suite (18 tests)
+- TX-004 | Stage: VERIFICATION | Mutation: NO | Failure disposition: FATAL | State after failure: previous release still active | Retry: NO | Rollback: NONE | Evidence: restart_and_verify health gate (deploy.sh:738-753); fail-closed boot on corrupt legacy store (import_legacy_state_store propagates, deploy auto-rollback)
+- TX-005 | Stage: STATE-COMMIT | Mutation: NO | Failure disposition: FATAL | State after failure: unchanged | Retry: NO | Rollback: NONE | Evidence: dual-write window — legacy JSON mirrors kept fresh by best-effort projection writes so install_release of the previous release sees fresh data in both directions
+- TX-006 | Stage: HOUSEKEEPING | Mutation: NO | Failure disposition: BEST-EFFORT | State after failure: staging dirs may remain on abrupt kill only | Retry: NO | Rollback: NONE | Evidence: deploy.sh staging layout semantics unchanged
+- TX-007 | Stage: EVIDENCE | Mutation: NO | Failure disposition: BEST-EFFORT | State after failure: evidence partial | Retry: NO | Rollback: NONE | Evidence: DEPLOYMENT_ACCEPTED line from the autonomous chain at exact-green-head merge
+- TX-008 | Stage: ROLLBACK | Mutation: NO | Failure disposition: FATAL | State after failure: NONE | Retry: NO | Rollback: rollback-exact.sh contour unchanged; soft store handling (install-if-present / rm -f) works in both rollback directions including pre-#394 releases | Evidence: deploy.sh:634-641 + peer verification rollback verdict (receipt issuecomment-6052476179)
