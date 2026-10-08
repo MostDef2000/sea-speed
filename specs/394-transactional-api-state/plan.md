@@ -130,33 +130,18 @@ Three coordinated pieces:
 - Risk profile: REQUIRED
 - Risk-profile rationale: derived from the VPS production impact; the
   deployment transaction audit below covers the contour.
-- RISK-001 (main.py boot order): the startup migration runs at import
-  time; names it uses (`CROSSINGS_STORE_LIMIT`, path helpers) must be
-  defined above the startup block. Mitigation: constants moved to the top
-  block; migration uses `analytics_data_file`; import-time NameError would
-  fail the deploy health gate loudly (accepted: fail-closed).
-- RISK-002 (dual-write divergence): SQLite is authoritative; the legacy
-  mirror is a projection of committed rows, so drift self-heals on the next
-  write. Mirror failures are best-effort (stderr) and never fail the API
-  request.
-- RISK-003 (rollback window): legacy JSON files are never deleted and stay
-  fresh via mirrors; rollback activation removes `store.py` only when the
-  target release does not ship it.
-- RISK-004 (deploy.sh deviation): store.py install plumbing is a disclosed
-  deviation from "No other deploy.sh changes"; it is required for boot and
-  follows the file's existing conditional-install idiom.
+- RISK-001 | Category: OPS | Probability: 2 | Impact: 4 | Score: 8 | Mitigation: startup migration runs at import time so every name it uses (`CROSSINGS_STORE_LIMIT`, path helpers) is defined above the startup block; constants moved to the top block; migration reads via `analytics_data_file`; any import-time failure fails the deploy health gate loudly and the chain auto-rolls back | Validation: full suite green on head (764 passed); py_compile + ruff clean; deploy transaction behavioral suite exercises boot/verify ordering | Residual risk: LOW — corrupt legacy store fails boot closed by design (fail-closed acceptance) | Owner: Delivery Orchestrator | Status: MITIGATED
+- RISK-002 | Category: DATA | Probability: 2 | Impact: 3 | Score: 6 | Mitigation: SQLite is authoritative; the legacy JSON mirror is a best-effort projection of committed rows written after the SQLite commit (mirror failure logs to stderr, never fails the request); drift self-heals on the next write | Validation: dual-write order verified by independent peer session (APPROVE); mirror exception paths reviewed | Residual risk: LOW — mirror amplification on crossings (full-file rewrite up to 5000 records per post) is bounded by the cap and lasts one release cycle | Owner: Delivery Orchestrator | Status: MITIGATED
+- RISK-003 | Category: OPS | Probability: 1 | Impact: 4 | Score: 4 | Mitigation: legacy JSON files are never deleted and stay fresh via mirrors; rollback activation removes `store.py` only when the target release does not ship it (soft pattern, store mv precedes main mv) | Validation: test_vps_deploy_transaction behavioral suite (18 tests); peer rollback-completeness verdict (strict download gate acceptable; on-disk rollback path independent of completeness) | Residual risk: LOW — downgrade branch is idempotent but untested with a store-less fixture | Owner: Delivery Orchestrator | Status: MITIGATED
+- RISK-004 | Category: GOV | Probability: 1 | Impact: 2 | Score: 2 | Mitigation: store.py install plumbing is a disclosed deviation from the work order's "No other deploy.sh changes"; required for boot; follows the file's existing conditional-install idiom; documented in SDD trio + amendment receipt 6052476179 | Validation: amendment receipt on #394; SDD validate green | Residual risk: NONE | Owner: Delivery Orchestrator | Status: ACCEPTED
 
 ## Test design
 
-- Concurrency: barrier-synchronized injected readers force the base RMW
-  interleaving deterministically (no-lost-update test); barrier-forced
-  shared-tmp rename forces the fixed-tmp collision deterministically.
-- Fail-loud: corrupt JSON stores must yield HTTP 500 (base silently
-  returned defaults → RED).
-- Caps: bulk-seed via one connection, then append to trigger same-
-  transaction pruning (5000/500).
-- Migration: idempotency, order parity, fail-closed on corrupt legacy
-  input, never deletes legacy files (skipUnless guard — head-only).
+- TEST-001 | Covers: RISK-002 | Level: unit | Priority: P0 | Evidence: test_concurrent_appenders_never_lose_records (8 barrier-forced racers, zero lost records on head, RED on base RMW)
+- TEST-002 | Covers: RISK-002 | Level: unit | Priority: P0 | Evidence: test_write_round_trip_is_atomic + test_concurrent_writers_leave_one_valid_file_and_no_tmp (25+25 alternating writers, no tmp leftovers)
+- TEST-003 | Covers: RISK-002 | Level: unit | Priority: P0 | Evidence: FailLoudReadTests — corrupt speed-config/speed-lines/crossing-line/preview stores raise HTTP 500 (RED on base: silent default); test_legacy_fixed_tmp_collision_is_eliminated (deterministic barrier RED vs base, head-only skip)
+- TEST-004 | Covers: RISK-002 | Level: unit | Priority: P0 | Evidence: caps tests (bulk-seed via one connection, append triggers same-transaction pruning 5000/500); camera_state upsert last-write-wins
+- TEST-005 | Covers: RISK-001,RISK-003 | Level: integration | Priority: P0 | Evidence: StartupMigrationTests (idempotency, order parity, fail-closed on corrupt legacy input, never deletes legacy files) + test_vps_deploy_transaction.py (18 behavioral deploy/rollback tests)
 - Regression: full suite (764 passed, 4 skipped) including the updated
   harnesses and the untouched `test_roi_normalization.py`.
 
