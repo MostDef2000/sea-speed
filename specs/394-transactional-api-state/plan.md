@@ -143,7 +143,7 @@ Three coordinated pieces:
   deviation from "No other deploy.sh changes"; it is required for boot and
   follows the file's existing conditional-install idiom.
 
-## Risk-based test design
+## Test design
 
 - Concurrency: barrier-synchronized injected readers force the base RMW
   interleaving deterministically (no-lost-update test); barrier-forced
