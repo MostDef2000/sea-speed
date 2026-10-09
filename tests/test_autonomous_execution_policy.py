@@ -27,6 +27,8 @@ class AutonomousExecutionPolicyTests(unittest.TestCase):
             "github.event.workflow_run.event == 'push'", "github.event.workflow_run.head_branch == 'main'",
             "Require quality commit is current main tip", "refs/remotes/origin/main",
             "Ignoring stale successful Quality run", "steps.freshness.outputs.fresh == 'true'",
+            "merge-base --is-ancestor", "':(glob,exclude)specs/*/tasks.md'",
+            "fresh_basis=tree-modulo-tasks", "fresh_basis=tip", "Freshness basis:",
             "environment: production", "verify_source_protection.py", "Repository validation", "quality-integration",
             "vars.SEA_SPEED_PRODUCTION_DELEGATION_V1", "evaluate_production_policy.py",
         ):
@@ -35,6 +37,14 @@ class AutonomousExecutionPolicyTests(unittest.TestCase):
         self.assertNotIn("issue_comment:", source)
         self.assertNotIn("PRODUCTION APPROVED", source)
         self.assertNotIn("Execution-Intent: EXECUTE", source)
+
+    def test_sync_merged_tasks_bot_stages_only_its_tasks_md_pathspec(self):
+        source = (ROOT / ".github/workflows/sync-merged-tasks.yml").read_text(encoding="utf-8")
+        self.assertIn("git add -- ':(glob)specs/*/tasks.md'", source)
+        self.assertNotIn("git add -A", source)
+        self.assertIn("sync_tasks_md.py", source)
+        self.assertIn("chore(sdd): auto-sync tasks.md completion on merge to main", source)
+        self.assertIn("github.event.workflow_run.event == 'push'", source)
 
     def test_protected_deploy_workflows_re_evaluate_policy_and_source_protection(self):
         for name in ("deploy-vps.yml", "deploy-ubuntu-worker.yml"):

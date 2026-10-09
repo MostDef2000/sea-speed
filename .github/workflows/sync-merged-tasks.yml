@@ -38,7 +38,7 @@ jobs:
           if [[ -n "$(git status --porcelain)" ]]; then
             git config user.name "sea-speed-bot"
             git config user.email "bot@sea-speed.invalid"
-            git add -A
+            git add -- ':(glob)specs/*/tasks.md'
             git commit -m "chore(sdd): auto-sync tasks.md completion on merge to main"
             git push
           else

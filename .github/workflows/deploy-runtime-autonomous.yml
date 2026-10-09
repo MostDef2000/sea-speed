@@ -56,11 +56,20 @@ jobs:
           CURRENT_MAIN="$(git rev-parse refs/remotes/origin/main)"
           echo "current_main=$CURRENT_MAIN" >> "$GITHUB_OUTPUT"
           if [[ "$CURRENT_MAIN" != "$DEPLOY_SHA" ]]; then
+            if git merge-base --is-ancestor "$DEPLOY_SHA" "$CURRENT_MAIN" \
+              && [[ -z "$(git diff --name-only "$DEPLOY_SHA" "$CURRENT_MAIN" -- . ':(glob,exclude)specs/*/tasks.md')" ]]; then
+              echo "Freshness: tip $CURRENT_MAIN descends from quality SHA $DEPLOY_SHA with delta confined to specs/*/tasks.md"
+              echo "fresh=true" >> "$GITHUB_OUTPUT"
+              echo "fresh_basis=tree-modulo-tasks" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
             echo "fresh=false" >> "$GITHUB_OUTPUT"
+            echo "fresh_basis=stale" >> "$GITHUB_OUTPUT"
             echo "Ignoring stale successful Quality run for $DEPLOY_SHA; current main is $CURRENT_MAIN"
             exit 0
           fi
           echo "fresh=true" >> "$GITHUB_OUTPUT"
+          echo "fresh_basis=tip" >> "$GITHUB_OUTPUT"
 
       - name: Set up Python
         if: ${{ steps.freshness.outputs.fresh == 'true' }}
@@ -101,6 +110,7 @@ jobs:
         if: ${{ always() }}
         env:
           FRESH: ${{ steps.freshness.outputs.fresh }}
+          FRESH_BASIS: ${{ steps.freshness.outputs.fresh_basis }}
           CURRENT_MAIN: ${{ steps.freshness.outputs.current_main }}
           DEPLOY_SHA: ${{ steps.release.outputs.sha }}
           ALLOWED: ${{ steps.policy.outputs.allowed }}
@@ -111,6 +121,7 @@ jobs:
             echo "### Sea Speed autonomous production policy"
             echo "- Quality commit: \`$DEPLOY_SHA\`"
             echo "- Current main: \`$CURRENT_MAIN\`"
+            echo "- Freshness basis: \`$FRESH_BASIS\`"
             echo "- Current-tip eligible: \`$FRESH\`"
             if [[ "$FRESH" == "true" ]]; then
               echo "- Source protection: public protected main with required checks"
