@@ -254,9 +254,11 @@ class CameraRelayForwardingTests(unittest.TestCase):
         self.assertIn("IFS=',' read -r -a __reader_ip_parts", ubuntu)
         self.assertIn('reader_ips+=("$__reader_ip_part")', ubuntu)
         self.assertIn('reader_ip_args+=(--reader-ip "$reader_ip")', ubuntu)
-        # Both the prepare render and the activate verify-reader-auth call
-        # forward the accumulated occurrences.
-        self.assertEqual(ubuntu.count('"${reader_ip_args[@]}"'), 2)
+        # Every renderer invocation that consumes reader IPs forwards the
+        # accumulated occurrences: the prepare render, the activate
+        # verify-reader-auth call, and the #436 sanitize verify-before and
+        # verify-after reader checks.
+        self.assertEqual(ubuntu.count('"${reader_ip_args[@]}"'), 4)
         self.assertIn("verify-reader-auth", ubuntu)
         # Per-IP RFC1918 validation loop precedes any renderer invocation.
         self.assertLess(ubuntu.index("validate_reader_ip \"$reader_ip\""), ubuntu.index("ubuntu-relay"))

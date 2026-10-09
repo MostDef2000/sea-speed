@@ -164,6 +164,50 @@ Mitigation: the API binds loopback only — verified via `ss` as a listener on
 is unreachable from outside the worker host. The watchdog observation uses no
 credentials and the `api` permission is restricted to loopback source IPs.
 
+### Foreign-rule sanitize runbook (issue #436)
+
+The #407 on-box activation left a foreign UNMARKED `authInternalUsers` entry
+(hand-added during the 2026-10-07 manual edit) whose scope exactly equals the
+canonical loopback API rule above. It is inert (same loopback scope, verified
+green) but re-renders preserve it forever: the canonical verifier is
+marker-anchored and merges `ips`/`actions` across its span, so an unmarked
+duplicate is invisible to it. The canonical tool now ships a bounded sanitize
+transaction (`camera-relay.sh sanitize`, renderer mode
+`ubuntu-sanitize-auth`):
+
+- Scope: removes ONLY foreign (unmarked, i.e. not preceded by a canonical
+  `# Sea Speed ` marker comment) `authInternalUsers` rules whose scope EXACTLY
+  equals the canonical loopback API rule (`ips == ["127.0.0.1"]`,
+  `permissions == [- action: api]`, fully modeled fields). ANY other foreign
+  rule fails the whole transaction closed: the offending scope is reported on
+  stderr, nothing is deleted, the candidate is not written, exit is nonzero.
+- Verify-before/verify-after: the canonical marked loopback API rule and the
+  reader rules are re-verified (`verify-reader-auth` on the LIVE config before
+  the render and on the CANDIDATE after it; the renderer mode verifies the
+  marked API rule on both), and the foreign-rule count is asserted == 0
+  explicitly after the prune with a dedicated per-entry scanner (NOT the
+  span-merge verify).
+- Transaction shape (one bounded on-box transaction, run as root per the
+  `camera-relay.sh` gating — the script refuses non-root; no chroot copy of
+  the repo exists on the worker, run it from the exact deployed repository
+  source):
+
+  1. `camera-relay.sh sanitize --config /etc/mediamtx/mediamtx.yml --private-rtsp-address <RFC1918 IPv4:PORT> --reader-ip <VPS reader IP>` —
+     renders the pruned candidate into the root-only state root and prints
+     `SANITIZED_FOREIGN_AUTH=YES` plus `CANDIDATE_SHA256=<digest>`.
+  2. `camera-relay.sh activate --config /etc/mediamtx/mediamtx.yml --private-rtsp-address <same> --reader-ip <same> --expected-sha256 <digest>` —
+     the existing digest-bound runbook, reused unchanged: digest/mode checks,
+     reader verify on the candidate, AI-worker-stopped gate, root-only
+     timestamped backup, atomic install, `systemctl restart` of the relay
+     service, private-listener probe. Automatic rollback is not authorized;
+     the backup path is printed for an explicit rollback decision.
+  3. Verify: `camera-relay.sh status` and a re-run of `sanitize` must report
+     `foreign_rules_removed=0` (idempotent no-op).
+
+- The AI worker is never started, stopped, restarted or enabled by this flow;
+  secrets are never displayed (`SECRETS_DISPLAYED=NO`). A failed sanitize
+  leaves the previous candidate untouched and it must not be activated.
+
 ## Acceptance boundary
 
 Issue #87 is complete only when all of the following are proven at runtime:
