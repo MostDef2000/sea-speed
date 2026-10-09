@@ -683,6 +683,129 @@ def sanitize_foreign_auth_rules(text: str) -> tuple[str, int]:
     return pruned, len(deletable)
 
 
+def _reader_rule_ips_in_order(lines: list[str], marker_index: int, end: int) -> list[str]:
+    """Issue #437: ordered ips of a marker-anchored reader rule.
+
+    Companion to `_parse_rule_block` (whose set result loses the live order
+    and collapses duplicates): remediation must preserve the live rendering
+    order and fail closed on duplicates, so this parser mirrors the same
+    span/field grammar while keeping the sequence exactly as written.
+    """
+    ordered: list[str] = []
+    in_ips = False
+    for line in lines[marker_index + 1 : end]:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("# Sea Speed least-privilege reader for canonical"):
+            break
+        if stripped.startswith("ips:"):
+            in_ips = True
+            value = stripped.split(":", 1)[1].strip()
+            if value.startswith("["):
+                inner = value[1:-1] if value.endswith("]") else value[1:]
+                for part in inner.split(","):
+                    part = part.strip().strip('"').strip("'")
+                    if part:
+                        ordered.append(part)
+                in_ips = False
+            continue
+        if in_ips and stripped.startswith("- "):
+            item = stripped[2:].strip().strip('"').strip("'")
+            if item:
+                ordered.append(item)
+            continue
+        in_ips = False
+    return ordered
+
+
+# Issue #437: the relay profile is read-only; a drifted reader block granting
+# publish cannot have its publisher role recovered from a flat live ips list.
+READER_RULE_ALLOWED_ACTIONS = frozenset({"read", "publish"})
+
+
+def remediate_internal_reader_rule(text: str, path_name: str) -> tuple[str, list[str], bool]:
+    """Converge a drifted marker-anchored reader rule to the canonical block.
+
+    Issue #437. The live scopes are preserved; the FORM is re-emitted through
+    `_reader_rule_lines` (the exact renderer `ubuntu-relay` uses), so a
+    remediated config is byte-identical to what `ensure_internal_reader_rule`
+    considers canonical for those scopes. Every scope element is re-authorized
+    BEFORE re-emission — the remediation NEVER canonizes an unauthorized scope:
+
+    - ips: every live ip must pass `validate_peer_reader_ip` AND
+      `validate_reader_ip` (the relay profile renders reader IPs as literal
+      RFC1918 IPv4); non-IPv4, loopback, link-local, multicast, reserved,
+      public and duplicate ips fail closed;
+    - actions: must be a subset of {read, publish}; `publish` fails closed on
+      the read-only relay profile;
+    - the marked span must contain exactly this one bounded entry (no merged
+      foreign rules, no unmodeled content) — anything else fails closed
+      BEFORE any replacement.
+
+    Returns (remediated_text, live_reader_ips, remediation_needed) where
+    remediation_needed is False only when the re-emitted block was already
+    byte-identical to the live one (idempotent no-op). Raises ConfigError
+    without touching the input on any violation.
+    """
+    _require_internal_auth_method(text, "reader remediation")
+    lines = _split_lines(text)
+    start, end = _auth_internal_users_bounds(lines)
+    marker = reader_marker(path_name)
+    markers = [index for index in range(start + 1, end) if lines[index].strip() == marker]
+    if len(markers) != 1:
+        raise ConfigError("exactly one Sea Speed reader authorization rule is required for the path")
+    marker_index = markers[0]
+    span_end = end
+    for index in range(marker_index + 1, end):
+        if lines[index].strip().startswith("# Sea Speed least-privilege reader for canonical"):
+            span_end = index
+            break
+    entries = _scan_auth_entries(lines, marker_index, span_end)
+    if len(entries) != 1:
+        raise ConfigError(
+            "drifted Sea Speed reader rule span is not exactly one bounded entry; "
+            "remediation refuses to canonize merged auth rules"
+        )
+    first_content = next(
+        index for index in range(marker_index + 1, span_end) if lines[index].strip()
+    )
+    if first_content != entries[0]["start"]:  # type: ignore[comparison-overlap]
+        raise ConfigError("unmodeled content between the Sea Speed reader marker and its rule")
+    entry_end = entries[0]["end"]  # type: ignore[assignment]
+    live_ips, live_actions = _parse_rule_block(lines, marker_index, entry_end)
+    ordered_ips = _reader_rule_ips_in_order(lines, marker_index, entry_end)
+    if not ordered_ips:
+        raise ConfigError("drifted Sea Speed reader rule carries no reader IPs")
+    if len(set(ordered_ips)) != len(ordered_ips):
+        raise ConfigError(
+            f"duplicate reader IP in the drifted Sea Speed reader rule: {sorted(set(ordered_ips))}"
+        )
+    if set(ordered_ips) != live_ips:
+        raise ConfigError("drifted Sea Speed reader rule parse divergence; failing closed")
+    if not live_actions <= READER_RULE_ALLOWED_ACTIONS:
+        raise ConfigError(
+            "drifted Sea Speed reader rule carries actions outside {read, publish}: "
+            f"{sorted(live_actions)}"
+        )
+    if "publish" in live_actions:
+        raise ConfigError(
+            "drifted Sea Speed reader rule grants publish; the relay profile is "
+            "read-only and publisher scopes cannot be recovered from the live rule"
+        )
+    for ip in ordered_ips:
+        validate_peer_reader_ip(ip)
+        validate_reader_ip(ip)
+    canonical = _reader_rule_lines(path_name, ordered_ips)
+    lines[marker_index:entry_end] = canonical
+    rendered = "".join(lines)
+    if ensure_internal_reader_rule(rendered, path_name, ordered_ips) != rendered:
+        raise ConfigError("remediation post-condition failed: block is not canonical")
+    verify_internal_reader_rule(rendered, path_name, ordered_ips)
+    verify_internal_api_rule(rendered)
+    return rendered, ordered_ips, rendered != text
+
+
 def read_protected_env_value(path: Path, key: str) -> str:
     try:
         info = os.lstat(path)
@@ -864,6 +987,35 @@ def render_ubuntu_sanitize_auth(args: argparse.Namespace) -> str:
     return digest
 
 
+def render_ubuntu_remediate_reader(args: argparse.Namespace) -> str:
+    """Issue #437: bounded drifted-reader-rule remediation candidate.
+
+    Transaction shape (called by `camera-relay.sh remediate`; installation only
+    through the existing digest-bound `activate`):
+      verify-before (marked loopback API rule intact on the live config)
+      -> locate the drifted marked reader rule, extract its live ips/actions
+         via `_parse_rule_block`, re-authorize every scope element
+         (fail closed: non-IPv4/loopback/public/duplicate ips, actions outside
+         {read, publish}, publish on the read-only relay profile)
+      -> re-emit the canonical block via `_reader_rule_lines` preserving the
+         live scopes and replace the drifted block
+      -> verify-after (reader rule + marked loopback API rule on the result,
+         plus byte-exact ensure_internal_reader_rule idempotency)
+      -> write the 0600 candidate and emit the digest evidence line.
+    """
+    text = read_config(args.config)
+    verify_internal_api_rule(text)
+    remediated, reader_ips, needed = remediate_internal_reader_rule(text, args.path)
+    digest = write_candidate(args.output, remediated)
+    print(
+        f"REMEDIATED mode=ubuntu-remediate-reader path={args.path} "
+        f"remediation_needed={'YES' if needed else 'NO'} "
+        f"reader_scope={reader_scope_token(len(reader_ips))} "
+        f"reader_permission=read-only output_sha256={digest}"
+    )
+    return digest
+
+
 def render_verify_reader_auth(args: argparse.Namespace) -> str:
     text = read_config(args.config)
     reader_ips = _reader_ip_list(args.reader_ip)
@@ -977,6 +1129,15 @@ def build_parser() -> argparse.ArgumentParser:
     sanitize.add_argument("--config", type=Path, required=True)
     sanitize.add_argument("--output", type=Path, required=True)
     sanitize.set_defaults(handler=render_ubuntu_sanitize_auth)
+
+    remediate = sub.add_parser(
+        "ubuntu-remediate-reader",
+        help="converge a drifted marked reader rule to the canonical read-only relay block, preserving its live authorized scope (issue #437)",
+    )
+    remediate.add_argument("--config", type=Path, required=True)
+    remediate.add_argument("--path", default="cam1")
+    remediate.add_argument("--output", type=Path, required=True)
+    remediate.set_defaults(handler=render_ubuntu_remediate_reader)
 
     transcode = sub.add_parser("ubuntu-transcode-reader")
     transcode.add_argument("--config", type=Path, required=True)

@@ -376,16 +376,19 @@ class SanitizeShellContractTests(unittest.TestCase):
     def test_shell_contracts_sanitize_subcommand(self) -> None:
         subprocess.run(["bash", "-n", str(UBUNTU)], check=True)
         ubuntu = UBUNTU.read_text(encoding="utf-8")
-        self.assertIn("prepare|activate|sanitize|status", ubuntu)
+        # Issue #437 adds the `remediate` subcommand to the same dispatch.
+        self.assertIn("prepare|activate|sanitize|remediate|status", ubuntu)
         self.assertIn("camera-relay.sh sanitize --config PATH", ubuntu)
         self.assertIn("ubuntu-sanitize-auth", ubuntu)
         # Verify-before on LIVE and verify-after on CANDIDATE (reader domain),
-        # plus the existing activate verify -> three verify-reader-auth calls.
-        self.assertEqual(ubuntu.count("verify-reader-auth"), 3)
+        # plus the existing activate verify and the #437 remediate pair — five
+        # verify-reader-auth calls total.
+        self.assertEqual(ubuntu.count("verify-reader-auth"), 5)
         # The sanitize candidate goes through the same digest emission as
-        # prepare; activation stays the existing expected-sha256 flow.
-        self.assertEqual(ubuntu.count("CANDIDATE_SHA256=%s"), 2)
-        self.assertEqual(ubuntu.count("MUTATIONS=PROTECTED_CANDIDATE_ONLY"), 2)
+        # prepare; activation stays the existing expected-sha256 flow. Issue
+        # #437 adds a third digest-emitting remediate block.
+        self.assertEqual(ubuntu.count("CANDIDATE_SHA256=%s"), 3)
+        self.assertEqual(ubuntu.count("MUTATIONS=PROTECTED_CANDIDATE_ONLY"), 3)
         self.assertIn("SANITIZED_FOREIGN_AUTH=YES", ubuntu)
         self.assertIn("SERVICE_RESTARTED=NO", ubuntu)
         self.assertIn("--expected-sha256", ubuntu)
