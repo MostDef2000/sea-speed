@@ -47,29 +47,29 @@
 - [ ] T-407-004
 - [ ] T-407-005
 - [ ] T-407-006
-- [ ] Issue/spec/plan/tasks current
-- [ ] Exact changed-file scope verified
-- [ ] Required tests and evidence complete
+- [x] Issue/spec/plan/tasks current
+- [x] Exact changed-file scope verified
+- [x] Required tests and evidence complete (RED + full suite green at merge; peer review APPROVE)
 - [x] Required CI green — exact-head PR CI 8/8 green (merge-phase) — orchestrator-owned (PR creation and exact-head CI)
 - [x] Exact-green-head merge complete — squash merge; main @ 2176d1c517b08de2b5b2d0c006d8015d070a390f — orchestrator-owned
 - [x] Deployment state resolved — autonomous UBUNTU_WORKER contour: DEPLOYMENT_ACCEPTED target=2176d1c previous=1f81c5e run 37798605482 (policy=allow) — orchestrator-owned
-- [ ] Runtime acceptance resolved — orchestrator-owned (worker relay re-render installs the api block; watchdog UNKNOWN/NOOP evidence verified post-deploy)
+- [x] Runtime acceptance resolved — orchestrator-owned + operator transaction executed (2026-10-09 sysadmin report): canonical render @ 9e3b9ee tools sha-verified; RENDERED ubuntu-relay cam1 candidate with canonical marked loopback API rule (sha e4445dfb…); reader rules cam1/cam1-h264 preserved byte-identical; install (perm 0640 kept, backup mediamtx.yml.bak.2026-10-09-065200) + systemctl restart sea-speed-stream; live probes: stream+transcode active, :8554 and 127.0.0.1:9997 listening, API ready=true bytesReceived 4.34M->7.42M/10s, watchdog oneshot ExecMainStatus=0 — fail-safe confirmed LIVE (no false STALE, no transcode restart loop); timer enabled+activek; watchdog UNKNOWN/NOOP evidence verified post-deploy)
 - [ ] Deferred work recorded — none
-- [ ] Risks resolved or explicitly accepted — RISK-001..RISK-004 mitigated or disclosed in plan.md
-- [ ] Waivers resolved or current — none
+- [x] Risks resolved or explicitly accepted — RISK-001..RISK-004 mitigated or disclosed in plan.md (all MITIGATED; fail-safe live-confirmed by the operator transaction)
+- [x] Waivers resolved or current — none
 
 ## Definition of Done
 
-- [ ] Issue/spec/plan/tasks current
-- [ ] Exact changed-file scope verified
-- [ ] Required tests and evidence complete
+- [x] Issue/spec/plan/tasks current
+- [x] Exact changed-file scope verified
+- [x] Required tests and evidence complete (RED + full suite green at merge; peer review APPROVE)
 - [x] Required CI green — exact-head PR CI 8/8 green (merge-phase) — orchestrator-owned (PR creation and exact-head CI)
 - [x] Exact-green-head merge complete — squash merge; main @ 2176d1c517b08de2b5b2d0c006d8015d070a390f — orchestrator-owned
 - [x] Deployment state resolved — autonomous UBUNTU_WORKER contour: DEPLOYMENT_ACCEPTED target=2176d1c previous=1f81c5e run 37798605482 (policy=allow) — orchestrator-owned (watchdog rides the #406 installed-copy refresh; api block rides the operator-scheduled relay re-render)
-- [ ] Runtime acceptance resolved — orchestrator-owned (loopback API observed live by the watchdog; NOOP-on-unavailable evidence verified on the worker)
+- [x] Runtime acceptance resolved — orchestrator-owned + operator transaction executed (2026-10-09): loopback API observed live by the watchdog (oneshot exit 0 post-restart, no restart loop); same-section deployment evidence: DEPLOYMENT_ACCEPTED target=2176d1c run 37798605482 with INSTALLED_COPY_REFRESHED x3NOOP-on-unavailable evidence verified on the worker)
 - [ ] Deferred work recorded — none (preview api enablement stays deferred to #373 follow-up by design)
-- [ ] Risks resolved or explicitly accepted — RISK-001..RISK-004 in plan.md Risk profile
-- [ ] Waivers resolved or current — none
+- [x] Risks resolved or explicitly accepted — RISK-001..RISK-004 in plan.md Risk profile (all MITIGATED; live-confirmed by the operator transaction)
+- [x] Waivers resolved or current — none
 
 ## Requirements traceability
 
