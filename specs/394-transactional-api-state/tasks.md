@@ -54,8 +54,8 @@
 - [ ] Required tests and evidence complete
 - [x] Required CI green — orchestrator-owned (PR creation and exact-head CI) — auto-synced on merge to main
 - [x] Exact-green-head merge complete — orchestrator-owned — auto-synced on merge to main
-- [ ] Deployment state resolved — orchestrator-owned
-- [ ] Runtime acceptance resolved — orchestrator-owned (VPS restart, health gate, dual-write window verified post-deploy)
+- [x] Deployment state resolved — first verified full VPS contour deploy via operator DEPLOY-HANDOFF: deployed_sha=9e3b9ee8e02b75785393dc8ef246af5e4e05281b, manifest runtime_verified 9/9, previous-release 2a0b6f18 (two-slot rollback ready_not_used) — orchestrator-owned
+- [x] Runtime acceptance resolved — health 200; migration idempotent + fail-closed (state.sqlite3 5.3MB: crossings 6175, event_feed 1000, ingestion_log 7175, camera_state 2; legacy JSON untouched); sha256 of live main.py/store.py byte-equal to exact-SHA artifacts; TEST-008 control=200/ingest=403; ИБ-пробы green (X-Authentik outbound-only, :18889 NL-probe 000, TLS baseline); 0 tracebacks/10min — orchestrator-owned (VPS restart, health gate, dual-write window verified post-deploy)
 - [ ] Deferred work recorded — none
 - [ ] Risks resolved or explicitly accepted — RISK-001..RISK-005 mitigated or disclosed in plan.md
 - [ ] Waivers resolved or current — none
@@ -67,9 +67,9 @@
 - [ ] Required tests and evidence complete
 - [x] Required CI green — orchestrator-owned (PR creation and exact-head CI) — auto-synced on merge to main
 - [x] Exact-green-head merge complete — orchestrator-owned — auto-synced on merge to main
-- [ ] Deployment state resolved — orchestrator-owned (full autonomous VPS contour deploy fans out at merge)
-- [ ] Runtime acceptance resolved — orchestrator-owned (fail-closed boot health gate + dual-write window verified post-deploy; ИБ-пробы relayed per #393 tail plan)
-- [ ] Deferred work recorded — dual-write JSON mirror retirement in a follow-up release: trigger = first verified full VPS contour deploy of this release, deadline = the next release cycle after this merge (retirement = DROP ingestion_log + stop dual-write + drop import path, together; owner: Delivery Orchestrator)
+- [x] Deployment state resolved — first verified full VPS contour deploy via operator DEPLOY-HANDOFF: deployed_sha=9e3b9ee8e02b75785393dc8ef246af5e4e05281b, manifest runtime_verified 9/9, previous-release 2a0b6f18 (two-slot rollback ready_not_used) — orchestrator-owned (full autonomous VPS contour deploy fans out at merge)
+- [x] Runtime acceptance resolved — health 200; migration idempotent + fail-closed (state.sqlite3 5.3MB: crossings 6175, event_feed 1000, ingestion_log 7175, camera_state 2; legacy JSON untouched); sha256 of live main.py/store.py byte-equal to exact-SHA artifacts; TEST-008 control=200/ingest=403; ИБ-пробы green (X-Authentik outbound-only, :18889 NL-probe 000, TLS baseline); 0 tracebacks/10min — orchestrator-owned (fail-closed boot health gate + dual-write window verified post-deploy; ИБ-пробы relayed per #393 tail plan)
+- [x] Deferred work recorded — dual-write JSON mirror retirement TRIGGERED (first verified full VPS contour deploy: 9e3b9ee8…, 2026-10-09); deadline = next release cycle (retirement = DROP ingestion_log + stop dual-write + drop import path, together; owner: Delivery Orchestrator)
 - [ ] Risks resolved or explicitly accepted — RISK-001..RISK-005 in plan.md Risk profile
 - [ ] Waivers resolved or current — none
 
