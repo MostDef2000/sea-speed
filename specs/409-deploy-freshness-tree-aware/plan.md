@@ -120,13 +120,16 @@
 
 ## Risk profile
 
-- Risk profile: REQUIRED
-- Risk-profile rationale: the change set contains
-  `.github/workflows/deploy-runtime-autonomous.yml`, which the delivery
-  policy classifies as a deployment-workflow change (full deployment
-  transaction audit and risk profile required), while the #409 Outcome
-  Contract records production impact NONE (no api/, worker/ or VPS-runtime
-  source paths change).
+- Risk profile: NOT REQUIRED
+- Risk-profile rationale: the Change Contract formula derives NOT REQUIRED for
+  impact CONTROL_PLANE with NONE-like security/schema/destructive/high-risk
+  fields; the risk content below is retained in full because the change set
+  contains `.github/workflows/deploy-runtime-autonomous.yml`, a
+  deployment-workflow change, which still carries the full deployment
+  transaction audit (see Delivery section) — the audit and the risk-profile
+  boolean are independent gates. The #409 Outcome Contract records the same
+  derived impact CONTROL_PLANE (no api/, worker/ or VPS-runtime source paths
+  change).
 - RISK-001 | Category: OPS | Probability: 2 | Impact: 4 | Score: 8 | Mitigation: the tree-aware branch is a strict conjunction (descendant AND bot-pathspec-confined delta); out-of-scope deltas and non-descendant tips keep the existing fail-closed skip with the unchanged stale-evidence line, and the deployed commit stays the exact quality-approved SHA (contours receive steps.release.outputs.sha) | Validation: executed fixture scenarios test_non_bot_delta_keeps_fresh_false_with_stale_evidence, test_non_descendant_tip_keeps_fresh_false, test_exact_tip_is_fresh | Residual risk: LOW — a future bot writing outside specs/*/tasks.md would be skipped (stale) and fail closed | Owner: Delivery Orchestrator | Status: MITIGATED
 - RISK-002 | Category: TECH | Probability: 2 | Impact: 3 | Score: 6 | Mitigation: freshness acceptance and bot staging anchor on the same specs/*/tasks.md pathspec shape, pinned by validate_workflow_policy.py markers and exercised through git itself in tests; behavioral tests extract and run the real workflow shell block instead of re-implementing the logic | Validation: test_staging_command_confines_index_to_feature_tasks_md plus the four freshness fixture scenarios; validate_workflow_policy.py green | Residual risk: LOW — a sync script change to a different file set would need this contract updated in lockstep (AC-4 guard) | Owner: Delivery Orchestrator | Status: MITIGATED
 - RISK-003 | Category: SEC | Probability: 1 | Impact: 4 | Score: 4 | Mitigation: no new credentials, permissions or triggers; the workflow keeps contents: read, actions: read, checks: read, issues: read, pull-requests: read and pinned actions; the bot keeps contents: write with a now-narrower staging surface | Validation: validate_workflow_source loop over all workflows (permissions, pinned SHA actions) green; no new uses: entries introduced | Residual risk: NONE | Owner: Delivery Orchestrator | Status: MITIGATED
