@@ -470,6 +470,219 @@ def ensure_internal_api_rule(text: str) -> str:
     return rendered
 
 
+AUTH_ENTRY_RE = re.compile(r"^  - ")
+AUTH_ENTRY_COMMENT_RE = re.compile(r"^  #")
+AUTH_MARKER_PREFIX = "# Sea Speed "
+# Issue #436: the only foreign (unmarked) rule the bounded sanitize may remove
+# is an exact scope duplicate of the canonical loopback API rule.
+CANONICAL_API_SCOPE_IPS = frozenset({LOOPBACK_IP})
+CANONICAL_API_SCOPE_ACTIONS = frozenset({"api"})
+
+
+def _scan_auth_entries(lines: list[str], start: int, end: int) -> list[dict[str, object]]:
+    """Scan authInternalUsers sequence entries within [start + 1, end).
+
+    Unlike the marker-anchored `_parse_rule_block` span (which merges
+    following entries into one ips/actions set — the #436 blind spot), this
+    scanner segments the block per entry:
+
+    - an entry starts at a two-space-indented `  - ` sequence line;
+    - the span ends at the next `  - ` entry line, the next two-space-indented
+      comment (e.g. a canonical marker), or the block end;
+    - `marked` is True only when the preceding non-blank line is a canonical
+      "# Sea Speed " marker comment at two-space indent (rules owned by this
+      renderer). Marked rules are never candidates for deletion.
+    """
+    entries: list[dict[str, object]] = []
+    current: dict[str, object] | None = None
+    for index in range(start + 1, end):
+        line = lines[index]
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if AUTH_ENTRY_COMMENT_RE.match(line):
+            current = None
+            continue
+        if AUTH_ENTRY_RE.match(line):
+            preceding = index - 1
+            while preceding > start and not lines[preceding].strip():
+                preceding -= 1
+            marked = (
+                preceding > start
+                and AUTH_ENTRY_COMMENT_RE.match(lines[preceding]) is not None
+                and lines[preceding].strip().startswith(AUTH_MARKER_PREFIX)
+            )
+            current = {"start": index, "end": index + 1, "marked": marked}
+            entries.append(current)
+            continue
+        if current is not None:
+            current["end"] = index + 1
+    return entries
+
+
+def _parse_auth_entry_fields(lines: list[str], entry: dict[str, object]) -> tuple[set[str], set[str], bool]:
+    """Parse the ips/actions scope of one authInternalUsers entry.
+
+    Returns (ips, actions, well_formed). `well_formed` is False when the entry
+    carries content this bounded tool does not model (unknown fields, deeper
+    nesting such as permission-level ips, or comments inside the entry); such
+    entries are never deletable — fail closed.
+    """
+    ips: set[str] = set()
+    actions: set[str] = set()
+    well_formed = True
+    in_ips = False
+    in_permissions = False
+
+    def reset() -> None:
+        nonlocal in_ips, in_permissions, well_formed
+        in_ips = False
+        in_permissions = False
+        well_formed = False
+
+    for offset, line in enumerate(lines[entry["start"] : entry["end"]]):  # type: ignore[arg-type]
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if offset == 0:
+            # The `  - ` entry header line (guaranteed by the scanner). Only
+            # the observed `- user:` shape is modeled; anything else fails
+            # closed.
+            if stripped[2:].strip().startswith("user:"):
+                in_ips = False
+                in_permissions = False
+                continue
+            reset()
+            continue
+        indent = len(line) - len(line.lstrip(" "))
+        if indent < 4:
+            # Anything at sequence-item indent inside an entry is unmodeled.
+            reset()
+            continue
+        if indent == 4:
+            if stripped.startswith("user:") or stripped.startswith("pass:"):
+                in_ips = False
+                in_permissions = False
+                continue
+            if stripped.startswith("ips:"):
+                in_permissions = False
+                value = stripped.split(":", 1)[1].strip()
+                if value:
+                    if value.startswith("["):
+                        inner = value[1:-1] if value.endswith("]") else value[1:]
+                        for part in inner.split(","):
+                            part = part.strip().strip('"').strip("'")
+                            if part:
+                                ips.add(part)
+                    else:
+                        ips.add(value.strip('"').strip("'"))
+                    in_ips = False
+                else:
+                    in_ips = True
+                continue
+            if stripped.startswith("permissions:"):
+                in_permissions = True
+                in_ips = False
+                continue
+            reset()
+            continue
+        # indent >= 6: nested content.
+        if in_ips and stripped.startswith("- "):
+            item = stripped[2:].strip().strip('"').strip("'")
+            if item:
+                ips.add(item)
+            continue
+        if in_permissions and stripped.startswith("- action:"):
+            actions.add(stripped.split(":", 1)[1].strip())
+            continue
+        if in_permissions and stripped.startswith("path:"):
+            continue
+        reset()
+    return ips, actions, well_formed
+
+
+def scan_foreign_auth_rules(text: str) -> list[str]:
+    """Describe foreign (unmarked) authInternalUsers entries (issue #436).
+
+    Foreign = an entry whose preceding non-blank line is not a canonical
+    "# Sea Speed " marker comment. The canonical marked rules are never
+    reported.
+    """
+    lines = _split_lines(text)
+    start, end = _auth_internal_users_bounds(lines)
+    descriptions: list[str] = []
+    for entry in _scan_auth_entries(lines, start, end):
+        if entry["marked"]:
+            continue
+        ips, actions, well_formed = _parse_auth_entry_fields(lines, entry)
+        suffix = "" if well_formed else " (unmodeled fields)"
+        descriptions.append(
+            f"line {entry['start']}: ips={sorted(ips)} actions={sorted(actions)}{suffix}"
+        )
+    return descriptions
+
+
+def count_foreign_auth_rules(text: str) -> int:
+    """Count foreign (unmarked) authInternalUsers entries (issue #436).
+
+    This is the explicit foreign-rule counter for verify-after; it does NOT
+    use the marker-anchored span-merge parsing of verify_internal_api_rule.
+    """
+    return len(scan_foreign_auth_rules(text))
+
+
+def sanitize_foreign_auth_rules(text: str) -> tuple[str, int]:
+    """Prune foreign unmarked auth rules scoped EXACTLY like the canonical
+    loopback API rule (ips == {127.0.0.1}, actions == {"api"}, fully modeled).
+
+    Any other foreign rule fails the whole sanitize closed (ConfigError,
+    report naming the offending scope) BEFORE any deletion — the input text is
+    returned untouched on failure. Marked "# Sea Speed " rules are never
+    parsed for deletion and are preserved byte-identically (post-condition
+    asserted). Issue #436.
+    """
+    _require_internal_auth_method(text, "auth sanitization")
+    lines = _split_lines(text)
+    start, end = _auth_internal_users_bounds(lines)
+    entries = _scan_auth_entries(lines, start, end)
+    marked_spans_before = [
+        "".join(lines[entry["start"] : entry["end"]])  # type: ignore[arg-type]
+        for entry in entries
+        if entry["marked"]
+    ]
+    foreign = [entry for entry in entries if not entry["marked"]]
+    if not foreign:
+        return text, 0
+    deletable: list[dict[str, object]] = []
+    for entry in foreign:
+        ips, actions, well_formed = _parse_auth_entry_fields(lines, entry)
+        if not (well_formed and ips == CANONICAL_API_SCOPE_IPS and actions == CANONICAL_API_SCOPE_ACTIONS):
+            raise ConfigError(
+                "foreign unmarked authInternalUsers rule is outside the canonical "
+                f"loopback-api scope and was not removed (line {entry['start']}, "
+                f"ips={sorted(ips)}, actions={sorted(actions)})"
+            )
+        deletable.append(entry)
+    keep = [True] * len(lines)
+    for entry in deletable:
+        for index in range(entry["start"], entry["end"]):  # type: ignore[arg-type]
+            keep[index] = False
+    pruned = "".join(line for index, line in enumerate(lines) if keep[index])
+    pruned_lines = _split_lines(pruned)
+    pruned_start, pruned_end = _auth_internal_users_bounds(pruned_lines)
+    pruned_entries = _scan_auth_entries(pruned_lines, pruned_start, pruned_end)
+    marked_spans_after = [
+        "".join(pruned_lines[entry["start"] : entry["end"]])  # type: ignore[arg-type]
+        for entry in pruned_entries
+        if entry["marked"]
+    ]
+    if marked_spans_before != marked_spans_after:
+        raise ConfigError("sanitize post-condition failed: marked auth rules changed")
+    if count_foreign_auth_rules(pruned) != 0:
+        raise ConfigError("sanitize post-condition failed: foreign auth rules remain")
+    return pruned, len(deletable)
+
+
 def read_protected_env_value(path: Path, key: str) -> str:
     try:
         info = os.lstat(path)
@@ -623,6 +836,34 @@ def render_ubuntu_relay(args: argparse.Namespace) -> str:
     return digest
 
 
+def render_ubuntu_sanitize_auth(args: argparse.Namespace) -> str:
+    """Issue #436: bounded foreign-unmarked-auth-rule sanitize candidate.
+
+    Transaction shape (called by `camera-relay.sh sanitize`; installation only
+    through the existing digest-bound `activate`):
+      verify-before (marked loopback API rule intact on the live config)
+      -> prune ONLY exact-scope foreign duplicates (else fail closed)
+      -> explicit post-condition: foreign-rule count == 0 (dedicated scanner,
+         not the legacy span-merge verify)
+      -> verify-after (marked loopback API rule intact on the candidate)
+      -> write the 0600 candidate and emit the digest evidence line.
+    """
+    text = read_config(args.config)
+    verify_internal_api_rule(text)
+    pruned, removed = sanitize_foreign_auth_rules(text)
+    remaining = count_foreign_auth_rules(pruned)
+    if remaining != 0:
+        raise ConfigError(f"foreign unmarked authInternalUsers rules remain after sanitize: {remaining}")
+    verify_internal_api_rule(pruned)
+    digest = write_candidate(args.output, pruned)
+    print(
+        f"SANITIZED mode=ubuntu-sanitize-auth foreign_rules_removed={removed} "
+        f"foreign_rules_remaining={remaining} api_rule=loopback-watchdog-intact "
+        f"output_sha256={digest}"
+    )
+    return digest
+
+
 def render_verify_reader_auth(args: argparse.Namespace) -> str:
     text = read_config(args.config)
     reader_ips = _reader_ip_list(args.reader_ip)
@@ -728,6 +969,14 @@ def build_parser() -> argparse.ArgumentParser:
     verify.add_argument("--reader-ip", required=True, action="append")
     verify.add_argument("--path", default="cam1")
     verify.set_defaults(handler=render_verify_reader_auth)
+
+    sanitize = sub.add_parser(
+        "ubuntu-sanitize-auth",
+        help="prune ONLY foreign unmarked auth rules scoped exactly like the canonical loopback API rule (issue #436)",
+    )
+    sanitize.add_argument("--config", type=Path, required=True)
+    sanitize.add_argument("--output", type=Path, required=True)
+    sanitize.set_defaults(handler=render_ubuntu_sanitize_auth)
 
     transcode = sub.add_parser("ubuntu-transcode-reader")
     transcode.add_argument("--config", type=Path, required=True)

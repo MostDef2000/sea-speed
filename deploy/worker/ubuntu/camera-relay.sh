@@ -7,6 +7,7 @@ usage() {
 Usage:
   camera-relay.sh prepare --config PATH --private-rtsp-address IPv4:PORT --reader-ip IPv4 [--reader-ip IPv4 ...] [options]
   camera-relay.sh activate --config PATH --private-rtsp-address IPv4:PORT --reader-ip IPv4 [--reader-ip IPv4 ...] --expected-sha256 SHA256 [options]
+  camera-relay.sh sanitize --config PATH --private-rtsp-address IPv4:PORT --reader-ip IPv4 [--reader-ip IPv4 ...] [options]
   camera-relay.sh status [--private-rtsp-address IPv4:PORT] [options]
 
 Options:
@@ -25,12 +26,21 @@ RFC1918 reader IP. activate installs only the reviewed candidate, restarts the
 independent relay service, and verifies the private RTSP listener. It never
 starts, stops, restarts or enables the AI worker. Automatic rollback is not
 performed; a root-only backup is preserved for an explicit rollback decision.
+
+sanitize (issue #436) renders a pruned candidate that removes ONLY foreign
+unmarked authInternalUsers rules whose scope exactly equals the canonical
+loopback API rule (ips 127.0.0.1, action api); any other foreign rule fails
+the transaction closed (reported, nothing deleted). The canonical marked
+"# Sea Speed " rules are preserved byte-identically. Installation of the
+pruned candidate reuses the digest-bound activate flow (--expected-sha256);
+a failed sanitize leaves the previous candidate untouched and it must not be
+activated.
 EOF
 }
 
 command="${1:-}"
 case "$command" in
-  prepare|activate|status) shift ;;
+  prepare|activate|sanitize|status) shift ;;
   -h|--help|"") usage; exit 0 ;;
   *) echo "ERROR unknown command: $command" >&2; usage >&2; exit 2 ;;
 esac
@@ -242,6 +252,43 @@ if [[ "$command" == "prepare" ]]; then
   printf 'RELAY_ENABLED=%s\n' "$(service_value is-enabled "$service_name")"
   printf 'RELAY_ACTIVE=%s\n' "$(service_value is-active "$service_name")"
   printf 'AI_WORKER_ACTIVE=%s\n' "$(service_value is-active "$worker_service")"
+  printf 'MUTATIONS=PROTECTED_CANDIDATE_ONLY\n'
+  printf 'SERVICE_RESTARTED=NO\n'
+  printf 'AI_WORKER_STARTED=NO\n'
+  printf 'SECRETS_DISPLAYED=NO\n'
+  exit 0
+fi
+
+if [[ "$command" == "sanitize" ]]; then
+  # Issue #436: bounded auth-sanitize transaction. Verify-before on the LIVE
+  # config (canonical reader rule), then the renderer mode verifies the
+  # marked loopback API rule before/after, prunes ONLY foreign unmarked rules
+  # scoped exactly like the canonical loopback API rule (anything else fails
+  # closed: reported, nothing deleted, candidate untouched), and asserts the
+  # foreign-rule count == 0 explicitly. Verify-after re-checks the reader
+  # rule on the CANDIDATE. Installation is only through the existing
+  # digest-bound activate flow below; automatic rollback is not authorized.
+  python3 "$renderer" verify-reader-auth \
+    --config "$config" \
+    "${reader_ip_args[@]}" \
+    --path cam1 >/dev/null
+
+  python3 "$renderer" ubuntu-sanitize-auth \
+    --config "$config" \
+    --output "$candidate"
+
+  digest="$(sha256sum "$candidate" | awk '{print $1}')"
+  printf '%s\n' "$digest" > "$candidate_sha_file"
+  chown root:root "$candidate" "$candidate_sha_file"
+  chmod 0600 "$candidate" "$candidate_sha_file"
+
+  python3 "$renderer" verify-reader-auth \
+    --config "$candidate" \
+    "${reader_ip_args[@]}" \
+    --path cam1 >/dev/null
+
+  printf 'SANITIZED_FOREIGN_AUTH=YES\n'
+  printf 'CANDIDATE_SHA256=%s\n' "$digest"
   printf 'MUTATIONS=PROTECTED_CANDIDATE_ONLY\n'
   printf 'SERVICE_RESTARTED=NO\n'
   printf 'AI_WORKER_STARTED=NO\n'
