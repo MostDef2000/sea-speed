@@ -34,8 +34,8 @@
 
 ## Completion gate
 
-- [ ] `overlay-canvas.js` exists, exports `SeaSpeedOverlayCanvas.init`, centers vertically with `/2`, draws latest envelope when no HLS wall-clock.
-- [ ] Water + Road pages call `init` and wire `setWorkerActive`; inline IIFEs removed.
-- [ ] Contract + sync tests assert centering fix, module load, no duplicate globals; full suite green.
+- [x] `overlay-canvas.js` exists (386 lines), exports `SeaSpeedOverlayCanvas.init`, centers vertically with `/2`, draws latest envelope when no HLS wall-clock (merged PR #376, commit 3cd3fca; contract asserts in tests/test_frontend_contract.py test_live_overlay_unified_module).
+- [x] Water + Road pages call `init` (index.html:152, road/index.html:119) and wire `setWorkerActive` (index.html:157, road/index.html:121); inline IIFEs removed (assertNotIn window.clearWaterLiveOverlay / window.clearRoadLiveOverlay).
+- [x] Contract + sync tests assert centering fix, module load, no duplicate globals; full suite green (866 passed, 4 skipped, observed by orchestrator at f7d1c28).
 - [ ] PR green; exact-green-head merge; #375 closed; #373 noted as predecessor.
 - [ ] Operator confirms Water + Road contours visible with labels (RUNTIME-MANUAL).
