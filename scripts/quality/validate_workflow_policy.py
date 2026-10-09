@@ -89,6 +89,7 @@ def main() -> int:
     workflows = root / ".github/workflows"
     quality = (workflows / "quality-integration.yml").read_text(encoding="utf-8-sig")
     autonomous = (workflows / "deploy-runtime-autonomous.yml").read_text(encoding="utf-8-sig")
+    sync_tasks = (workflows / "sync-merged-tasks.yml").read_text(encoding="utf-8-sig")
     deploy_vps = (workflows / "deploy-vps.yml").read_text(encoding="utf-8-sig")
     deploy_ubuntu = (workflows / "deploy-ubuntu-worker.yml").read_text(encoding="utf-8-sig")
 
@@ -112,7 +113,10 @@ def main() -> int:
             "github.event.workflow_run.conclusion == 'success'", "github.event.workflow_run.event == 'push'",
             "github.event.workflow_run.head_branch == 'main'", "environment: production",
             "Require quality commit is current main tip", "refs/remotes/origin/main", "Ignoring stale successful Quality run",
-            "steps.freshness.outputs.fresh == 'true'", "Verify public protected production source",
+            "steps.freshness.outputs.fresh == 'true'",
+            "merge-base --is-ancestor", "':(glob,exclude)specs/*/tasks.md'",
+            "fresh_basis=tree-modulo-tasks", "fresh_basis=tip", "Freshness basis:",
+            "Verify public protected production source",
             "verify_source_protection.py", '--require-context "Repository validation"', '--require-context "quality-integration"',
             "vars.SEA_SPEED_PRODUCTION_DELEGATION_V1", "evaluate_production_policy.py",
             "uses: ./.github/workflows/deploy-vps.yml", "uses: ./.github/workflows/deploy-ubuntu-worker.yml",
@@ -123,6 +127,20 @@ def main() -> int:
     for forbidden in ("issue_comment:", "PRODUCTION APPROVED", "Authorization-Fingerprint", "Execution-Intent: EXECUTE", "DEPLOY VPS "):
         if forbidden in autonomous:
             fail(f"autonomous runtime router must not use legacy comment authority: {forbidden}")
+
+    _require_markers(
+        sync_tasks,
+        "sync-merged-tasks.yml",
+        (
+            "name: Sync merged tasks.md", "workflows:", "- Quality integration gate",
+            "github.event.workflow_run.event == 'push'", "github.event.workflow_run.head_branch == 'main'",
+            "github.event.workflow_run.conclusion == 'success'", "sync_tasks_md.py",
+            "validate_sdd.py --freshness", "git add -- ':(glob)specs/*/tasks.md'",
+            "chore(sdd): auto-sync tasks.md completion on merge to main",
+        ),
+    )
+    if "git add -A" in sync_tasks:
+        fail("sync-merged-tasks.yml must stage only its tasks.md pathspec, not git add -A")
 
     for obsolete in ("deploy-runtime-request.yml", "deploy-vps-request.yml"):
         if (workflows / obsolete).exists():
