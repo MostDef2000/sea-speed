@@ -45,8 +45,8 @@
 - [x] Exact changed-file scope verified
 - [x] Required tests and evidence complete (RED 16/16 on base 095e4c9 + full suite green on branch; worker-recorded; PR peer review and exact-head CI are orchestrator-owned)
 - [ ] Required CI green — orchestrator-owned (PR creation and exact-head CI)
-- [ ] Exact-green-head merge complete — orchestrator-owned
-- [ ] Deployment state resolved — orchestrator-owned (renderer rides merge; shell change deploys with the repo source on the worker)
+- [x] Exact-green-head merge complete — PR #438 squash-merged as 4db356f
+- [ ] Deployment state resolved — pending: 1 on-box operator sanitize transaction (relay block recorded in issue #436 comment 6082529666) (renderer rides merge; shell change deploys with the repo source on the worker)
 - [ ] Runtime acceptance resolved — orchestrator-owned + 1 operator on-box transaction (sanitize → digest → activate --expected-sha256, output recorded per issue #436)
 - [x] Deferred work recorded — none
 - [x] Risks resolved or explicitly accepted — RISK-001..RISK-003 mitigated in plan.md Risk profile
@@ -57,9 +57,9 @@
 - [x] Issue/spec/plan/tasks current
 - [x] Exact changed-file scope verified
 - [x] Required tests and evidence complete (RED 16/16 on base 095e4c9 + full suite green on branch; PR peer review APPROVE is merge-phase, orchestrator-owned)
-- [ ] Required CI green — exact-head PR CI — orchestrator-owned (PR creation and exact-head CI)
-- [ ] Exact-green-head merge complete — orchestrator-owned
-- [ ] Deployment state resolved — orchestrator-owned
+- [x] Required CI green — exact-head PR CI — all 8 required checks pass on PR #438 head 14f69b0 (runs 37941234917/18/20)
+- [x] Exact-green-head merge complete — PR #438 squash-merged as 4db356f
+- [ ] Deployment state resolved — pending: 1 on-box operator sanitize transaction (relay block recorded in issue #436 comment 6082529666)
 - [ ] Runtime acceptance resolved — orchestrator-owned + 1 operator on-box sanitize transaction with recorded output
 - [x] Deferred work recorded — none
 - [x] Risks resolved or explicitly accepted — RISK-001..RISK-003 in plan.md Risk profile (all MITIGATED)

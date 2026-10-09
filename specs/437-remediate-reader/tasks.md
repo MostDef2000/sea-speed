@@ -47,8 +47,8 @@
 - [x] Exact changed-file scope verified
 - [x] Required tests and evidence complete (RED 18/18 on base 4db356f + full suite green on branch; worker-recorded; PR peer review and exact-head CI are orchestrator-owned)
 - [ ] Required CI green — orchestrator-owned (PR creation and exact-head CI)
-- [ ] Exact-green-head merge complete — orchestrator-owned
-- [ ] Deployment state resolved — orchestrator-owned (renderer rides merge; shell change deploys with the repo source on the worker)
+- [x] Exact-green-head merge complete — PR #439 squash-merged as a36a7d6
+- [ ] Deployment state resolved — pending: 1 on-box operator remediate transaction (relay block recorded on issue #437) (renderer rides merge; shell change deploys with the repo source on the worker)
 - [ ] Runtime acceptance resolved — orchestrator-owned + 1 operator on-box transaction (remediate → digest → activate --expected-sha256, output recorded per issue #437)
 - [x] Deferred work recorded — none
 - [x] Risks resolved or explicitly accepted — RISK-001..RISK-003 mitigated in plan.md Risk profile
@@ -59,9 +59,9 @@
 - [x] Issue/spec/plan/tasks current
 - [x] Exact changed-file scope verified
 - [x] Required tests and evidence complete (RED 18/18 on base 4db356f + full suite green on branch; PR peer review APPROVE is merge-phase, orchestrator-owned)
-- [ ] Required CI green — exact-head PR CI — orchestrator-owned (PR creation and exact-head CI)
-- [ ] Exact-green-head merge complete — orchestrator-owned
-- [ ] Deployment state resolved — orchestrator-owned
+- [x] Required CI green — exact-head PR CI — all 8 required checks pass on PR #439 head dfcda7a (runs 37943858424/84/88)
+- [x] Exact-green-head merge complete — PR #439 squash-merged as a36a7d6
+- [ ] Deployment state resolved — pending: 1 on-box operator remediate transaction (relay block recorded on issue #437)
 - [ ] Runtime acceptance resolved — orchestrator-owned + 1 operator on-box remediate transaction with recorded output
 - [x] Deferred work recorded — none
 - [x] Risks resolved or explicitly accepted — RISK-001..RISK-003 in plan.md Risk profile (all MITIGATED)
