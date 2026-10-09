@@ -18,6 +18,7 @@ import re
 import stat
 import sys
 from pathlib import Path
+from typing import NamedTuple, Sequence
 from urllib.parse import urlsplit
 
 
@@ -520,16 +521,21 @@ def _scan_auth_entries(lines: list[str], start: int, end: int) -> list[dict[str,
     return entries
 
 
-def _parse_auth_entry_fields(lines: list[str], entry: dict[str, object]) -> tuple[set[str], set[str], bool]:
-    """Parse the ips/actions scope of one authInternalUsers entry.
+def _parse_auth_entry_fields(lines: list[str], entry: dict[str, object]) -> tuple[set[str], set[str], set[str], bool]:
+    """Parse the ips/actions/paths scope of one authInternalUsers entry.
 
-    Returns (ips, actions, well_formed). `well_formed` is False when the entry
-    carries content this bounded tool does not model (unknown fields, deeper
-    nesting such as permission-level ips, or comments inside the entry); such
-    entries are never deletable — fail closed.
+    Returns (ips, actions, paths, well_formed). `well_formed` is False when the
+    entry carries content this bounded tool does not model (unknown fields,
+    deeper nesting such as permission-level ips, or comments inside the entry);
+    such entries are never deletable — fail closed.
+
+    Issue #444: permission-level `path:` scalars are collected into `paths`
+    (quote-stripped, comma-split) so a declared prune can match the exact
+    (path, ips, actions) triple. An empty `path:` value is unmodeled.
     """
     ips: set[str] = set()
     actions: set[str] = set()
+    paths: set[str] = set()
     well_formed = True
     in_ips = False
     in_permissions = False
@@ -596,9 +602,20 @@ def _parse_auth_entry_fields(lines: list[str], entry: dict[str, object]) -> tupl
             actions.add(stripped.split(":", 1)[1].strip())
             continue
         if in_permissions and stripped.startswith("path:"):
+            value = stripped.split(":", 1)[1].strip()
+            if not value:
+                # A path block shape this bounded tool does not model.
+                reset()
+                continue
+            if value.startswith("["):
+                value = value[1:-1] if value.endswith("]") else value[1:]
+            for part in value.split(","):
+                part = part.strip().strip('"').strip("'")
+                if part:
+                    paths.add(part)
             continue
         reset()
-    return ips, actions, well_formed
+    return ips, actions, paths, well_formed
 
 
 def scan_foreign_auth_rules(text: str) -> list[str]:
@@ -614,7 +631,7 @@ def scan_foreign_auth_rules(text: str) -> list[str]:
     for entry in _scan_auth_entries(lines, start, end):
         if entry["marked"]:
             continue
-        ips, actions, well_formed = _parse_auth_entry_fields(lines, entry)
+        ips, actions, _paths, well_formed = _parse_auth_entry_fields(lines, entry)
         suffix = "" if well_formed else " (unmodeled fields)"
         descriptions.append(
             f"line {entry['start']}: ips={sorted(ips)} actions={sorted(actions)}{suffix}"
@@ -631,15 +648,95 @@ def count_foreign_auth_rules(text: str) -> int:
     return len(scan_foreign_auth_rules(text))
 
 
-def sanitize_foreign_auth_rules(text: str) -> tuple[str, int]:
-    """Prune foreign unmarked auth rules scoped EXACTLY like the canonical
-    loopback API rule (ips == {127.0.0.1}, actions == {"api"}, fully modeled).
+class DeclaredAuthPrune(NamedTuple):
+    """Issue #444: one explicit opt-in prune declaration.
+
+    `path` is a single MediaMTX path name; `ips` and `actions` are the exact
+    scope the operator declares removable. A foreign unmarked rule is
+    deletable under this declaration only when its parsed permission-path set
+    equals {path}, its ips set equals set(ips) and its actions set equals
+    set(actions) — partial matches stay fail-closed.
+    """
+
+    path: str
+    ips: tuple[str, ...]
+    actions: tuple[str, ...]
+
+
+ALLOWED_DECLARED_PRUNE_ACTIONS = frozenset({"read", "publish", "api"})
+
+
+def parse_declared_auth_prune(spec: str) -> DeclaredAuthPrune:
+    """Parse one `--prune-declared` declaration (issue #444).
+
+    Grammar (documented in the sanitize runbook): comma-separated tokens;
+    each token is either `key=value` — starting the section for key
+    path|ips|actions — or a bare value continuing the previous key. Exactly
+    one `path=`, at least one ip (validated IPv4/IPv6) and at least one
+    action (restricted to the renderer vocabulary read|publish|api) are
+    required; anything else raises ConfigError.
+    """
+    error = f"invalid --prune-declared declaration {spec!r}"
+    path: str | None = None
+    ips: list[str] = []
+    actions: list[str] = []
+    section: str | None = None
+    for raw_token in spec.split(","):
+        token = raw_token.strip()
+        if not token:
+            raise ConfigError(f"{error}: empty value")
+        if "=" in token:
+            key, value = (part.strip() for part in token.split("=", 1))
+            if key not in ("path", "ips", "actions"):
+                raise ConfigError(f"{error}: unknown key {key!r}")
+            if key == "path" and path is not None:
+                raise ConfigError(f"{error}: duplicate path key")
+            if not value:
+                raise ConfigError(f"{error}: empty value for key {key!r}")
+            section = key
+        else:
+            if section is None:
+                raise ConfigError(f"{error}: bare value {token!r} before any key=")
+            if section == "path":
+                raise ConfigError(f"{error}: path takes exactly one value")
+            value = token
+        if section == "path":
+            path = value
+        elif section == "ips":
+            ips.append(value)
+        else:
+            actions.append(value)
+    if path is None or not ips or not actions:
+        raise ConfigError(f"{error}: path, ips and actions are all required")
+    for address in ips:
+        try:
+            ipaddress.ip_address(address)
+        except ValueError:
+            raise ConfigError(f"{error}: invalid ip {address!r}") from None
+    for action in actions:
+        if action not in ALLOWED_DECLARED_PRUNE_ACTIONS:
+            allowed = ", ".join(sorted(ALLOWED_DECLARED_PRUNE_ACTIONS))
+            raise ConfigError(f"{error}: action {action!r} outside the allowed vocabulary ({allowed})")
+    if any(character.isspace() for character in path):
+        raise ConfigError(f"{error}: path {path!r} must not contain whitespace")
+    return DeclaredAuthPrune(path=path, ips=tuple(ips), actions=tuple(actions))
+
+
+def sanitize_foreign_auth_rules_declared(
+    text: str, declared_prunes: Sequence[DeclaredAuthPrune]
+) -> tuple[str, int, list[int]]:
+    """Prune foreign unmarked auth rules: the canonical loopback-API scope
+    always, plus any rule matching an explicitly declared (path, ips, actions)
+    triple exactly (issue #444).
 
     Any other foreign rule fails the whole sanitize closed (ConfigError,
     report naming the offending scope) BEFORE any deletion — the input text is
     returned untouched on failure. Marked "# Sea Speed " rules are never
     parsed for deletion and are preserved byte-identically (post-condition
-    asserted). Issue #436.
+    asserted); a declaration never removes a marked rule even on an exact
+    triple match. Returns (pruned text, total removed, per-declaration removed
+    counts in declaration order). Without declarations the behavior is exactly
+    the #436 default.
     """
     _require_internal_auth_method(text, "auth sanitization")
     lines = _split_lines(text)
@@ -652,17 +749,34 @@ def sanitize_foreign_auth_rules(text: str) -> tuple[str, int]:
     ]
     foreign = [entry for entry in entries if not entry["marked"]]
     if not foreign:
-        return text, 0
+        return text, 0, [0] * len(declared_prunes)
     deletable: list[dict[str, object]] = []
+    per_declaration = [0] * len(declared_prunes)
     for entry in foreign:
-        ips, actions, well_formed = _parse_auth_entry_fields(lines, entry)
-        if not (well_formed and ips == CANONICAL_API_SCOPE_IPS and actions == CANONICAL_API_SCOPE_ACTIONS):
+        ips, actions, paths, well_formed = _parse_auth_entry_fields(lines, entry)
+        api_scope = (
+            well_formed and ips == CANONICAL_API_SCOPE_IPS and actions == CANONICAL_API_SCOPE_ACTIONS
+        )
+        matched = -1
+        if well_formed and not api_scope:
+            for position, declaration in enumerate(declared_prunes):
+                if (
+                    paths == {declaration.path}
+                    and ips == set(declaration.ips)
+                    and actions == set(declaration.actions)
+                ):
+                    matched = position
+                    break
+        if not api_scope and matched < 0:
             raise ConfigError(
                 "foreign unmarked authInternalUsers rule is outside the canonical "
-                f"loopback-api scope and was not removed (line {entry['start']}, "
-                f"ips={sorted(ips)}, actions={sorted(actions)})"
+                "loopback-api scope and matches no declared prune "
+                f"(line {entry['start']}, ips={sorted(ips)}, actions={sorted(actions)}, "
+                f"paths={sorted(paths)})"
             )
         deletable.append(entry)
+        if matched >= 0:
+            per_declaration[matched] += 1
     keep = [True] * len(lines)
     for entry in deletable:
         for index in range(entry["start"], entry["end"]):  # type: ignore[arg-type]
@@ -680,7 +794,22 @@ def sanitize_foreign_auth_rules(text: str) -> tuple[str, int]:
         raise ConfigError("sanitize post-condition failed: marked auth rules changed")
     if count_foreign_auth_rules(pruned) != 0:
         raise ConfigError("sanitize post-condition failed: foreign auth rules remain")
-    return pruned, len(deletable)
+    return pruned, len(deletable), per_declaration
+
+
+def sanitize_foreign_auth_rules(text: str) -> tuple[str, int]:
+    """Prune foreign unmarked auth rules scoped EXACTLY like the canonical
+    loopback API rule (ips == {127.0.0.1}, actions == {"api"}, fully modeled).
+
+    Any other foreign rule fails the whole sanitize closed (ConfigError,
+    report naming the offending scope) BEFORE any deletion — the input text is
+    returned untouched on failure. Marked "# Sea Speed " rules are never
+    parsed for deletion and are preserved byte-identically (post-condition
+    asserted). Issue #436; explicit opt-in declarations ride the #444
+    `_declared` variant.
+    """
+    pruned, removed, _per_declaration = sanitize_foreign_auth_rules_declared(text, ())
+    return pruned, removed
 
 
 def _reader_rule_ips_in_order(lines: list[str], marker_index: int, end: int) -> list[str]:
@@ -970,15 +1099,28 @@ def render_ubuntu_sanitize_auth(args: argparse.Namespace) -> str:
          not the legacy span-merge verify)
       -> verify-after (marked loopback API rule intact on the candidate)
       -> write the 0600 candidate and emit the digest evidence line.
+
+    Issue #444: repeatable explicit opt-in `--prune-declared` declarations
+    (path/ips/actions grammar) extend the removable set with unmarked rules
+    matching a declared triple exactly; without declarations the behavior is
+    byte-for-byte the #436 default. Each declaration gets a
+    `DECLARED_PRUNED ... removed=N` evidence line.
     """
+    declared_prunes = [parse_declared_auth_prune(spec) for spec in args.prune_declared]
     text = read_config(args.config)
     verify_internal_api_rule(text)
-    pruned, removed = sanitize_foreign_auth_rules(text)
+    pruned, removed, per_declaration = sanitize_foreign_auth_rules_declared(text, declared_prunes)
     remaining = count_foreign_auth_rules(pruned)
     if remaining != 0:
         raise ConfigError(f"foreign unmarked authInternalUsers rules remain after sanitize: {remaining}")
     verify_internal_api_rule(pruned)
     digest = write_candidate(args.output, pruned)
+    for declaration, declaration_removed in zip(declared_prunes, per_declaration):
+        print(
+            f"DECLARED_PRUNED path={declaration.path} "
+            f"ips={','.join(declaration.ips)} actions={','.join(declaration.actions)} "
+            f"removed={declaration_removed}"
+        )
     print(
         f"SANITIZED mode=ubuntu-sanitize-auth foreign_rules_removed={removed} "
         f"foreign_rules_remaining={remaining} api_rule=loopback-watchdog-intact "
@@ -1124,10 +1266,17 @@ def build_parser() -> argparse.ArgumentParser:
 
     sanitize = sub.add_parser(
         "ubuntu-sanitize-auth",
-        help="prune ONLY foreign unmarked auth rules scoped exactly like the canonical loopback API rule (issue #436)",
+        help="prune ONLY foreign unmarked auth rules scoped exactly like the canonical loopback API rule, plus explicitly declared prunes (issues #436/#444)",
     )
     sanitize.add_argument("--config", type=Path, required=True)
     sanitize.add_argument("--output", type=Path, required=True)
+    sanitize.add_argument(
+        "--prune-declared",
+        action="append",
+        default=[],
+        metavar="SPEC",
+        help="explicit opt-in prune declaration path=NAME,ips=IP[,IP...],actions=ACTION[,ACTION...] (repeatable; #444)",
+    )
     sanitize.set_defaults(handler=render_ubuntu_sanitize_auth)
 
     remediate = sub.add_parser(

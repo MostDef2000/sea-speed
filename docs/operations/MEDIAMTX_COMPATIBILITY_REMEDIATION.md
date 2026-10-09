@@ -208,6 +208,59 @@ transaction (`camera-relay.sh sanitize`, renderer mode
   secrets are never displayed (`SECRETS_DISPLAYED=NO`). A failed sanitize
   leaves the previous candidate untouched and it must not be activated.
 
+### Declared-prune sanitize runbook (issue #444)
+
+The 2026-10-10 operator sanitize retry failed closed as designed: besides the
+target loopback-API duplicate, the live config carries two UNMARKED legacy
+`authInternalUsers` rules for the dead `cam1-test` path (ips
+`["10.123.239.102"]` with actions `publish, read`; ips `["10.123.239.101"]`
+with action `read`). Repository evidence: `cam1-test` is dead legacy (its only
+repository reference is a source-URL comment in a test fixture). #444 adds
+repeatable explicit opt-in prune declarations to the same sanitize
+transaction — retirement stays canonical and auditable, with no manual config
+edits:
+
+- Declaration grammar (repeatable `--prune-declared SPEC`, one per legacy
+  rule): `path=NAME,ips=IPv4[,IPv4...],actions=read|publish|api[, ...]` —
+  comma-separated; a bare token continues the previous key. Exactly one
+  `path=`, at least one ip and at least one action are required; unknown
+  keys, invalid ips, actions outside the renderer vocabulary
+  {read, publish, api} and duplicate `path=` fail the transaction closed.
+- Scope: a declared triple makes ONLY unmarked rules whose parsed
+  (permission-path set, ips set, actions set) equals the declaration exactly
+  removable — a partial match (same path, different ip; extra ip; extra
+  action) is undeclared foreign scope and still refuses the whole
+  transaction. Marked `# Sea Speed ` rules are never removed, even on an
+  exact triple match. WITHOUT declarations the behavior is byte-for-byte the
+  #436 fail-closed default above.
+- Evidence: the renderer prints one `DECLARED_PRUNED path=... removed=N`
+  line per declaration; the shell aggregates them into
+  `DECLARED_PRUNED=path=cam1-test:removed=1,...` alongside
+  `SANITIZED_FOREIGN_AUTH=YES` and the digest. The loopback-API duplicate
+  still rides the default #436 scope and is counted in
+  `foreign_rules_removed` only.
+- Idempotency: re-running the same transaction on the sanitized config is a
+  no-op (`foreign_rules_removed=0`, per-declaration `removed=0`, candidate
+  byte-identical to the live config).
+- Operator retry window (issue #444 relay context; live config
+  `/etc/mediamtx/mediamtx.yml`, private-rtsp-address `10.123.239.102:8554`,
+  reader-ip `10.123.239.101` — note the reader IP equals the second legacy
+  rule's IP, which is why declarations match on the full path+ips+actions
+  triple):
+  1. Stop the AI worker (`systemctl stop sea-speed-worker` — the worker is
+     operator-managed; the relay tooling never controls it).
+  2. `camera-relay.sh sanitize --config /etc/mediamtx/mediamtx.yml --private-rtsp-address 10.123.239.102:8554 --reader-ip 10.123.239.101 --prune-declared "path=cam1-test,ips=10.123.239.102,actions=publish,read" --prune-declared "path=cam1-test,ips=10.123.239.101,actions=read"` —
+     both legacy rules removed, `DECLARED_PRUNED=path=cam1-test:removed=1,path=cam1-test:removed=1`,
+     `SANITIZED_FOREIGN_AUTH=YES`, `CANDIDATE_SHA256=<digest>`.
+  3. `camera-relay.sh activate --config /etc/mediamtx/mediamtx.yml --private-rtsp-address 10.123.239.102:8554 --reader-ip 10.123.239.101 --expected-sha256 <digest>` —
+     the unchanged digest-bound runbook (backup, atomic install, relay
+     restart, listener probe; automatic rollback is not authorized).
+  4. Start the AI worker (`systemctl start sea-speed-worker`).
+  5. Remediate verify: `camera-relay.sh status`, a re-run of `sanitize` with
+     the same declarations (`foreign_rules_removed=0`, no-op), and the #437
+     reader-rule remediate check to confirm the canonical reader rules
+     survived the transaction byte-identically.
+
 ### Reader-rule remediate runbook (issue #437)
 
 During the #372 operator verification (2026-10-09) the canonical tool
