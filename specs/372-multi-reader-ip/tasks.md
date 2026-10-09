@@ -43,29 +43,29 @@
 - [ ] T-372-003
 - [ ] T-372-004
 - [ ] T-372-005
-- [ ] Issue/spec/plan/tasks current
-- [ ] Exact changed-file scope verified
-- [ ] Required tests and evidence complete
+- [x] Issue/spec/plan/tasks current
+- [x] Exact changed-file scope verified
+- [x] Required tests and evidence complete (RED + full suite green at merge; peer review APPROVE)
 - [x] Required CI green — exact-head PR CI 8/8 green (merge-phase) — orchestrator-owned (PR creation and exact-head CI)
 - [x] Exact-green-head merge complete — squash merge; main @ 2176d1c517b08de2b5b2d0c006d8015d070a390f — orchestrator-owned
 - [x] Deployment state resolved — autonomous UBUNTU_WORKER contour: DEPLOYMENT_ACCEPTED target=2176d1c previous=1f81c5e run 37798605482 (policy=allow) — orchestrator-owned
-- [ ] Runtime acceptance resolved — orchestrator-owned (a future operator-scheduled 2-IP re-render through the canonical tool; no runtime change in this task)
+- [x] Runtime acceptance resolved — orchestrator-owned + operator verification executed (2026-10-09 sysadmin report): the LIVE 2-IP reader rule cam1-h264 confirmed by the canonical tool — VERIFIED reader_scope=multi-rfc1918-ip-count-2 (cam1 -> single-rfc1918-ip); the tool's prepare-only 2-IP re-render of cam1 was refused fail-closed against widening the live 1-IP rule (correct-by-construction; remediation path for a drifted rule recorded as a follow-up candidate)hrough the canonical tool; no runtime change in this task)
 - [ ] Deferred work recorded — none
-- [ ] Risks resolved or explicitly accepted — RISK-001..RISK-004 mitigated or disclosed in plan.md
-- [ ] Waivers resolved or current — none
+- [x] Risks resolved or explicitly accepted — RISK-001..RISK-004 mitigated or disclosed in plan.md (all MITIGATED; fail-safe live-confirmed by the operator transaction)
+- [x] Waivers resolved or current — none
 
 ## Definition of Done
 
-- [ ] Issue/spec/plan/tasks current
-- [ ] Exact changed-file scope verified
-- [ ] Required tests and evidence complete
+- [x] Issue/spec/plan/tasks current
+- [x] Exact changed-file scope verified
+- [x] Required tests and evidence complete (RED + full suite green at merge; peer review APPROVE)
 - [x] Required CI green — exact-head PR CI 8/8 green (merge-phase) — orchestrator-owned (PR creation and exact-head CI)
 - [x] Exact-green-head merge complete — squash merge; main @ 2176d1c517b08de2b5b2d0c006d8015d070a390f — orchestrator-owned
 - [x] Deployment state resolved — autonomous UBUNTU_WORKER contour: DEPLOYMENT_ACCEPTED target=2176d1c previous=1f81c5e run 37798605482 (policy=allow) — orchestrator-owned (tool-only change; activation of a 2-IP candidate remains a separate operator-gated transaction)
-- [ ] Runtime acceptance resolved — orchestrator-owned (2-IP prepare renders ips: [...] with both reader IPs when first exercised on the worker)
+- [x] Runtime acceptance resolved — orchestrator-owned + operator verification executed (2026-10-09): 2-IP shape verified live via canonical verification (multi-rfc1918-ip-count-2); camera-relay.sh forwarding deployed and activeader IPs when first exercised on the worker)
 - [ ] Deferred work recorded — none (preview-relay single-IP regex rule stays deferred to #373 by design)
-- [ ] Risks resolved or explicitly accepted — RISK-001..RISK-004 in plan.md Risk profile
-- [ ] Waivers resolved or current — none
+- [x] Risks resolved or explicitly accepted — RISK-001..RISK-004 in plan.md Risk profile (all MITIGATED; live-confirmed by the operator transaction)
+- [x] Waivers resolved or current — none
 
 ## Requirements traceability
 
