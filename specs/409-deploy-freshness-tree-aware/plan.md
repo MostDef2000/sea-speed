@@ -123,26 +123,63 @@
 - Risk profile: NOT REQUIRED
 - Risk-profile rationale: the Change Contract formula derives NOT REQUIRED for
   impact CONTROL_PLANE with NONE-like security/schema/destructive/high-risk
-  fields; the risk content below is retained in full because the change set
-  contains `.github/workflows/deploy-runtime-autonomous.yml`, a
-  deployment-workflow change, which still carries the full deployment
-  transaction audit (see Delivery section) — the audit and the risk-profile
-  boolean are independent gates. The #409 Outcome Contract records the same
-  derived impact CONTROL_PLANE (no api/, worker/ or VPS-runtime source paths
-  change).
-- RISK-001 | Category: OPS | Probability: 2 | Impact: 4 | Score: 8 | Mitigation: the tree-aware branch is a strict conjunction (descendant AND bot-pathspec-confined delta); out-of-scope deltas and non-descendant tips keep the existing fail-closed skip with the unchanged stale-evidence line, and the deployed commit stays the exact quality-approved SHA (contours receive steps.release.outputs.sha) | Validation: executed fixture scenarios test_non_bot_delta_keeps_fresh_false_with_stale_evidence, test_non_descendant_tip_keeps_fresh_false, test_exact_tip_is_fresh | Residual risk: LOW — a future bot writing outside specs/*/tasks.md would be skipped (stale) and fail closed | Owner: Delivery Orchestrator | Status: MITIGATED
-- RISK-002 | Category: TECH | Probability: 2 | Impact: 3 | Score: 6 | Mitigation: freshness acceptance and bot staging anchor on the same specs/*/tasks.md pathspec shape, pinned by validate_workflow_policy.py markers and exercised through git itself in tests; behavioral tests extract and run the real workflow shell block instead of re-implementing the logic | Validation: test_staging_command_confines_index_to_feature_tasks_md plus the four freshness fixture scenarios; validate_workflow_policy.py green | Residual risk: LOW — a sync script change to a different file set would need this contract updated in lockstep (AC-4 guard) | Owner: Delivery Orchestrator | Status: MITIGATED
-- RISK-003 | Category: SEC | Probability: 1 | Impact: 4 | Score: 4 | Mitigation: no new credentials, permissions or triggers; the workflow keeps contents: read, actions: read, checks: read, issues: read, pull-requests: read and pinned actions; the bot keeps contents: write with a now-narrower staging surface | Validation: validate_workflow_source loop over all workflows (permissions, pinned SHA actions) green; no new uses: entries introduced | Residual risk: NONE | Owner: Delivery Orchestrator | Status: MITIGATED
-- RISK-004 | Category: OPS | Probability: 1 | Impact: 3 | Score: 3 | Mitigation: if the bot ever produced a change outside its pathspec, restricted staging stages nothing and the commit fails visibly in the sync job instead of shipping an out-of-scope bot commit or widening the freshness exclude | Validation: staging pathspec confinement fixture (non-tasks.md changes stay unstaged); D-4 binary gates unchanged | Residual risk: LOW — the sync job would fail loudly and require an orchestrator decision; acceptable over silent widening | Owner: Delivery Orchestrator | Status: MITIGATED
+  fields; the risk content below is retained in full as informational prose
+  because the change set contains
+  `.github/workflows/deploy-runtime-autonomous.yml`, a deployment-workflow
+  change, which still carries the full deployment transaction audit — the
+  audit and the risk-profile boolean are independent gates. The #409 Outcome
+  Contract records the same derived impact CONTROL_PLANE (no api/, worker/ or
+  VPS-runtime source paths change).
+- Risk analysis (informational, contract formula derives NOT REQUIRED; four
+  risks, all mitigated):
+
+  1. Fail-closed conjunction (Category OPS, probability 2, impact 4). The
+     tree-aware branch is a strict conjunction — strict descendant AND
+     bot-pathspec-confined delta — so out-of-scope deltas and non-descendant
+     tips keep the existing fail-closed skip with the unchanged
+     stale-evidence line, and the deployed commit stays the exact
+     quality-approved SHA (contours receive steps.release.outputs.sha).
+     Validation: executed fixture scenarios
+     test_non_bot_delta_keeps_fresh_false_with_stale_evidence,
+     test_non_descendant_tip_keeps_fresh_false, test_exact_tip_is_fresh.
+     Residual risk: LOW — a future bot writing outside specs/*/tasks.md would
+     be skipped (stale) and fail closed. Owner: Delivery Orchestrator.
+     Status: MITIGATED.
+  2. Pathspec lockstep (Category TECH, probability 2, impact 3). Freshness
+     acceptance and bot staging anchor on the same single-level
+     specs/*/tasks.md pathspec literals, pinned by validate_workflow_policy.py
+     markers and exercised through git itself in tests; behavioral tests
+     extract and run the real workflow shell block instead of re-implementing
+     the logic. Validation: test_staging_command_confines_index_to_feature_tasks_md
+     plus the freshness fixture scenarios; validate_workflow_policy.py green.
+     Residual risk: LOW — a sync script change to a different file set would
+     need this contract updated in lockstep (AC-4 guard). Owner: Delivery
+     Orchestrator. Status: MITIGATED.
+  3. No new credentials (Category SEC, probability 1, impact 4). No new
+     credentials, permissions or triggers; the workflow keeps contents: read,
+     actions: read, checks: read, issues: read, pull-requests: read and
+     pinned actions; the bot keeps contents: write with a now-narrower staging
+     surface. Validation: validate_workflow_source loop over all workflows
+     (permissions, pinned SHA actions) green; no new uses: entries
+     introduced. Residual risk: NONE. Owner: Delivery Orchestrator. Status:
+     MITIGATED.
+  4. Bot file-set drift (Category OPS, probability 1, impact 3). If the bot
+     ever produced a change outside its pathspec, restricted staging stages
+     nothing and the commit fails visibly in the sync job instead of shipping
+     an out-of-scope bot commit or widening the freshness exclude.
+     Validation: staging pathspec confinement fixture (non-tasks.md changes
+     stay unstaged); binary gates unchanged. Residual risk: LOW — the sync
+     job would fail loudly and require an orchestrator decision; acceptable
+     over silent widening. Owner: Delivery Orchestrator. Status: MITIGATED.
 
 ## Test design
 
-- TEST-001 | Covers: RISK-001 | Level: unit | Priority: P0 | Evidence: tests/test_deploy_freshness.py — test_tasks_md_only_delta_after_quality_is_fresh_tree_modulo_tasks (bot tick tip yields fresh=true + fresh_basis=tree-modulo-tasks + descendant evidence line; RED-verified against the base workflow where it fails with fresh=false)
-- TEST-002 | Covers: RISK-001 | Level: unit | Priority: P0 | Evidence: tests/test_deploy_freshness.py — test_non_bot_delta_keeps_fresh_false_with_stale_evidence (api-file delta keeps fresh=false + unchanged stale line) + test_nested_tasks_md_delta_is_not_bot_shaped (tip whose only delta vs the quality SHA is the nested specs/001-x/sub/tasks.md keeps fresh=false; RED-proven against the pre-fix non-glob exclude where it wrongly yielded fresh=true)
-- TEST-003 | Covers: RISK-001 | Level: unit | Priority: P0 | Evidence: tests/test_deploy_freshness.py — test_non_descendant_tip_keeps_fresh_false (tip behind the quality SHA keeps fresh=false + stale line) + test_exact_tip_is_fresh (equality path fresh=true, basis tip when emitted)
-- TEST-004 | Covers: RISK-002 | Level: unit | Priority: P0 | Evidence: tests/test_deploy_freshness.py — test_staging_command_confines_index_to_feature_tasks_md (extracted staging command stages exactly the feature tasks.md set; plan.md, api-file, nested paths unstaged)
-- TEST-005 | Covers: RISK-002 | Level: unit | Priority: P0 | Evidence: tests/test_autonomous_execution_policy.py — extended router markers (merge-base --is-ancestor, ':(exclude)specs/*/tasks.md', fresh_basis values, Freshness basis:) + test_sync_merged_tasks_bot_stages_only_its_tasks_md_pathspec
-- TEST-006 | Covers: RISK-003 | Level: integration | Priority: P0 | Evidence: scripts/quality/validate_workflow_policy.py green (workflow source policies + new sync markers, git add -A ban) and full unittest suite green
+- TEST-001 | Covers: tree-aware race resolution (OPS) | Level: unit | Priority: P0 | Evidence: tests/test_deploy_freshness.py — test_tasks_md_only_delta_after_quality_is_fresh_tree_modulo_tasks (bot tick tip yields fresh=true + fresh_basis=tree-modulo-tasks + descendant evidence line; RED-verified against the base workflow where it fails with fresh=false)
+- TEST-002 | Covers: fail-closed conjunction (OPS) | Level: unit | Priority: P0 | Evidence: tests/test_deploy_freshness.py — test_non_bot_delta_keeps_fresh_false_with_stale_evidence (api-file delta keeps fresh=false + unchanged stale line) + test_nested_tasks_md_delta_is_not_bot_shaped (tip whose only delta vs the quality SHA is the nested specs/001-x/sub/tasks.md keeps fresh=false; RED-proven against the pre-fix non-glob exclude where it wrongly yielded fresh=true)
+- TEST-003 | Covers: fail-closed conjunction (OPS) | Level: unit | Priority: P0 | Evidence: tests/test_deploy_freshness.py — test_non_descendant_tip_keeps_fresh_false (tip behind the quality SHA keeps fresh=false + stale line) + test_exact_tip_is_fresh (equality path fresh=true, basis tip when emitted)
+- TEST-004 | Covers: pathspec lockstep (TECH) | Level: unit | Priority: P0 | Evidence: tests/test_deploy_freshness.py — test_staging_command_confines_index_to_feature_tasks_md (extracted staging command stages exactly the feature tasks.md set; plan.md, api-file, nested paths unstaged)
+- TEST-005 | Covers: pathspec lockstep (TECH) | Level: unit | Priority: P0 | Evidence: tests/test_autonomous_execution_policy.py — extended router markers (merge-base --is-ancestor, ':(glob,exclude)specs/*/tasks.md', fresh_basis values, Freshness basis:) + test_sync_merged_tasks_bot_stages_only_its_tasks_md_pathspec
+- TEST-006 | Covers: no-new-credentials (SEC) | Level: integration | Priority: P0 | Evidence: scripts/quality/validate_workflow_policy.py green (workflow source policies + new sync markers, git add -A ban) and full unittest suite green
 
 ## Correct-course check
 

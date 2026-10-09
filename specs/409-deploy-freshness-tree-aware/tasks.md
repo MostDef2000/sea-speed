@@ -49,7 +49,7 @@
 - [ ] Deployment state resolved — orchestrator-owned (next main-chain deploy exercises the tree-aware path)
 - [ ] Runtime acceptance resolved — orchestrator-owned (orchestrator run summary shows Freshness basis on the next raced merge)
 - [ ] Deferred work recorded — none
-- [ ] Risks resolved or explicitly accepted — RISK-001..RISK-004 mitigated or disclosed in plan.md
+- [ ] Risks resolved or explicitly accepted — plan.md Risk profile analysis (4 risks, all MITIGATED)
 - [ ] Waivers resolved or current — none
 
 ## Definition of Done
@@ -62,7 +62,7 @@
 - [ ] Deployment state resolved — orchestrator-owned (delivery-infrastructure change; production impact NONE)
 - [ ] Runtime acceptance resolved — orchestrator-owned (fresh_basis=tree-modulo-tasks evidence on the next raced merge)
 - [ ] Deferred work recorded — none
-- [ ] Risks resolved or explicitly accepted — RISK-001..RISK-004 in plan.md Risk profile
+- [ ] Risks resolved or explicitly accepted — plan.md Risk profile analysis (4 risks, all MITIGATED)
 - [ ] Waivers resolved or current — none
 
 ## Requirements traceability
