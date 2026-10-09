@@ -79,7 +79,7 @@ opt-in prune declarations:
   and the sanitize transaction block forwarding the declarations and
   emitting the aggregated `DECLARED_PRUNED=` evidence only when declarations
   were given. The `prepare`/`activate`/`remediate` flows are unchanged.
-- `tests/test_mediamtx_sanitize_auth.py`: RED-first extension (+22 tests in
+- `tests/test_mediamtx_sanitize_auth.py`: RED-first extension (+24 tests in
   4 new classes: declaration grammar, declared-prune core, CLI transaction,
   shell passthrough pins).
 - `docs/operations/MEDIAMTX_COMPATIBILITY_REMEDIATION.md`: declared-prune

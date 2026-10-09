@@ -37,7 +37,7 @@
    given (a missing renderer line fails closed via grep under pipefail).
    Usage documents the option and the declared-prune semantics. The
    activate runbook is byte-unchanged.
-4. Tests: extend `tests/test_mediamtx_sanitize_auth.py` (+22 tests, 4 new
+4. Tests: extend `tests/test_mediamtx_sanitize_auth.py` (+24 tests, 4 new
    classes — declaration grammar, declared-prune core, CLI transaction,
    shell passthrough pins) RED-first on base cf2a462.
 5. Docs: declared-prune runbook appended to the #436 sanitize section of
@@ -89,7 +89,7 @@
   never parses auth rules itself — it only forwards specs verbatim.
 - D-6: Tests extend the existing `tests/test_mediamtx_sanitize_auth.py`
   battery (same file as #436 — the domains share fixtures and helpers) in 4
-  new classes; the two byte-for-byte-default guards intentionally pass on
+  new classes; the CLI byte-for-byte-default guard intentionally passes on
   base (they pin today's behavior, not the new feature).
 - D-7: Docs live in the existing sanitize runbook section as a #444
   subsection — the retry window is the same transaction as #436 with
