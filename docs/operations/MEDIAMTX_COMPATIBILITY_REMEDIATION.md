@@ -208,6 +208,60 @@ transaction (`camera-relay.sh sanitize`, renderer mode
   secrets are never displayed (`SECRETS_DISPLAYED=NO`). A failed sanitize
   leaves the previous candidate untouched and it must not be activated.
 
+### Reader-rule remediate runbook (issue #437)
+
+During the #372 operator verification (2026-10-09) the canonical tool
+correctly REFUSED a prepare-only re-render of a drifted cam1 reader rule
+(fail-closed against widening via the `ensure_internal_reader_rule` byte-exact
+guard). The refusal is right; the gap was process: no repo-owned path
+converged a DRIFTED live reader rule back to canonical while PRESERVING the
+live rule's current scopes. The canonical tool now ships a bounded remediate
+transaction (`camera-relay.sh remediate`, renderer mode
+`ubuntu-remediate-reader`):
+
+- Scope: locates the canonical `# Sea Speed least-privilege reader` marker
+  block for the path, reuses `_parse_rule_block` to extract the LIVE
+  ips/actions, re-authorizes every scope element through the existing
+  validators (`validate_peer_reader_ip` then `validate_reader_ip` — the relay
+  profile renders reader IPs as literal RFC1918 IPv4), and re-emits the
+  canonical block via `_reader_rule_lines` preserving the live scopes.
+  Hand-edited FORM drift (missing `pass:` field, block-style or reordered
+  ips, unquoted values) converges to the exact block a fresh `ubuntu-relay`
+  render would produce for the same scopes.
+- Fail-closed: ANY unauthorized scope refuses the whole transaction —
+  non-IPv4, loopback, link-local, multicast, reserved, public or duplicate
+  ips; actions outside {read, publish}; `publish` on the read-only cam1
+  relay profile (publisher roles cannot be recovered from a flat live ips
+  list). A merged span (foreign unmarked entry between the drifted block and
+  the next reader marker) also fails closed: run the #436 sanitize first.
+  The offending scope is reported on stderr, nothing is replaced, the
+  candidate is not written, exit is nonzero.
+- Verify-before/verify-after: `verify-reader-auth` runs on the LIVE config
+  before the render (the drifted rule must still authorize the
+  operator-stated reader IPs) and on the CANDIDATE after it; the renderer
+  mode verifies the marked loopback API rule before and after, and asserts
+  byte-exact `ensure_internal_reader_rule` idempotency on the result.
+- Transaction shape (one bounded on-box transaction, run as root per the
+  `camera-relay.sh` gating):
+
+  1. `camera-relay.sh remediate --config /etc/mediamtx/mediamtx.yml --private-rtsp-address <RFC1918 IPv4:PORT> --reader-ip <VPS reader IP>` —
+     renders the converged candidate into the root-only state root and prints
+     `REMEDIATED_READER=YES`, `REMEDIATION_NEEDED=YES|NO` plus
+     `CANDIDATE_SHA256=<digest>`.
+  2. `camera-relay.sh activate --config /etc/mediamtx/mediamtx.yml --private-rtsp-address <same> --reader-ip <same> --expected-sha256 <digest>` —
+     the existing digest-bound runbook, reused unchanged: digest/mode checks,
+     reader verify on the candidate, AI-worker-stopped gate, root-only
+     timestamped backup, atomic install, `systemctl restart` of the relay
+     service, private-listener probe. Automatic rollback is not authorized;
+     the backup path is printed for an explicit rollback decision.
+  3. Verify: `camera-relay.sh status` and a re-run of `remediate` must report
+     `REMEDIATION_NEEDED=NO` (idempotent no-op whose candidate is
+     byte-identical to the live config).
+
+- The AI worker is never started, stopped, restarted or enabled by this flow;
+  secrets are never displayed (`SECRETS_DISPLAYED=NO`). A failed remediate
+  leaves the previous candidate untouched and it must not be activated.
+
 ## Acceptance boundary
 
 Issue #87 is complete only when all of the following are proven at runtime:

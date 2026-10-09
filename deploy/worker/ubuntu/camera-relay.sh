@@ -8,6 +8,7 @@ Usage:
   camera-relay.sh prepare --config PATH --private-rtsp-address IPv4:PORT --reader-ip IPv4 [--reader-ip IPv4 ...] [options]
   camera-relay.sh activate --config PATH --private-rtsp-address IPv4:PORT --reader-ip IPv4 [--reader-ip IPv4 ...] --expected-sha256 SHA256 [options]
   camera-relay.sh sanitize --config PATH --private-rtsp-address IPv4:PORT --reader-ip IPv4 [--reader-ip IPv4 ...] [options]
+  camera-relay.sh remediate --config PATH --private-rtsp-address IPv4:PORT --reader-ip IPv4 [--reader-ip IPv4 ...] [options]
   camera-relay.sh status [--private-rtsp-address IPv4:PORT] [options]
 
 Options:
@@ -35,12 +36,26 @@ the transaction closed (reported, nothing deleted). The canonical marked
 pruned candidate reuses the digest-bound activate flow (--expected-sha256);
 a failed sanitize leaves the previous candidate untouched and it must not be
 activated.
+
+remediate (issue #437) renders a candidate that converges a DRIFTED marked
+reader rule back to the canonical read-only relay block while PRESERVING the
+live rule's current scopes: the renderer locates the marker-anchored block,
+reuses _parse_rule_block to extract the live ips/actions, re-authorizes every
+scope element through the existing validators, and re-emits the canonical
+block via _reader_rule_lines. Any unauthorized scope (non-IPv4, loopback,
+public or duplicate ips; actions outside {read, publish}; publish on the
+read-only cam1 relay profile) fails the whole transaction closed (reported,
+nothing replaced). A conforming rule is an idempotent no-op
+(REMEDIATION_NEEDED=NO) whose candidate is byte-identical to the live config.
+Installation reuses the digest-bound activate flow (--expected-sha256); a
+failed remediate leaves the previous candidate untouched and it must not be
+activated.
 EOF
 }
 
 command="${1:-}"
 case "$command" in
-  prepare|activate|sanitize|status) shift ;;
+  prepare|activate|sanitize|remediate|status) shift ;;
   -h|--help|"") usage; exit 0 ;;
   *) echo "ERROR unknown command: $command" >&2; usage >&2; exit 2 ;;
 esac
@@ -288,6 +303,53 @@ if [[ "$command" == "sanitize" ]]; then
     --path cam1 >/dev/null
 
   printf 'SANITIZED_FOREIGN_AUTH=YES\n'
+  printf 'CANDIDATE_SHA256=%s\n' "$digest"
+  printf 'MUTATIONS=PROTECTED_CANDIDATE_ONLY\n'
+  printf 'SERVICE_RESTARTED=NO\n'
+  printf 'AI_WORKER_STARTED=NO\n'
+  printf 'SECRETS_DISPLAYED=NO\n'
+  exit 0
+fi
+
+if [[ "$command" == "remediate" ]]; then
+  # Issue #437: bounded drifted-reader-rule remediation transaction. Verify-before
+  # on the LIVE config (the reader rule must still authorize the operator-stated
+  # reader IPs), then the renderer mode verifies the marked loopback API rule,
+  # locates the drifted marked reader block, reuses _parse_rule_block for the
+  # live ips/actions, re-authorizes every scope element through the existing
+  # validators (non-IPv4/loopback/public/duplicate ips, actions outside
+  # {read, publish}, publish on the read-only cam1 relay profile all fail
+  # closed: reported, nothing replaced, candidate untouched), re-emits the
+  # canonical block via _reader_rule_lines preserving the live scopes, and
+  # re-verifies reader + API rules on the result. Verify-after re-checks the
+  # reader rule on the CANDIDATE. Installation is only through the existing
+  # digest-bound activate flow below; automatic rollback is not authorized.
+  python3 "$renderer" verify-reader-auth \
+    --config "$config" \
+    "${reader_ip_args[@]}" \
+    --path cam1 >/dev/null
+
+  render_out="$(python3 "$renderer" ubuntu-remediate-reader \
+    --config "$config" \
+    --path cam1 \
+    --output "$candidate")"
+  printf '%s\n' "$render_out"
+
+  digest="$(sha256sum "$candidate" | awk '{print $1}')"
+  printf '%s\n' "$digest" > "$candidate_sha_file"
+  chown root:root "$candidate" "$candidate_sha_file"
+  chmod 0600 "$candidate" "$candidate_sha_file"
+
+  python3 "$renderer" verify-reader-auth \
+    --config "$candidate" \
+    "${reader_ip_args[@]}" \
+    --path cam1 >/dev/null
+
+  remediation_needed="NO"
+  case "$render_out" in *"remediation_needed=YES"*) remediation_needed="YES" ;; esac
+
+  printf 'REMEDIATED_READER=YES\n'
+  printf 'REMEDIATION_NEEDED=%s\n' "$remediation_needed"
   printf 'CANDIDATE_SHA256=%s\n' "$digest"
   printf 'MUTATIONS=PROTECTED_CANDIDATE_ONLY\n'
   printf 'SERVICE_RESTARTED=NO\n'
