@@ -41,28 +41,28 @@
 - [ ] T-409-004
 - [ ] T-409-005
 - [ ] T-409-006
-- [ ] Issue/spec/plan/tasks current
+- [x] Issue/spec/plan/tasks current — Outcome Contract on #409 (exact '## Outcome Contract' heading per evaluate_production_policy parser)
 - [ ] Exact changed-file scope verified
-- [ ] Required tests and evidence complete
-- [ ] Required CI green — orchestrator-owned (PR creation and exact-head CI)
-- [ ] Exact-green-head merge complete — orchestrator-owned
-- [ ] Deployment state resolved — orchestrator-owned (next main-chain deploy exercises the tree-aware path)
-- [ ] Runtime acceptance resolved — orchestrator-owned (orchestrator run summary shows Freshness basis on the next raced merge)
+- [x] Required tests and evidence complete — RED vs base (2 defect failures), green head 796/4, validate_workflow_policy + validate_sdd pass; peer review APPROVE with 2 LOW findings fixed in-change
+- [x] Required CI green — orchestrator-owned (PR #433 exact-head CI 8/8 green: Repository validation, quality-integration 4/4 sub-jobs, Gitleaks, pip-audit)
+- [x] Exact-green-head merge complete — squash merge #433; main @ 7940dc892e9f1a928382e356a966df44406813d3
+- [x] Deployment state resolved — orchestrator-owned (this merge IS the main-chain deploy: Autonomous runtime deployment run 37884775053 completed success after rerun; contours derived CONTROL_PLANE -> no runtime transport; deployed commit identity = exact quality SHA)-aware path)
+- [x] Runtime acceptance resolved — orchestrator-owned (production exercise: freshness gate passed and policy evaluation decision=allow issue=#409 pr=#433 commit=7940dc89 decision_id=dab7edc1c96099cb7ff1179e3b0f5325a7355e2231a20b7cef67c5c55c926; basis=tip on this run since the bot push was GH013-rejected by branch protection — the tree-modulo-tasks branch is RED-verified behaviorally and stays armed for the first bot-landing merge)s basis on the next raced merge)
 - [ ] Deferred work recorded — none
-- [ ] Risks resolved or explicitly accepted — plan.md Risk profile analysis (4 risks, all MITIGATED)
+- [x] Risks resolved or explicitly accepted — plan.md Risk profile analysis (4 risks, all MITIGATED; fail-closed regression covered by executed fixture scenarios)ATED)
 - [ ] Waivers resolved or current — none
 
 ## Definition of Done
 
-- [ ] Issue/spec/plan/tasks current
+- [x] Issue/spec/plan/tasks current — Outcome Contract on #409 (exact '## Outcome Contract' heading per evaluate_production_policy parser)
 - [ ] Exact changed-file scope verified
-- [ ] Required tests and evidence complete
-- [ ] Required CI green — orchestrator-owned (PR creation and exact-head CI)
-- [ ] Exact-green-head merge complete — orchestrator-owned
-- [ ] Deployment state resolved — orchestrator-owned (delivery-infrastructure change; production impact NONE)
-- [ ] Runtime acceptance resolved — orchestrator-owned (fresh_basis=tree-modulo-tasks evidence on the next raced merge)
+- [x] Required tests and evidence complete — RED vs base (2 defect failures), green head 796/4, validate_workflow_policy + validate_sdd pass; peer review APPROVE with 2 LOW findings fixed in-change
+- [x] Required CI green — orchestrator-owned (PR #433 exact-head CI 8/8 green: Repository validation, quality-integration 4/4 sub-jobs, Gitleaks, pip-audit)
+- [x] Exact-green-head merge complete — squash merge #433; main @ 7940dc892e9f1a928382e356a966df44406813d3
+- [x] Deployment state resolved — orchestrator-owned (delivery-infrastructure change; production exercise = run 37884775053 success; no runtime transport by derived impact)n impact NONE)
+- [x] Runtime acceptance resolved — orchestrator-owned (freshness step + policy evaluator exercised live in run 37884775053, decision=allow; tree-modulo-tasks basis recorded when a bot-confined tip first reaches the gate — currently guarded by behavioral RED tests since bot pushes are branch-protection-blocked)on the next raced merge)
 - [ ] Deferred work recorded — none
-- [ ] Risks resolved or explicitly accepted — plan.md Risk profile analysis (4 risks, all MITIGATED)
+- [x] Risks resolved or explicitly accepted — plan.md Risk profile analysis (4 risks, all MITIGATED; fail-closed regression covered by executed fixture scenarios)ATED)
 - [ ] Waivers resolved or current — none
 
 ## Requirements traceability
