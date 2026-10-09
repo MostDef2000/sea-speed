@@ -15,6 +15,14 @@ Options:
   --reader-ip IPv4         Exact RFC1918 VPS ZeroTier reader IP allowed to read cam1;
                            repeatable or comma-separated for multi-reader deployments
                            (issue #372); all occurrences render in the given order
+  --prune-declared SPEC    sanitize only (issue #444): explicit opt-in prune
+                           declaration for a dead legacy auth rule
+                           path=NAME,ips=IPv4[,IPv4...],actions=read|publish|api[, ...];
+                           repeatable, one declaration per legacy rule; bare
+                           comma tokens continue the previous key. Only
+                           UNMARKED rules matching the declared
+                           (path, ips, actions) triple exactly are removed;
+                           anything else still fails closed.
   --source-env-file PATH   Protected worker env file (default: /opt/sea-speed-worker/shared/config/worker.env)
   --service NAME           Independent relay service (default: sea-speed-stream.service)
   --worker-service NAME    AI worker service that must remain stopped (default: sea-speed-worker.service)
@@ -32,7 +40,13 @@ sanitize (issue #436) renders a pruned candidate that removes ONLY foreign
 unmarked authInternalUsers rules whose scope exactly equals the canonical
 loopback API rule (ips 127.0.0.1, action api); any other foreign rule fails
 the transaction closed (reported, nothing deleted). The canonical marked
-"# Sea Speed " rules are preserved byte-identically. Installation of the
+"# Sea Speed " rules are preserved byte-identically. Issue #444 adds
+explicit opt-in prune declarations (--prune-declared, repeatable): each
+declared (path, ips, actions) triple makes ONLY the unmarked rules matching
+that triple exactly removable (per-declaration removals reported in
+DECLARED_PRUNED); partial matches and undeclared foreign rules still fail
+the transaction closed, and WITHOUT declarations the behavior is unchanged.
+Installation of the
 pruned candidate reuses the digest-bound activate flow (--expected-sha256);
 a failed sanitize leaves the previous candidate untouched and it must not be
 activated.
@@ -63,6 +77,7 @@ esac
 config=""
 private_rtsp_address=""
 reader_ips=()
+declared_prune_specs=()
 source_env_file="/opt/sea-speed-worker/shared/config/worker.env"
 service_name="sea-speed-stream.service"
 worker_service="sea-speed-worker.service"
@@ -83,6 +98,14 @@ while [[ $# -gt 0 ]]; do
         [[ -n "$__reader_ip_part" ]] || { echo "ERROR --reader-ip contains an empty entry" >&2; exit 2; }
         reader_ips+=("$__reader_ip_part")
       done
+      shift 2
+      ;;
+    --prune-declared)
+      # Issue #444: repeatable explicit opt-in prune declaration, forwarded
+      # verbatim to the renderer (which validates the grammar fail-closed).
+      [[ $# -ge 2 ]] || { echo "ERROR --prune-declared requires a spec" >&2; exit 2; }
+      [[ -n "$2" ]] || { echo "ERROR --prune-declared spec must not be empty" >&2; exit 2; }
+      declared_prune_specs+=("$2")
       shift 2
       ;;
     --source-env-file) [[ $# -ge 2 ]] || { echo "ERROR --source-env-file requires a path" >&2; exit 2; }; source_env_file="$2"; shift 2 ;;
@@ -283,14 +306,25 @@ if [[ "$command" == "sanitize" ]]; then
   # foreign-rule count == 0 explicitly. Verify-after re-checks the reader
   # rule on the CANDIDATE. Installation is only through the existing
   # digest-bound activate flow below; automatic rollback is not authorized.
+  # Issue #444: repeatable --prune-declared specs are forwarded to the
+  # renderer; each declared (path, ips, actions) triple makes exactly the
+  # matching unmarked legacy rules removable, with per-declaration removals
+  # reported in DECLARED_PRUNED below.
   python3 "$renderer" verify-reader-auth \
     --config "$config" \
     "${reader_ip_args[@]}" \
     --path cam1 >/dev/null
 
-  python3 "$renderer" ubuntu-sanitize-auth \
+  declared_args=()
+  for declared_spec in "${declared_prune_specs[@]}"; do
+    declared_args+=(--prune-declared "$declared_spec")
+  done
+
+  sanitize_output="$(python3 "$renderer" ubuntu-sanitize-auth \
     --config "$config" \
-    --output "$candidate"
+    "${declared_args[@]}" \
+    --output "$candidate")"
+  printf '%s\n' "$sanitize_output"
 
   digest="$(sha256sum "$candidate" | awk '{print $1}')"
   printf '%s\n' "$digest" > "$candidate_sha_file"
@@ -303,6 +337,16 @@ if [[ "$command" == "sanitize" ]]; then
     --path cam1 >/dev/null
 
   printf 'SANITIZED_FOREIGN_AUTH=YES\n'
+  if [[ ${#declared_prune_specs[@]} -gt 0 ]]; then
+    # Per-declaration removal evidence (issue #444). The renderer emits one
+    # DECLARED_PRUNED line per declaration; a missing line is a real
+    # inconsistency and fails the transaction closed (grep under pipefail).
+    declared_evidence="$(printf '%s\n' "$sanitize_output" \
+      | grep '^DECLARED_PRUNED ' \
+      | sed -E 's/^DECLARED_PRUNED path=([^ ]+) .* removed=([0-9]+)$/path=\1:removed=\2/' \
+      | paste -sd, -)"
+    printf 'DECLARED_PRUNED=%s\n' "$declared_evidence"
+  fi
   printf 'CANDIDATE_SHA256=%s\n' "$digest"
   printf 'MUTATIONS=PROTECTED_CANDIDATE_ONLY\n'
   printf 'SERVICE_RESTARTED=NO\n'

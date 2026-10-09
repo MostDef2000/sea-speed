@@ -398,5 +398,440 @@ class SanitizeShellContractTests(unittest.TestCase):
         self.assertNotIn('systemctl enable "$worker_service"', ubuntu)
 
 
+# ---------------------------------------------------------------------------
+# Issue #444: explicit opt-in prune of DECLARED legacy foreign rules.
+#
+# The 2026-10-10 operator sanitize transaction failed closed (by design)
+# because the live config carries two UNMARKED legacy rules for the dead
+# `cam1-test` path beside the target loopback-API duplicate. #444 adds
+# repeatable explicit opt-in prune declarations: a declared (path, ips,
+# actions) triple makes EXACTLY the unmarked rules matching that triple
+# removable; every other foreign rule still fails the whole transaction
+# closed. WITHOUT declarations the behavior is byte-for-byte the #436
+# fail-closed default.
+# ---------------------------------------------------------------------------
+
+IP_LEGACY_PUBLISH = "10.123.239.102"
+
+# The two unmarked legacy cam1-test rules observed on the worker (issue #444).
+FOREIGN_CAM1_TEST_PUBLISH = (
+    "  - user: any\n"
+    "    pass:\n"
+    f'    ips: ["{IP_LEGACY_PUBLISH}"]\n'
+    "    permissions:\n"
+    "      - action: publish\n"
+    '        path: "cam1-test"\n'
+    "      - action: read\n"
+    '        path: "cam1-test"\n'
+)
+
+FOREIGN_CAM1_TEST_READ = (
+    "  - user: any\n"
+    "    pass:\n"
+    f'    ips: ["{IP_VPS}"]\n'
+    "    permissions:\n"
+    "      - action: read\n"
+    '        path: "cam1-test"\n'
+)
+
+# Explicit opt-in prune declarations (exact documented grammar).
+DECL_SPEC_PUBLISH = f"path=cam1-test,ips={IP_LEGACY_PUBLISH},actions=publish,read"
+DECL_SPEC_READ = f"path=cam1-test,ips={IP_VPS},actions=read"
+
+# The retry-window transaction shape (issue #444): loopback-API duplicate
+# (removable by default under #436) + both legacy cam1-test rules (removable
+# only via explicit declarations), all three removed by one sanitize.
+LEGACY_CONFIG = (
+    HEADER
+    + MARKED_API_RULE
+    + MARKED_READER_RULE
+    + MARKED_READER_H264_RULE
+    + FOREIGN_DUPLICATE
+    + FOREIGN_CAM1_TEST_PUBLISH
+    + FOREIGN_CAM1_TEST_READ
+    + "\n"
+    + TAIL
+)
+EXPECTED_DECLARED_PRUNED = (
+    HEADER
+    + MARKED_API_RULE
+    + MARKED_READER_RULE
+    + MARKED_READER_H264_RULE
+    + "\n"
+    + TAIL
+)
+
+
+def legacy_with_foreign(foreign_block: str) -> str:
+    """Marked rules + declared-shape cam1-test rules + one extra foreign block."""
+    return (
+        HEADER
+        + MARKED_API_RULE
+        + MARKED_READER_RULE
+        + FOREIGN_CAM1_TEST_PUBLISH
+        + FOREIGN_CAM1_TEST_READ
+        + foreign_block
+        + "\n"
+        + TAIL
+    )
+
+
+class DeclaredAuthPruneSpecTests(unittest.TestCase):
+    """Declaration grammar: path=<p>,ips=<i,...>,actions=<a,...> (repeatable
+    flag; bare tokens continue the previous key)."""
+
+    def test_parse_declared_spec_full_grammar(self) -> None:
+        declaration = mediamtx.parse_declared_auth_prune(
+            f"path=cam1-test,ips={IP_LEGACY_PUBLISH},actions=publish,read"
+        )
+        self.assertEqual(declaration.path, "cam1-test")
+        self.assertEqual(declaration.ips, (IP_LEGACY_PUBLISH,))
+        self.assertEqual(declaration.actions, ("publish", "read"))
+
+    def test_parse_declared_spec_bare_tokens_continue_previous_key(self) -> None:
+        declaration = mediamtx.parse_declared_auth_prune(
+            f"path=cam1-test,ips={IP_LEGACY_PUBLISH},{IP_VPS},actions=publish,read"
+        )
+        self.assertEqual(declaration.ips, (IP_LEGACY_PUBLISH, IP_VPS))
+        self.assertEqual(declaration.actions, ("publish", "read"))
+
+    def test_parse_declared_spec_rejects_unknown_key(self) -> None:
+        with self.assertRaises(mediamtx.ConfigError):
+            mediamtx.parse_declared_auth_prune("path=cam1-test,users=x,actions=read")
+
+    def test_parse_declared_spec_rejects_missing_path(self) -> None:
+        with self.assertRaises(mediamtx.ConfigError):
+            mediamtx.parse_declared_auth_prune(f"ips={IP_VPS},actions=read")
+
+    def test_parse_declared_spec_rejects_missing_ips(self) -> None:
+        with self.assertRaises(mediamtx.ConfigError):
+            mediamtx.parse_declared_auth_prune("path=cam1-test,actions=read")
+
+    def test_parse_declared_spec_rejects_missing_actions(self) -> None:
+        with self.assertRaises(mediamtx.ConfigError):
+            mediamtx.parse_declared_auth_prune(f"path=cam1-test,ips={IP_VPS}")
+
+    def test_parse_declared_spec_rejects_invalid_ip(self) -> None:
+        with self.assertRaises(mediamtx.ConfigError):
+            mediamtx.parse_declared_auth_prune("path=cam1-test,ips=not-an-ip,actions=read")
+
+    def test_parse_declared_spec_rejects_invalid_action(self) -> None:
+        with self.assertRaises(mediamtx.ConfigError):
+            mediamtx.parse_declared_auth_prune(
+                f"path=cam1-test,ips={IP_VPS},actions=read,play"
+            )
+
+    def test_parse_declared_spec_rejects_duplicate_path_key(self) -> None:
+        with self.assertRaises(mediamtx.ConfigError):
+            mediamtx.parse_declared_auth_prune(
+                f"path=cam1-test,path=cam1,ips={IP_VPS},actions=read"
+            )
+
+    def test_parse_declared_spec_rejects_empty_spec(self) -> None:
+        with self.assertRaises(mediamtx.ConfigError):
+            mediamtx.parse_declared_auth_prune("")
+
+
+class DeclaredPruneCoreTests(unittest.TestCase):
+    """Renderer core: declared triples extend the removable set; everything
+    else about the #436 fail-closed discipline is unchanged."""
+
+    def _decls(self):
+        return [
+            mediamtx.parse_declared_auth_prune(DECL_SPEC_PUBLISH),
+            mediamtx.parse_declared_auth_prune(DECL_SPEC_READ),
+        ]
+
+    def test_declared_prune_removes_exactly_the_declared_triples(self) -> None:
+        pruned, removed, per_declaration = mediamtx.sanitize_foreign_auth_rules_declared(
+            LEGACY_CONFIG, self._decls()
+        )
+        # 1 loopback-API duplicate (default #436 scope) + 2 declared triples.
+        self.assertEqual(removed, 3)
+        self.assertEqual(per_declaration, [1, 1])
+        self.assertEqual(pruned, EXPECTED_DECLARED_PRUNED)
+        self.assertNotIn("cam1-test", pruned)
+        # Marked rules survive byte-identically; canonical verifies pass.
+        self.assertIn(MARKED_API_RULE, pruned)
+        self.assertIn(MARKED_READER_RULE, pruned)
+        self.assertIn(MARKED_READER_H264_RULE, pruned)
+        mediamtx.verify_internal_api_rule(pruned)
+        mediamtx.verify_internal_reader_rule(pruned, "cam1", IP_VPS)
+        mediamtx.verify_internal_reader_rule(pruned, "cam1-h264", [IP_VPS, IP_PUB])
+        self.assertEqual(mediamtx.count_foreign_auth_rules(pruned), 0)
+
+    def test_declared_prune_leaves_undeclared_foreign_rule_fail_closed(self) -> None:
+        # A third cam1-test-shaped rule whose IP is NOT declared: it is
+        # neither the canonical loopback-API scope nor a declared triple, so
+        # it must refuse the whole transaction (fail closed, text untouched).
+        undeclared = (
+            "  - user: any\n"
+            "    pass:\n"
+            f'    ips: ["{IP_PUB}"]\n'
+            "    permissions:\n"
+            "      - action: read\n"
+            '        path: "cam1-test"\n'
+        )
+        text = legacy_with_foreign(undeclared)
+        with self.assertRaises(mediamtx.ConfigError):
+            mediamtx.sanitize_foreign_auth_rules_declared(text, self._decls())
+        self.assertIn(FOREIGN_CAM1_TEST_PUBLISH, text)
+        self.assertIn(undeclared, text)
+
+    def test_declared_prune_rejects_partial_match_extra_ip(self) -> None:
+        extra_ip = (
+            "  - user: any\n"
+            "    pass:\n"
+            f'    ips: ["{IP_LEGACY_PUBLISH}", "10.0.0.9"]\n'
+            "    permissions:\n"
+            "      - action: publish\n"
+            '        path: "cam1-test"\n'
+            "      - action: read\n"
+            '        path: "cam1-test"\n'
+        )
+        text = legacy_with_foreign(extra_ip)
+        with self.assertRaises(mediamtx.ConfigError):
+            mediamtx.sanitize_foreign_auth_rules_declared(text, self._decls())
+        self.assertIn(extra_ip, text)
+
+    def test_declared_prune_rejects_partial_match_different_path(self) -> None:
+        # Same ips/actions as a declaration but on the canonical cam1 path:
+        # a DIFFERENT triple is still foreign and undeclared.
+        cam1_shaped = (
+            "  - user: any\n"
+            "    pass:\n"
+            f'    ips: ["{IP_LEGACY_PUBLISH}"]\n'
+            "    permissions:\n"
+            "      - action: publish\n"
+            '        path: "cam1"\n'
+            "      - action: read\n"
+            '        path: "cam1"\n'
+        )
+        text = legacy_with_foreign(cam1_shaped)
+        with self.assertRaises(mediamtx.ConfigError):
+            mediamtx.sanitize_foreign_auth_rules_declared(text, self._decls())
+        self.assertIn(cam1_shaped, text)
+
+    def test_declared_prune_rejects_partial_match_extra_action(self) -> None:
+        extra_action = (
+            "  - user: any\n"
+            "    pass:\n"
+            f'    ips: ["{IP_LEGACY_PUBLISH}"]\n'
+            "    permissions:\n"
+            "      - action: publish\n"
+            '        path: "cam1-test"\n'
+            "      - action: read\n"
+            '        path: "cam1-test"\n'
+            "      - action: api\n"
+            '        path: "cam1-test"\n'
+        )
+        text = legacy_with_foreign(extra_action)
+        with self.assertRaises(mediamtx.ConfigError):
+            mediamtx.sanitize_foreign_auth_rules_declared(text, self._decls())
+        self.assertIn(extra_action, text)
+
+    def test_no_declarations_is_byte_for_byte_todays_default(self) -> None:
+        # AC-1 guard: without declarations the #436 fail-closed behavior is
+        # unchanged (the legacy cam1-test rules refuse the transaction).
+        with self.assertRaises(mediamtx.ConfigError) as ctx:
+            mediamtx.sanitize_foreign_auth_rules(LEGACY_CONFIG)
+        self.assertIn("loopback-api scope", str(ctx.exception))
+        # The declared-aware core with an empty declaration list behaves
+        # identically.
+        with self.assertRaises(mediamtx.ConfigError):
+            mediamtx.sanitize_foreign_auth_rules_declared(LEGACY_CONFIG, [])
+
+    def test_declared_prune_never_touches_marked_rule_matching_the_triple(self) -> None:
+        marked_legacy = (
+            "  # Sea Speed legacy cam1-test reader (kept example)\n"
+            "  - user: any\n"
+            "    pass:\n"
+            f'    ips: ["{IP_LEGACY_PUBLISH}"]\n'
+            "    permissions:\n"
+            "      - action: publish\n"
+            '        path: "cam1-test"\n'
+            "      - action: read\n"
+            '        path: "cam1-test"\n'
+        )
+        text = HEADER + MARKED_API_RULE + marked_legacy + "\n" + TAIL
+        pruned, removed, per_declaration = mediamtx.sanitize_foreign_auth_rules_declared(
+            text, self._decls()
+        )
+        self.assertEqual(removed, 0)
+        self.assertEqual(per_declaration, [0, 0])
+        self.assertEqual(pruned, text)
+        self.assertIn(marked_legacy, pruned)
+
+    def test_declared_prune_rejects_unmodeled_foreign_rule_even_if_scoped(self) -> None:
+        exotic = (
+            "  - user: any\n"
+            "    pass:\n"
+            f'    ips: ["{IP_LEGACY_PUBLISH}"]\n'
+            "    permissions:\n"
+            "      - action: publish\n"
+            '        path: "cam1-test"\n'
+            "        source: any\n"
+        )
+        text = legacy_with_foreign(exotic)
+        with self.assertRaises(mediamtx.ConfigError):
+            mediamtx.sanitize_foreign_auth_rules_declared(text, self._decls())
+        self.assertIn(exotic, text)
+
+    def test_declared_prune_is_idempotent_noop_on_clean_config(self) -> None:
+        pruned, removed, per_declaration = mediamtx.sanitize_foreign_auth_rules_declared(
+            EXPECTED_DECLARED_PRUNED, self._decls()
+        )
+        self.assertEqual(removed, 0)
+        self.assertEqual(per_declaration, [0, 0])
+        self.assertEqual(pruned, EXPECTED_DECLARED_PRUNED)
+
+
+class DeclaredPruneCliTests(unittest.TestCase):
+    """CLI: repeatable --prune-declared passthrough with per-declaration
+    evidence; WITHOUT the flag the transaction is byte-for-byte today's."""
+
+    def test_cli_declared_prune_removes_legacy_rules_and_api_duplicate(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            config = root / "mediamtx.yml"
+            candidate = root / "candidate.yml"
+            config.write_text(LEGACY_CONFIG, encoding="utf-8")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(RENDERER),
+                    "ubuntu-sanitize-auth",
+                    "--config",
+                    str(config),
+                    "--output",
+                    str(candidate),
+                    "--prune-declared",
+                    DECL_SPEC_PUBLISH,
+                    "--prune-declared",
+                    DECL_SPEC_READ,
+                ],
+                text=True,
+                capture_output=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("SANITIZED mode=ubuntu-sanitize-auth", result.stdout)
+            self.assertIn("foreign_rules_removed=3", result.stdout)
+            self.assertIn("foreign_rules_remaining=0", result.stdout)
+            self.assertIn("output_sha256=", result.stdout)
+            # Per-declaration removal evidence (AC-3).
+            self.assertEqual(result.stdout.count("DECLARED_PRUNED path=cam1-test"), 2)
+            self.assertIn(f"ips={IP_LEGACY_PUBLISH}", result.stdout)
+            self.assertIn(f"ips={IP_VPS}", result.stdout)
+            self.assertEqual(candidate.stat().st_mode & 0o777, 0o600)
+            pruned = candidate.read_text(encoding="utf-8")
+            self.assertEqual(pruned, EXPECTED_DECLARED_PRUNED)
+            mediamtx.verify_internal_api_rule(pruned)
+            mediamtx.verify_internal_reader_rule(pruned, "cam1", IP_VPS)
+            mediamtx.verify_internal_reader_rule(pruned, "cam1-h264", [IP_VPS, IP_PUB])
+
+    def test_cli_without_declarations_refuses_byte_for_byte(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            config = root / "mediamtx.yml"
+            candidate = root / "candidate.yml"
+            config.write_text(LEGACY_CONFIG, encoding="utf-8")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(RENDERER),
+                    "ubuntu-sanitize-auth",
+                    "--config",
+                    str(config),
+                    "--output",
+                    str(candidate),
+                ],
+                text=True,
+                capture_output=True,
+            )
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("ERROR:", result.stderr)
+            self.assertIn("loopback-api scope", result.stderr)
+            self.assertNotIn("DECLARED_PRUNED", result.stdout)
+            self.assertFalse(candidate.exists())
+
+    def test_cli_one_declaration_with_two_legacy_rules_refuses(self) -> None:
+        # Only the publish/read rule is declared; the read-only cam1-test
+        # rule stays foreign and undeclared -> whole transaction refuses.
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            config = root / "mediamtx.yml"
+            candidate = root / "candidate.yml"
+            config.write_text(LEGACY_CONFIG, encoding="utf-8")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(RENDERER),
+                    "ubuntu-sanitize-auth",
+                    "--config",
+                    str(config),
+                    "--output",
+                    str(candidate),
+                    "--prune-declared",
+                    DECL_SPEC_PUBLISH,
+                ],
+                text=True,
+                capture_output=True,
+            )
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("ERROR:", result.stderr)
+            self.assertFalse(candidate.exists())
+
+    def test_cli_invalid_declaration_spec_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            config = root / "mediamtx.yml"
+            candidate = root / "candidate.yml"
+            config.write_text(LEGACY_CONFIG, encoding="utf-8")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(RENDERER),
+                    "ubuntu-sanitize-auth",
+                    "--config",
+                    str(config),
+                    "--output",
+                    str(candidate),
+                    "--prune-declared",
+                    "path=cam1-test,users=x,actions=read",
+                ],
+                text=True,
+                capture_output=True,
+            )
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("ERROR:", result.stderr)
+            self.assertFalse(candidate.exists())
+
+
+class DeclaredPruneShellTests(unittest.TestCase):
+    """Shell contract: camera-relay.sh sanitize forwards repeatable
+    --prune-declared specs to the renderer and reports per-declaration
+    removals; the digest-bound activate discipline is untouched."""
+
+    def test_shell_contracts_declared_prune_passthrough(self) -> None:
+        subprocess.run(["bash", "-n", str(UBUNTU)], check=True)
+        ubuntu = UBUNTU.read_text(encoding="utf-8")
+        # Usage documents the repeatable declaration option for sanitize.
+        self.assertIn("--prune-declared", ubuntu)
+        # The option is collected repeatable and forwarded to the renderer.
+        self.assertIn("declared_prune_specs+=(", ubuntu)
+        self.assertIn("declared_args+=(--prune-declared", ubuntu)
+        self.assertIn('"${declared_args[@]}"', ubuntu)
+        # Per-declaration removal evidence line (AC-3).
+        self.assertIn("DECLARED_PRUNED=", ubuntu)
+        # The transaction discipline is unchanged: still exactly five
+        # verify-reader-auth calls, three digest-emitting blocks, no worker
+        # control, no auto-rollback.
+        self.assertEqual(ubuntu.count("verify-reader-auth"), 5)
+        self.assertEqual(ubuntu.count("CANDIDATE_SHA256=%s"), 3)
+        self.assertEqual(ubuntu.count("MUTATIONS=PROTECTED_CANDIDATE_ONLY"), 3)
+        self.assertIn("SANITIZED_FOREIGN_AUTH=YES", ubuntu)
+        self.assertIn("automatic rollback is not authorized", ubuntu)
+
+
 if __name__ == "__main__":
     unittest.main()
