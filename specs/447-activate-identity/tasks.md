@@ -42,10 +42,10 @@
 - [x] Issue/spec/plan/tasks current
 - [x] Exact changed-file scope verified
 - [x] Required tests and evidence complete (RED 10 failed / 1 passed on base 80bcb0e with the final test file byte-identical via cmp + full suite green on branch; worker-recorded; PR peer review and exact-head CI are orchestrator-owned)
-- [ ] Required CI green — orchestrator-owned (PR creation and exact-head CI)
-- [ ] Exact-green-head merge complete — orchestrator-owned
-- [ ] Deployment state resolved — orchestrator-owned (shell change deploys with the repo source on the worker)
-- [ ] Runtime acceptance resolved — orchestrator-owned + 1 operator on-box verification transaction (dry activate or equivalent derived-owner check confirming root:mediamtx 0640; output recorded per issue #447)
+- [x] Required CI green — all 8 required checks pass on PR #448 head ccffa7e
+- [x] Exact-green-head merge complete — PR #448 squash-merged as 2dbfdbf
+- [x] Deployment state resolved — worker checkout pinned 2dbfdbf (camera-relay.sh sha256 f9253b13… byte-verified against the canonical clone)
+- [x] Runtime acceptance resolved — RF-001 on-box 2026-10-10: live bus path derives root mediamtx 0640 (rc=0); chroot path: systemctl cat requires the bus even with a readable unit file, so the offline branch refuses explicitly (rc=1) — fail-closed holds, productive offline derivation is tracked in follow-up #449; silent root:root 0600 unreachable in all three probes; zero mutations (live 4dba1dd9 unchanged)
 - [x] Deferred work recorded — none
 - [x] Risks resolved or explicitly accepted — RISK-001..RISK-003 mitigated in plan.md Risk profile
 - [x] Waivers resolved or current — none
@@ -55,8 +55,8 @@
 - [x] Issue/spec/plan/tasks current
 - [x] Exact changed-file scope verified
 - [x] Required tests and evidence complete (RED 10 failed / 1 passed on base 80bcb0e, final file cmp-verified + full suite green on branch; PR peer review APPROVE is merge-phase, orchestrator-owned)
-- [ ] Required CI green — exact-head PR CI — orchestrator-owned (PR creation and exact-head CI)
-- [ ] Exact-green-head merge complete — orchestrator-owned
+- [x] Required CI green — exact-head PR CI — all 8 required checks pass on PR #448 head ccffa7e
+- [x] Exact-green-head merge complete — PR #448 squash-merged as 2dbfdbf
 - [ ] Deployment state resolved — orchestrator-owned
 - [ ] Runtime acceptance resolved — orchestrator-owned + 1 operator on-box verification transaction with recorded output
 - [x] Deferred work recorded — none
