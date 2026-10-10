@@ -215,6 +215,58 @@ except OSError:
 PY
 }
 
+derive_relay_service_identity() {
+  # Issue #447: service-identity derivation must FAIL CLOSED — a silent
+  # root:root 0600 fallback under docker-chroot (systemctl show hits no bus)
+  # mis-installed permissions and crash-looped mediamtx. Derivation order:
+  #   (1) `systemctl show` (bus): definitive ONLY when User is non-empty.
+  #   (2) `systemctl cat` (offline-safe; the unit file is on disk even under
+  #       chroot): parse the LAST `User=`/`Group=` assignment (systemd
+  #       override semantics). `User=` absent or empty means the unit runs
+  #       as root.
+  #   (3) BOTH failing -> explicit ERROR + nonzero return; the caller
+  #       refuses to install with guessed ownership (before backup/install).
+  # Prints "owner group mode" on stdout; uses the global $service_name.
+  local show_user show_group unit_text unit_user unit_group
+  show_user="$(systemctl show -p User --value "$service_name" 2>/dev/null || true)"
+  show_group="$(systemctl show -p Group --value "$service_name" 2>/dev/null || true)"
+  if [[ -n "$show_user" ]]; then
+    if [[ "$show_user" == "root" ]]; then
+      printf 'root root 0600\n'
+      return 0
+    fi
+    if [[ -z "$show_group" ]]; then
+      show_group="$(id -gn "$show_user" 2>/dev/null || true)"
+    fi
+    if [[ -z "$show_group" ]]; then
+      echo "ERROR cannot resolve relay service group" >&2
+      return 1
+    fi
+    printf 'root %s 0640\n' "$show_group"
+    return 0
+  fi
+  unit_text="$(systemctl cat "$service_name" 2>/dev/null || true)"
+  if [[ -n "$unit_text" ]]; then
+    unit_user="$(printf '%s\n' "$unit_text" | sed -nE 's/^[[:space:]]*User=([^[:space:]].*)$/\1/p' | tail -n 1)"
+    unit_group="$(printf '%s\n' "$unit_text" | sed -nE 's/^[[:space:]]*Group=([^[:space:]].*)$/\1/p' | tail -n 1)"
+    if [[ -z "$unit_user" || "$unit_user" == "root" ]]; then
+      printf 'root root 0600\n'
+      return 0
+    fi
+    if [[ -z "$unit_group" ]]; then
+      unit_group="$(id -gn "$unit_user" 2>/dev/null || true)"
+    fi
+    if [[ -z "$unit_group" ]]; then
+      echo "ERROR cannot resolve relay service group" >&2
+      return 1
+    fi
+    printf 'root %s 0640\n' "$unit_group"
+    return 0
+  fi
+  echo "ERROR relay service identity could not be derived (systemctl unavailable and unit file unreadable); refusing to install with guessed ownership" >&2
+  return 1
+}
+
 check_auth_environment_override() {
   local environment
   environment="$(systemctl show -p Environment --value "$service_name" 2>/dev/null || true)"
@@ -417,21 +469,14 @@ if systemctl is-active --quiet "$worker_service"; then
   exit 8
 fi
 
-service_user="$(systemctl show -p User --value "$service_name" 2>/dev/null || true)"
-service_group="$(systemctl show -p Group --value "$service_name" 2>/dev/null || true)"
-if [[ -z "$service_user" || "$service_user" == "root" ]]; then
-  install_owner="root"
-  install_group="root"
-  install_mode="0600"
-else
-  install_owner="root"
-  if [[ -z "$service_group" ]]; then
-    service_group="$(id -gn "$service_user" 2>/dev/null || true)"
-  fi
-  [[ -n "$service_group" ]] || { echo "ERROR cannot resolve relay service group" >&2; exit 9; }
-  install_group="$service_group"
-  install_mode="0640"
-fi
+# Issue #447: derive the relay service identity fail-closed (systemctl show,
+# then the unit file via systemctl cat) BEFORE any mutation — a wrong guess
+# must refuse, never mis-install ownership. The derivation sits before the
+# backup on purpose: backup is itself a state-dir mutation.
+identity="$(derive_relay_service_identity)" || exit 9
+read -r install_owner install_group install_mode <<< "$identity"
+printf 'INSTALL_OWNER=%s:%s\n' "$install_owner" "$install_group"
+printf 'MODE=%s\n' "$install_mode"
 
 backup="$backup_root/mediamtx.$(date -u +%Y%m%dT%H%M%SZ).yml"
 install -o root -g root -m 0600 "$config" "$backup"

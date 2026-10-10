@@ -208,6 +208,32 @@ transaction (`camera-relay.sh sanitize`, renderer mode
   secrets are never displayed (`SECRETS_DISPLAYED=NO`). A failed sanitize
   leaves the previous candidate untouched and it must not be activated.
 
+### Relay service identity derivation (issue #447)
+
+The 2026-10-10 on-box activate under docker-chroot: `systemctl show -p User`
+returned empty (no system bus) and the script silently installed the config
+root:root 0600 instead of the service's root:mediamtx 0640; mediamtx
+crash-looped ~100 s until the operator hand-fixed ownership. Activate now
+derives the service identity fail-closed, BEFORE any mutation (the
+derivation precedes the root-only backup, which is itself a state-dir
+mutation):
+
+1. `systemctl show -p User -p Group <unit>` — definitive only when `User=`
+   is non-empty (an empty answer under chroot means "unknown", never "root").
+2. Fallback: `systemctl cat <unit>` (offline-safe; the unit file is on disk
+   even under chroot) — the LAST `User=`/`Group=` assignment wins (systemd
+   override semantics); `User=` absent or empty means the unit runs as root
+   (root:root 0600); a non-root user installs root:<group> 0640, with
+   `id -gn` resolving a missing Group.
+3. Both derivations failing → `ERROR relay service identity could not be
+   derived (systemctl unavailable and unit file unreadable); refusing to
+   install with guessed ownership` and a nonzero exit BEFORE the backup or
+   install — a wrong guess can never be silently installed.
+
+On the success path the intended ownership is evidenced before the install:
+`INSTALL_OWNER=<owner>:<group>` and `MODE=<mode>` — a wrong derivation is
+visible in the transcript even when a later restart step fails.
+
 ### Declared-prune sanitize runbook (issue #444)
 
 The 2026-10-10 operator sanitize retry failed closed as designed: besides the
