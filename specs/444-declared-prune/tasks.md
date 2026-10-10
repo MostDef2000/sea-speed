@@ -50,10 +50,10 @@
 - [x] Issue/spec/plan/tasks current
 - [x] Exact changed-file scope verified
 - [x] Required tests and evidence complete (RED 23 failed / 17 passed on base cf2a462 with the final test file byte-identical via cmp + full suite green on branch; worker-recorded; PR peer review and exact-head CI are orchestrator-owned)
-- [ ] Required CI green — orchestrator-owned (PR creation and exact-head CI)
-- [ ] Exact-green-head merge complete — orchestrator-owned
-- [ ] Deployment state resolved — orchestrator-owned (renderer rides merge; shell change deploys with the repo source on the worker)
-- [ ] Runtime acceptance resolved — orchestrator-owned + 1 operator on-box retry-window transaction (stop AI worker → sanitize with two cam1-test declarations → activate --expected-sha256 → start AI worker → remediate verify; output recorded per issue #444, closing #436)
+- [x] Required CI green — all 8 required checks pass on PR #445 head (runs at merge of 7866939+count-fix)
+- [x] Exact-green-head merge complete — PR #445 squash-merged as 3b3a6ba
+- [x] Deployment state resolved — worker checkout pinned 3b3a6ba (tooling sha256 verified) before the retry transaction
+- [x] Runtime acceptance resolved — 2026-10-10: both declarations removed=1, foreign_rules_removed=3, remaining=0; activate + probes green; control sanitize idempotent no-op; recorded per issue #444 (closes #436)
 - [x] Deferred work recorded — none
 - [x] Risks resolved or explicitly accepted — RISK-001..RISK-003 mitigated in plan.md Risk profile
 - [x] Waivers resolved or current — none
@@ -64,7 +64,7 @@
 - [x] Exact changed-file scope verified
 - [x] Required tests and evidence complete (RED 23 failed / 17 passed on base cf2a462, final file cmp-verified + full suite green on branch; PR peer review APPROVE is merge-phase, orchestrator-owned)
 - [ ] Required CI green — exact-head PR CI — orchestrator-owned (PR creation and exact-head CI)
-- [ ] Exact-green-head merge complete — orchestrator-owned
+- [x] Exact-green-head merge complete — PR #445 squash-merged as 3b3a6ba
 - [ ] Deployment state resolved — orchestrator-owned
 - [ ] Runtime acceptance resolved — orchestrator-owned + 1 operator on-box retry-window transaction with recorded output
 - [x] Deferred work recorded — none

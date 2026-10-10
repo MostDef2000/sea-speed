@@ -44,10 +44,10 @@
 - [x] Issue/spec/plan/tasks current
 - [x] Exact changed-file scope verified
 - [x] Required tests and evidence complete (RED 16/16 on base 095e4c9 + full suite green on branch; worker-recorded; PR peer review and exact-head CI are orchestrator-owned)
-- [ ] Required CI green — orchestrator-owned (PR creation and exact-head CI)
+- [x] Required CI green — all 8 required checks pass on PR #438 head 14f69b0 (runs 37941234917/18/20)
 - [x] Exact-green-head merge complete — PR #438 squash-merged as 4db356f
-- [ ] Deployment state resolved — pending: 1 on-box operator sanitize transaction (relay block recorded in issue #436 comment 6082529666) (renderer rides merge; shell change deploys with the repo source on the worker)
-- [ ] Runtime acceptance resolved — orchestrator-owned + 1 operator on-box transaction (sanitize → digest → activate --expected-sha256, output recorded per issue #436)
+- [x] Deployment state resolved — on-box sanitize transaction executed 2026-10-10 (checkout @ 3b3a6ba, tooling sha256 verified): SANITIZED_FOREIGN_AUTH=YES, foreign_rules_removed=3, remaining=0, candidate 4dba1dd9 activated; idempotent control sanitize removed=0
+- [x] Runtime acceptance resolved — 2026-10-10: activate + start worker + remediate (REMEDIATION_NEEDED=NO) + status (PRIVATE_RELAY_TCP=PASS); activate chroot incident (silent root:root 0600 chown when systemctl show unavailable) recorded as follow-up issue; live config 4dba1dd9 root:mediamtx 0640
 - [x] Deferred work recorded — none
 - [x] Risks resolved or explicitly accepted — RISK-001..RISK-003 mitigated in plan.md Risk profile
 - [x] Waivers resolved or current — none
@@ -59,8 +59,8 @@
 - [x] Required tests and evidence complete (RED 16/16 on base 095e4c9 + full suite green on branch; PR peer review APPROVE is merge-phase, orchestrator-owned)
 - [x] Required CI green — exact-head PR CI — all 8 required checks pass on PR #438 head 14f69b0 (runs 37941234917/18/20)
 - [x] Exact-green-head merge complete — PR #438 squash-merged as 4db356f
-- [ ] Deployment state resolved — pending: 1 on-box operator sanitize transaction (relay block recorded in issue #436 comment 6082529666)
-- [ ] Runtime acceptance resolved — orchestrator-owned + 1 operator on-box sanitize transaction with recorded output
+- [x] Deployment state resolved — see the DoD block above (on-box transaction executed 2026-10-10)
+- [x] Runtime acceptance resolved — see the DoD block above (SANITIZED_FOREIGN_AUTH=YES + activate + probes recorded on #436)
 - [x] Deferred work recorded — none
 - [x] Risks resolved or explicitly accepted — RISK-001..RISK-003 in plan.md Risk profile (all MITIGATED)
 - [x] Waivers resolved or current — none
