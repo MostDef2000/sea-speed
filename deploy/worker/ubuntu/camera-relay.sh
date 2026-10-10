@@ -156,36 +156,14 @@ validate_common() {
 }
 
 parse_address() {
-  python3 - "$private_rtsp_address" <<'PY'
-import ipaddress
-import sys
-networks = tuple(ipaddress.ip_network(v) for v in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"))
-value = sys.argv[1]
-try:
-    host, raw_port = value.rsplit(":", 1)
-    ip = ipaddress.ip_address(host)
-    port = int(raw_port)
-except Exception:
-    raise SystemExit(1)
-if ip.version != 4 or not any(ip in network for network in networks) or not (1 <= port <= 65535):
-    raise SystemExit(1)
-print(host)
-print(port)
-PY
+  # Issue #442: RFC1918 address validation is single-sourced in the canonical
+  # renderer (check-address); the wrapper keeps the historical host+port
+  # output shape for check_private_listener.
+  python3 "$renderer" check-address --kind private-rtsp --value "$private_rtsp_address"
 }
 
 validate_reader_ip() {
-  python3 - "$1" <<'PY'
-import ipaddress
-import sys
-networks = tuple(ipaddress.ip_network(v) for v in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"))
-try:
-    ip = ipaddress.ip_address(sys.argv[1])
-except ValueError:
-    raise SystemExit(1)
-if ip.version != 4 or not any(ip in network for network in networks):
-    raise SystemExit(1)
-PY
+  python3 "$renderer" check-address --kind reader-ip --value "$1" >/dev/null
 }
 
 reader_auth_scope() {

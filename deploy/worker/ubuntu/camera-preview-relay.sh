@@ -4,7 +4,7 @@ set -Eeuo pipefail
 usage() {
   cat <<'USAGE'
 Usage:
-  camera-preview-relay.sh prepare --inventory PATH --private-rtsp-address IPv4:PORT --reader-ip IPv4 [options]
+  camera-preview-relay.sh prepare --inventory PATH --private-rtsp-address IPv4:PORT --reader-ip IPv4 [--reader-ip IPv4 ...] [options]
   camera-preview-relay.sh activate --private-rtsp-address IPv4:PORT --expected-config-sha256 SHA256 --expected-unit-sha256 SHA256 --expected-catalog-sha256 SHA256 [options]
   camera-preview-relay.sh status [--private-rtsp-address IPv4:PORT] [options]
 
@@ -17,7 +17,9 @@ Options:
 
 prepare reads only a root-owned mode-0600 runtime inventory, renders a standalone
 source-on-demand MediaMTX candidate, a dedicated systemd unit candidate, and a
-sanitized VPS catalog. It does not change or restart any service.
+sanitized VPS catalog through the canonical renderer module (issue #442).
+--reader-ip is repeatable (and comma-separated); every occurrence is forwarded.
+It does not change or restart any service.
 
 activate installs only the digest-bound dedicated preview relay candidates and
 restarts/enables only the dedicated preview service. It never changes the
@@ -36,7 +38,7 @@ esac
 
 inventory=""
 private_rtsp_address=""
-reader_ip=""
+reader_ips=()
 service_name="sea-speed-camera-preview-relay.service"
 service_user="mediamtx"
 service_group="mediamtx"
@@ -50,7 +52,19 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --inventory) [[ $# -ge 2 ]] || { echo "ERROR --inventory requires a path" >&2; exit 2; }; inventory="$2"; shift 2 ;;
     --private-rtsp-address) [[ $# -ge 2 ]] || { echo "ERROR --private-rtsp-address requires IPv4:PORT" >&2; exit 2; }; private_rtsp_address="$2"; shift 2 ;;
-    --reader-ip) [[ $# -ge 2 ]] || { echo "ERROR --reader-ip requires IPv4" >&2; exit 2; }; reader_ip="$2"; shift 2 ;;
+    --reader-ip)
+      [[ $# -ge 2 ]] || { echo "ERROR --reader-ip requires IPv4" >&2; exit 2; }
+      # Repeatable and comma-separated (issue #442, mirroring camera-relay.sh
+      # since #372); order preserved.
+      IFS=',' read -r -a __reader_ip_parts <<< "$2"
+      for __reader_ip_part in "${__reader_ip_parts[@]}"; do
+        __reader_ip_part="${__reader_ip_part#"${__reader_ip_part%%[![:space:]]*}"}"
+        __reader_ip_part="${__reader_ip_part%"${__reader_ip_part##*[![:space:]]}"}"
+        [[ -n "$__reader_ip_part" ]] || { echo "ERROR --reader-ip contains an empty entry" >&2; exit 2; }
+        reader_ips+=("$__reader_ip_part")
+      done
+      shift 2
+      ;;
     --service) [[ $# -ge 2 ]] || { echo "ERROR --service requires a name" >&2; exit 2; }; service_name="$2"; shift 2 ;;
     --service-user) [[ $# -ge 2 ]] || { echo "ERROR --service-user requires a user" >&2; exit 2; }; service_user="$2"; shift 2 ;;
     --service-group) [[ $# -ge 2 ]] || { echo "ERROR --service-group requires a group" >&2; exit 2; }; service_group="$2"; shift 2 ;;
@@ -63,6 +77,10 @@ while [[ $# -gt 0 ]]; do
     *) echo "ERROR unknown option: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
+
+script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+repo_root="$(CDPATH= cd -- "$script_dir/../../.." && pwd)"
+renderer="$repo_root/scripts/operations/mediamtx_path_config.py"
 
 candidate_root="$state_root/candidates"
 active_root="$state_root/active"
@@ -89,36 +107,24 @@ validate_names() {
 }
 
 parse_private_address() {
-  python3 - "$private_rtsp_address" <<'PY'
-import ipaddress
-import sys
-value = sys.argv[1]
-try:
-    host, raw_port = value.rsplit(":", 1)
-    ip = ipaddress.ip_address(host)
-    port = int(raw_port)
-except Exception:
-    raise SystemExit(1)
-networks = tuple(ipaddress.ip_network(v) for v in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"))
-if ip.version != 4 or not any(ip in network for network in networks) or not (1 <= port <= 65535):
-    raise SystemExit(1)
-print(host)
-print(port)
-PY
+  # Issue #442: RFC1918 address validation is single-sourced in the canonical
+  # renderer (check-address); this wrapper preserves the historical host+port
+  # output shape for check_listener.
+  python3 "$renderer" check-address --kind private-rtsp --value "$private_rtsp_address"
 }
 
 validate_reader_ip() {
-  python3 - "$reader_ip" <<'PY'
-import ipaddress
-import sys
-try:
-    ip = ipaddress.ip_address(sys.argv[1])
-except ValueError:
-    raise SystemExit(1)
-networks = tuple(ipaddress.ip_network(v) for v in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"))
-if ip.version != 4 or not any(ip in network for network in networks):
-    raise SystemExit(1)
-PY
+  python3 "$renderer" check-address --kind reader-ip --value "$1" >/dev/null
+}
+
+reader_auth_scope() {
+  # Deterministic evidence token (issue #442); single reader keeps the
+  # preview contour's single-peer literal.
+  if [[ ${#reader_ips[@]} -eq 1 ]]; then
+    printf 'preview-single-rfc1918-peer'
+  else
+    printf 'preview-multi-rfc1918-peer-count-%s' "${#reader_ips[@]}"
+  fi
 }
 
 check_listener() {
@@ -151,6 +157,7 @@ sha256_file() {
 validate_names
 command -v python3 >/dev/null 2>&1 || { echo "ERROR python3 is required" >&2; exit 4; }
 command -v systemctl >/dev/null 2>&1 || { echo "ERROR systemctl is required" >&2; exit 4; }
+[[ -x "$renderer" || -f "$renderer" ]] || { echo "ERROR renderer missing from exact repository source" >&2; exit 4; }
 
 if [[ "$command" == "status" ]]; then
   printf 'PREVIEW_RELAY_ENABLED=%s\n' "$(service_value is-enabled "$service_name")"
@@ -176,118 +183,29 @@ install -d -o root -g root -m 0700 "$state_root" "$candidate_root" "$active_root
 
 if [[ "$command" == "prepare" ]]; then
   [[ -n "$inventory" ]] || { echo "ERROR --inventory is required" >&2; exit 2; }
-  [[ -n "$reader_ip" ]] || { echo "ERROR --reader-ip is required" >&2; exit 2; }
-  validate_reader_ip || { echo "ERROR reader IP must be a private IPv4 address" >&2; exit 3; }
+  [[ ${#reader_ips[@]} -gt 0 ]] || { echo "ERROR --reader-ip is required" >&2; exit 2; }
+  for reader_ip in "${reader_ips[@]}"; do
+    validate_reader_ip "$reader_ip" || { echo "ERROR reader IP must be a private IPv4 address: $reader_ip" >&2; exit 3; }
+  done
+  reader_ip_args=()
+  for reader_ip in "${reader_ips[@]}"; do
+    reader_ip_args+=(--reader-ip "$reader_ip")
+  done
   [[ -f "$inventory" && ! -L "$inventory" ]] || { echo "ERROR inventory must be a regular non-symlink file" >&2; exit 5; }
   [[ "$(stat -c '%a' "$inventory")" == "600" ]] || { echo "ERROR inventory mode must be 600" >&2; exit 5; }
   [[ "$(stat -c '%u' "$inventory")" == "0" ]] || { echo "ERROR inventory must be root-owned" >&2; exit 5; }
 
-  python3 - "$inventory" "$candidate_config" "$candidate_catalog" "$private_rtsp_address" "$reader_ip" <<'PY'
-import ipaddress
-import json
-import re
-import sys
-from datetime import datetime, timezone
-from pathlib import Path
-from urllib.parse import urlsplit
-
-inventory_path = Path(sys.argv[1])
-config_path = Path(sys.argv[2])
-catalog_path = Path(sys.argv[3])
-private_address = sys.argv[4]
-reader_ip = sys.argv[5]
-
-try:
-    relay_host, relay_port_text = private_address.rsplit(":", 1)
-    relay_ip = ipaddress.ip_address(relay_host)
-    relay_port = int(relay_port_text)
-    reader = ipaddress.ip_address(reader_ip)
-except Exception as exc:
-    raise SystemExit("invalid private relay address") from exc
-networks = tuple(ipaddress.ip_network(v) for v in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"))
-if relay_ip.version != 4 or not any(relay_ip in network for network in networks) or not (1 <= relay_port <= 65535):
-    raise SystemExit("invalid private relay address")
-if reader.version != 4 or not any(reader in network for network in networks):
-    raise SystemExit("invalid private reader IP")
-
-payload = json.loads(inventory_path.read_text(encoding="utf-8"))
-if payload.get("schema") != "sea_speed_camera_preview_inventory_v1":
-    raise SystemExit("unsupported camera preview inventory schema")
-cameras = payload.get("cameras")
-if not isinstance(cameras, list) or not cameras:
-    raise SystemExit("camera preview inventory must contain at least one camera")
-
-seen = set()
-validated = []
-for item in cameras:
-    if not isinstance(item, dict):
-        raise SystemExit("camera inventory entries must be objects")
-    camera_id = str(item.get("camera_id") or "").strip()
-    display_name = str(item.get("display_name") or camera_id).strip()
-    source = str(item.get("source") or "").strip()
-    if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,63}", camera_id):
-        raise SystemExit("camera_id must use lowercase safe characters")
-    if camera_id in seen:
-        raise SystemExit("duplicate camera_id")
-    if not display_name or len(display_name) > 120:
-        raise SystemExit("invalid display_name")
-    try:
-        parsed = urlsplit(source)
-        source_ip = ipaddress.ip_address(parsed.hostname or "")
-    except Exception as exc:
-        raise SystemExit("camera source must be a private RTSP URL") from exc
-    if parsed.scheme.lower() != "rtsp" or source_ip.version != 4 or not any(source_ip in network for network in networks):
-        raise SystemExit("camera source must be a private RTSP URL")
-    if parsed.username is None:
-        raise SystemExit("camera source must contain protected userinfo")
-    seen.add(camera_id)
-    validated.append((camera_id, display_name, source))
-
-lines = [
-    "logLevel: error\n",
-    "logDestinations: [stdout]\n",
-    "authMethod: internal\n",
-    "authInternalUsers:\n",
-    "  - user: any\n",
-    "    pass:\n",
-    f"    ips: [{json.dumps(reader_ip)}]\n",
-    "    permissions:\n",
-    "      - action: read\n",
-    "        path: \"~^preview_[a-z0-9._-]+$\"\n",
-    "rtsp: true\n",
-    "rtspTransports: [tcp]\n",
-    f"rtspAddress: {json.dumps(private_address)}\n",
-    "rtmp: false\n",
-    "hls: false\n",
-    "webrtc: false\n",
-    "srt: false\n",
-    "paths:\n",
-]
-
-catalog = {
-    "schema": "sea_speed_camera_preview_catalog_v1",
-    "generated_at": datetime.now(timezone.utc).isoformat(),
-    "cameras": [],
-}
-for camera_id, display_name, source in validated:
-    path_name = f"preview_{camera_id}"
-    lines.extend([
-        f"  {json.dumps(path_name)}:\n",
-        f"    source: {json.dumps(source, ensure_ascii=False)}\n",
-        "    sourceOnDemand: yes\n",
-        "    sourceOnDemandStartTimeout: 8s\n",
-        "    sourceOnDemandCloseAfter: 2s\n",
-        "    rtspTransport: tcp\n",
-    ])
-    catalog["cameras"].append({
-        "camera_id": camera_id,
-        "display_name": display_name,
-        "source": f"rtsp://{relay_host}:{relay_port}/{path_name}",
-    })
-
-config_path.write_text("".join(lines), encoding="utf-8")
-catalog_path.write_text(json.dumps(catalog, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-PY
+  # Issue #442: the config and the sanitized catalog are rendered by the
+  # canonical renderer module (ubuntu-preview-relay mode). The renderer
+  # validates the inventory fail-closed, renders the marked preview reader
+  # rule, and writes both 0600 candidates atomically; it never prints
+  # credentials.
+  python3 "$renderer" ubuntu-preview-relay \
+    --inventory "$inventory" \
+    --config-output "$candidate_config" \
+    --catalog-output "$candidate_catalog" \
+    --private-rtsp-address "$private_rtsp_address" \
+    "${reader_ip_args[@]}"
 
   cat > "$candidate_unit" <<UNIT
 [Unit]
@@ -337,6 +255,7 @@ PY
 
   printf 'PREPARED_PREVIEW_RELAY=YES\n'
   printf 'CAMERA_COUNT=%s\n' "$count"
+  printf 'READER_AUTH_SCOPE=%s\n' "$(reader_auth_scope)"
   printf 'CONFIG_SHA256=%s\n' "$config_sha"
   printf 'UNIT_SHA256=%s\n' "$unit_sha"
   printf 'SANITIZED_CATALOG_SHA256=%s\n' "$catalog_sha"
