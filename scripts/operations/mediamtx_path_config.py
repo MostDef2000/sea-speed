@@ -32,6 +32,18 @@ API_RULE_MARKER = "# Sea Speed loopback API observation rule for the freshness w
 LOOPBACK_API_ADDRESS = "127.0.0.1:9997"
 LOOPBACK_IP = "127.0.0.1"
 RTSP_TRANSPORTS = {"automatic", "udp", "multicast", "tcp"}
+# Issue #442: the dedicated preview contour renders through the canonical
+# module too. One path-pattern reader rule covers every preview path; the
+# marker keeps the "# Sea Speed least-privilege reader for canonical" prefix
+# so the span-terminated rule parser and the bounded sanitize scanner
+# (AUTH_MARKER_PREFIX) treat it as renderer-owned.
+PREVIEW_PATH_PATTERN = "~^preview_[a-z0-9._-]+$"
+READER_MARKER_PREVIEW = (
+    "# Sea Speed least-privilege reader for canonical preview-contour "
+    f"(path-pattern {PREVIEW_PATH_PATTERN})"
+)
+PREVIEW_INVENTORY_SCHEMA = "sea_speed_camera_preview_inventory_v1"
+PREVIEW_CATALOG_SCHEMA = "sea_speed_camera_preview_catalog_v1"
 
 
 def reader_marker(path_name: str) -> str:
@@ -271,6 +283,13 @@ def reader_scope_token(count: int) -> str:
     if count == 1:
         return "single-rfc1918-ip"
     return f"multi-rfc1918-ip-count-{count}"
+
+
+def preview_reader_scope_token(count: int) -> str:
+    """Preview-contour scope evidence token (issue #442)."""
+    if count == 1:
+        return "preview-single-rfc1918-peer"
+    return f"preview-multi-rfc1918-peer-count-{count}"
 
 
 def _auth_internal_users_bounds(lines: list[str]) -> tuple[int, int]:
@@ -1054,6 +1073,229 @@ def write_candidate(path: Path, text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def _preview_inventory(path: Path) -> list[tuple[str, str, str]]:
+    """Parse and validate the protected camera preview inventory (issue #442).
+
+    Fail-closed validation equivalent to the previously inline heredoc: schema
+    sea_speed_camera_preview_inventory_v1, at least one camera, unique
+    lowercase-safe camera_id values, bounded display names, and credential-
+    bearing private RFC1918 RTSP sources (protected userinfo required).
+    """
+    try:
+        info = path.stat()
+    except OSError as exc:
+        raise ConfigError("camera preview inventory is unavailable") from exc
+    if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+        raise ConfigError("camera preview inventory must be a regular non-symlink file")
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ConfigError("camera preview inventory cannot be parsed") from exc
+    if not isinstance(payload, dict) or payload.get("schema") != PREVIEW_INVENTORY_SCHEMA:
+        raise ConfigError("unsupported camera preview inventory schema")
+    cameras = payload.get("cameras")
+    if not isinstance(cameras, list) or not cameras:
+        raise ConfigError("camera preview inventory must contain at least one camera")
+    seen: set[str] = set()
+    validated: list[tuple[str, str, str]] = []
+    for item in cameras:
+        if not isinstance(item, dict):
+            raise ConfigError("camera inventory entries must be objects")
+        camera_id = str(item.get("camera_id") or "").strip()
+        display_name = str(item.get("display_name") or camera_id).strip()
+        source = str(item.get("source") or "").strip()
+        if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,63}", camera_id):
+            raise ConfigError("camera_id must use lowercase safe characters")
+        if camera_id in seen:
+            raise ConfigError("duplicate camera_id")
+        if not display_name or len(display_name) > 120:
+            raise ConfigError("invalid display_name")
+        try:
+            parsed = urlsplit(source)
+            source_ip = ipaddress.ip_address(parsed.hostname or "")
+        except Exception as exc:
+            raise ConfigError("camera source must be a private RTSP URL") from exc
+        if parsed.scheme.lower() != "rtsp" or not _is_rfc1918_ipv4(source_ip):
+            raise ConfigError("camera source must be a private RTSP URL")
+        if parsed.username is None:
+            raise ConfigError("camera source must contain protected userinfo")
+        seen.add(camera_id)
+        validated.append((camera_id, display_name, source))
+    return validated
+
+
+def _preview_reader_rule_lines(reader_ips: list[str]) -> list[str]:
+    """The single marked preview reader rule covering the path pattern."""
+    for ip in reader_ips:
+        validate_reader_ip(ip)
+    return [
+        f"  {READER_MARKER_PREVIEW}\n",
+        "  - user: any\n",
+        "    pass:\n",
+        f"    ips: [{', '.join(_yaml_string(ip) for ip in reader_ips)}]\n",
+        "    permissions:\n",
+        "      - action: read\n",
+        f"        path: {_yaml_string(PREVIEW_PATH_PATTERN)}\n",
+    ]
+
+
+def _preview_render_texts(
+    private_address: str,
+    reader_ips: list[str],
+    cameras: list[tuple[str, str, str]],
+) -> tuple[str, str]:
+    """Render the standalone preview config and sanitized catalog (issue #442).
+
+    The config is the previously inline heredoc output PLUS the canonical
+    marker line (documented one-time drift); the catalog drops the
+    non-deterministic generation timestamp field (no consumer reads it —
+    documented one-time drift). Both outputs are deterministic for fixed
+    inputs.
+    """
+    validate_private_rtsp_address(private_address)
+    relay_host, relay_port_text = private_address.rsplit(":", 1)
+    relay_port = int(relay_port_text)
+    config_lines = [
+        "logLevel: error\n",
+        "logDestinations: [stdout]\n",
+        "authMethod: internal\n",
+        "authInternalUsers:\n",
+        *_preview_reader_rule_lines(reader_ips),
+        "rtsp: true\n",
+        "rtspTransports: [tcp]\n",
+        f"rtspAddress: {_yaml_string(private_address)}\n",
+        "rtmp: false\n",
+        "hls: false\n",
+        "webrtc: false\n",
+        "srt: false\n",
+        "paths:\n",
+    ]
+    catalog_cameras: list[dict[str, str]] = []
+    for camera_id, display_name, source in cameras:
+        path_name = f"preview_{camera_id}"
+        config_lines.extend([
+            f"  {_yaml_string(path_name)}:\n",
+            f"    source: {json.dumps(source, ensure_ascii=False)}\n",
+            "    sourceOnDemand: yes\n",
+            "    sourceOnDemandStartTimeout: 8s\n",
+            "    sourceOnDemandCloseAfter: 2s\n",
+            "    rtspTransport: tcp\n",
+        ])
+        catalog_cameras.append(
+            {
+                "camera_id": camera_id,
+                "display_name": display_name,
+                "source": f"rtsp://{relay_host}:{relay_port}/{path_name}",
+            }
+        )
+    config_text = "".join(config_lines)
+    catalog_text = (
+        json.dumps(
+            {"schema": PREVIEW_CATALOG_SCHEMA, "cameras": catalog_cameras},
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n"
+    )
+    return config_text, catalog_text
+
+
+def render_ubuntu_preview_relay(args: argparse.Namespace) -> str:
+    """Issue #442: render the dedicated preview-relay config + sanitized catalog.
+
+    Transaction shape (called by `camera-preview-relay.sh prepare`;
+    installation only through the existing digest-bound `activate`): the
+    protected inventory is validated fail-closed, then the standalone preview
+    config and the sanitized VPS catalog are rendered fresh — the preview
+    config is fully renderer-owned, unlike the bounded cam1 edits. Byte
+    discipline: this output equals the legacy inline-heredoc render PLUS the
+    canonical preview marker line, and the catalog drops the
+    non-deterministic generation timestamp field (no consumer reads it); both
+    are documented one-time drifts. Re-renders with the same inputs are
+    byte-identical.
+    """
+    reader_ips = _reader_ip_list(args.reader_ip)
+    for ip in reader_ips:
+        validate_reader_ip(ip)
+    cameras = _preview_inventory(args.inventory)
+    config_text, catalog_text = _preview_render_texts(args.private_rtsp_address, reader_ips, cameras)
+    config_digest = write_candidate(args.config_output, config_text)
+    catalog_digest = write_candidate(args.catalog_output, catalog_text)
+    print(
+        f"RENDERED mode=ubuntu-preview-relay camera_count={len(cameras)} "
+        f"reader_scope={preview_reader_scope_token(len(reader_ips))} "
+        f"reader_permission=read-only api=none "
+        f"config_sha256={config_digest} catalog_sha256={catalog_digest}"
+    )
+    return config_digest
+
+
+def verify_preview_reader_auth_config(text: str, reader_ips: list[str]) -> None:
+    """Verify the marked preview-contour reader rule (issue #442, D2 closure).
+
+    Exactly one canonical marker, the requested reader IPs are a subset of the
+    rule scope, read is granted on the preview path pattern, and — when the
+    requested scope equals the full rule scope — the block is byte-exactly the
+    canonical render (drift detection for #362-class mutations).
+    """
+    method = get_top_level_scalar(text, "authMethod")
+    if method not in (None, "internal"):
+        raise ConfigError("MediaMTX authMethod must be internal for bounded reader authorization")
+    for ip in reader_ips:
+        validate_reader_ip(ip)
+    lines = _split_lines(text)
+    start, end = _auth_internal_users_bounds(lines)
+    markers = [
+        index for index in range(start + 1, end) if lines[index].strip() == READER_MARKER_PREVIEW
+    ]
+    if len(markers) != 1:
+        raise ConfigError("exactly one Sea Speed preview reader authorization rule is required")
+    block_ips, block_actions = _parse_rule_block(lines, markers[0], end)
+    if not set(reader_ips) <= block_ips:
+        raise ConfigError("requested reader IPs are not a subset of the Sea Speed preview reader rule")
+    if "read" not in block_actions:
+        raise ConfigError("Sea Speed preview reader rule must grant read")
+    if sorted(reader_ips) == sorted(block_ips):
+        expected = _preview_reader_rule_lines(reader_ips)
+        if lines[markers[0] : markers[0] + len(expected)] != expected:
+            raise ConfigError(
+                "existing Sea Speed preview reader authorization rule does not match the requested rule"
+            )
+
+
+def render_verify_preview_auth(args: argparse.Namespace) -> str:
+    text = read_config(args.config)
+    reader_ips = _reader_ip_list(args.reader_ip)
+    verify_preview_reader_auth_config(text, reader_ips)
+    print(
+        f"VERIFIED mode=preview-auth "
+        f"reader_scope={preview_reader_scope_token(len(reader_ips))} "
+        f"reader_permission=read-only"
+    )
+    return ""
+
+
+def run_check_address(args: argparse.Namespace) -> str:
+    """Issue #442 (D8, bounded): single-sourced RFC1918 address validation.
+
+    `--kind reader-ip` validates a literal RFC1918 IPv4 reader address (silent).
+    `--kind private-rtsp` validates an RFC1918 IPv4:PORT listen address and
+    prints the host then the port (the relay shells' historical parse shape).
+    Both shells replace their duplicated inline validators with this verb.
+    """
+    if args.kind == "reader-ip":
+        validate_reader_ip(args.value)
+        return ""
+    if args.kind == "private-rtsp":
+        validate_private_rtsp_address(args.value)
+        host, port_text = args.value.rsplit(":", 1)
+        print(host)
+        print(str(int(port_text)))
+        return ""
+    raise ConfigError("unsupported address kind")
+
+
 def render_ubuntu_relay(args: argparse.Namespace) -> str:
     text = read_config(args.config)
     source = read_protected_env_value(args.source_env_file, args.source_env_key)
@@ -1322,6 +1564,33 @@ def build_parser() -> argparse.ArgumentParser:
     cleanup.add_argument("--remove-path", default="cam1-new")
     cleanup.add_argument("--output", type=Path, required=True)
     cleanup.set_defaults(handler=render_vps_cleanup)
+
+    preview = sub.add_parser(
+        "ubuntu-preview-relay",
+        help="render the dedicated preview-relay config and sanitized catalog from a protected inventory (issue #442)",
+    )
+    preview.add_argument("--inventory", type=Path, required=True)
+    preview.add_argument("--config-output", type=Path, required=True)
+    preview.add_argument("--catalog-output", type=Path, required=True)
+    preview.add_argument("--private-rtsp-address", required=True)
+    preview.add_argument("--reader-ip", required=True, action="append")
+    preview.set_defaults(handler=render_ubuntu_preview_relay)
+
+    preview_verify = sub.add_parser(
+        "verify-preview-auth",
+        help="verify the marked preview-contour reader rule against the requested reader scope (issue #442)",
+    )
+    preview_verify.add_argument("--config", type=Path, required=True)
+    preview_verify.add_argument("--reader-ip", required=True, action="append")
+    preview_verify.set_defaults(handler=render_verify_preview_auth)
+
+    check_address = sub.add_parser(
+        "check-address",
+        help="single-sourced RFC1918 validation: --kind reader-ip (silent) or private-rtsp (prints host then port) (issue #442)",
+    )
+    check_address.add_argument("--kind", choices=("reader-ip", "private-rtsp"), required=True)
+    check_address.add_argument("--value", required=True)
+    check_address.set_defaults(handler=run_check_address)
     return parser
 
 

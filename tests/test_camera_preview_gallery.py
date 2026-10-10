@@ -9,6 +9,9 @@ API = (ROOT / "api/app/main.py").read_text(encoding="utf-8-sig")
 OPERATOR = (ROOT / "frontend/sea-speed/index.html").read_text(encoding="utf-8-sig")
 CAMERAS = (ROOT / "frontend/sea-speed/cameras/index.html").read_text(encoding="utf-8-sig")
 RELAY = (ROOT / "deploy/worker/ubuntu/camera-preview-relay.sh").read_text(encoding="utf-8-sig")
+# Issue #442: the preview config+catalog literals are owned by the canonical
+# renderer now; the shell keeps structural pins only.
+RENDERER_SRC = (ROOT / "scripts/operations/mediamtx_path_config.py").read_text(encoding="utf-8-sig")
 DEPLOY = (ROOT / "deploy/vps/deploy.sh").read_text(encoding="utf-8-sig")
 SPEC = (ROOT / "specs/002-camera-preview-gallery/spec.md").read_text(encoding="utf-8-sig")
 PLAN = (ROOT / "specs/002-camera-preview-gallery/plan.md").read_text(encoding="utf-8-sig")
@@ -216,10 +219,16 @@ class CameraPreviewGalleryTests(unittest.TestCase):
         self.assertIn("CAMERA_PREVIEW_SESSION_RE.fullmatch", API)
 
     def test_ubuntu_preview_relay_is_separate_source_on_demand_and_private(self) -> None:
+        # Renderer-owned config literals (issue #442: canonical renderer module).
+        for marker in (
+            'sourceOnDemand: yes', 'sourceOnDemandCloseAfter: 2s', 'rtspTransports: [tcp]',
+            r'"~^preview_[a-z0-9._-]+$"',
+        ):
+            self.assertIn(marker, RENDERER_SRC)
+        # Shell structural pins.
         for marker in (
             'service_name="sea-speed-camera-preview-relay.service"', 'cam1_service="sea-speed-stream.service"',
-            'sourceOnDemand: yes', 'sourceOnDemandCloseAfter: 2s', 'rtspTransports: [tcp]',
-            r'path: \"~^preview_[a-z0-9._-]+$\"', 'CAM1_RELAY_CHANGED=NO',
+            'CAM1_RELAY_CHANGED=NO',
             'AI_WORKER_CHANGED=NO', 'SECRETS_DISPLAYED=NO',
         ):
             self.assertIn(marker, RELAY)
@@ -228,13 +237,19 @@ class CameraPreviewGalleryTests(unittest.TestCase):
         self.assertIn('chmod 0750 "$state_root" "$active_root"', RELAY)
 
     def test_ubuntu_inventory_is_protected_and_catalog_is_sanitized(self) -> None:
+        # Renderer-owned schema/validation literals (issue #442).
+        for marker in (
+            'sea_speed_camera_preview_inventory_v1', 'sea_speed_camera_preview_catalog_v1',
+            'if parsed.username is None:', '"source": f"rtsp://{relay_host}:{relay_port}/{path_name}"',
+        ):
+            self.assertIn(marker, RENDERER_SRC)
+        # Shell structural pins.
         for marker in (
             'inventory mode must be 600', 'inventory must be root-owned',
-            'sea_speed_camera_preview_inventory_v1', 'sea_speed_camera_preview_catalog_v1',
-            'if parsed.username is None:', 'source": f"rtsp://{relay_host}:{relay_port}/{path_name}"',
         ):
             self.assertIn(marker, RELAY)
         self.assertNotRegex(RELAY, r"192\.168\.88\.\d+")
+        self.assertNotRegex(RENDERER_SRC, r"192\.168\.88\.\d+")
 
     def test_vps_deploy_installs_rolls_back_and_smokes_cameras_page(self) -> None:
         for marker in (
