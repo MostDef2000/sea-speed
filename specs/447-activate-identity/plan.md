@@ -66,8 +66,10 @@
   on-disk path guessing): it is exactly what systemd would load (main unit +
   drop-ins, last assignment wins) and is readable under chroot.
 - D-3: Both derivations fail → exit 9 BEFORE the backup: backup creation is
-  a mutation of the state root; the safest ordering is zero writes before
-  the identity is known. (The identity block already sat before the backup;
+  a mutation of the state root; the ordering guarantee is no backup or
+  config mutation before the identity is known (state/backup directory
+  creation via the pre-existing install -d precedes the derivation,
+  unchanged from base). (The identity block already sat before the backup;
   the caller keeps that position and documents it.)
 - D-4: `User=root` semantics unchanged (root:root 0600 even if a Group= is
   set): bounded preservation of current behavior; the incident class is the

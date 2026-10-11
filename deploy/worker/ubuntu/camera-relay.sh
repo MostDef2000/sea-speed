@@ -466,7 +466,7 @@ if systemctl is-active --quiet "$worker_service"; then
 fi
 
 # Issue #447: derive the relay service identity fail-closed (systemctl show,
-# then the unit file via systemctl cat) BEFORE any mutation — a wrong guess
+# then the on-disk unit file) BEFORE any mutation — a wrong guess
 # must refuse, never mis-install ownership. The derivation sits before the
 # backup on purpose: backup is itself a state-dir mutation.
 identity="$(derive_relay_service_identity)" || exit 9
