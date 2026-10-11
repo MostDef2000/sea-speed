@@ -123,6 +123,8 @@ class VpsDeployTransactionTests(unittest.TestCase):
         files = {
             "api/app/main.py": f"SOURCE_COMMIT = '{sha}'\n",
             "api/app/store.py": f"# store fixture {sha}\n",
+            "api/app/config.py": f"# config fixture {sha}\n",
+            "api/app/identity.py": f"# identity fixture {sha}\n",
             "frontend/sea-speed/index.html": f"operator {sha}\n",
             "frontend/sea-speed/objects/index.html": f"objects {sha}\n",
             "frontend/sea-speed/cameras/index.html": f"cameras {sha}\n",

@@ -14,6 +14,17 @@ FRONTEND_PATH = ROOT / "frontend" / "sea-speed" / "index.html"
 ROAD_FRONTEND_PATH = ROOT / "frontend" / "sea-speed" / "road" / "index.html"
 
 
+def api_source() -> str:
+    # Issue #396 wave 1: worker-control/auth primitives moved to identity.py,
+    # their env knobs to config.py — read the API sources so the pins follow.
+    api_dir = ROOT / "api" / "app"
+    return "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in (api_dir / "main.py", api_dir / "identity.py", api_dir / "config.py")
+        if path.exists()
+    )
+
+
 def load_agent():
     spec = importlib.util.spec_from_file_location("sea_speed_worker_control_agent", AGENT_PATH)
     assert spec and spec.loader
@@ -167,7 +178,7 @@ def test_road_stop_touches_only_fixed_road_service(monkeypatch, tmp_path):
 
 
 def test_vps_api_contract_is_fixed_private_proxy_with_trusted_identity():
-    source = API_PATH.read_text(encoding="utf-8")
+    source = api_source()
     for marker in (
         '"/api/worker/control"', '"/api/worker/control/start"', '"/api/worker/control/stop"',
         '"/api/worker/control/road1"', '"/api/worker/control/road1/start"', '"/api/worker/control/road1/stop"',
@@ -185,7 +196,7 @@ def test_vps_api_contract_is_fixed_private_proxy_with_trusted_identity():
 
 def test_worker_control_protocol_is_fixed_and_mismatch_fails_closed():
     agent = AGENT_PATH.read_text(encoding="utf-8")
-    api = API_PATH.read_text(encoding="utf-8")
+    api = api_source()
     marker = 'WORKER_CONTROL_PROTOCOL = "sea_speed_worker_control_v1"'
     assert marker in agent
     assert marker in api
@@ -196,7 +207,7 @@ def test_worker_control_protocol_is_fixed_and_mismatch_fails_closed():
 
 def test_worker_control_never_owns_camera_hls_or_preview():
     agent = AGENT_PATH.read_text(encoding="utf-8").lower()
-    api = API_PATH.read_text(encoding="utf-8").lower()
+    api = api_source().lower()
     frontend = FRONTEND_PATH.read_text(encoding="utf-8")
     road = ROAD_FRONTEND_PATH.read_text(encoding="utf-8")
     assert "mediamtx" not in agent

@@ -11,6 +11,8 @@ REPOSITORY="${SEA_SPEED_REPOSITORY:-MostDef2000/sea-speed}"
 DEPLOY_ROOT="${SEA_SPEED_DEPLOY_ROOT:-/opt/sea-speed-deploy}"
 API_TARGET="${SEA_SPEED_API_TARGET:-/opt/sea-speed-api/app/main.py}"
 STORE_TARGET="$(dirname "$API_TARGET")/store.py"
+CONFIG_TARGET="$(dirname "$API_TARGET")/config.py"
+IDENTITY_TARGET="$(dirname "$API_TARGET")/identity.py"
 FRONTEND_TARGET="${SEA_SPEED_FRONTEND_TARGET:-/var/www/mostdef.ru/sea-speed/index.html}"
 OBJECTS_FRONTEND_TARGET="${SEA_SPEED_OBJECTS_FRONTEND_TARGET:-/var/www/mostdef.ru/sea-speed/objects/index.html}"
 CAMERAS_FRONTEND_TARGET="${SEA_SPEED_CAMERAS_FRONTEND_TARGET:-/var/www/mostdef.ru/sea-speed/cameras/index.html}"
@@ -204,6 +206,8 @@ release_complete() {
   local root="$1"
   [[ -f "$root/api/app/main.py" && \
      -f "$root/api/app/store.py" && \
+     -f "$root/api/app/config.py" && \
+     -f "$root/api/app/identity.py" && \
      -f "$root/frontend/sea-speed/index.html" && \
      -f "$root/frontend/sea-speed/objects/index.html" && \
      -f "$root/frontend/sea-speed/cameras/index.html" && \
@@ -241,6 +245,8 @@ download_release() {
   for required in \
     api/app/main.py \
     api/app/store.py \
+    api/app/config.py \
+    api/app/identity.py \
     frontend/sea-speed/index.html \
     frontend/sea-speed/objects/index.html \
     frontend/sea-speed/cameras/index.html \
@@ -268,6 +274,8 @@ download_release() {
     "$TARGET_RELEASE/scripts/operations"
   install -m 0644 "$extracted/api/app/main.py" "$TARGET_RELEASE/api/app/main.py"
   install -m 0644 "$extracted/api/app/store.py" "$TARGET_RELEASE/api/app/store.py"
+  install -m 0644 "$extracted/api/app/config.py" "$TARGET_RELEASE/api/app/config.py"
+  install -m 0644 "$extracted/api/app/identity.py" "$TARGET_RELEASE/api/app/identity.py"
   install -m 0644 "$extracted/frontend/sea-speed/index.html" "$TARGET_RELEASE/frontend/sea-speed/index.html"
   install -m 0644 "$extracted/frontend/sea-speed/objects/index.html" "$TARGET_RELEASE/frontend/sea-speed/objects/index.html"
   install -m 0644 "$extracted/frontend/sea-speed/cameras/index.html" "$TARGET_RELEASE/frontend/sea-speed/cameras/index.html"
@@ -488,6 +496,15 @@ bootstrap_current_release() {
   log "Capturing the existing live code once as bootstrap rollback"
   mkdir -p "$bootstrap_release/api/app" "$bootstrap_release/frontend/sea-speed/objects" "$bootstrap_release/frontend/sea-speed/cameras" "$bootstrap_release/frontend/sea-speed/road" "$bootstrap_release/frontend/root" "$bootstrap_release/frontend/sea-speed"
   install -m 0644 "$API_TARGET" "$bootstrap_release/api/app/main.py"
+  if [[ -f "$CONFIG_TARGET" ]]; then
+    # The captured main.py imports config.py at boot, so the bootstrap
+    # baseline must stay bootable on its own (issue #396 wave 1).
+    install -m 0644 "$CONFIG_TARGET" "$bootstrap_release/api/app/config.py"
+  fi
+  if [[ -f "$IDENTITY_TARGET" ]]; then
+    # Same for identity.py: the captured main.py imports it at boot.
+    install -m 0644 "$IDENTITY_TARGET" "$bootstrap_release/api/app/identity.py"
+  fi
   if [[ -f "$STORE_TARGET" ]]; then
     # A live store.py belongs to the captured rollback release too: the
     # captured main.py imports it at boot, so the bootstrap baseline must
@@ -613,6 +630,12 @@ install_release() {
   [[ -f "$release_dir/frontend/sea-speed/unavailable.html" || -f "$release_dir/frontend/sea-speed/unavailable.html.absent" ]] || { echo "Release ${release_name} has no fallback frontend state" >&2; return 1; }
 
   install -m 0644 "$release_dir/api/app/main.py" "${API_TARGET}.next"
+  if [[ -f "$release_dir/api/app/config.py" ]]; then
+    install -m 0644 "$release_dir/api/app/config.py" "${CONFIG_TARGET}.next"
+  fi
+  if [[ -f "$release_dir/api/app/identity.py" ]]; then
+    install -m 0644 "$release_dir/api/app/identity.py" "${IDENTITY_TARGET}.next"
+  fi
   if [[ -f "$release_dir/api/app/store.py" ]]; then
     install -m 0644 "$release_dir/api/app/store.py" "${STORE_TARGET}.next"
   fi
@@ -637,6 +660,24 @@ install_release() {
     install -m 0644 "$release_dir/frontend/sea-speed/unavailable.html" "${FALLBACK_FRONTEND_TARGET}.next"
   fi
 
+  if [[ -f "$release_dir/api/app/config.py" ]]; then
+    # Activation is bound to the selected release content — the same
+    # condition as staging above. config.py must land before main.py:
+    # the new main imports it at boot (issue #396 wave 1).
+    mv -f "${CONFIG_TARGET}.next" "$CONFIG_TARGET"
+  else
+    # A release without config.py is a pre-#396 shape: remove the live copy
+    # (and any stale staged .next) so the old main stays the sole owner of
+    # these names and the downgrade boots cleanly.
+    rm -f "$CONFIG_TARGET" "${CONFIG_TARGET}.next"
+  fi
+  if [[ -f "$release_dir/api/app/identity.py" ]]; then
+    # identity.py must also land before main.py: the new main imports it at
+    # boot for the auth/worker-control seams.
+    mv -f "${IDENTITY_TARGET}.next" "$IDENTITY_TARGET"
+  else
+    rm -f "$IDENTITY_TARGET" "${IDENTITY_TARGET}.next"
+  fi
   if [[ -f "$release_dir/api/app/store.py" ]]; then
     # Activation is bound to the selected release content — the same
     # condition as staging above — never to the mere presence of a staged
