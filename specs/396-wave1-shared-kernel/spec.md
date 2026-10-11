@@ -118,7 +118,7 @@ by `deploy/vps/deploy.sh`), any behavior/limit/schema change.
   captured `main.py` when present.
 - R-5: The AST/text harnesses that pin moved functions or literals
   (`tests/test_api_contract.py`, `tests/test_393_control_token_separation.py`,
-  `tests/test_analytics_profiles.py`, `tests/test_worker_operator_control.py`)
+  `tests/test_analytics_profiles.py`, `tests/test_worker_operator_control.py`, `tests/test_camera_preview_gallery.py`, `tests/test_water_passage.py`)
   resolve them from the new modules with fallback to `main.py` so the pins
   hold on both the base and head trees; no assertion is weakened.
   `tests/test_vps_deploy_transaction.py` synthetic releases carry
@@ -160,7 +160,7 @@ by `deploy/vps/deploy.sh`), any behavior/limit/schema change.
 
 ## NFR assessment
 
-- NFR-001 | Area: reliability | Target: zero behavior change on the VPS — boot ordering identical (config import first, mkdir exactly once, app created after), all 56 routes and response shapes unchanged | Validation: full suite green; route/logic diff of main.py limited to moved blocks + re-export imports; deploy transaction suite green | Evidence: tests/test_api_contract.py, tests/test_vps_deploy_transaction.py | Status: PASS
+- NFR-001 | Area: reliability | Target: zero behavior change on the VPS — boot ordering identical (config import first, mkdir exactly once, app created after), all 61 decorated API routes (66 total app.routes incl. mount + docs) and response shapes unchanged | Validation: full suite green; route/logic diff of main.py limited to moved blocks + re-export imports; deploy transaction suite green | Evidence: tests/test_api_contract.py, tests/test_vps_deploy_transaction.py | Status: PASS
 - NFR-002 | Area: compatibility | Target: AST-harness and text-pinning suites keep working without weakened assertions; moved literals re-pinned to the owning module with fallback-to-main so the base tree stays clean | Validation: updated harness suites resolve moved functions/markers from config.py/identity.py; suite green on head; base-run spot check for fallback logic | Evidence: tests/test_api_contract.py, tests/test_393_control_token_separation.py, tests/test_analytics_profiles.py, tests/test_worker_operator_control.py | Status: PASS
 - NFR-003 | Area: deployability/rollback | Target: a release missing config.py/identity.py can never reach activation (fails in release completeness/download), and a rollback to a pre-#396 release removes both modules while keeping the old main bootable; bootstrap capture stays bootable | Validation: deploy.sh four-place extension + soft activation pattern; synthetic-release tests (store/config/identity present and absent shapes) | Evidence: tests/test_vps_deploy_transaction.py | Status: PASS
 - NFR-004 | Area: security | Target: trust primitives (require_auth, require_operator_identity, worker-control origin allowlist) move verbatim with no semantic drift; identity.py holds the auth seams; single canonical module identity per process avoids split-brain globals (e.g. WORKER_CONTROL_TIMEOUT_SEC, CAMERA_PREVIEW_LOCK) | Validation: verbatim byte-range extraction of the function bodies; import-idiom symmetry between main.py and identity.py documented and reviewed; token-separation suite green | Evidence: tests/test_393_control_token_separation.py, tests/test_sea_speed_auth_v1.py | Status: PASS

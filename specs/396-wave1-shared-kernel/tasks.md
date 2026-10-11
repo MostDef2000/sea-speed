@@ -14,7 +14,7 @@
   untouched)
 - T002: Re-pin the AST/text harnesses that reference moved functions or
   literals — `tests/test_api_contract.py`, `tests/test_393_control_token_separation.py`,
-  `tests/test_analytics_profiles.py`, `tests/test_worker_operator_control.py` —
+  `tests/test_analytics_profiles.py`, `tests/test_worker_operator_control.py`, `tests/test_camera_preview_gallery.py`, `tests/test_water_passage.py` —
   to resolve from `identity.py`/`config.py` with fallback-to-main, without
   weakening any assertion
 - T003: Extend `deploy/vps/deploy.sh` in all four places (CONFIG_TARGET/
