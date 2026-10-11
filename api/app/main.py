@@ -1,5 +1,4 @@
 import hashlib
-import http.client
 import ipaddress
 import json
 import os
@@ -32,186 +31,140 @@ except ImportError:  # direct uvicorn app-dir / spec_from_file_location executio
     from store import read_json_file, write_json_file
 
 
-BASE_DIR = Path("/opt/sea-speed-api")
-DATA_DIR = BASE_DIR / "data"
-MEDIA_DIR = BASE_DIR / "media"
-OVERLAY_DIR = MEDIA_DIR / "overlays"
-EVENTS_MEDIA_DIR = MEDIA_DIR / "events"
-PASSAGES_MEDIA_DIR = MEDIA_DIR / "passages"
-PASSAGE_MEDIA_DIR = PASSAGES_MEDIA_DIR
-CAMERA_PREVIEW_DIR = MEDIA_DIR / "camera-preview"
-CAMERA_SNAPSHOT_DIR = DATA_DIR / "camera-preview-snapshots"
-DEPLOYED_COMMIT_FILE = Path("/opt/sea-speed-deploy/state/current-release")
-
-STATE_FILE = DATA_DIR / "cam1_state.json"
-EVENTS_FILE = DATA_DIR / "events.json"
-OBJECTS_DB_FILE = DATA_DIR / "objects.sqlite3"
-PASSAGES_DB_FILE = DATA_DIR / "water_passages.sqlite3"
-STATE_DB_FILE = DATA_DIR / "state.sqlite3"
-EVENTS_FEED_LIMIT = 500
-CROSSINGS_STORE_LIMIT = 5000
-ROI_FILE = DATA_DIR / "cam1_roi.json"
-SPEED_CONFIG_FILE = DATA_DIR / "cam1_speed_config.json"
-SPEED_LINES_FILE = DATA_DIR / "cam1_speed_lines.json"
-ANALYTICS_IDENTITIES = {
-    "cam1": {"analytics_profile": "water-v1", "domain": "water"},
-    "road1": {"analytics_profile": "road-v1", "domain": "road"},
-}
-CAMERA_PREVIEW_CATALOG_FILE = Path(
-    os.environ.get(
-        "SEA_SPEED_CAMERA_PREVIEW_CATALOG",
-        str(DATA_DIR / "camera-preview-catalog.json"),
+try:  # package context (api.app.main) and direct-file load both supported
+    from . import config  # noqa: F401  # explicit re-export seam (issue #396 wave 1)
+    from .config import (  # noqa: F401  # explicit re-export seam (issue #396 wave 1)
+        BASE_DIR,
+        DATA_DIR,
+        MEDIA_DIR,
+        OVERLAY_DIR,
+        EVENTS_MEDIA_DIR,
+        PASSAGES_MEDIA_DIR,
+        PASSAGE_MEDIA_DIR,
+        CAMERA_PREVIEW_DIR,
+        CAMERA_SNAPSHOT_DIR,
+        DEPLOYED_COMMIT_FILE,
+        STATE_FILE,
+        EVENTS_FILE,
+        OBJECTS_DB_FILE,
+        PASSAGES_DB_FILE,
+        STATE_DB_FILE,
+        EVENTS_FEED_LIMIT,
+        CROSSINGS_STORE_LIMIT,
+        ROI_FILE,
+        SPEED_CONFIG_FILE,
+        SPEED_LINES_FILE,
+        ANALYTICS_IDENTITIES,
+        CAMERA_PREVIEW_CATALOG_FILE,
+        CAMERA_PREVIEW_STATE_FILE,
+        CAMERA_PREVIEW_FFMPEG_BIN,
+        API_TOKEN,
+        WORKER_CONTROL_TOKEN,
+        WORKER_CONTROL_URL,
+        WORKER_CONTROL_PROTOCOL,
+        API_SCHEMA,
+        WORKER_STATE_SCHEMA,
+        VEHICLE_EVENT_SCHEMA,
+        TELEMETRY_SCHEMA,
+        CAMERA_PREVIEW_CATALOG_SCHEMA,
+        OBJECT_STATUSES,
+        OBJECTS_RETENTION_LIMIT,
+        PASSAGES_RETENTION_LIMIT,
+        PASSAGE_STATUSES,
+        PASSAGE_SPEED_STATUSES,
+        PASSAGE_ID_RE,
+        SHA_RE,
+        CAMERA_PREVIEW_ID_RE,
+        CAMERA_PREVIEW_SESSION_RE,
+        CAMERA_PREVIEW_RFC1918,
+        CAMERA_PREVIEW_LOCK,
+        CAMERA_PREVIEW_START_TIMEOUT_SEC,
+        CAMERA_SNAPSHOT_EXTRACT_TIMEOUT_SEC,
+        CAMERA_SNAPSHOT_MIN_BYTES,
+        CAMERA_SNAPSHOT_MIN_LUMA_SPREAD,
+        WORKER_CONTROL_TIMEOUT_SEC,
+        CAMERA_PREVIEW_TTL_SEC,
     )
-)
-CAMERA_PREVIEW_STATE_FILE = DATA_DIR / "camera-preview-state.json"
-CAMERA_PREVIEW_FFMPEG_BIN = os.environ.get("SEA_SPEED_CAMERA_PREVIEW_FFMPEG", "/usr/bin/ffmpeg")
-
-API_TOKEN = os.environ.get("SEA_SPEED_API_TOKEN", "")
-WORKER_CONTROL_TOKEN = os.environ.get("SEA_SPEED_WORKER_CONTROL_TOKEN", "")
-WORKER_CONTROL_URL = os.environ.get(
-    "SEA_SPEED_WORKER_CONTROL_URL", "http://10.123.239.102:19001"
-).strip()
-try:
-    WORKER_CONTROL_TIMEOUT_SEC = max(
-        1.0,
-        min(float(os.environ.get("SEA_SPEED_WORKER_CONTROL_TIMEOUT_SEC", "3")), 5.0),
+    from . import identity  # noqa: F401  # explicit re-export seam (issue #396 wave 1)
+    from .identity import (  # noqa: F401  # explicit re-export seam (issue #396 wave 1)
+        now_iso,
+        deployed_source_commit,
+        require_auth,
+        require_operator_identity,
+        worker_control_origin,
+        call_worker_control,
+        analytics_identity,
     )
-except ValueError:
-    WORKER_CONTROL_TIMEOUT_SEC = 3.0
-WORKER_CONTROL_PROTOCOL = "sea_speed_worker_control_v1"
-API_SCHEMA = "sea_speed_api_v1"
-WORKER_STATE_SCHEMA = "sea_speed_worker_state_v1"
-VEHICLE_EVENT_SCHEMA = "sea_speed_vehicle_event_v1"
-TELEMETRY_SCHEMA = "sea_speed_telemetry_v1"
-CAMERA_PREVIEW_CATALOG_SCHEMA = "sea_speed_camera_preview_catalog_v1"
-OBJECT_STATUSES = {"new", "reviewed", "ignored"}
-OBJECTS_RETENTION_LIMIT = 100
-PASSAGES_RETENTION_LIMIT = 300
-PASSAGE_STATUSES = {"tracking", "measuring", "measured", "completed"}
-PASSAGE_SPEED_STATUSES = {"unknown", "measuring", "measured", "incomplete"}
-PASSAGE_ID_RE = re.compile(r"^P-[A-Za-z0-9][A-Za-z0-9._-]{1,78}$")
-SHA_RE = re.compile(r"^[0-9a-fA-F]{40}$")
-CAMERA_PREVIEW_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
-CAMERA_PREVIEW_SESSION_RE = re.compile(r"^[0-9a-f]{12}$")
-CAMERA_PREVIEW_RFC1918 = tuple(
-    ipaddress.ip_network(value)
-    for value in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
-)
-CAMERA_PREVIEW_LOCK = threading.Lock()
-try:
-    CAMERA_PREVIEW_TTL_SEC = max(
-        30,
-        min(int(os.environ.get("SEA_SPEED_CAMERA_PREVIEW_TTL_SEC", "120")), 600),
+except ImportError:  # direct uvicorn app-dir / spec_from_file_location execution
+    if str(Path(__file__).resolve().parent) not in sys.path:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import config  # noqa: F401  # explicit re-export seam (issue #396 wave 1)
+    from config import (  # noqa: F401  # explicit re-export seam (issue #396 wave 1)
+        BASE_DIR,
+        DATA_DIR,
+        MEDIA_DIR,
+        OVERLAY_DIR,
+        EVENTS_MEDIA_DIR,
+        PASSAGES_MEDIA_DIR,
+        PASSAGE_MEDIA_DIR,
+        CAMERA_PREVIEW_DIR,
+        CAMERA_SNAPSHOT_DIR,
+        DEPLOYED_COMMIT_FILE,
+        STATE_FILE,
+        EVENTS_FILE,
+        OBJECTS_DB_FILE,
+        PASSAGES_DB_FILE,
+        STATE_DB_FILE,
+        EVENTS_FEED_LIMIT,
+        CROSSINGS_STORE_LIMIT,
+        ROI_FILE,
+        SPEED_CONFIG_FILE,
+        SPEED_LINES_FILE,
+        ANALYTICS_IDENTITIES,
+        CAMERA_PREVIEW_CATALOG_FILE,
+        CAMERA_PREVIEW_STATE_FILE,
+        CAMERA_PREVIEW_FFMPEG_BIN,
+        API_TOKEN,
+        WORKER_CONTROL_TOKEN,
+        WORKER_CONTROL_URL,
+        WORKER_CONTROL_PROTOCOL,
+        API_SCHEMA,
+        WORKER_STATE_SCHEMA,
+        VEHICLE_EVENT_SCHEMA,
+        TELEMETRY_SCHEMA,
+        CAMERA_PREVIEW_CATALOG_SCHEMA,
+        OBJECT_STATUSES,
+        OBJECTS_RETENTION_LIMIT,
+        PASSAGES_RETENTION_LIMIT,
+        PASSAGE_STATUSES,
+        PASSAGE_SPEED_STATUSES,
+        PASSAGE_ID_RE,
+        SHA_RE,
+        CAMERA_PREVIEW_ID_RE,
+        CAMERA_PREVIEW_SESSION_RE,
+        CAMERA_PREVIEW_RFC1918,
+        CAMERA_PREVIEW_LOCK,
+        CAMERA_PREVIEW_START_TIMEOUT_SEC,
+        CAMERA_SNAPSHOT_EXTRACT_TIMEOUT_SEC,
+        CAMERA_SNAPSHOT_MIN_BYTES,
+        CAMERA_SNAPSHOT_MIN_LUMA_SPREAD,
+        WORKER_CONTROL_TIMEOUT_SEC,
+        CAMERA_PREVIEW_TTL_SEC,
     )
-except ValueError:
-    CAMERA_PREVIEW_TTL_SEC = 120
-CAMERA_PREVIEW_START_TIMEOUT_SEC = 12
-CAMERA_SNAPSHOT_EXTRACT_TIMEOUT_SEC = 8
-CAMERA_SNAPSHOT_MIN_BYTES = 4096
-CAMERA_SNAPSHOT_MIN_LUMA_SPREAD = 12.0
+    import identity  # noqa: F401  # explicit re-export seam (issue #396 wave 1)
+    from identity import (  # noqa: F401  # explicit re-export seam (issue #396 wave 1)
+        now_iso,
+        deployed_source_commit,
+        require_auth,
+        require_operator_identity,
+        worker_control_origin,
+        call_worker_control,
+        analytics_identity,
+    )
 
-DATA_DIR.mkdir(parents=True, exist_ok=True)
-OVERLAY_DIR.mkdir(parents=True, exist_ok=True)
-EVENTS_MEDIA_DIR.mkdir(parents=True, exist_ok=True)
-PASSAGES_MEDIA_DIR.mkdir(parents=True, exist_ok=True)
-CAMERA_PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
-CAMERA_SNAPSHOT_DIR.mkdir(mode=0o755, parents=True, exist_ok=True)
 
 app = FastAPI(title="Sea Speed API")
 app.mount("/media", StaticFiles(directory=str(MEDIA_DIR)), name="media")
-
-
-def now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
-def deployed_source_commit() -> str:
-    configured = os.environ.get("SEA_SPEED_SOURCE_COMMIT", "").strip()
-    if SHA_RE.fullmatch(configured):
-        return configured.lower()
-    try:
-        value = DEPLOYED_COMMIT_FILE.read_text(encoding="utf-8-sig").strip()
-    except OSError:
-        return "unknown"
-    return value.lower() if SHA_RE.fullmatch(value) else "unknown"
-
-
-def require_auth(authorization: Optional[str]) -> None:
-    if not API_TOKEN:
-        raise HTTPException(status_code=500, detail="SEA_SPEED_API_TOKEN is not set")
-    expected = f"Bearer {API_TOKEN}"
-    if authorization != expected:
-        raise HTTPException(status_code=403, detail="Forbidden")
-
-
-def require_operator_identity(x_authentik_username: Optional[str]) -> str:
-    username = (x_authentik_username or "").strip()
-    if not username:
-        raise HTTPException(status_code=503, detail="Trusted Authentik identity is unavailable")
-    return username
-
-
-def worker_control_origin() -> tuple[str, int]:
-    parsed = urlsplit(WORKER_CONTROL_URL)
-    if parsed.scheme != "http" or parsed.username or parsed.password:
-        raise HTTPException(status_code=503, detail="Worker control origin is invalid")
-    if parsed.path not in {"", "/"} or parsed.query or parsed.fragment:
-        raise HTTPException(status_code=503, detail="Worker control origin is invalid")
-    if not parsed.hostname or parsed.port is None:
-        raise HTTPException(status_code=503, detail="Worker control origin is invalid")
-    try:
-        address = ipaddress.ip_address(parsed.hostname)
-    except ValueError as exc:
-        raise HTTPException(status_code=503, detail="Worker control origin is invalid") from exc
-    if (
-        address.version != 4
-        or address.is_loopback
-        or not any(address in network for network in CAMERA_PREVIEW_RFC1918)
-        or not 1024 <= parsed.port <= 65535
-    ):
-        raise HTTPException(status_code=503, detail="Worker control origin is invalid")
-    return str(address), parsed.port
-
-
-def call_worker_control(method: str, path: str) -> Dict[str, Any]:
-    allowed = {
-        ("GET", "/v1/status"),
-        ("POST", "/v1/start"),
-        ("POST", "/v1/stop"),
-        ("GET", "/v1/road1/status"),
-        ("POST", "/v1/road1/start"),
-        ("POST", "/v1/road1/stop"),
-    }
-    if (method, path) not in allowed:
-        raise HTTPException(status_code=500, detail="Unsupported worker control operation")
-    if not WORKER_CONTROL_TOKEN:
-        raise HTTPException(status_code=500, detail="SEA_SPEED_WORKER_CONTROL_TOKEN is not set")
-    host, port = worker_control_origin()
-    connection = http.client.HTTPConnection(host, port, timeout=WORKER_CONTROL_TIMEOUT_SEC)
-    try:
-        headers = {"Authorization": f"Bearer {WORKER_CONTROL_TOKEN}", "Accept": "application/json"}
-        if method == "POST":
-            headers["Content-Length"] = "0"
-        connection.request(method, path, body=None, headers=headers)
-        response = connection.getresponse()
-        body = response.read(65537)
-        if len(body) > 65536:
-            raise HTTPException(status_code=503, detail="Worker control response is too large")
-        try:
-            payload = json.loads(body.decode("utf-8")) if body else {}
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise HTTPException(status_code=503, detail="Worker control response is invalid") from exc
-        if response.status != 200 or not isinstance(payload, dict) or payload.get("ok") is not True:
-            raise HTTPException(status_code=503, detail="Worker control operation failed")
-        if payload.get("protocol") != WORKER_CONTROL_PROTOCOL:
-            raise HTTPException(status_code=503, detail="Worker control protocol mismatch")
-        return payload
-    except HTTPException:
-        raise
-    except (OSError, http.client.HTTPException) as exc:
-        raise HTTPException(status_code=503, detail="Worker control agent is unavailable") from exc
-    finally:
-        connection.close()
 
 
 @contextmanager
@@ -1040,13 +993,6 @@ def default_state() -> Dict[str, Any]:
         "last_overlay_url": None,
         "message": "No worker state received yet",
     }
-
-
-def analytics_identity(camera_id: str) -> Dict[str, str]:
-    identity = ANALYTICS_IDENTITIES.get(camera_id)
-    if identity is None:
-        raise HTTPException(status_code=404, detail="Unknown analytics camera")
-    return dict(identity)
 
 
 def analytics_data_file(camera_id: str, kind: str) -> Path:

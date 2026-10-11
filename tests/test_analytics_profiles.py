@@ -94,7 +94,14 @@ class AnalyticsProfilesTests(unittest.TestCase):
         self.assertIn('profile.domain == "water":\n                for vessel in water_event_candidates', worker)
 
     def test_api_is_additive_and_camera_isolated(self) -> None:
-        source = (ROOT / "api/app/main.py").read_text(encoding="utf-8")
+        # Issue #396 wave 1: read the API sources (main + kernel modules) so
+        # the road1 identity pin follows the constant into config.py.
+        api_dir = ROOT / "api/app"
+        source = "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in (api_dir / "main.py", api_dir / "identity.py", api_dir / "config.py")
+            if path.exists()
+        )
         for route in (
             '/api/analytics/{camera_id}/state',
             '/api/analytics/{camera_id}/events',

@@ -515,7 +515,14 @@ class PassageApiRetentionTests(unittest.TestCase):
             self.assertEqual(len(ns["list_water_passages"](10)), 3)
 
     def test_api_schema_does_not_persist_per_frame_trajectory_rows(self) -> None:
-        source = API_SOURCE.read_text(encoding="utf-8")
+        # Issue #396 wave 1: PASSAGES_RETENTION_LIMIT moved to config.py —
+        # read the API sources so the pin follows the constant.
+        api_dir = ROOT / "api/app"
+        source = "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in (api_dir / "main.py", api_dir / "identity.py", api_dir / "config.py")
+            if path.exists()
+        )
         self.assertIn("PASSAGES_RETENTION_LIMIT = 300", source)
         self.assertIn("CREATE TABLE IF NOT EXISTS water_passages", source)
         self.assertNotIn("CREATE TABLE IF NOT EXISTS passage_observations", source)

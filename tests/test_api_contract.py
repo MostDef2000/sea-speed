@@ -16,8 +16,21 @@ from typing import Any, Dict, List, Optional
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "api" / "app" / "main.py"
+# Issue #396 wave 1: the shared kernel lives in its own modules; the harness
+# resolves moved functions from identity/config with fallback to main so the
+# same assertions hold against both the base and head trees.
+IDENTITY_SOURCE = ROOT / "api" / "app" / "identity.py"
+CONFIG_SOURCE = ROOT / "api" / "app" / "config.py"
 STORE_SOURCE = ROOT / "api" / "app" / "store.py"
 FRONTEND = ROOT / "frontend" / "sea-speed" / "index.html"
+
+
+def api_sources() -> str:
+    return "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in (SOURCE, IDENTITY_SOURCE, CONFIG_SOURCE)
+        if path.exists()
+    )
 
 
 def _load_api_store():
@@ -37,15 +50,22 @@ class HTTPExceptionStub(Exception):
 
 
 def load_functions(names: set[str], namespace: dict[str, Any]) -> dict[str, Any]:
-    tree = ast.parse(SOURCE.read_text(encoding="utf-8-sig"), filename=str(SOURCE))
     selected = []
     found = set()
-    for node in tree.body:
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in names:
-            cloned = copy.deepcopy(node)
-            cloned.decorator_list = copy.deepcopy(node.decorator_list) if node.name == "open_objects_db" else []
-            selected.append(cloned)
-            found.add(node.name)
+    for source in (SOURCE, IDENTITY_SOURCE, CONFIG_SOURCE):
+        if not source.exists():
+            continue
+        tree = ast.parse(source.read_text(encoding="utf-8-sig"), filename=str(source))
+        for node in tree.body:
+            if (
+                isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and node.name in names
+                and node.name not in found
+            ):
+                cloned = copy.deepcopy(node)
+                cloned.decorator_list = copy.deepcopy(node.decorator_list) if node.name == "open_objects_db" else []
+                selected.append(cloned)
+                found.add(node.name)
     missing = names - found
     if missing:
         raise AssertionError(f"missing API functions: {sorted(missing)}")
@@ -210,7 +230,7 @@ class ApiContractTests(unittest.TestCase):
             ns["post_cam1_speed_lines"]({"enabled": True, "distance_m": 0, "line_a": [], "line_b": []})
 
     def test_generic_analytics_routes_are_additive_and_road_scoped(self) -> None:
-        source = SOURCE.read_text(encoding="utf-8")
+        source = api_sources()
         for marker in (
             '@app.get("/api/analytics/{camera_id}/state")', '@app.post("/api/analytics/{camera_id}/events")',
             '@app.get("/api/analytics/{camera_id}/objects")', '@app.get("/api/objects")',
@@ -222,7 +242,7 @@ class ApiContractTests(unittest.TestCase):
         self.assertIn("Unknown analytics camera", source)
 
     def test_generic_objects_query_supports_camera_domain_and_profile_filters(self) -> None:
-        source = SOURCE.read_text(encoding="utf-8")
+        source = api_sources()
         start = source.index("def build_objects_where(")
         end = source.index("def analytics_identity", start)
         block = source[start:end]
@@ -232,7 +252,7 @@ class ApiContractTests(unittest.TestCase):
         self.assertIn("def prune_objects_registry", source)
 
     def test_browser_worker_control_is_fixed_to_water_and_road1(self) -> None:
-        source = SOURCE.read_text(encoding="utf-8")
+        source = api_sources()
         for marker in (
             '("GET", "/v1/status")', '("POST", "/v1/start")', '("POST", "/v1/stop")',
             '("GET", "/v1/road1/status")', '("POST", "/v1/road1/start")', '("POST", "/v1/road1/stop")',

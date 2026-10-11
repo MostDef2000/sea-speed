@@ -5,7 +5,17 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-API = (ROOT / "api/app/main.py").read_text(encoding="utf-8-sig")
+# Issue #396 wave 1: preview/snapshot tuning constants moved to config.py;
+# read the API sources so definition pins follow the constants.
+API = "\n".join(
+    path.read_text(encoding="utf-8-sig")
+    for path in (
+        ROOT / "api/app/main.py",
+        ROOT / "api/app/identity.py",
+        ROOT / "api/app/config.py",
+    )
+    if path.exists()
+)
 OPERATOR = (ROOT / "frontend/sea-speed/index.html").read_text(encoding="utf-8-sig")
 CAMERAS = (ROOT / "frontend/sea-speed/cameras/index.html").read_text(encoding="utf-8-sig")
 RELAY = (ROOT / "deploy/worker/ubuntu/camera-preview-relay.sh").read_text(encoding="utf-8-sig")

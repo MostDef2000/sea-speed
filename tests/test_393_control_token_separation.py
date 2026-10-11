@@ -25,6 +25,19 @@ ROAD_WORKER_ENV_EXAMPLE = ROOT / "deploy" / "worker" / "ubuntu" / "road-worker.e
 INSTALLER = ROOT / "deploy" / "worker" / "ubuntu" / "install-systemd.sh"
 EXACT_UPDATER = ROOT / "deploy" / "worker" / "ubuntu" / "update-exact.sh"
 API_PATH = ROOT / "api" / "app" / "main.py"
+# Issue #396 wave 1: worker-control/auth primitives moved to identity.py and
+# their env knobs to config.py; resolve functions and text markers from the
+# kernel modules with fallback to main so both base and head trees pass.
+IDENTITY_PATH = ROOT / "api" / "app" / "identity.py"
+CONFIG_PATH = ROOT / "api" / "app" / "config.py"
+
+
+def api_source() -> str:
+    return "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in (API_PATH, IDENTITY_PATH, CONFIG_PATH)
+        if path.exists()
+    )
 
 CONTROL_TOKEN = "control-token-393"
 INGESTION_TOKEN = "ingest-token-393"
@@ -53,15 +66,22 @@ def load_agent_module():
 
 
 def load_api_functions(names: set[str], namespace: dict[str, Any]) -> None:
-    tree = ast.parse(API_PATH.read_text(encoding="utf-8-sig"), filename=str(API_PATH))
     selected = []
     found = set()
-    for node in tree.body:
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in names:
-            cloned = copy.deepcopy(node)
-            cloned.decorator_list = []
-            selected.append(cloned)
-            found.add(node.name)
+    for source in (API_PATH, IDENTITY_PATH, CONFIG_PATH):
+        if not source.exists():
+            continue
+        tree = ast.parse(source.read_text(encoding="utf-8-sig"), filename=str(source))
+        for node in tree.body:
+            if (
+                isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and node.name in names
+                and node.name not in found
+            ):
+                cloned = copy.deepcopy(node)
+                cloned.decorator_list = []
+                selected.append(cloned)
+                found.add(node.name)
     missing = names - found
     if missing:
         raise AssertionError(f"missing API functions: {sorted(missing)}")
@@ -280,7 +300,7 @@ class WorkerControlTokenSeparationTests(unittest.TestCase):
     # --- API side -----------------------------------------------------------
 
     def test_api_source_wires_control_token_constant(self) -> None:
-        source = API_PATH.read_text(encoding="utf-8")
+        source = api_source()
         self.assertIn('os.environ.get("SEA_SPEED_WORKER_CONTROL_TOKEN"', source)
         self.assertIn("if not WORKER_CONTROL_TOKEN:", source)
         self.assertIn('"SEA_SPEED_WORKER_CONTROL_TOKEN is not set"', source)
