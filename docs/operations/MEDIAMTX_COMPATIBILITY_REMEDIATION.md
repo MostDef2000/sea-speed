@@ -220,11 +220,24 @@ mutation):
 
 1. `systemctl show -p User -p Group <unit>` — definitive only when `User=`
    is non-empty (an empty answer under chroot means "unknown", never "root").
-2. Fallback: `systemctl cat <unit>` (offline-safe; the unit file is on disk
-   even under chroot) — the LAST `User=`/`Group=` assignment wins (systemd
-   override semantics); `User=` absent or empty means the unit runs as root
-   (root:root 0600); a non-root user installs root:<group> 0640, with
-   `id -gn` resolving a missing Group.
+2. Fallback (issue #449): parse the ON-DISK unit file directly — the first
+   readable regular (non-symlink) candidate among
+   `/etc/systemd/system/<unit>`, `/lib/systemd/system/<unit>` and
+   `/usr/lib/systemd/system/<unit>` wins, then the drop-in directory next to
+   it (`<unit>.d/*.conf`, lexical order) is merged; the LAST `User=`/`Group=`
+   assignment wins (systemd override semantics), optional whitespace after
+   `=` is tolerated (hand-edited `User= mediamtx` edge, #448 review), and
+   `User=` absent or empty means the unit runs as root (root:root 0600); a
+   non-root user installs root:<group> 0640, with `id -gn` resolving a
+   missing Group. Грабля №27 (RF-001 on-box finding, 2026-10-10):
+   `systemctl cat` is ALSO bus-dependent — it fails under docker-chroot even
+   when the unit file is readable, so the #447 fallback never fired offline
+   and activate refused fail-closed (safe, but never productive). Never
+   treat a unit file as reachable through systemctl without a bus. Bounded
+   limitation (documented): drop-ins are merged only from the directory next
+   to the found unit (systemd also merges /etc drop-ins over /lib units —
+   not modeled); a symlinked unit file is refused (fail-closed) rather than
+   followed.
 3. Both derivations failing → `ERROR relay service identity could not be
    derived (systemctl unavailable and unit file unreadable); refusing to
    install with guessed ownership` and a nonzero exit BEFORE the backup or

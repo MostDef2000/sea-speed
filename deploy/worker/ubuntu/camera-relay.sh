@@ -198,14 +198,19 @@ derive_relay_service_identity() {
   # root:root 0600 fallback under docker-chroot (systemctl show hits no bus)
   # mis-installed permissions and crash-looped mediamtx. Derivation order:
   #   (1) `systemctl show` (bus): definitive ONLY when User is non-empty.
-  #   (2) `systemctl cat` (offline-safe; the unit file is on disk even under
-  #       chroot): parse the LAST `User=`/`Group=` assignment (systemd
-  #       override semantics). `User=` absent or empty means the unit runs
-  #       as root.
+  #   (2) ON-DISK unit file (issue #449): `systemctl cat` turned out to be
+  #       bus-dependent too (RF-001 on-box finding), so the offline branch
+  #       reads the unit file directly — first readable regular non-symlink
+  #       candidate among /etc/systemd/system, /lib/systemd/system and
+  #       /usr/lib/systemd/system wins, then the drop-in directory next to
+  #       it (lexical order) is merged; the LAST `User=`/`Group=`
+  #       assignment wins (systemd override semantics). Optional whitespace
+  #       after `=` is tolerated (#448 F3a); `User=` absent or empty means
+  #       the unit runs as root.
   #   (3) BOTH failing -> explicit ERROR + nonzero return; the caller
   #       refuses to install with guessed ownership (before backup/install).
   # Prints "owner group mode" on stdout; uses the global $service_name.
-  local show_user show_group unit_text unit_user unit_group
+  local show_user show_group unit_text unit_user unit_group candidate drop_in
   show_user="$(systemctl show -p User --value "$service_name" 2>/dev/null || true)"
   show_group="$(systemctl show -p Group --value "$service_name" 2>/dev/null || true)"
   if [[ -n "$show_user" ]]; then
@@ -223,10 +228,23 @@ derive_relay_service_identity() {
     printf 'root %s 0640\n' "$show_group"
     return 0
   fi
-  unit_text="$(systemctl cat "$service_name" 2>/dev/null || true)"
+  unit_text=""
+  for candidate in \
+    "/etc/systemd/system/$service_name" \
+    "/lib/systemd/system/$service_name" \
+    "/usr/lib/systemd/system/$service_name"; do
+    if [[ -f "$candidate" && -r "$candidate" && ! -L "$candidate" ]]; then
+      unit_text="$(cat "$candidate" 2>/dev/null || true)"$'\n'
+      for drop_in in "$candidate.d"/*.conf; do
+        [[ -f "$drop_in" && -r "$drop_in" && ! -L "$drop_in" ]] || continue
+        unit_text+="$(cat "$drop_in" 2>/dev/null || true)"$'\n'
+      done
+      break
+    fi
+  done
   if [[ -n "$unit_text" ]]; then
-    unit_user="$(printf '%s\n' "$unit_text" | sed -nE 's/^[[:space:]]*User=([^[:space:]].*)$/\1/p' | tail -n 1)"
-    unit_group="$(printf '%s\n' "$unit_text" | sed -nE 's/^[[:space:]]*Group=([^[:space:]].*)$/\1/p' | tail -n 1)"
+    unit_user="$(printf '%s\n' "$unit_text" | sed -nE 's/^[[:space:]]*User=[[:space:]]*([^[:space:]].*)$/\1/p' | tail -n 1)"
+    unit_group="$(printf '%s\n' "$unit_text" | sed -nE 's/^[[:space:]]*Group=[[:space:]]*([^[:space:]].*)$/\1/p' | tail -n 1)"
     if [[ -z "$unit_user" || "$unit_user" == "root" ]]; then
       printf 'root root 0600\n'
       return 0
