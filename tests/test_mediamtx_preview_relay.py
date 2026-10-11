@@ -293,6 +293,26 @@ class PreviewAuthVerificationTests(PreviewRendererCliBase):
         self.assertEqual(rejected.returncode, 1)
         self.assertIn("read", rejected.stderr)
 
+    def test_verify_rejects_drifted_path_pattern_fail_closed(self) -> None:
+        # Issue #452 (F1): the full-scope byte-exact comparison is the SOLE
+        # drift detector for a mutated `path:` pattern line — the marker (which
+        # embeds the canonical pattern), the ips and the action stay intact, so
+        # the marker-count, subset and read checks all pass and only the
+        # byte-exact branch can reject. The drift is a realistic loosening of
+        # the preview path pattern (grants read on non-preview paths).
+        result, config, _, _ = self.render()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        canonical_path_line = '        path: "~^preview_[a-z0-9._-]+$"\n'
+        self.assertEqual(config.count(canonical_path_line), 1)
+        drifted = config.replace(
+            canonical_path_line, '        path: "~^preview_.*$"\n'
+        )
+        self.assertIn(f"  {PREVIEW_MARKER}\n", drifted)  # marker line untouched
+        self.assertIn(f'ips: ["{READER_IP_A}"]', drifted)  # ips untouched
+        rejected = self.verify(drifted, (READER_IP_A,))  # full-scope request
+        self.assertEqual(rejected.returncode, 1)
+        self.assertIn("does not match the requested rule", rejected.stderr)
+
 
 class PreviewProfileContractTests(PreviewRendererCliBase):
     def test_preview_profile_stays_api_less(self) -> None:
@@ -481,6 +501,25 @@ class PreviewShellContractTests(unittest.TestCase):
         self.assertIn('repo_root="$(CDPATH= cd -- "$script_dir/../../.." && pwd)"', shell)
         self.assertIn('renderer="$repo_root/scripts/operations/mediamtx_path_config.py"', shell)
         self.assertIn('ERROR renderer missing from exact repository source', shell)
+
+    def test_shell_status_is_standalone_and_renderer_gate_follows_it(self) -> None:
+        # Issue #452 (F2): status works without the renderer again (pre-#442
+        # behavior); the renderer-exists gate moved AFTER the status branch.
+        # The gate appears twice: conditionally inside the status branch (only
+        # when --private-rtsp-address asks for the TCP probe, which resolves
+        # through the renderer's check-address verb) and unconditionally for
+        # prepare/activate before require_root.
+        subprocess.run(["bash", "-n", str(PREVIEW_SHELL)], check=True)
+        shell = PREVIEW_SHELL.read_text(encoding="utf-8")
+        status_branch = shell.index('if [[ "$command" == "status" ]]; then')
+        # The require_root CALL site (after the status branch), not the fn def.
+        require_root_call = shell.index("require_root", status_branch)
+        gate = '[[ -x "$renderer" || -f "$renderer" ]] ||'
+        self.assertEqual(shell.count(gate), 2)
+        # No renderer gate BEFORE the status branch: standalone status.
+        self.assertGreater(shell.index(gate), status_branch)
+        # prepare/activate still gated before the root check.
+        self.assertLess(shell.rfind(gate), require_root_call)
 
     def test_shell_multi_reader_ip_parse_and_forwarding(self) -> None:
         subprocess.run(["bash", "-n", str(PREVIEW_SHELL)], check=True)

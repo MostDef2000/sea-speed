@@ -157,9 +157,15 @@ sha256_file() {
 validate_names
 command -v python3 >/dev/null 2>&1 || { echo "ERROR python3 is required" >&2; exit 4; }
 command -v systemctl >/dev/null 2>&1 || { echo "ERROR systemctl is required" >&2; exit 4; }
-[[ -x "$renderer" || -f "$renderer" ]] || { echo "ERROR renderer missing from exact repository source" >&2; exit 4; }
 
 if [[ "$command" == "status" ]]; then
+  # Issue #452 (F2): status is standalone again (as before #442) — it reports
+  # systemd state without requiring the renderer. The renderer gate applies
+  # only when --private-rtsp-address asks for the TCP probe, which resolves
+  # the address through the renderer's check-address verb.
+  if [[ -n "$private_rtsp_address" ]]; then
+    [[ -x "$renderer" || -f "$renderer" ]] || { echo "ERROR renderer missing from exact repository source" >&2; exit 4; }
+  fi
   printf 'PREVIEW_RELAY_ENABLED=%s\n' "$(service_value is-enabled "$service_name")"
   printf 'PREVIEW_RELAY_ACTIVE=%s\n' "$(service_value is-active "$service_name")"
   printf 'CAM1_RELAY_ACTIVE=%s\n' "$(service_value is-active "$cam1_service")"
@@ -174,6 +180,11 @@ if [[ "$command" == "status" ]]; then
   printf 'SECRETS_DISPLAYED=NO\n'
   exit 0
 fi
+
+# Issue #452 (F2): prepare/activate render through the canonical renderer, so
+# the renderer-exists gate belongs to them (moved here from the pre-status
+# position; relative gate order for prepare/activate is unchanged).
+[[ -x "$renderer" || -f "$renderer" ]] || { echo "ERROR renderer missing from exact repository source" >&2; exit 4; }
 
 require_root
 [[ -n "$private_rtsp_address" ]] || { echo "ERROR --private-rtsp-address is required" >&2; exit 2; }
