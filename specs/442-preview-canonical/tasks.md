@@ -45,10 +45,10 @@
 - [x] Issue/spec/plan/tasks current
 - [x] Exact changed-file scope verified
 - [x] Required tests and evidence complete (RED 30 failed / 4 passed on base c2bd3b9 with the final test file byte-identical via cmp + full suite green on branch; worker-recorded; PR peer review and exact-head CI are orchestrator-owned)
-- [ ] Required CI green — orchestrator-owned (PR creation and exact-head CI)
-- [ ] Exact-green-head merge complete — orchestrator-owned
-- [ ] Deployment state resolved — orchestrator-owned (worker scripts deploy with the repo source)
-- [ ] Runtime acceptance resolved — orchestrator-owned + 1 operator on-box transaction (bounded preview-relay re-render; byte-identical render for a conforming box modulo the documented drifts; road probe window)
+- [x] Required CI green — all 8 required checks pass on PR #451 head f71e023
+- [x] Exact-green-head merge complete — PR #451 squash-merged as 1f29636
+- [x] Deployment state resolved — worker checkout pinned 1f29636 (3-file digest cross-check passed)
+- [x] Runtime acceptance resolved — on-box 2026-10-11: prepare rc=0 (34 cameras, api=none, protected candidates only), drift review = exactly the 2 documented drifts, verify-preview-auth rc=0 (preview-multi-rfc1918-peer-count-2, read-only), activate rc=0 + PRIVATE_PREVIEW_RELAY_TCP=PASS, cam1/AI untouched, road worker recovered (~20 ms inference, POST state ok), SECRETS_DISPLAYED=NO; rollback = 3 files from backups/*.20261011T013700Z (kept until stability is confirmed)
 - [x] Deferred work recorded — remaining RFC1918 copies outside the two relay shells and the other #373 slices are explicitly out of scope (issue #442 do-not-merge list)
 - [x] Risks resolved or explicitly accepted — RISK-001..005 (R1 marker drift, R2 generated_at, R3 dummy-credential fixtures, R4 frozen road-worker contracts, R5 api-less) mitigated in plan.md Risk profile
 - [x] Waivers resolved or current — none
@@ -58,10 +58,10 @@
 - [x] Issue/spec/plan/tasks current
 - [x] Exact changed-file scope verified
 - [x] Required tests and evidence complete (RED 30 failed / 4 passed on base c2bd3b9, final file cmp-verified + full suite green on branch; PR peer review APPROVE is merge-phase, orchestrator-owned)
-- [ ] Required CI green — exact-head PR CI — orchestrator-owned (PR creation and exact-head CI)
-- [ ] Exact-green-head merge complete — orchestrator-owned
-- [ ] Deployment state resolved — orchestrator-owned
-- [ ] Runtime acceptance resolved — orchestrator-owned + 1 operator on-box transaction with recorded output
+- [x] Required CI green — exact-head PR CI — all 8 required checks pass on PR #451 head f71e023
+- [x] Exact-green-head merge complete — PR #451 squash-merged as 1f29636
+- [x] Deployment state resolved — see the DoD block above
+- [x] Runtime acceptance resolved — see the DoD block above (on-box 2026-10-11, output recorded on #442)
 - [x] Deferred work recorded — remaining RFC1918 sites and remaining #373 slices stay open in the issue, not merged here
 - [x] Risks resolved or explicitly accepted — RISK-001..RISK-005 in plan.md Risk profile (all MITIGATED)
 - [x] Waivers resolved or current — none
@@ -84,3 +84,10 @@
 - AC-3 | Task: T-442-003,T-442-002 | Evidence: CheckAddressCliTests (reader-ip valid/invalid, private-rtsp valid prints host then port / invalid fails closed, stdout discipline) + test_both_relay_shells_single_source_validation_through_check_address + test_cam1_relay_shell_validators_move_to_check_address (both shells consume the verb; inline heredoc validators gone) | Coverage: COVERED
 - AC-4 | Task: T-442-002,T-442-006 | Evidence: test_re_render_with_same_inputs_is_byte_identical (self-identity) + test_canonical_config_minus_marker_equals_legacy_heredoc_output + test_canonical_catalog_matches_legacy_contract_minus_generated_at (legacy parity minus documented drifts) + seven-mode harness empty diff (legacy modes untouched; harness transcript in the delivery report) | Coverage: COVERED
 - AC-5 | Task: T-442-004,T-442-005,T-442-006 | Evidence: test_ubuntu_preview_relay_is_separate_source_on_demand_and_private + test_ubuntu_inventory_is_protected_and_catalog_is_sanitized (re-pinned: renderer-owned literals, shell structural pins) + full pytest suite green + docs/operations/CAMERA_PREVIEW_RELAY.md + this SDD trio | Coverage: COVERED
+
+## OEV answers (on-box 2026-10-11, operator-relayed)
+
+- OEV-001: preview bind = 10.123.239.102:8555 (KB records saying 8892 were wrong and have been corrected; the owner of the 8892 socket remains unidentified — residual, tracked in the inventory follow-up issue).
+- OEV-002: the inventory is a runtime artifact with no repo producer (33-camera live inventory was reconstructed byte-for-byte for the transaction; canonical inventory ownership + producer = follow-up issue).
+- OEV-003: transport is pinned globally (`rtspTransports: [tcp]`) and per-path (`rtspTransport: tcp`) — both levels confirmed live.
+- OEV-004: the road worker pulls `preview_road1`; after the preview restart analytics recovered (~20 ms inference, POST state ok).
