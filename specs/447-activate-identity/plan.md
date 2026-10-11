@@ -62,12 +62,18 @@
 - D-1: Empty `User=` from `systemctl show` is NEVER treated as root: empty
   conflates "unit runs as root" with "bus unreachable" — the incident root
   cause. Non-empty answers stay definitive.
-- D-2: The unit file (`systemctl cat`) is the single fallback source (no
-  on-disk path guessing): it is exactly what systemd would load (main unit +
-  drop-ins, last assignment wins) and is readable under chroot.
+- D-2: The on-disk unit file is the fallback source — first readable regular
+  non-symlink candidate among /etc/systemd/system, /lib/systemd/system and
+  /usr/lib/systemd/system, plus the drop-in directory next to the found unit
+  merged in lexical order, last assignment wins (reconciled with #449; see
+  specs/449-offline-identity/plan.md for the bounded decisions). Originally
+  `systemctl cat`, which RF-001 proved bus-dependent — it never fires under
+  chroot and is no longer used.
 - D-3: Both derivations fail → exit 9 BEFORE the backup: backup creation is
-  a mutation of the state root; the safest ordering is zero writes before
-  the identity is known. (The identity block already sat before the backup;
+  a mutation of the state root; the ordering guarantee is no backup or
+  config mutation before the identity is known (state/backup directory
+  creation via the pre-existing install -d precedes the derivation,
+  unchanged from base). (The identity block already sat before the backup;
   the caller keeps that position and documents it.)
 - D-4: `User=root` semantics unchanged (root:root 0600 even if a Group= is
   set): bounded preservation of current behavior; the incident class is the
