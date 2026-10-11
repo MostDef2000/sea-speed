@@ -70,6 +70,27 @@ consumes `preview_road1` live) — schedule accordingly.
   `check-address` verb (reader-ip and private-rtsp kinds) in both relay
   shells.
 
+## Verification semantics (issue #452)
+
+- `verify-preview-auth` is intentionally NOT wired into `prepare` or
+  `activate`: D2 verification is a repo verb run on-box manually against the
+  live (or candidate) config — the #442 contract requires the marked rule to
+  be *verifiable*, not in-transaction gated (prepare renders renderer-owned
+  bytes fresh and activate is digest-bound to them, so neither step can
+  introduce drift). A future transaction should add an in-transaction drift
+  gate only when it *edits an existing rule in place* (the cam1 bounded-edit
+  shape) instead of replacing the whole block: there, `verify-preview-auth`
+  must run verify-before/verify-after and fail closed inside the
+  transaction.
+- Known inherited blind spot (INFO, unchanged by #442/#452): the verify
+  parses with the marker-anchored span-merge `_parse_rule_block` — the same
+  #436-class blind spot as cam1 `verify-reader-auth`. A foreign (unmarked)
+  entry appended after the canonical preview rule carrying a subset of the
+  same IPs passes verification (its IPs merge into the parsed rule scope and
+  the full-scope byte-exact slice covers only the canonical rule length).
+  cam1 verify is identical; both await the future unified-parser wave (the
+  entry-segmenting `_scan_auth_entries` scanner shows the fix shape).
+
 ## Open on-box questions (resolve at runtime acceptance)
 
 1. Live preview relay bind address/port is not in the repo (fixtures use
