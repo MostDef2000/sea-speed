@@ -241,7 +241,7 @@ mode = os.environ.get('FAKE_PRIV_MODE', 'success')
 public_mode = os.environ.get('FAKE_PUBLIC_MODE', 'healthy')
 recovery_marker = Path(os.environ['FAKE_RECOVERY_MARKER'])
 if action == 'status':
-    if mode in {'mismatch', 'reconcile-fail'}:
+    if mode in {'mismatch', 'reconcile-fail', 'recovery-marker-fail'}:
         print('ERROR privileged bundle source SHA does not match request')
         print('PRIVILEGE_BOUNDARY_BOOTSTRAP_REQUIRED=YES')
         raise SystemExit(41)
@@ -275,9 +275,24 @@ if action == 'reconcile':
         print('SEA_SPEED_AUTH_ROLLBACK=PASS')
         print('AUTOMATIC_ROLLBACK=PASS')
         raise SystemExit(35)
+    if mode == 'recovery-marker-fail':
+        # Normal-path success markers corrupted with a non-PASS recovery
+        # marker: the deploy-side verification must fail closed on any
+        # SEA_SPEED_AUTH_RECOVERY= value that is not PASS.
+        print('SEA_SPEED_AUTH_CUTOVER=PASS')
+        print('WORKER_PRIVATE_ROAD_API_BASE=http://10.123.239.101:18080/api/analytics/road1')
+        print('SEA_SPEED_AUTH_RECOVERY=FAIL')
+        print('ROLLBACK_CAPABILITY=VERIFIED')
+        print('SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS')
+        raise SystemExit(0)
+    # Contract fidelity with the real helper (deploy/vps/
+    # sea-speed-auth-privileged-helper.py, run_cutover): the normal reconcile
+    # path ends with ROLLBACK_CAPABILITY=VERIFIED and
+    # SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS and prints NO recovery marker;
+    # SEA_SPEED_AUTH_RECOVERY=PASS is reserved for the bounded broken-500
+    # recovery branch above.
     print('SEA_SPEED_AUTH_CUTOVER=PASS')
     print('WORKER_PRIVATE_ROAD_API_BASE=http://10.123.239.101:18080/api/analytics/road1')
-    print('SEA_SPEED_AUTH_RECOVERY=PASS')
     print('ROLLBACK_CAPABILITY=VERIFIED')
     print('SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS')
 """,
@@ -379,6 +394,9 @@ if action == 'reconcile':
         observed = (self.root / "recovery-api-observed").read_text(encoding="utf-8")
         self.assertIn(OLD, observed)
         self.assertNotIn(CANDIDATE, observed)
+        # The bounded recovery path keeps its dedicated marker (issue #462):
+        # present here, and required to be =PASS when present.
+        self.assertIn("SEA_SPEED_AUTH_RECOVERY=PASS", result.stdout)
         self.assertIn("AUTH_V1_RECOVERY_PRE_SOURCE=PASS", result.stdout)
         self.assertEqual(self.current(), CANDIDATE)
 
@@ -408,6 +426,9 @@ if action == 'reconcile':
         self.assertEqual(self.current(), CANDIDATE)
         self.assertIn("PRIVILEGE_BOUNDARY_BOOTSTRAP_REQUIRED=YES", result.stdout)
         self.assertIn("SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS", result.stdout)
+        # Fake-helper contract fidelity (issue #462): the normal reconcile
+        # path prints no recovery marker, and the gate accepts it.
+        self.assertNotIn("SEA_SPEED_AUTH_RECOVERY=", result.stdout)
         checks = {item["name"]: item["status"] for item in self.manifest()["checks"]}
         self.assertEqual(checks["auth_v1_road_private_m2m"], "passed")
 
@@ -419,6 +440,32 @@ if action == 'reconcile':
         self.assertIn("SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS", result.stdout)
         checks = {item["name"]: item["status"] for item in self.manifest()["checks"]}
         self.assertEqual(checks["auth_v1_road_private_m2m"], "passed")
+
+    def test_privilege_boundary_mismatch_broken_500_recovery_keeps_recovery_marker_required(self) -> None:
+        # When the auto-reconcile runs through the bounded broken-500 recovery
+        # path, SEA_SPEED_AUTH_RECOVERY=PASS is printed and must still be
+        # accepted (and enforced) on that path.
+        result = self.run_deploy(priv_mode="mismatch", public_mode="broken-500")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(self.current(), CANDIDATE)
+        self.assertIn("SEA_SPEED_AUTH_RECOVERY=PASS", result.stdout)
+        self.assertIn("SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS", result.stdout)
+        checks = {item["name"]: item["status"] for item in self.manifest()["checks"]}
+        self.assertEqual(checks["auth_v1_road_private_m2m"], "passed")
+
+    def test_privilege_boundary_reconcile_recovery_fail_marker_stops_before_live_source_mutation(self) -> None:
+        # A non-PASS recovery marker (SEA_SPEED_AUTH_RECOVERY=FAIL-shaped
+        # reconcile output) must fail the auto-reconcile closed before any
+        # live source mutation.
+        before_api = self.api.read_bytes()
+        before_road = self.road.read_bytes()
+        result = self.run_deploy(priv_mode="recovery-marker-fail")
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(self.api.read_bytes(), before_api)
+        self.assertEqual(self.road.read_bytes(), before_road)
+        self.assertEqual(self.current(), OLD)
+        self.assertIn("SEA_SPEED_AUTH_RECOVERY=FAIL", result.stdout)
+        self.assertFalse((self.state / "deployment-manifest.json").exists())
 
     def test_privilege_boundary_mismatch_reconcile_failure_stops_before_live_source_mutation(self) -> None:
         before_api = self.api.read_bytes()

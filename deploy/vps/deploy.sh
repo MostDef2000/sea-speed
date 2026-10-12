@@ -383,7 +383,15 @@ check_auth_privilege_boundary() {
     grep -Fq "SOURCE_SHA=${COMMIT_SHA}" <<<"$output" || return 44
     grep -Fq 'ACTION=reconcile' <<<"$output" || return 44
     grep -Fq 'ARBITRARY_ROOT_EXECUTION=NO' <<<"$output" || return 44
-    grep -Fq 'SEA_SPEED_AUTH_RECOVERY=PASS' <<<"$output" || return 44
+    # The privileged helper prints SEA_SPEED_AUTH_RECOVERY=PASS only when the
+    # reconcile actually ran the bounded broken-500 recovery path; a normal
+    # reconcile ends with SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS and no
+    # recovery marker at all. Accept both outcomes: when a recovery marker is
+    # present it must be PASS (any other recovery value fails closed), but its
+    # presence is never required.
+    if grep -Fq 'SEA_SPEED_AUTH_RECOVERY=' <<<"$output"; then
+      grep -Fq 'SEA_SPEED_AUTH_RECOVERY=PASS' <<<"$output" || return 44
+    fi
     grep -Fq 'SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS' <<<"$output" || return 44
     log "Restricted Auth privilege boundary auto-reconciled for ${COMMIT_SHA} before live source mutation"
     return 0
@@ -464,7 +472,15 @@ recover_auth_boundary_before_source_mutation() {
   grep -Fq "SOURCE_SHA=${COMMIT_SHA}" <<<"$output" || return 44
   grep -Fq 'ACTION=reconcile' <<<"$output" || return 44
   grep -Fq 'ARBITRARY_ROOT_EXECUTION=NO' <<<"$output" || return 44
-  grep -Fq 'SEA_SPEED_AUTH_RECOVERY=PASS' <<<"$output" || return 44
+  # Same two-outcome contract as the auto-reconcile preflight above: the
+  # privileged helper prints SEA_SPEED_AUTH_RECOVERY=PASS only when the
+  # reconcile took the bounded broken-500 recovery path; a normal reconcile
+  # ends with SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS and no recovery marker.
+  # Require the recovery marker to be PASS when present, never require its
+  # presence.
+  if grep -Fq 'SEA_SPEED_AUTH_RECOVERY=' <<<"$output"; then
+    grep -Fq 'SEA_SPEED_AUTH_RECOVERY=PASS' <<<"$output" || return 44
+  fi
   grep -Fq 'SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS' <<<"$output" || return 44
 
   recovered="$(protected_frontend_status)"
