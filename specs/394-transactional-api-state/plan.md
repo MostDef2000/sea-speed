@@ -145,15 +145,23 @@ Three coordinated pieces:
   release's lifetime; no pruning means no expiration. Retirement (DROP
   TABLE ingestion_log + stop dual-write + drop the import path) is the
   recorded follow-up release work. Camera-state import stays newer-wins
-  (D-9 requires both sides parseable).
-- D-9: Legacy reads are necessity-gated per (camera, kind) via
-  `store.camera_has_rows`: an EMPTY target means this boot performs the
-  authoritative initial migration (corrupt legacy input raises — the
-  deploy gate rolls back rather than silently losing history); a
-  NON-EMPTY target means migration already completed and the legacy file
-  is a non-authoritative mirror (read/parse failure logs a stderr warning
-  and skips, so a corrupt mirror cannot fail every boot of a healthy
-  store).
+  (D-9 requires both sides parseable). RETIREMENT ADDENDUM (this release):
+  the trigger fired 2026-10-09 (first verified full VPS contour deploy
+  9e3b9ee8e02b75785393dc8ef246af5e4e05281b, issue #394 comment 6073231021);
+  the act was executed in full on branch sdd/394-retirement —
+  `DROP TABLE IF EXISTS ingestion_log` at startup, dual-write mirrors
+  stopped, import path removed, all three together. The ingestion-identity
+  design above is retained as historical record; the code no longer
+  contains the registry or the import path.
+- D-9 (RETIRED with the dual-write window): legacy reads were
+  necessity-gated per (camera, kind) via `store.camera_has_rows`: an EMPTY
+  target meant this boot performed the authoritative initial migration
+  (corrupt legacy input raised — the deploy gate rolled back rather than
+  silently losing history); a NON-EMPTY target meant migration already
+  completed and the legacy file was a non-authoritative mirror (read/parse
+  failure logged a stderr warning and skipped). The retirement act removed
+  the whole import path, so no boot-time legacy reads remain; the decision
+  is kept for the audit trail of the dual-write era.
 
 ## Affected contours
 
@@ -172,26 +180,30 @@ Three coordinated pieces:
 
 ## Validation
 
-- Full suite on head: green (see tasks.md AC-009 for exact counts);
-  two-file behavioral battery 49 passed / 1 skipped (skip = head-only
-  collision test).
-- Transition-protocol repair tests (T-A..T-E, V-A..V-D, W-A..W-E) all
-  green: StartupMigrationTests (necessity gate: fail-closed on empty
-  target, best-effort warning on populated), LegacyMigrationTests
-  (ingestion-history-gated merge with time-blind anti-resurrection,
-  newer-wins camera state that ignores unusable timestamps),
-  VpsDeployTransactionTests
-  (release-bound activation with store-less fixture + stale `.next`).
-- RED-on-base (git stash → main.py @ 30ba326, untracked files survive;
-  session-4 run against the pre-repair test file): 6 failed / 12 passed /
-  2 skipped — the six failures are exactly the
-  fixed defects (4 fail-loud endpoint reads, no-lost-update RMW, fixed-tmp
-  collision); stash pop restored the working tree. T-A..T-E, V-A..V-D and
-  W-A..W-E are new behavior (not RED-on-base; W-A/W-B/W-C were additionally proven RED against the round-3 pruned-floor code).
-- ruff (E9/F, `scripts/quality/ruff.toml`) on the changed Python files:
-  All checks passed; `bash -n deploy/vps/deploy.sh` clean;
-  `tests/test_vps_deploy_transaction.py` 20 passed (store.py install
-  plumbing + release-bound activation covered by the transaction harness).
+- Full suite on the retirement head: green (Ran 902 tests, OK, 4 skipped —
+  skips are pre-existing/environmental: the head-only fixed-tmp collision
+  reconstruction, two root-required mediamtx runner tests, and
+  systemd-analyze being unavailable in the sandbox; exact counts in the
+  verification transcript).
+- Post-retirement behavioral battery: StartupMigrationTests (fresh boot
+  creates crossings/event_feed/camera_state WITHOUT ingestion_log; boots are
+  idempotent; a pre-existing dual-write-era ingestion_log is dropped with
+  retained records intact), RetiredDualWriteTests (contracted regression:
+  boot drops a pre-existing ingestion_log, records accepted via the API
+  append nothing to the legacy JSON mirrors, legacy files are never deleted
+  nor modified), NoLostUpdateTests, StoreCapTests, CameraStateTests,
+  FailLoudReadTests, StoreJsonIoTests, and the untouched T-E store-release
+  staging tests (test_vps_deploy_transaction.py, 20 tests).
+- Import-path coverage (T-A..T-D, V-A..V-E, W-A..W-E) was deleted WITH the
+  import path — the contracted retirement of that coverage, not a
+  weakening: the merge/anti-resurrection machinery it tested no longer
+  exists. test_line_crossing.py reads the authoritative SQLite store
+  instead of the retired mirror (assertions unchanged in strength).
+- ruff (E9/F, `scripts/quality/ruff.toml`): All checks passed;
+  `bash -n deploy/vps/deploy.sh` clean (deploy.sh unchanged — the #394
+  store.py release plumbing stays exactly as installed);
+  `python3 scripts/ci/validate_repo.py` rc=0;
+  `python3 scripts/ci/validate_sdd.py` rc=0.
 
 ## Runtime feedback
 
@@ -199,19 +211,23 @@ Three coordinated pieces:
   `store.py`; the first boot runs the legacy migration inside the deploy
   health gate (corrupt legacy input → gate fails → automatic rollback).
 - RF-002: Failure evidence: HTTP 500 messages naming the corrupt store
-  file; stderr lines for best-effort mirror failures; rollback removes
-  `store.py` when returning to a pre-#394 release.
+  file; the legacy-JSON mirrors are retired (RISK-005), so best-effort
+  mirror stderr lines no longer exist; rollback removes `store.py` when
+  returning to a pre-#394 release; legacy JSON files on disk are never
+  deleted (inert history). Contracted rollback-semantics change: records
+  accepted after the retirement are invisible to a pre-#394 rollback
+  release (the dual-write window that fed those files is closed).
 
 ## Risk profile
 
 - Risk profile: REQUIRED
 - Risk-profile rationale: derived from the VPS production impact; the
   deployment transaction audit below covers the contour.
-- RISK-001 | Category: OPS | Probability: 2 | Impact: 4 | Score: 8 | Mitigation: startup migration runs at import time so every name it uses (`CROSSINGS_STORE_LIMIT`, path helpers) is defined above the startup block; constants moved to the top block; migration reads via `analytics_data_file`; any import-time failure fails the deploy health gate loudly and the chain auto-rolls back | Validation: full suite green on head (777 passed); py_compile + ruff clean; deploy transaction behavioral suite exercises boot/verify ordering | Residual risk: LOW — corrupt legacy store fails boot closed by design (fail-closed acceptance) | Owner: Delivery Orchestrator | Status: MITIGATED
-- RISK-002 | Category: DATA | Probability: 2 | Impact: 3 | Score: 6 | Mitigation: SQLite is authoritative; the legacy JSON mirror is a best-effort projection of committed rows written after the SQLite commit (mirror failure logs to stderr, never fails the request); drift self-heals on the next write | Validation: dual-write order verified by independent peer session (APPROVE); mirror exception paths reviewed | Residual risk: LOW — mirror amplification on crossings (full-file rewrite up to 5000 records per post) is bounded by the cap and lasts one release cycle | Owner: Delivery Orchestrator | Status: MITIGATED
+- RISK-001 | Category: OPS | Probability: 1 | Impact: 4 | Score: 4 | Mitigation: the boot-time store migration (initialize_state_db, import time) now only creates the hot-state tables and runs the idempotent `DROP TABLE IF EXISTS ingestion_log` retirement step; no legacy input is read at boot, so the corrupt-legacy-input failure mode no longer exists; any unexpected store error still fails the deploy health gate loudly and the chain auto-rolls back | Validation: StartupMigrationTests post-retirement (fresh schema without ingestion_log, idempotent boots, pre-existing registry dropped with retained records intact) green; full suite green | Residual risk: LOW — import-time store failure remains fail-closed by design (fail-closed acceptance) | Owner: Delivery Orchestrator | Status: MITIGATED
+- RISK-002 | Category: DATA | Probability: 1 | Impact: 3 | Score: 3 | Mitigation: the dual-write window is CLOSED by the contracted retirement act (RISK-005): SQLite is the only hot-state authority, the legacy JSON mirrors are no longer written, and legacy files on disk are never deleted (inert history); the registry drop touches no retained rows | Validation: RetiredDualWriteTests (boot drops a pre-existing ingestion_log; records accepted via the API append nothing to legacy JSON; legacy files not deleted or modified) + NoLostUpdateTests/StoreCapTests green | Residual risk: LOW — legacy JSON files go stale by design; rollback to a pre-#394 release no longer sees records accepted after the retirement (contracted expected change, documented in the PR Delivery section) | Owner: Delivery Orchestrator | Status: MITIGATED
 - RISK-003 | Category: OPS | Probability: 1 | Impact: 4 | Score: 4 | Mitigation: legacy JSON files are never deleted and stay fresh via mirrors; activation is bound to the selected release's content — staged `.next` is promoted only when the release ships `api/app/store.py` (same condition as staging), otherwise the live copy and any stale `.next` are removed; the bootstrap capture keeps a live store.py with the captured main.py | Validation: test_vps_deploy_transaction behavioral suite (20 tests) including the store-less fixture: test_store_less_rollback_removes_live_store_and_stale_next and test_store_release_stages_and_promotes_normally; peer rollback-completeness verdict | Residual risk: NONE — the downgrade branch is now exercised against a store-less release fixture with a stale `.next` present | Owner: Delivery Orchestrator | Status: MITIGATED
 - RISK-004 | Category: OPS | Probability: 1 | Impact: 2 | Score: 2 | Mitigation: store.py install plumbing is a disclosed deviation from the work order's "No other deploy.sh changes"; required for boot; follows the file's existing conditional-install idiom; documented in SDD trio + amendment receipt 6052476179 | Validation: amendment receipt on #394; SDD validate green | Residual risk: NONE | Owner: Delivery Orchestrator | Status: ACCEPTED
-- RISK-005 | Category: DATA | Probability: 2 | Impact: 4 | Score: 8 | Mitigation: independent validation blocked the merge four times. Round 1 found three lifecycle defects (rollback→retry abandoned records because imports no-op'd on populated tables; corrupt non-authoritative mirrors failed every boot; activation could promote a stale `.next`). Round 2 rejected the SHA-256 content-key repair (D-8): the UNIQUE(camera_id, content_key) constraint never crossed the live-NULL/imported-keyed domains, so an ordinary restart duplicated live rows from their mirror and at the cap evicted retained history; a lagged mirror resurrected pruned records with new ids; and an unparseable `updated_at` displaced stored camera state via lexical fallback. Round 3 rejected the timestamp floor: equal-timestamp pruned records re-imported from stale mirrors with new ids and churned retention across restarts, undated records bypassed the floor structurally, and delayed rollback-period records with old event timestamps were discarded despite free cap headroom. Round 4 closed both round-3 blockers with the durable ingestion identity (D-8): every ingestion registers the record's canonical payload hash in `ingestion_log` inside its transaction; imports skip registered hashes time-blind, so equal-timestamp, undated and unparseable pruned records are uniformly never resurrected while never-ingested rollback records merge regardless of event time; necessity-gated reads, strict both-sides-parse newer-wins camera-state import and release-bound activation stand unchanged; the bootstrap capture preserves a live store.py. Round 4's own 4×cap registry prune was then rejected (bounded SIZE ≠ bounded AGE: with failing mirror writes the stale legacy file stays arbitrarily old while the window expires identities — 2001 churned events would expire all 500 original hashes and let the intact stale file re-import and evict the authoritative records); round 5 removed the prune entirely (validator's option A, D-8): the registry is a pure append that lives for the whole dual-write/rollback window, so no identity can expire within this release's lifetime | Validation: T-A..T-E behavioral tests green on head (StartupMigrationTests, LegacyMigrationTests, VpsDeployTransactionTests) plus the regression battery V-A (live row + mirror → no duplication across restarts), V-B (mixed imported + live rows at the 5000/500 caps → no eviction beyond exact arithmetic), W-A (equal-timestamp stale mirror → pruned record skipped, retention stable across repeated boots, no churn), W-B (pruned undated record skipped via registry, genuinely new undated rollback record merged), W-C (delayed rollback record with old event time + free cap headroom → merged), W-D (≥3 boots on a stable intact mirror → zero mutations after the first import; after churn far beyond any window scale the ORIGINAL stale mirror is still a complete no-op — zero new rows, retained rows byte-identical, registry count unchanged: identities never expire), W-E (validator's production-cap sequence scaled down: import F at the cap → churn with failing mirror writes beyond the round-4 4×cap window → rollback appends to the stale file → re-upgrade: rollback records merge, stale records do NOT resurrect, retained set stable); full suite green; ruff + bash -n clean | Residual risk: LOW — the registry is never pruned, so identities never expire; ingestion_log grows ≈ ~120 bytes per ingested record (realistic growth well under 10MB/day; pathological ingestion bursts documented here; startup memory: the import membership set loads registry rows for one camera/kind — realistic days-scale window <100k rows ≈ ~15MB on the 1.8GiB VPS, with the pre-agreed fallback to indexed membership checks (bounded batches over candidate mirror hashes) if the window ever extends past the next release cycle. RETIREMENT IS MEASURABLY BOUNDED: trigger = the follow-up release immediately after the first verified full VPS contour deploy of this release (the next VPS-touching merge wave); deadline = no later than the next release cycle after this merge; retirement act = DROP TABLE ingestion_log + stop dual-write + drop the import path, all three together; owner = Delivery Orchestrator | Owner: Delivery Orchestrator | Status: MITIGATED
+- RISK-005 | Category: DATA | Probability: 2 | Impact: 4 | Score: 8 | Mitigation: RETIRED — the bounded dual-write/rollback compatibility window delivered by this plan is CLOSED by the contracted retirement act, executed in full on branch sdd/394-retirement (this PR): startup migration runs `DROP TABLE IF EXISTS ingestion_log` (one-time, idempotent — existing VPS databases from the dual-write era shed the retired table), the dual-write legacy-JSON mirrors are stopped, and the legacy-JSON import path (import_legacy_records, import_legacy_camera_state, camera_has_rows and the ingestion-log registration) is removed — all three together, exactly as the pre-recorded residual-risk clause required. Trigger evidence: FIRED 2026-10-09 — first verified full VPS contour deploy 9e3b9ee8e02b75785393dc8ef246af5e4e05281b (issue #394 comment 6073231021); deadline (next release cycle) reached; the pre-agreed indexed-membership fallback was NOT needed. Historical rounds 1-5 (four validation blocks, the durable ingestion identity, the no-prune decision) remain recorded in D-8 as the audit trail of the retired design. Legacy JSON files are never deleted — they become inert history. Contracted rollback-semantics change: after this act, rollback to a pre-#394 release no longer sees records accepted during the (now closed) dual-write window | Validation: StartupMigrationTests (fresh boot creates the schema without ingestion_log; boots are idempotent; a pre-existing dual-write-era ingestion_log table is dropped while retained crossing records survive) + RetiredDualWriteTests (boot drops a pre-existing ingestion_log; records accepted via the API append path commit to SQLite and append nothing to legacy JSON; pre-existing legacy JSON files are byte-unchanged and never deleted) + full suite green; ruff E9/F + bash -n deploy.sh clean | Residual risk: NONE — the mechanism (registry growth, dual-write mirror amplification, import-path complexity) no longer exists in the codebase; the only residue is the contracted rollback-window closing above | Owner: Delivery Orchestrator | Status: CLOSED
 
 ## Test design
 
@@ -219,9 +235,9 @@ Three coordinated pieces:
 - TEST-002 | Covers: RISK-002 | Level: unit | Priority: P0 | Evidence: test_write_round_trip_is_atomic + test_concurrent_writers_leave_one_valid_file_and_no_tmp (25+25 alternating writers, no tmp leftovers)
 - TEST-003 | Covers: RISK-002 | Level: unit | Priority: P0 | Evidence: FailLoudReadTests — corrupt speed-config/speed-lines/crossing-line/preview stores raise HTTP 500 (RED on base: silent default); test_legacy_fixed_tmp_collision_is_eliminated (deterministic barrier RED vs base, head-only skip)
 - TEST-004 | Covers: RISK-002 | Level: unit | Priority: P0 | Evidence: caps tests (bulk-seed via one connection, append triggers same-transaction pruning 5000/500); camera_state upsert last-write-wins
-- TEST-005 | Covers: RISK-001,RISK-003 | Level: integration | Priority: P0 | Evidence: StartupMigrationTests (idempotency, order parity, fail-closed on corrupt legacy input, never deletes legacy files) + test_vps_deploy_transaction.py (20 behavioral deploy/rollback tests)
-- TEST-006 | Covers: RISK-005 | Level: unit | Priority: P0 | Evidence: T-A test_corrupt_legacy_mirror_is_best_effort_when_store_is_populated (populated store + corrupt mirror → no raise, stderr warning, authoritative data intact) + T-B test_corrupt_legacy_file_fails_closed (empty target + corrupt legacy → raises)
-- TEST-007 | Covers: RISK-005 | Level: unit | Priority: P0 | Evidence: T-C test_rollback_window_records_are_merged_idempotent (import → rollback-window append → re-import merges, duplicates skipped, cap respected) + T-D test_camera_state_import_is_newer_wins (legacy newer wins, older loses, mixed-UTC-offset ordering) + V-A test_live_rows_are_not_duplicated_by_mirror_import (mirror of a live row → no duplication, restart-stable) + V-B test_import_at_production_caps_preserves_retained_history (mixed imported + live rows at the 5000/500 caps → no eviction beyond exact arithmetic) + W-A test_equal_timestamp_stale_mirror_never_resurrects_or_churns (equal-timestamp stale mirror → pruned record skipped via ingestion history, retention stable across repeated boots) + W-B test_undated_records_obey_the_ingestion_registry (pruned undated record skipped, genuinely new undated rollback record merged) + W-C test_delayed_rollback_record_with_old_event_time_merges (old event time + free cap headroom → merged; the round-3 floor would have skipped it) + W-D test_repeated_boots_are_zero_mutation_and_identities_never_expire (≥3 boots → zero mutations; after churn far beyond any window scale the ORIGINAL stale mirror imports as a complete no-op — zero new rows, retained rows byte-identical, registry count unchanged, no identities expired) + W-E test_rollback_after_churn_beyond_window_keeps_retention_stable (production-cap sequence scaled down: import F at the cap → churn with failing mirror writes → rollback appends to the stale file → re-upgrade merges exactly the rollback records, stale records never resurrect, retained set stable) + V-D test_camera_state_import_ignores_unusable_timestamps (unparseable/absent updated_at → stored state stays; undated seeds empty only)
+- TEST-005 | Covers: RISK-001,RISK-003 | Level: integration | Priority: P0 | Evidence: StartupMigrationTests (post-retirement schema: fresh boot without ingestion_log, idempotent boots, pre-existing registry dropped with records intact) + test_vps_deploy_transaction.py (20 behavioral deploy/rollback tests)
+- TEST-006 | Covers: RISK-005 | Level: unit | Priority: P0 | Evidence: RetiredDualWriteTests — the contracted regression: boot drops a pre-existing (dual-write-era) ingestion_log table; records accepted via the API append path (append_crossing_record) commit to SQLite and append nothing to the legacy JSON mirrors; pre-existing legacy JSON files are byte-unchanged and never deleted; second boot stays idempotent
+- TEST-007 | Covers: RISK-002,RISK-005 | Level: unit | Priority: P0 | Evidence: import-path coverage (T-A..T-D, V-A..V-E, W-A..W-E) deleted WITH the import path — the contracted retirement of that coverage, not a weakening: the merge/anti-resurrection machinery it tested no longer exists; retained regression strength: test_concurrent_appenders_never_lose_records (8 racers, exact set, no duplicates in SQLite), caps tests, camera-state upsert tests
 - TEST-008 | Covers: RISK-003,RISK-005 | Level: integration | Priority: P0 | Evidence: T-E test_store_less_rollback_removes_live_store_and_stale_next (store-less rollback release + stale `${STORE_TARGET}.next` → activation removes both, promotes nothing) + test_store_release_stages_and_promotes_normally
 - Regression: full suite (777 passed, 4 skipped) including the updated
   harnesses and the untouched `test_roi_normalization.py`.
@@ -238,8 +254,23 @@ Three coordinated pieces:
 - Correct-course note: implementation deviations (event_feed/crossings
   camera_id column, deploy.sh install plumbing) were disclosed in the SDD
   trio and amendment receipt issuecomment-6052476179 rather than handled
-  by correct-course; dual-write window retirement lands as a follow-up
-  release after the first VPS contour deploy verifies.
+  by correct-course; the dual-write window retirement was pre-recorded in
+  RISK-005 as follow-up release work and is now executed (below) — no
+  unplanned course correction occurred.
+- Retirement execution (RISK-005): the retirement trigger FIRED
+  2026-10-09 — first verified full VPS contour deploy of this release,
+  deployed_sha 9e3b9ee8e02b75785393dc8ef246af5e4e05281b (issue #394
+  comment 6073231021) — and the deadline (the next release cycle)
+  arrived. The contracted retirement act was executed in full, together,
+  on branch sdd/394-retirement: `DROP TABLE IF EXISTS ingestion_log` in
+  the startup migration, dual-write legacy-JSON mirrors stopped, and the
+  legacy-JSON import path removed (store.py + main.py call sites). The
+  pre-agreed fallback (indexed membership checks) was NOT needed. Legacy
+  JSON files on disk are never deleted — they become inert history.
+  Contracted rollback-semantics change: after this act, rollback to a
+  pre-#394 release no longer sees records accepted during the (now
+  closed) dual-write window; this is disclosed in the PR Delivery
+  section.
 
 ## Deployment transaction audit
 
@@ -247,7 +278,7 @@ Three coordinated pieces:
 - TX-002 | Stage: PRE-MUTATION | Mutation: NO | Failure disposition: FATAL | State after failure: unchanged VPS state | Retry: NO | Rollback: NONE | Evidence: release_complete + download_release required-list gate exits before rm -rf of the staged target (deploy.sh:203-286)
 - TX-003 | Stage: MUTATION | Mutation: YES | Failure disposition: FATAL | State after failure: staged .next copies discarded; live API unchanged | Retry: NO | Rollback: install_release stages to .next and promotes via mv only after all copies stage successfully; store.py mv precedes main.py mv (new main cannot boot without it) | Evidence: install_release soft pattern (deploy.sh:603-649); test_vps_deploy_transaction behavioral suite (20 tests)
 - TX-004 | Stage: VERIFICATION | Mutation: NO | Failure disposition: FATAL | State after failure: previous release still active | Retry: NO | Rollback: NONE | Evidence: restart_and_verify health gate (deploy.sh:738-753); fail-closed boot on corrupt legacy store (import_legacy_state_store propagates, deploy auto-rollback)
-- TX-005 | Stage: STATE-COMMIT | Mutation: NO | Failure disposition: FATAL | State after failure: unchanged | Retry: NO | Rollback: NONE | Evidence: dual-write window — legacy JSON mirrors kept fresh by best-effort projection writes so install_release of the previous release sees fresh data in both directions
+- TX-005 | Stage: STATE-COMMIT | Mutation: NO | Failure disposition: FATAL | State after failure: unchanged | Retry: NO | Rollback: NONE | Evidence: dual-write window (now CLOSED by the RISK-005 retirement act: legacy JSON mirrors are no longer written; legacy files on disk are never deleted and become inert history; a rollback to a pre-#394 release no longer sees records accepted after the retirement — contracted and disclosed in the PR Delivery section)
 - TX-006 | Stage: HOUSEKEEPING | Mutation: NO | Failure disposition: BEST-EFFORT | State after failure: staging dirs may remain on abrupt kill only | Retry: NO | Rollback: NONE | Evidence: deploy.sh staging layout semantics unchanged
 - TX-007 | Stage: EVIDENCE | Mutation: NO | Failure disposition: BEST-EFFORT | State after failure: evidence partial | Retry: NO | Rollback: NONE | Evidence: DEPLOYMENT_ACCEPTED line from the autonomous chain at exact-green-head merge
 - TX-008 | Stage: ROLLBACK | Mutation: NO | Failure disposition: FATAL | State after failure: NONE | Retry: NO | Rollback: rollback-exact.sh contour unchanged; activation is bound to the selected release's content — staged .next promoted only when the release ships store.py, otherwise live copy + stale .next removed — so an interrupted install can never leak a store.py into a store-less rollback; bootstrap capture preserves a live store.py with the captured main.py | Evidence: deploy.sh:643-649 (activation), deploy.sh:491-496 (bootstrap capture) + T-E tests (test_store_less_rollback_removes_live_store_and_stale_next)

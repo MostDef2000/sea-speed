@@ -157,13 +157,10 @@ class ApiPersonGuardTests(unittest.TestCase):
             analytics_data_file = lambda camera_id, kind: Path(temp_dir) / f"{camera_id}_{kind}.json"
             ns["analytics_data_file"] = analytics_data_file
             read_json_file = lambda path, default: []
-            writes: list[tuple[Path, list]] = []
-
-            def write_json_file(path: Path, data: list) -> None:
-                writes.append((path, data))
-
+            # The legacy JSON mirror is retired (RISK-005): persistence is
+            # asserted against the authoritative SQLite event feed below.
             ns["read_json_file"] = read_json_file
-            ns["write_json_file"] = write_json_file
+            ns["write_json_file"] = lambda path, data: None
             (Path(temp_dir) / "events").mkdir(parents=True, exist_ok=True)
             class FakeSnap:
                 async def read(self) -> bytes:
@@ -177,7 +174,11 @@ class ApiPersonGuardTests(unittest.TestCase):
             self.assertTrue(result["ok"])
             self.assertEqual(result["event"]["event_id"], "v1")
             self.assertEqual(len(persisted), 1)
-            self.assertEqual(writes[0][1][0]["event_id"], "v1")
+            self.assertEqual(
+                [event["event_id"] for event in ns["store"].read_events(ns["STATE_DB_FILE"], "road1")],
+                ["v1"],
+                "the accepted event must be persisted to the authoritative SQLite feed",
+            )
             self.assertIn("snapshot_url", result["event"])
             _ = original
 
