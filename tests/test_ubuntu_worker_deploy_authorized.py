@@ -173,5 +173,42 @@ class UbuntuAuthorizedDeploymentTests(unittest.TestCase):
         self.assertIn('"state": "runtime_verified"', self.source)
 
 
+class UbuntuWorkerGpuBoxDeployLockTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.source = SCRIPT.read_text(encoding="utf-8")
+
+    def test_cross_repo_gpu_box_lock_uses_pinned_path_constant(self) -> None:
+        self.assertIn('gpu_box_lock="/var/tmp/gpu-box-deploy.lock"', self.source)
+        self.assertIn("/var/tmp/gpu-box-deploy.lock", self.source)
+
+    def test_cross_repo_gpu_box_lock_contention_message_is_byte_exact(self) -> None:
+        self.assertIn(
+            "ERROR another GPU-box deploy is active (cross-repo lock: content/sea-speed)",
+            self.source,
+        )
+
+    def test_cross_repo_gpu_box_lock_acquisition_commands_present_in_order(self) -> None:
+        touch = self.source.index('( umask 000 && touch "$gpu_box_lock" )')
+        chmod = self.source.index('chmod 0666 "$gpu_box_lock" 2>/dev/null || true')
+        open_lock = self.source.index('exec 8<"$gpu_box_lock"')
+        flock = self.source.index("flock -n 8 ||")
+        self.assertLess(touch, chmod)
+        self.assertLess(chmod, open_lock)
+        self.assertLess(open_lock, flock)
+
+    def test_cross_repo_gpu_box_lock_precedes_first_host_mutation(self) -> None:
+        flock = self.source.index("flock -n 8 ||")
+        first_mutation = self.source.index("install -d ")
+        self.assertLess(flock, first_mutation)
+
+    def test_repo_internal_transaction_lock_uses_fd_9(self) -> None:
+        cross_open = self.source.index('exec 8<"$gpu_box_lock"')
+        internal_open = self.source.index('exec 9>"$updater_root/deploy-authorized.lock"')
+        internal_flock = self.source.index("flock -n 9 ||")
+        self.assertLess(cross_open, internal_open)
+        self.assertLess(internal_open, internal_flock)
+        self.assertIn("ERROR another authorized Ubuntu deployment is running", self.source)
+
+
 if __name__ == "__main__":
     unittest.main()

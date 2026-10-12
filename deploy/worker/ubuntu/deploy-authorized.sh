@@ -74,15 +74,54 @@ for command_name in git python3 systemctl stat install mktemp flock grep chmod r
   command -v "$command_name" >/dev/null 2>&1 || { echo "ERROR required command missing: $command_name" >&2; exit 4; }
 done
 
+# === cross-repo GPU-box deploy lock (T8b): BEGIN — shared content/sea-speed contract (content PR #14) ===
+# Serializes Ubuntu worker deploys against content deploys on the shared GPU
+# box (ZeroTier 10.123.239.102): both repositories flock (non-blocking) the
+# same path at the start of their mutation path, so a parallel deploy of the
+# other repo is rejected instead of interleaving host mutations. The path is
+# /var/tmp, not /run: /var/tmp persists across reboot (/run is tmpfs — the
+# lock died at every reboot) and on a standard Ubuntu has mode 1777, so the
+# deploy user creates the file itself (self-heal — no root bootstrap). The
+# file mode is umask-independent 0666 (umask 000 inside the subshell):
+# open+flock works on a read-only fd even for a 0644 file, while 0666 is
+# required so the deploy user of the other repo can touch the file —
+# refreshing mtime against systemd-tmpfiles-clean, which removes /var/tmp
+# files inactive for > 30 days (usr/lib/tmpfiles.d/tmp.conf). touch on every
+# deploy keeps mtime fresh; an idle period > 30 days is self-healed when the
+# next deploy recreates the file. This script performs the worker mutations
+# itself as root on the box (the sudo-privileged helper is VPS-side Auth v1
+# only), so this is the single cross-repo acquisition point.
+gpu_box_lock="/var/tmp/gpu-box-deploy.lock"
+if ! ( umask 000 && touch "$gpu_box_lock" ) 2>/dev/null; then
+  # Non-fatal: e.g. a stale root-owned 0644 file. The open+flock below
+  # decides — an unusable file fails closed there.
+  echo "WARNING touch on cross-repo GPU-box lock failed ($gpu_box_lock); continuing — open+flock below decides" >&2
+fi
+# Belt-and-suspenders: normalize the mode to 0666. chmod on a foreign file
+# fails with EPERM — non-fatal ONLY because the open+flock below fails closed
+# if the file cannot be used.
+chmod 0666 "$gpu_box_lock" 2>/dev/null || true
+exec 8<"$gpu_box_lock" \
+  || { echo "ERROR cannot open cross-repo GPU-box deploy lock $gpu_box_lock (self-heal failed: no permission on file/dir? remove the stale root-owned file — the next deploy recreates it)" >&2; exit 6; }
+flock -n 8 || { echo "ERROR another GPU-box deploy is active (cross-repo lock: content/sea-speed)" >&2; exit 6; }
+# No explicit unlock/cleanup: the kernel releases the flock when fd 8 closes,
+# and fd 8 closes on every process exit path (normal exit, error exits and
+# signals). Extra cleanup could not improve on that guarantee but could be
+# skipped or broken by an early exit/trap.
+# === cross-repo GPU-box deploy lock (T8b): END ===
+
 updater_root="$install_root/updater"
 if [[ "$test_mode" == "1" ]]; then
   install -d -m 0700 "$updater_root"
 else
   install -d -o root -g root -m 0700 "$updater_root"
 fi
-exec 8>"$updater_root/deploy-authorized.lock"
+# fd 8 is held by the cross-repo GPU-box lock above (shared content/sea-speed
+# contract); the repo-internal transaction lock uses fd 9 — the same fd layout
+# as the content deploy-wrapper (8 = cross-repo, 9 = repo-internal).
+exec 9>"$updater_root/deploy-authorized.lock"
 chmod 0600 "$updater_root/deploy-authorized.lock"
-flock -n 8 || { echo "ERROR another authorized Ubuntu deployment is running" >&2; exit 6; }
+flock -n 9 || { echo "ERROR another authorized Ubuntu deployment is running" >&2; exit 6; }
 
 stage="$(mktemp -d "$updater_root/deploy-stage.XXXXXX")"
 chmod 0700 "$stage"

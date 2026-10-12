@@ -105,6 +105,16 @@ Sea Speed has exactly two active production runtime contours: **VPS** and **Ubun
 
 Windows Worker is retired from production. Existing Windows scripts/docs are non-production local/archive tooling. Historical Issue/PR/release/deployment evidence remains immutable/readable audit history and never reactivates Windows.
 
+### Cross-repo GPU-box deploy lock
+
+Ubuntu Worker deploys run on the shared GPU box (`sea-speed-deploy@10.123.239.102`) together with `content` deploys. Both repositories take the same non-blocking cross-repo lock before any host mutation:
+
+```text
+/var/tmp/gpu-box-deploy.lock
+```
+
+Contract (identical to content PR #14): `/var/tmp` is used instead of `/run` because it persists across reboot (`/run` is tmpfs) and has mode `1777` on a standard Ubuntu, so the deploy user creates the file itself — self-heal, no root bootstrap. The file mode is umask-independent `0666`: `flock` works through a read-only fd even on `0644`, and `0666` lets the other repo's deploy user `touch` the file, refreshing mtime against `systemd-tmpfiles-clean` (deletes `/var/tmp` files inactive > 30 days). `deploy/worker/ubuntu/deploy-authorized.sh` touches the file on every deploy and holds the lock on fd 8 until process exit; while a deploy of either repo is active, the other repo's deploy fails closed with `ERROR another GPU-box deploy is active (cross-repo lock: content/sea-speed)`. The repo-internal transaction lock (`/opt/sea-speed-worker/updater/deploy-authorized.lock`, fd 9) remains independent and additional.
+
 ### Standing production delegation
 
 Normal runtime authority is not a per-release chat or Issue-comment approval. It is an independently administered standing delegation in trusted GitHub `production` environment state. The repository contains only policy constraints and deterministic evaluators.
