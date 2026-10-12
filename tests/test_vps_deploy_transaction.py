@@ -125,6 +125,10 @@ class VpsDeployTransactionTests(unittest.TestCase):
             "api/app/store.py": f"# store fixture {sha}\n",
             "api/app/config.py": f"# config fixture {sha}\n",
             "api/app/identity.py": f"# identity fixture {sha}\n",
+            # Issue #396 wave 2: release_complete requires the objects-registry
+            # modules, so synthetic releases carry them like the real tree does.
+            "api/app/objects_registry.py": f"# objects registry fixture {sha}\n",
+            "api/app/passage_mirrors.py": f"# passage mirrors fixture {sha}\n",
             "frontend/sea-speed/index.html": f"operator {sha}\n",
             "frontend/sea-speed/objects/index.html": f"objects {sha}\n",
             "frontend/sea-speed/cameras/index.html": f"cameras {sha}\n",

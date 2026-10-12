@@ -19,16 +19,27 @@ SOURCE = ROOT / "api" / "app" / "main.py"
 # Issue #396 wave 1: the shared kernel lives in its own modules; the harness
 # resolves moved functions from identity/config with fallback to main so the
 # same assertions hold against both the base and head trees.
+# Issue #396 wave 2: the objects registry + passage mirrors live in their own
+# modules; readers walk them BEFORE identity/config so source block-scans that
+# rely on ordering (build_objects_where → analytics_identity) keep working.
 IDENTITY_SOURCE = ROOT / "api" / "app" / "identity.py"
 CONFIG_SOURCE = ROOT / "api" / "app" / "config.py"
 STORE_SOURCE = ROOT / "api" / "app" / "store.py"
+OBJECTS_REGISTRY_SOURCE = ROOT / "api" / "app" / "objects_registry.py"
+PASSAGE_MIRRORS_SOURCE = ROOT / "api" / "app" / "passage_mirrors.py"
 FRONTEND = ROOT / "frontend" / "sea-speed" / "index.html"
 
 
 def api_sources() -> str:
     return "\n".join(
         path.read_text(encoding="utf-8")
-        for path in (SOURCE, IDENTITY_SOURCE, CONFIG_SOURCE)
+        for path in (
+            SOURCE,
+            OBJECTS_REGISTRY_SOURCE,
+            PASSAGE_MIRRORS_SOURCE,
+            IDENTITY_SOURCE,
+            CONFIG_SOURCE,
+        )
         if path.exists()
     )
 
@@ -52,7 +63,7 @@ class HTTPExceptionStub(Exception):
 def load_functions(names: set[str], namespace: dict[str, Any]) -> dict[str, Any]:
     selected = []
     found = set()
-    for source in (SOURCE, IDENTITY_SOURCE, CONFIG_SOURCE):
+    for source in (SOURCE, OBJECTS_REGISTRY_SOURCE, PASSAGE_MIRRORS_SOURCE, IDENTITY_SOURCE, CONFIG_SOURCE):
         if not source.exists():
             continue
         tree = ast.parse(source.read_text(encoding="utf-8-sig"), filename=str(source))
@@ -352,7 +363,9 @@ class NoPhotoGuardTests(unittest.TestCase):
             self.assertEqual(pruned2, 0)
 
     def test_endpoint_requires_snapshot(self) -> None:
-        source = SOURCE.read_text(encoding="utf-8")
+        # Issue #396 wave 2: prune_snapshotless_objects and the events snapshot
+        # guard live in objects_registry.py now — scan the joined API sources.
+        source = api_sources()
         self.assertIn('if snapshot is None:', source)
         self.assertIn('raise HTTPException(status_code=422, detail="snapshot is required")', source)
         self.assertIn('raise HTTPException(status_code=422, detail="passage snapshot is required")', source)

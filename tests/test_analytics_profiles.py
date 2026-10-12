@@ -96,10 +96,19 @@ class AnalyticsProfilesTests(unittest.TestCase):
     def test_api_is_additive_and_camera_isolated(self) -> None:
         # Issue #396 wave 1: read the API sources (main + kernel modules) so
         # the road1 identity pin follows the constant into config.py.
+        # Issue #396 wave 2: include the objects-registry modules — the
+        # ALTER TABLE objects ADD COLUMN migration pins moved with
+        # initialize_objects_db into objects_registry.py.
         api_dir = ROOT / "api/app"
         source = "\n".join(
             path.read_text(encoding="utf-8")
-            for path in (api_dir / "main.py", api_dir / "identity.py", api_dir / "config.py")
+            for path in (
+                api_dir / "main.py",
+                api_dir / "objects_registry.py",
+                api_dir / "passage_mirrors.py",
+                api_dir / "identity.py",
+                api_dir / "config.py",
+            )
             if path.exists()
         )
         for route in (
