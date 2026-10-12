@@ -132,6 +132,9 @@ class VpsDeployTransactionTests(unittest.TestCase):
             # Issue #396 wave 3: release_complete requires the water-passages
             # store module too, so synthetic releases carry it as well.
             "api/app/water_passages.py": f"# water passages fixture {sha}\n",
+            # Issue #396 wave 4: release_complete requires the camera-preview
+            # service module as well, so synthetic releases carry it too.
+            "api/app/camera_preview.py": f"# camera preview fixture {sha}\n",
             "frontend/sea-speed/index.html": f"operator {sha}\n",
             "frontend/sea-speed/objects/index.html": f"objects {sha}\n",
             "frontend/sea-speed/cameras/index.html": f"cameras {sha}\n",

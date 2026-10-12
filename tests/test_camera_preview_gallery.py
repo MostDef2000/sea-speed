@@ -7,10 +7,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 # Issue #396 wave 1: preview/snapshot tuning constants moved to config.py;
 # read the API sources so definition pins follow the constants.
+# Issue #396 wave 4: the camera preview/snapshot service slice moved to
+# camera_preview.py; the source walk joins it right after main.py so the
+# def-block pins and index slices below read the module that owns them.
 API = "\n".join(
     path.read_text(encoding="utf-8-sig")
     for path in (
         ROOT / "api/app/main.py",
+        ROOT / "api/app/camera_preview.py",
         ROOT / "api/app/identity.py",
         ROOT / "api/app/config.py",
     )
