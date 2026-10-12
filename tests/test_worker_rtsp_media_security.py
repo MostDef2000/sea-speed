@@ -3,7 +3,6 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 ENTRYPOINT = ROOT / "worker/ubuntu_worker_entrypoint.py"
 UNIT = ROOT / "deploy/worker/ubuntu/sea-speed-worker.service.template"

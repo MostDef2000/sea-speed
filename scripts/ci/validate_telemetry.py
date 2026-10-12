@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
 """Validate Sea Speed state or vehicle-event telemetry without external packages."""
 from __future__ import annotations
-import argparse,json,re,sys
+
+import argparse
+import json
+import re
+import sys
 from pathlib import Path
 from typing import Any
+
 SHA_RE=re.compile(r"^[0-9a-f]{40}$"); CALIBRATION_RE=re.compile(r"^sha256:[0-9a-f]{16}$")
 PROFILES={"water-v1":("water","cam1"),"road-v1":("road","road1")}
 def fail(message:str)->None: raise ValueError(message)

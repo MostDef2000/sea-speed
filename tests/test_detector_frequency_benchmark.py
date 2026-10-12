@@ -1,5 +1,7 @@
-import json, unittest
+import json
+import unittest
 from pathlib import Path
+
 ROOT=Path(__file__).resolve().parents[1]
 MATRIX=ROOT/"scripts/worker/detector_frequency_matrix_v1.json"
 SCHEMA=ROOT/"schemas/detector-frequency-benchmark.schema.json"

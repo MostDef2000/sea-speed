@@ -5,22 +5,22 @@ import math
 import time
 import uuid
 from collections import deque
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Callable, Deque, Dict, Iterable, List, Optional, Sequence, Tuple
 
-Point = Tuple[float, float]
-Line = Tuple[Point, Point]
+Point = tuple[float, float]
+Line = tuple[Point, Point]
 
 
 def _iso(ts: float) -> str:
     return datetime.fromtimestamp(float(ts), timezone.utc).isoformat()
 
 
-def _line(raw: object) -> Optional[Line]:
+def _line(raw: object) -> Line | None:
     if not isinstance(raw, (list, tuple)) or len(raw) != 2:
         return None
-    points: List[Point] = []
+    points: list[Point] = []
     for value in raw:
         if isinstance(value, dict):
             x, y = value.get("x"), value.get("y")
@@ -59,7 +59,7 @@ def _segments_intersect(a: Point, b: Point, line: Line) -> bool:
     return t1 * t2 <= 0
 
 
-def _crossing_ts(previous: "Observation", current: "Observation", line: Line) -> float:
+def _crossing_ts(previous: Observation, current: Observation, line: Line) -> float:
     s0 = abs(_side(line, previous.anchor))
     s1 = abs(_side(line, current.anchor))
     denom = s0 + s1
@@ -68,7 +68,7 @@ def _crossing_ts(previous: "Observation", current: "Observation", line: Line) ->
     return previous.ts + (current.ts - previous.ts) * ratio
 
 
-def _contextual_snapshot_detection(det: Dict[str, object], scale: float) -> Dict[str, object]:
+def _contextual_snapshot_detection(det: dict[str, object], scale: float) -> dict[str, object]:
     """Return a copy whose crop box preserves useful scene context around a vessel."""
     expanded = dict(det)
     try:
@@ -107,7 +107,7 @@ class Observation:
     track_id: int
     anchor_x: float
     anchor_y: float
-    bbox: Tuple[float, float, float, float]
+    bbox: tuple[float, float, float, float]
     confidence: float
 
     @property
@@ -118,10 +118,10 @@ class Observation:
 @dataclass(frozen=True)
 class MeasurementResult:
     speed_status: str = "unknown"
-    speed_kmh: Optional[float] = None
+    speed_kmh: float | None = None
     speed_method: str = "unknown"
-    direction: Optional[str] = None
-    measurement_meta: Dict[str, object] = field(default_factory=dict)
+    direction: str | None = None
+    measurement_meta: dict[str, object] = field(default_factory=dict)
 
 
 class SpeedEstimator:
@@ -147,14 +147,14 @@ class TwoGateSpeedEstimator(SpeedEstimator):
         except (TypeError, ValueError):
             self.distance_m = 0.0
         self.enabled = bool(enabled) and self.line_a is not None and self.line_b is not None and self.distance_m > 0
-        self.previous: Optional[Observation] = None
-        self.first_line: Optional[str] = None
-        self.first_ts: Optional[float] = None
+        self.previous: Observation | None = None
+        self.first_line: str | None = None
+        self.first_ts: float | None = None
         self.samples_used = 0
         self.result = MeasurementResult(speed_method=self.method)
 
-    def _meta(self, second_line: Optional[str] = None, second_ts: Optional[float] = None) -> Dict[str, object]:
-        meta: Dict[str, object] = {
+    def _meta(self, second_line: str | None = None, second_ts: float | None = None) -> dict[str, object]:
+        meta: dict[str, object] = {
             "distance_m": round(self.distance_m, 3),
             "samples_used": self.samples_used,
         }
@@ -177,7 +177,7 @@ class TwoGateSpeedEstimator(SpeedEstimator):
         if self.result.speed_status == "measured":
             self.previous = observation
             return self.result
-        crossings: List[Tuple[float, str]] = []
+        crossings: list[tuple[float, str]] = []
         if self.previous is not None:
             for name, line in (("A", self.line_a), ("B", self.line_b)):
                 if line is not None and _segments_intersect(self.previous.anchor, observation.anchor, line):
@@ -226,7 +226,7 @@ class TwoGateSpeedEstimator(SpeedEstimator):
         return self.result
 
 
-def build_two_gate_estimator(config: Dict[str, object]) -> SpeedEstimator:
+def build_two_gate_estimator(config: dict[str, object]) -> SpeedEstimator:
     return TwoGateSpeedEstimator(
         line_a=config.get("line_a"),
         line_b=config.get("line_b"),
@@ -246,16 +246,16 @@ class _PassageState:
     started_at: float
     last_seen_at: float
     estimator: SpeedEstimator
-    observations: Deque[Observation]
-    track_fragments: List[int] = field(default_factory=list)
-    last_anchor: Optional[Point] = None
+    observations: deque[Observation]
+    track_fragments: list[int] = field(default_factory=list)
+    last_anchor: Point | None = None
     status: str = "tracking"
-    completed_at: Optional[float] = None
+    completed_at: float | None = None
     confidence: float = 0.0
     best_snapshot_score: float = -1.0
     best_snapshot_sharpness: float = -1.0
     measurement: MeasurementResult = field(default_factory=MeasurementResult)
-    calibrated_samples: Deque[float] = field(default_factory=deque)
+    calibrated_samples: deque[float] = field(default_factory=deque)
     calibrated_measurement: MeasurementResult = field(
         default_factory=lambda: MeasurementResult(speed_method="detection_first_calibrated")
     )
@@ -298,14 +298,14 @@ class WaterPassageEngine:
         self.calibrated_min_samples = max(1, int(calibrated_min_samples))
         self.calibrated_smooth_samples = max(self.calibrated_min_samples, int(calibrated_smooth_samples))
         self.calibrated_max_samples = max(self.calibrated_smooth_samples, int(calibrated_max_samples))
-        self._active: Dict[str, _PassageState] = {}
-        self._track_to_passage: Dict[int, str] = {}
+        self._active: dict[str, _PassageState] = {}
+        self._track_to_passage: dict[int, str] = {}
 
     @property
     def active_count(self) -> int:
         return len(self._active)
 
-    def _public(self, state: _PassageState) -> Dict[str, object]:
+    def _public(self, state: _PassageState) -> dict[str, object]:
         return {
             "passage_id": state.passage_id,
             "camera_id": "cam1",
@@ -326,9 +326,9 @@ class WaterPassageEngine:
             "snapshot_score": round(max(0.0, state.best_snapshot_score), 6),
         }
 
-    def _calibrated_meta(self, state: _PassageState) -> Dict[str, object]:
+    def _calibrated_meta(self, state: _PassageState) -> dict[str, object]:
         samples = list(state.calibrated_samples)
-        meta: Dict[str, object] = {
+        meta: dict[str, object] = {
             "source": "detection_first_calibrated",
             "samples_used": len(samples),
             "required_samples": self.calibrated_min_samples,
@@ -341,7 +341,7 @@ class WaterPassageEngine:
             })
         return meta
 
-    def _update_calibrated_measurement(self, state: _PassageState, det: Dict[str, object]) -> MeasurementResult:
+    def _update_calibrated_measurement(self, state: _PassageState, det: dict[str, object]) -> MeasurementResult:
         info = det.get("_line_speed_info")
         if not isinstance(info, dict):
             return state.calibrated_measurement
@@ -380,7 +380,7 @@ class WaterPassageEngine:
             return calibrated
         return gate
 
-    def _finalize(self, passage_id: str, ts: float) -> Dict[str, object]:
+    def _finalize(self, passage_id: str, ts: float) -> dict[str, object]:
         state = self._active.pop(passage_id)
         gate_final = state.estimator.finalize()
         if gate_final.speed_status == "measured":
@@ -402,7 +402,7 @@ class WaterPassageEngine:
                 self._track_to_passage.pop(track_id, None)
         return {"passage": self._public(state), "snapshot_candidate": False, "observed_track_ids": []}
 
-    def _finalize_stale(self, ts: float, claimed: Iterable[str] = ()) -> List[Dict[str, object]]:
+    def _finalize_stale(self, ts: float, claimed: Iterable[str] = ()) -> list[dict[str, object]]:
         claimed_ids = set(claimed)
         stale = [
             passage_id
@@ -412,7 +412,7 @@ class WaterPassageEngine:
         stale.sort(key=lambda passage_id: (self._active[passage_id].last_seen_at, passage_id))
         return [self._finalize(passage_id, ts) for passage_id in stale]
 
-    def _ensure_capacity(self, ts: float, claimed: set[str]) -> List[Dict[str, object]]:
+    def _ensure_capacity(self, ts: float, claimed: set[str]) -> list[dict[str, object]]:
         if len(self._active) < self.max_active_passages:
             return []
         candidates = [state for state in self._active.values() if state.passage_id not in claimed]
@@ -421,7 +421,7 @@ class WaterPassageEngine:
         oldest = min(candidates, key=lambda state: (state.last_seen_at, state.passage_id))
         return [self._finalize(oldest.passage_id, ts)]
 
-    def _predicted_anchor(self, state: "_PassageState", ts: float) -> Tuple[Point, float]:
+    def _predicted_anchor(self, state: _PassageState, ts: float) -> tuple[Point, float]:
         """Extrapolate the passage anchor to ts; return (predicted, speed_px_s)."""
         obs = state.observations
         last = state.last_anchor
@@ -439,11 +439,11 @@ class WaterPassageEngine:
         lead = max(0.0, ts - b.ts)
         return (b.anchor_x + vx * lead, b.anchor_y + vy * lead), speed
 
-    def _resolve(self, track_id: int, anchor: Point, ts: float, claimed: set[str]) -> Tuple[_PassageState, bool, List[Dict[str, object]]]:
+    def _resolve(self, track_id: int, anchor: Point, ts: float, claimed: set[str]) -> tuple[_PassageState, bool, list[dict[str, object]]]:
         passage_id = self._track_to_passage.get(track_id)
         if passage_id in self._active:
             return self._active[passage_id], False, []
-        candidates: List[Tuple[float, _PassageState]] = []
+        candidates: list[tuple[float, _PassageState]] = []
         for state in self._active.values():
             if state.passage_id in claimed or state.last_anchor is None:
                 continue
@@ -482,13 +482,13 @@ class WaterPassageEngine:
         self._track_to_passage[track_id] = passage_id
         return state, True, finalized
 
-    def update(self, detections: Sequence[Dict[str, object]], ts: Optional[float] = None) -> List[Dict[str, object]]:
+    def update(self, detections: Sequence[dict[str, object]], ts: float | None = None) -> list[dict[str, object]]:
         now = time.time() if ts is None else float(ts)
-        updates: List[Dict[str, object]] = []
+        updates: list[dict[str, object]] = []
         claimed: set[str] = set()
-        observed_by_passage: Dict[str, List[int]] = {}
-        snapshot_candidates: Dict[str, bool] = {}
-        det_by_passage: Dict[str, Dict[str, object]] = {}
+        observed_by_passage: dict[str, list[int]] = {}
+        snapshot_candidates: dict[str, bool] = {}
+        det_by_passage: dict[str, dict[str, object]] = {}
         updates.extend(self._finalize_stale(now))
         for det in detections:
             if det.get("class_name") != "vessel" or det.get("track_id") is None:
@@ -550,7 +550,7 @@ class WaterPassageEngine:
             })
         return updates
 
-    def finalize_all(self, ts: Optional[float] = None) -> List[Dict[str, object]]:
+    def finalize_all(self, ts: float | None = None) -> list[dict[str, object]]:
         now = time.time() if ts is None else float(ts)
         passage_ids = sorted(self._active, key=lambda passage_id: (self._active[passage_id].last_seen_at, passage_id))
         return [self._finalize(passage_id, now) for passage_id in passage_ids]

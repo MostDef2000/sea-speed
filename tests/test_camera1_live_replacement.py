@@ -304,7 +304,7 @@ class WaterRtspTransportTests(unittest.TestCase):
         self.assertIn("NEEDS_FILE", self.entrypoint_text)
 
     def test_entrypoint_transport_helpers_behavior(self) -> None:
-        import unittest.mock as mock
+        from unittest import mock
 
         for name in ("numpy", "cv2", "ultralytics", "av", "requests"):
             if name not in sys.modules:

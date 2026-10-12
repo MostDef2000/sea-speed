@@ -154,8 +154,7 @@ class StorageFixture:
             cwd=ROOT,
             env=self.env,
             text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
             check=False,
         )
 

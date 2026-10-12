@@ -10,7 +10,7 @@ import time
 import unittest
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "api" / "app" / "main.py"
@@ -41,7 +41,7 @@ def load_functions(names: set[str], namespace: dict[str, Any]) -> dict[str, Any]
 
 def retention_namespace(temp_dir: str) -> dict[str, Any]:
     return {
-        "Any": Any, "Dict": Dict, "List": List, "Optional": Optional, "Path": Path,
+        "Any": Any, "Dict": dict, "List": list, "Optional": Optional, "Path": Path,
         "json": json, "sqlite3": sqlite3, "time": time, "os": os,
         "contextmanager": contextmanager, "print": print,
         "OBJECTS_RETENTION_LIMIT": 100,
@@ -65,7 +65,7 @@ RETENTION_FUNCTIONS = {
 }
 
 
-def seed_event(event_id: str, domain: str, minute: int) -> Dict[str, Any]:
+def seed_event(event_id: str, domain: str, minute: int) -> dict[str, Any]:
     return {
         "event_id": event_id,
         "camera_id": "cam1" if domain == "water" else "road1",

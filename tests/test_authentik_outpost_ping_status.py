@@ -1,6 +1,5 @@
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 CUTOVER = ROOT / "deploy/vps/sea-speed-auth-cutover.sh"
 

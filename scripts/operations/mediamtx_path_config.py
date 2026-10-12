@@ -20,7 +20,6 @@ import sys
 from pathlib import Path
 from urllib.parse import urlsplit
 
-
 RFC1918_NETWORKS = tuple(
     ipaddress.ip_network(value)
     for value in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
@@ -318,9 +317,7 @@ def _parse_rule_block(lines: list[str], marker_index: int, end: int) -> tuple[se
             actions.add(stripped.split(":", 1)[1].strip())
             continue
         if in_permissions and (
-            stripped.startswith("ips:")
-            or stripped.startswith("user:")
-            or stripped.startswith("pass:")
+            stripped.startswith(("ips:", "user:", "pass:"))
         ):
             in_permissions = False
     return ips, actions

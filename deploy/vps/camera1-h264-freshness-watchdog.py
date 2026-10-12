@@ -17,8 +17,8 @@ import stat
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 HLS_MEDIA_SEQUENCE_RE = re.compile(r"(?m)^#EXT-X-MEDIA-SEQUENCE:(\d+)\s*$")
 CAMERA1_H264_SOURCE = "rtsp://10.123.239.102:8554/cam1-h264"

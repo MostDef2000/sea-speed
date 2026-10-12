@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 import importlib.util
-import json
 import sys
-import tempfile
 import unittest
-from unittest import mock
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 API_MAIN = ROOT / "api/app/main.py"
@@ -36,7 +34,7 @@ class RoiNormalizationTests(unittest.TestCase):
     def test_legacy_704_normalized_to_1920_roundtrip(self):
         app = self._import_app()
         legacy = [{"x": 352, "y": 288}, {"x": 700, "y": 570}, {"x": 100, "y": 100}]
-        norm, rw, rh = app._normalize_legacy_polygon(legacy, {})
+        norm, rw, _rh = app._normalize_legacy_polygon(legacy, {})
         self.assertEqual(rw, 704)
         self.assertAlmostEqual(norm[0]["x_norm"], 0.5)
         # denormalize to 1920 should be same relative lane
@@ -70,7 +68,7 @@ class RoiNormalizationTests(unittest.TestCase):
         legacy_payload = {"polygon": [{"x": 352, "y": 288}, {"x": 700, "y": 10}, {"x": 10, "y": 10}], "enabled": True}
         # simulate POST logic: if norm not present, legacy path
         legacy = app.clean_points_list(legacy_payload["polygon"], max_points=1000)
-        norm, rw, rh = app._normalize_legacy_polygon(legacy, legacy_payload)
+        norm, rw, _rh = app._normalize_legacy_polygon(legacy, legacy_payload)
         self.assertEqual(rw, 704)
         self.assertEqual(len(norm), 3)
         # normalized payload

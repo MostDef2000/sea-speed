@@ -7,7 +7,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKER = ROOT / "worker" / "hls_motion_yolo_worker_events.py"
@@ -92,7 +92,7 @@ class ApiPersonGuardTests(unittest.TestCase):
                     "json": json,
                     "uuid": __import__("uuid"),
                     "Path": Path,
-                    "Dict": Dict,
+                    "Dict": dict,
                     "Any": Any,
                     "Optional": type(None),
                     "Form": lambda *a, **k: None,
@@ -138,7 +138,7 @@ class ApiPersonGuardTests(unittest.TestCase):
             persisted: list[dict[str, Any]] = []
             original = ns["persist_object_event"]
 
-            def spy(event: Dict[str, Any]) -> bool:
+            def spy(event: dict[str, Any]) -> bool:
                 persisted.append(event)
                 return True
 

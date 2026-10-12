@@ -9,7 +9,12 @@ from pathlib import Path
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from scripts.quality.common import assert_no_secrets, load_json, repository_root, validate_schema_instance
+from scripts.quality.common import (
+    assert_no_secrets,
+    load_json,
+    repository_root,
+    validate_schema_instance,
+)
 
 
 def main() -> int:

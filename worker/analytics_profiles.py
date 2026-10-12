@@ -5,8 +5,8 @@ tracking, calibration, event transport, or API storage to one detector model.
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Mapping
 
 
 @dataclass(frozen=True)

@@ -15,9 +15,7 @@ import sys
 from typing import BinaryIO
 
 import numpy as np
-
 from analytics_profiles import get_profile, normalize_model_class
-
 
 VEHICLE_CLASSES = set(get_profile("road-v1").model_classes)
 _LENGTH = struct.Struct("!I")
@@ -84,7 +82,7 @@ def serialize_detection_batch(
                 track_id = None
 
         xyxy = box.xyxy[0].tolist()
-        x1, y1, x2, y2 = [int(round(value)) for value in xyxy]
+        x1, y1, x2, y2 = [round(value) for value in xyxy]
         width = max(0, x2 - x1)
         height = max(0, y2 - y1)
         diagnostics.append(
@@ -197,10 +195,10 @@ def main() -> int:
                 inv = {str(v).strip(): int(k) for k, v in names.items()}
                 wanted = [str(x).strip() for x in classes_raw.split(",") if str(x).strip()]
                 ids = [inv[n] for n in wanted if n in inv]
-                setattr(main, "_cached_class_ids", ids if ids else None)
-                _cached_class_ids = getattr(main, "_cached_class_ids")
+                main._cached_class_ids = ids if ids else None
+                _cached_class_ids = main._cached_class_ids
             except Exception:
-                setattr(main, "_cached_class_ids", None)
+                main._cached_class_ids = None
                 _cached_class_ids = None
         elif not classes_raw:
             _cached_class_ids = None
@@ -208,14 +206,14 @@ def main() -> int:
             _cached_class_ids = getattr(main, "_cached_class_ids", None)
         try:
             with contextlib.redirect_stdout(sys.stderr):
-                track_kwargs: dict[str, object] = dict(
-                    persist=True,
-                    tracker=args.tracker,
-                    imgsz=args.image_size,
-                    conf=args.confidence,
-                    device=args.device,
-                    verbose=False,
-                )
+                track_kwargs: dict[str, object] = {
+                    "persist": True,
+                    "tracker": args.tracker,
+                    "imgsz": args.image_size,
+                    "conf": args.confidence,
+                    "device": args.device,
+                    "verbose": False,
+                }
                 if _cached_class_ids:
                     track_kwargs["classes"] = _cached_class_ids
                 # half is already applied via model.half(); some ultralytics versions also accept half kwarg

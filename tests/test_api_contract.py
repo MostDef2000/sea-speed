@@ -12,7 +12,7 @@ import uuid
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "api" / "app" / "main.py"
@@ -47,7 +47,7 @@ def load_functions(names: set[str], namespace: dict[str, Any]) -> dict[str, Any]
 
 def objects_namespace(temp_dir: str) -> dict[str, Any]:
     return {
-        "Any": Any, "Dict": Dict, "List": List, "Optional": Optional, "Path": Path,
+        "Any": Any, "Dict": dict, "List": list, "Optional": Optional, "Path": Path,
         "json": json, "hashlib": hashlib, "sqlite3": sqlite3, "contextmanager": contextmanager,
         "uuid": uuid, "HTTPException": HTTPExceptionStub,
         "OBJECT_STATUSES": {"new", "reviewed", "ignored"}, "OBJECTS_RETENTION_LIMIT": 100,

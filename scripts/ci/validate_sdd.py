@@ -8,8 +8,8 @@ import re
 import subprocess
 import sys
 from collections import defaultdict
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
 
 ROOT = Path(__file__).resolve().parents[2]
 FEATURE_DIR_RE = re.compile(r"^(\d{3,})-[a-z0-9][a-z0-9-]*$")
@@ -264,7 +264,7 @@ def requires_deployment_transaction_audit(changed_files: Iterable[str], pr_body:
         return True
     for path in changed_files:
         normalized = path.replace("\\", "/")
-        if normalized.startswith("deploy/") or normalized.startswith("scripts/release/"):
+        if normalized.startswith(("deploy/", "scripts/release/")):
             return True
         if normalized.startswith(".github/workflows/deploy") and normalized.endswith((".yml", ".yaml")):
             return True

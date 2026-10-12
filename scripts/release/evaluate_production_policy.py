@@ -16,7 +16,13 @@ from pathlib import Path
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from production_policy import PolicyError, decision_payload, parse_delegation, validate_policy, validate_sha40
+from production_policy import (
+    PolicyError,
+    decision_payload,
+    parse_delegation,
+    validate_policy,
+    validate_sha40,
+)
 
 ISSUE_FIELD_RE = re.compile(r"^- Issue:\s*#(\d+)\s*$", re.MULTILINE)
 FIELD_RE = re.compile(r"^- ([A-Za-z][A-Za-z0-9 /_-]*):\s*(.*?)\s*$", re.MULTILINE)

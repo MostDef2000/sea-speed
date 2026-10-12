@@ -1,11 +1,24 @@
 #!/usr/bin/env python3
 """Build deterministic VPS, Ubuntu Worker, and edge source artifacts from exact repository bytes."""
 from __future__ import annotations
-import argparse,gzip,io,json,sys,tarfile
+
+import argparse
+import gzip
+import io
+import json
+import sys
+import tarfile
 from pathlib import Path
+
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from scripts.quality.common import SHA40_RE, repository_root, sha256_bytes, sha256_file, write_json_atomic
+from scripts.quality.common import (
+    SHA40_RE,
+    repository_root,
+    sha256_bytes,
+    sha256_file,
+    write_json_atomic,
+)
 
 COMPONENT_FILES={
 "vps":{"required":["api/app/main.py","frontend/sea-speed/index.html","frontend/sea-speed/objects/index.html","frontend/sea-speed/cameras/index.html","frontend/sea-speed/road/index.html","frontend/root/index.html","deploy/vps/deploy.sh","deploy/vps/sea-speed-auth-cutover.sh","deploy/vps/install-auth-privilege-boundary.sh","deploy/vps/sea-speed-auth-privileged-helper.py","deploy/vps/sea-speed-nginx-zerotier-wait.sh","deploy/vps/sea-speed-nginx-zerotier.conf","scripts/operations/nginx_cam1_direct_h264.py","scripts/operations/nginx_sea_speed_auth.py"],"optional":["api/requirements.txt","schemas/release-manifest.schema.json","schemas/deployment-manifest.schema.json"]},

@@ -7,8 +7,9 @@ import json
 import os
 import re
 import tempfile
+from collections.abc import Iterable
 from pathlib import Path, PurePosixPath
-from typing import Any, Iterable
+from typing import Any
 
 SHA40_RE = re.compile(r"^[0-9a-f]{40}$")
 SECRET_PATTERNS = (

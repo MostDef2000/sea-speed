@@ -16,9 +16,9 @@ import stat
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable
 
 CAMERA1_H264_PATH = "cam1-h264"
 CAMERA1_H264_SOURCE = "rtsp://10.123.239.102:8554/cam1-h264"

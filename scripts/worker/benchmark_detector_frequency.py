@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """Deterministic detector frequency benchmark kit (no production mutation)."""
 from __future__ import annotations
-import argparse, json, statistics
+
+import argparse
+import json
 from pathlib import Path
+
 
 def p95(values):
     if not values:

@@ -119,7 +119,7 @@ class SeaSpeedAuthV1Tests(unittest.TestCase):
         rendered = self._render()
         self.assertEqual(rendered.count("location ^~ /outpost.goauthentik.io {"), 1)
         self.assertNotIn("location ^~ /sea-speed/outpost.goauthentik.io", rendered)
-        match = re.search(r"location \^~ /outpost\.goauthentik\.io \{(?P<body>.*?)\n\s*\}", rendered, re.S)
+        match = re.search(r"location \^~ /outpost\.goauthentik\.io \{(?P<body>.*?)\n\s*\}", rendered, re.DOTALL)
         self.assertIsNotNone(match)
         body = match.group("body")
         self.assertIn("proxy_pass http://10.123.239.102:19000/outpost.goauthentik.io;", body)
@@ -398,7 +398,7 @@ class SeaSpeedAuthV1Tests(unittest.TestCase):
         source = BLUEPRINT.read_text(encoding="utf-8")
         for group in ("Sea Speed Owner", "Sea Speed Admin", "Sea Speed Operator", "Sea Speed Viewer"):
             self.assertIn(f"name: {group}", source)
-        self.assertIsNotNone(re.search(r"name: Sea Speed Owner.*?is_superuser: true", source, re.S))
+        self.assertIsNotNone(re.search(r"name: Sea Speed Owner.*?is_superuser: true", source, re.DOTALL))
         self.assertEqual(source.count("continue_flow_without_invitation: false"), 3)
         self.assertIn("length_min: 15", source)
         self.assertIn("check_have_i_been_pwned: true", source)

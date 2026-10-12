@@ -2,7 +2,6 @@ import json
 import unittest
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -117,9 +116,8 @@ class DeliveryTodoContractTests(unittest.TestCase):
             ".opencode/settings.json",
             ".opencode/node_modules/pkg/index.js",
         ):
-            with self.subTest(path=rejected):
-                with self.assertRaises(SystemExit):
-                    module.validate_paths([Path(rejected)])
+            with self.subTest(path=rejected), self.assertRaises(SystemExit):
+                module.validate_paths([Path(rejected)])
 
     def test_reusable_profile_preserves_primary_and_bounded_workers(self):
         profile = json.loads(self.read(

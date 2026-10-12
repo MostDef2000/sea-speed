@@ -15,6 +15,7 @@ from storage_lifecycle_test_support import (
     TIMER,
 )
 
+
 class UbuntuWorkerStorageLifecycleContractTests(unittest.TestCase):
     def test_python_and_shell_syntax(self) -> None:
         subprocess.run([sys.executable, "-m", "py_compile", str(MANAGER), str(COMMON), str(INVENTORY), str(APPLY)], check=True)

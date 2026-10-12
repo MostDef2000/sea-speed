@@ -9,7 +9,7 @@ import unittest
 import uuid
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKER = ROOT / "worker" / "hls_motion_yolo_worker_events.py"
@@ -52,7 +52,7 @@ def extract_worker_functions(names: set[str]) -> dict[str, Any]:
     return namespace
 
 
-def det(track_id: int, x1: float, y1: float, x2: float, y2: float, object_type: str = "car") -> Dict[str, Any]:
+def det(track_id: int, x1: float, y1: float, x2: float, y2: float, object_type: str = "car") -> dict[str, Any]:
     return {
         "track_id": track_id,
         "bbox_xyxy": (x1, y1, x2, y2),
@@ -230,8 +230,8 @@ class ApiCrossingTests(unittest.TestCase):
             "timezone": timezone,
             "VLZ_TIMEZONE": timezone(timedelta(hours=10)),
             "Any": Any,
-            "Dict": Dict,
-            "List": List,
+            "Dict": dict,
+            "List": list,
             "DEFAULT_ROI_REF_W": 1920,
             "DEFAULT_ROI_REF_H": 1080,
             "LEGACY_ROI_W": 704,
@@ -253,7 +253,7 @@ class ApiCrossingTests(unittest.TestCase):
                 json.dumps(data, ensure_ascii=False)
             ),
         }
-        cls.persisted: List[Dict[str, Any]] = []
+        cls.persisted: list[dict[str, Any]] = []
         cls.namespace["persist_object_event"] = lambda event: cls.persisted.append(event) or True
         tree = ast.parse(API.read_text(encoding="utf-8-sig"), filename=str(API))
         selected = []
@@ -580,7 +580,7 @@ class VlzDailyResetTests(unittest.TestCase):
 class SummaryDateRangeTests(unittest.TestCase):
     def test_summary_supports_vlz_day_window_params(self) -> None:
         text = API.read_text(encoding="utf-8")
-        self.assertIn("date_from: Optional[str] = None, date_to: Optional[str] = None", text)
+        self.assertIn("date_from: str | None = None, date_to: str | None = None", text)
         self.assertIn('"mode": "vlz_days"', text)
         self.assertIn("VLZ_TIMEZONE = timezone(timedelta(hours=10))", text)
 

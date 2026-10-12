@@ -41,7 +41,7 @@ class Scalar:
 
 class XYXY:
     def __init__(self, values: list[float]): self.values = values
-    def __getitem__(self, _index: int) -> "XYXY": return self
+    def __getitem__(self, _index: int) -> XYXY: return self
     def tolist(self) -> list[float]: return list(self.values)
 
 

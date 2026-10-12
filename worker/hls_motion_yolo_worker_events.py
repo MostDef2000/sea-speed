@@ -12,9 +12,8 @@ from urllib.parse import urlsplit
 import cv2
 import numpy as np
 import requests
-from ultralytics import YOLO
-
 from analytics_profiles import get_profile, normalize_model_class
+from ultralytics import YOLO
 from water_passage import PassageEngine, build_two_gate_estimator
 
 try:
@@ -147,7 +146,7 @@ def _scale_norm_points(norm_points, dst_w: int, dst_h: int):
             # detect legacy absolute mistakenly passed as norm: values >1.0 are absolute, skip as not normalized
             if xn > 1.0 or yn > 1.0:
                 continue
-            scaled.append((int(round(xn * dst_w)), int(round(yn * dst_h))))
+            scaled.append((round(xn * dst_w), round(yn * dst_h)))
         except Exception:
             continue
     return scaled
@@ -161,7 +160,7 @@ def _maybe_scale_legacy_absolute(points, dst_w: int, dst_h: int):
     max_y = max(y for _, y in points)
     if max_x <= 704 and max_y <= 576 and (dst_w == 1920 or dst_h == 1080):
         # heuristic: legacy 704×576 → scale to HD
-        return [(int(round(x * dst_w / 704)), int(round(y * dst_h / 576))) for x, y in points]
+        return [(round(x * dst_w / 704), round(y * dst_h / 576)) for x, y in points]
     return points
 
 
@@ -468,7 +467,7 @@ def detect_vehicles(model, frame, diagnostics=None):
             except Exception:
                 track_id = None
         xyxy = box.xyxy[0].tolist()
-        x1, y1, x2, y2 = [int(round(v)) for v in xyxy]
+        x1, y1, x2, y2 = [round(v) for v in xyxy]
         if profile is None:
             semantic = {"class_name": model_class} if model_class in VEHICLE_CLASSES else None
         else:
@@ -578,13 +577,13 @@ def fetch_remote_roi():
                     # allow norm inside legacy polygon as fallback
                     if "x_norm" in p or "y_norm" in p:
                         try:
-                            points.append((int(round(float(p.get("x_norm", 0)) * dst_w)), int(round(float(p.get("y_norm", 0)) * dst_h))))
+                            points.append((round(float(p.get("x_norm", 0)) * dst_w), round(float(p.get("y_norm", 0)) * dst_h)))
                         except Exception:
                             continue
                         continue
                     try:
-                        x = int(round(float(p.get("x"))))
-                        y = int(round(float(p.get("y"))))
+                        x = round(float(p.get("x")))
+                        y = round(float(p.get("y")))
                     except Exception:
                         continue
                     points.append((x, y))
@@ -794,7 +793,7 @@ def draw_overlay(frame, motion_now, motion_area, ai_active, detections, motion_b
         f"ai_active: {ai_active}",
         f"detections: {len(detections)}",
         f"tracks: {len(active_track_ids)}",
-        f"posted_to: mostdef.ru/sea-speed",
+        "posted_to: mostdef.ru/sea-speed",
     ]
     line_height = 25
     block_height = line_height * len(lines) + 10
@@ -813,7 +812,7 @@ def draw_overlay(frame, motion_now, motion_area, ai_active, detections, motion_b
         font = cv2.FONT_HERSHEY_SIMPLEX
         c_line_height = 24
         c_block_height = c_line_height * len(counter_lines) + 10
-        max_text_width = max(cv2.getTextSize(line, font, 0.58, 2)[0][0] for line in counter_lines)
+        max(cv2.getTextSize(line, font, 0.58, 2)[0][0] for line in counter_lines)
         c_y = height - c_block_height + c_line_height - 4
         for line in counter_lines:
             (tw, th), baseline = cv2.getTextSize(line, font, 0.58, 2)
@@ -981,8 +980,8 @@ def write_passage_snapshot(frame, det, path):
     height, width = frame.shape[:2]
     box_w = max(1, x2 - x1)
     box_h = max(1, y2 - y1)
-    pad_x = max(4, int(round(box_w * 0.12)))
-    pad_y = max(4, int(round(box_h * 0.12)))
+    pad_x = max(4, round(box_w * 0.12))
+    pad_y = max(4, round(box_h * 0.12))
     left = max(0, x1 - pad_x)
     top = max(0, y1 - pad_y)
     right = min(width, x2 + pad_x)
@@ -1133,12 +1132,12 @@ def fetch_speed_lines_config():
                         continue
                     if "x_norm" in p or "y_norm" in p:
                         try:
-                            points.append((int(round(float(p.get("x_norm", 0)) * dst_w)), int(round(float(p.get("y_norm", 0)) * dst_h))))
+                            points.append((round(float(p.get("x_norm", 0)) * dst_w), round(float(p.get("y_norm", 0)) * dst_h)))
                         except Exception:
                             continue
                         continue
                     try:
-                        points.append((int(round(float(p.get("x")))), int(round(float(p.get("y"))))))
+                        points.append((round(float(p.get("x"))), round(float(p.get("y")))))
                     except Exception:
                         continue
             # legacy fallback
@@ -1266,12 +1265,12 @@ def fetch_crossing_line_config():
                     continue
                 if "x_norm" in p or "y_norm" in p:
                     try:
-                        line.append((int(round(float(p.get("x_norm", 0)) * dst_w)), int(round(float(p.get("y_norm", 0)) * dst_h))))
+                        line.append((round(float(p.get("x_norm", 0)) * dst_w), round(float(p.get("y_norm", 0)) * dst_h)))
                     except Exception:
                         continue
                     continue
                 try:
-                    line.append((int(round(float(p.get("x")))), int(round(float(p.get("y"))))))
+                    line.append((round(float(p.get("x"))), round(float(p.get("y")))))
                 except Exception:
                     continue
             line = _maybe_scale_legacy_absolute(line, dst_w, dst_h)
@@ -1775,7 +1774,7 @@ def main():
                 # Inject per-detection sharpness for sharpness-aware best-frame selection.
                 for det in detections:
                     try:
-                        x1, y1, x2, y2 = [int(round(float(v))) for v in det.get("bbox_xyxy") or []]
+                        x1, y1, x2, y2 = [round(float(v)) for v in det.get("bbox_xyxy") or []]
                         if x2 > x1 and y2 > y1:
                             x1c = max(0, min(x1, frame.shape[1] - 1))
                             x2c = max(0, min(x2, frame.shape[1]))
@@ -1963,7 +1962,6 @@ def main():
                 eff_fps = None
                 p95_ms = None
                 try:
-                    from detection_performance import PerformanceTracker as _PT
                     # try to get global tracker from entrypoint if available
                     import sys as _sys
                     _entry = _sys.modules.get("ubuntu_worker_entrypoint")

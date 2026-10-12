@@ -4,23 +4,21 @@ from __future__ import annotations
 
 import json
 import os
+import queue
 import re
 import select
 import struct
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from collections import deque
 from copy import deepcopy
 from pathlib import Path
 from urllib.parse import urlsplit
 
-import queue
-import threading
-
 import numpy as np
-
 from analytics_profiles import get_profile
 
 try:
@@ -37,7 +35,6 @@ _LIVE_GENERATION = str(int(time.monotonic() * 1000))  # restart-safe generation
 os.environ.setdefault("ANALYTICS_PROFILE", "water-v1")
 
 import hls_motion_yolo_worker_events as worker
-
 
 _ORIGINAL_START_MEDIA_READER = worker.start_media_reader
 _ORIGINAL_POST_STATE = worker.post_state
@@ -438,9 +435,9 @@ class ResilientFFmpegRtspReader:
                 break
             # Use FIONREAD to check if a full frame is buffered without consuming partial.
             try:
+                import array
                 import fcntl
                 import termios
-                import array
                 buf = array.array('i', [0])
                 fcntl.ioctl(fd, termios.FIONREAD, buf)
                 available = int(buf[0])

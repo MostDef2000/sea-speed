@@ -4,8 +4,7 @@ import ast
 import copy
 import unittest
 from pathlib import Path
-from typing import Any, Dict, Optional
-
+from typing import Any, Optional
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "api/app/main.py"
@@ -32,7 +31,7 @@ def load_session_identity_function():
     ast.fix_missing_locations(module)
     namespace: dict[str, Any] = {
         "Any": Any,
-        "Dict": Dict,
+        "Dict": dict,
         "Optional": Optional,
         "HTTPException": HTTPExceptionStub,
         "Header": lambda default=None: default,

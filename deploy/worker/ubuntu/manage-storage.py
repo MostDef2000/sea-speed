@@ -7,8 +7,8 @@ import os
 import sys
 from pathlib import Path
 
-from storage_lifecycle_common import LifecycleError, acquire_lock, atomic_write_json
 from storage_lifecycle_apply import apply_plan
+from storage_lifecycle_common import LifecycleError, acquire_lock, atomic_write_json
 from storage_lifecycle_inventory import build_inventory, build_plan
 
 

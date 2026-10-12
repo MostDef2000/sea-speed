@@ -191,7 +191,7 @@ class MediaMTXCompatibilityRemediationTests(unittest.TestCase):
         function = shell_function(source, "stop_transient_unit")
 
         with tempfile.TemporaryDirectory() as directory:
-            result = subprocess.run(
+            subprocess.run(
                 [
                     "bash",
                     "-c",

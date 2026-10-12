@@ -13,7 +13,13 @@ import random
 import string
 import tempfile
 
-from scripts.quality.common import load_json, repository_root, safe_media_key, stable_event_identity, write_json_atomic
+from scripts.quality.common import (
+    load_json,
+    repository_root,
+    safe_media_key,
+    stable_event_identity,
+    write_json_atomic,
+)
 
 SEED = 20260804
 

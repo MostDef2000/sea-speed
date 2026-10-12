@@ -26,6 +26,7 @@ from storage_lifecycle_common import (
     validate_active_state,
 )
 
+
 def validate_item_path(item: dict[str, Any], install_root: Path) -> tuple[Path, Path]:
     path = Path(item["path"])
     allowed_root = Path(item["allowed_root"])

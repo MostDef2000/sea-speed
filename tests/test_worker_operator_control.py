@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 import importlib.util
-import os
 import subprocess
 from pathlib import Path
-
 
 ROOT = Path(__file__).resolve().parents[1]
 AGENT_PATH = ROOT / "deploy" / "worker" / "ubuntu" / "worker-control-agent.py"

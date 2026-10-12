@@ -9,7 +9,7 @@ import tempfile
 import unittest
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKER_SOURCE = ROOT / "worker" / "hls_motion_yolo_worker_events.py"
@@ -18,6 +18,7 @@ FRONTEND_SOURCE = ROOT / "frontend" / "sea-speed" / "index.html"
 ARTIFACT_SOURCE = ROOT / "scripts" / "quality" / "build_exact_artifacts.py"
 
 import sys
+
 sys.path.insert(0, str(ROOT / "worker"))
 from water_passage import (
     MeasurementResult,
@@ -54,7 +55,7 @@ def load_api_functions(names: set[str], namespace: dict[str, Any]) -> dict[str, 
     return namespace
 
 
-def det(track_id: int, y: float, confidence: float = 0.8, x: float = 50.0) -> Dict[str, object]:
+def det(track_id: int, y: float, confidence: float = 0.8, x: float = 50.0) -> dict[str, object]:
     return {
         "track_id": track_id,
         "class_name": "vessel",
@@ -229,7 +230,7 @@ class PassageEngineTests(unittest.TestCase):
 
 class CanonicalPassageSpeedTests(unittest.TestCase):
     @staticmethod
-    def with_speed(track_id: int, y: float, kmh: float, *, fresh: bool = True) -> Dict[str, object]:
+    def with_speed(track_id: int, y: float, kmh: float, *, fresh: bool = True) -> dict[str, object]:
         detection = det(track_id, y)
         detection["_line_speed_info"] = {
             "speed_sample_fresh": fresh,
@@ -442,7 +443,7 @@ class PassageApiRetentionTests(unittest.TestCase):
         media = Path(temp_dir) / "media"
         media.mkdir()
         return {
-            "Any": Any, "Dict": Dict, "List": List, "Optional": Optional,
+            "Any": Any, "Dict": dict, "List": list, "Optional": Optional,
             "Path": Path, "json": json, "sqlite3": sqlite3, "contextmanager": contextmanager,
             "HTTPException": HTTPExceptionStub,
             "PASSAGES_DB_FILE": Path(temp_dir) / "water_passages.sqlite3",
@@ -456,7 +457,7 @@ class PassageApiRetentionTests(unittest.TestCase):
             "now_iso": lambda: "2026-08-18T00:00:00+00:00",
         }
 
-    def passage(self, index: int, *, status: str = "completed", speed: Optional[float] = None) -> Dict[str, Any]:
+    def passage(self, index: int, *, status: str = "completed", speed: float | None = None) -> dict[str, Any]:
         ts = f"2026-08-18T00:00:{index:02d}+00:00"
         return {
             "passage_id": f"P-TEST-{index:04d}",

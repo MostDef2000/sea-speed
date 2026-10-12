@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
 """Repository validation entrypoint for Sea Speed CI."""
 from __future__ import annotations
-import re,subprocess,sys,tempfile
+
+import re
+import subprocess
+import sys
+import tempfile
 from html.parser import HTMLParser
 from pathlib import Path
+
 ROOT=Path(__file__).resolve().parents[2]
 ALLOWED_TOP_LEVEL={".github",".gitignore",".specify",".opencode","AGENTS.md","README.md","api","contracts","data","deploy","docs","frontend","opencode.json","schemas","scripts","skills","specs","tests","worker"}
 ALLOWED_EXACT_PATHS={".opencode/agents/sea-speed-delivery-orchestrator.md",".opencode/project-profile.json",".opencode/delivery-pipeline.json"}

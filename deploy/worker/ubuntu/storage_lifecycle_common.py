@@ -4,7 +4,6 @@ import fcntl
 import json
 import os
 import re
-import shutil
 import stat
 import subprocess
 import tempfile
@@ -102,8 +101,7 @@ def run_systemctl(arguments: list[str]) -> subprocess.CompletedProcess[str]:
             ["systemctl", *arguments],
             check=False,
             text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
         )
     except OSError as exc:
         raise LifecycleError(f"systemctl unavailable: {exc}") from exc

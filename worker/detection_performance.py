@@ -36,7 +36,7 @@ class PerformanceTracker:
             self._decoded_times.popleft()
 
     def record_inferred(self, *, ingest_mono: float, inference_ms: float, frame_age_ms: float) -> None:
-        now = ingest_mono if ingest_mono else time.monotonic()
+        ingest_mono if ingest_mono else time.monotonic()
         # use wall time for window but ingest for age consistency
         wall = time.monotonic()
         self._inferred_times.append(wall)

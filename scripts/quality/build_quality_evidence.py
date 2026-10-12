@@ -10,7 +10,13 @@ from pathlib import Path
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from scripts.quality.common import SHA40_RE, load_json, repository_root, sha256_file, write_json_atomic
+from scripts.quality.common import (
+    SHA40_RE,
+    load_json,
+    repository_root,
+    sha256_file,
+    write_json_atomic,
+)
 
 DEPENDENCY_FILES = (
     "api/requirements.txt",

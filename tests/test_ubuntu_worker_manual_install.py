@@ -5,7 +5,6 @@ import re
 import unittest
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 INSTALLER = ROOT / "deploy/worker/ubuntu/install-manual.sh"
 PREPARE_RUNTIME = ROOT / "deploy/worker/ubuntu/prepare-runtime.sh"

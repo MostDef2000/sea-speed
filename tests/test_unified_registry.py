@@ -9,7 +9,7 @@ import tempfile
 import unittest
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "api" / "app" / "main.py"
@@ -41,7 +41,7 @@ def load_functions(names: set[str], namespace: dict[str, Any]) -> dict[str, Any]
 
 def unified_namespace(temp_dir: str) -> dict[str, Any]:
     return {
-        "Any": Any, "Dict": Dict, "List": List, "Optional": Optional, "Path": Path,
+        "Any": Any, "Dict": dict, "List": list, "Optional": Optional, "Path": Path,
         "json": json, "hashlib": hashlib, "sqlite3": sqlite3,
         "contextmanager": contextmanager, "print": print,
         "OBJECTS_RETENTION_LIMIT": 100,
@@ -60,8 +60,8 @@ MIRROR_FUNCTIONS = {
 }
 
 
-def passage(passage_id: str = "p1", **overrides: Any) -> Dict[str, Any]:
-    base: Dict[str, Any] = {
+def passage(passage_id: str = "p1", **overrides: Any) -> dict[str, Any]:
+    base: dict[str, Any] = {
         "passage_id": passage_id,
         "camera_id": "cam1",
         "class_name": "vessel",

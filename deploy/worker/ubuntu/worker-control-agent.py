@@ -122,8 +122,7 @@ def systemctl(*args: str, check: bool = False) -> subprocess.CompletedProcess[st
     return subprocess.run(
         ["/bin/systemctl", *args],
         stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        capture_output=True,
         text=True,
         timeout=20,
         check=check,

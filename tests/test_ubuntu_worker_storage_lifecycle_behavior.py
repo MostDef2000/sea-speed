@@ -6,7 +6,15 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from storage_lifecycle_test_support import ACTIVE, CANDIDATE, PINNED, RETAINED, OTHER, StorageFixture
+from storage_lifecycle_test_support import (
+    ACTIVE,
+    CANDIDATE,
+    OTHER,
+    PINNED,
+    RETAINED,
+    StorageFixture,
+)
+
 
 class UbuntuWorkerStorageLifecycleBehaviorTests(unittest.TestCase):
     def setUp(self) -> None:

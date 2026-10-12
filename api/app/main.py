@@ -11,17 +11,16 @@ import sys
 import threading
 import time
 import uuid
+from collections import deque
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 from urllib.parse import urlsplit
 
-from collections import deque
 from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
-from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse
-
+from fastapi.staticfiles import StaticFiles
 
 BASE_DIR = Path("/opt/sea-speed-api")
 DATA_DIR = BASE_DIR / "data"
@@ -123,7 +122,7 @@ def deployed_source_commit() -> str:
     return value.lower() if SHA_RE.fullmatch(value) else "unknown"
 
 
-def require_auth(authorization: Optional[str]) -> None:
+def require_auth(authorization: str | None) -> None:
     if not API_TOKEN:
         raise HTTPException(status_code=500, detail="SEA_SPEED_API_TOKEN is not set")
     expected = f"Bearer {API_TOKEN}"
@@ -131,7 +130,7 @@ def require_auth(authorization: Optional[str]) -> None:
         raise HTTPException(status_code=403, detail="Forbidden")
 
 
-def require_operator_identity(x_authentik_username: Optional[str]) -> str:
+def require_operator_identity(x_authentik_username: str | None) -> str:
     username = (x_authentik_username or "").strip()
     if not username:
         raise HTTPException(status_code=503, detail="Trusted Authentik identity is unavailable")
@@ -160,7 +159,7 @@ def worker_control_origin() -> tuple[str, int]:
     return str(address), parsed.port
 
 
-def call_worker_control(method: str, path: str) -> Dict[str, Any]:
+def call_worker_control(method: str, path: str) -> dict[str, Any]:
     allowed = {
         ("GET", "/v1/status"),
         ("POST", "/v1/start"),
@@ -227,7 +226,7 @@ def open_objects_db():
         connection.close()
 
 
-def prune_objects_registry(connection: sqlite3.Connection) -> List[str]:
+def prune_objects_registry(connection: sqlite3.Connection) -> list[str]:
     retention = max(0, int(OBJECTS_RETENTION_LIMIT))
     eviction_subquery = """
         SELECT object_id FROM (
@@ -299,7 +298,7 @@ def initialize_objects_db() -> None:
             pass
 
 
-def optional_float(value: Any) -> Optional[float]:
+def optional_float(value: Any) -> float | None:
     if value in (None, ""):
         return None
     try:
@@ -308,7 +307,7 @@ def optional_float(value: Any) -> Optional[float]:
         return None
 
 
-def optional_int(value: Any) -> Optional[int]:
+def optional_int(value: Any) -> int | None:
     if value in (None, ""):
         return None
     try:
@@ -317,7 +316,7 @@ def optional_int(value: Any) -> Optional[int]:
         return None
 
 
-def stable_object_id(event: Dict[str, Any]) -> str:
+def stable_object_id(event: dict[str, Any]) -> str:
     explicit_id = event.get("event_id") or event.get("object_id")
     if explicit_id not in (None, ""):
         return str(explicit_id)
@@ -335,7 +334,7 @@ def prune_snapshotless_objects(connection: sqlite3.Connection) -> int:
     return int(cursor.rowcount)
 
 
-def persist_object_event(event: Dict[str, Any]) -> bool:
+def persist_object_event(event: dict[str, Any]) -> bool:
     snapshot_url = event.get("snapshot_url")
     if not snapshot_url or not str(snapshot_url).strip():
         return False
@@ -401,7 +400,7 @@ def import_existing_events() -> int:
     return imported
 
 
-def persist_passage_object(passage: Dict[str, Any]) -> bool:
+def persist_passage_object(passage: dict[str, Any]) -> bool:
     snapshot_url = passage.get("snapshot_url")
     if not snapshot_url or not str(snapshot_url).strip().startswith("/sea-speed/media/"):
         return False
@@ -485,7 +484,7 @@ EVENTS_SWEEP_INTERVAL_SECONDS = 3600
 _events_sweep_state = {"last": 0.0}
 
 
-def _delete_passage_mirrors(passage_ids: List[str]) -> int:
+def _delete_passage_mirrors(passage_ids: list[str]) -> int:
     ids = [str(value) for value in passage_ids if str(value or "").strip()]
     if not ids:
         return 0
@@ -508,7 +507,7 @@ def reconcile_passage_mirrors() -> int:
             rows = connection.execute("SELECT passage_id FROM water_passages").fetchall()
     except Exception:
         return 0
-    live = {f"passage-{str(row['passage_id'])}" for row in rows}
+    live = {f"passage-{row['passage_id']!s}" for row in rows}
     with open_objects_db() as connection:
         mirrors = connection.execute(
             "SELECT object_id FROM objects WHERE object_id LIKE 'passage-%'"
@@ -523,7 +522,7 @@ def reconcile_passage_mirrors() -> int:
         return max(0, cursor.rowcount)
 
 
-def sweep_events_media(force: bool = False, now: Optional[float] = None) -> int:
+def sweep_events_media(force: bool = False, now: float | None = None) -> int:
     current = time.time() if now is None else float(now)
     last = float(_events_sweep_state.get("last") or 0.0)
     if not force and current - last < EVENTS_SWEEP_INTERVAL_SECONDS:
@@ -578,7 +577,7 @@ def open_passages_db():
         connection.close()
 
 
-def cleanup_passage_media(snapshot_url: Optional[str]) -> None:
+def cleanup_passage_media(snapshot_url: str | None) -> None:
     if not snapshot_url:
         return
     prefix = "/sea-speed/media/passages/"
@@ -594,7 +593,7 @@ def cleanup_passage_media(snapshot_url: Optional[str]) -> None:
         pass
 
 
-def prune_water_passages(connection: sqlite3.Connection, target_limit: int = PASSAGES_RETENTION_LIMIT) -> List[str]:
+def prune_water_passages(connection: sqlite3.Connection, target_limit: int = PASSAGES_RETENTION_LIMIT) -> list[str]:
     target_limit = max(0, int(target_limit))
     count = int(connection.execute("SELECT COUNT(*) FROM water_passages").fetchone()[0])
     excess = max(0, count - target_limit)
@@ -620,7 +619,7 @@ def prune_water_passages(connection: sqlite3.Connection, target_limit: int = PAS
 
 
 def initialize_water_passages_db() -> None:
-    orphan_urls: List[str] = []
+    orphan_urls: list[str] = []
     with open_passages_db() as connection:
         connection.execute("PRAGMA journal_mode=WAL")
         connection.execute(
@@ -661,7 +660,7 @@ def initialize_water_passages_db() -> None:
         cleanup_passage_media(snapshot_url)
 
 
-def _validate_passage_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+def _validate_passage_payload(payload: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise HTTPException(status_code=400, detail="passage payload must be an object")
     passage_id = str(payload.get("passage_id") or "").strip()
@@ -684,7 +683,7 @@ def _validate_passage_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     raw_fragments = payload.get("track_fragments") or []
     if not isinstance(raw_fragments, list) or len(raw_fragments) > 64:
         raise HTTPException(status_code=400, detail="track_fragments is invalid")
-    track_fragments: List[int] = []
+    track_fragments: list[int] = []
     for value in raw_fragments:
         track_id = optional_int(value)
         if track_id is None:
@@ -751,7 +750,7 @@ def _validate_passage_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def passage_row_to_dict(row: sqlite3.Row) -> Dict[str, Any]:
+def passage_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
     data = dict(row)
     try:
         data["track_fragments"] = json.loads(data.pop("track_fragments_json", "[]"))
@@ -764,11 +763,11 @@ def passage_row_to_dict(row: sqlite3.Row) -> Dict[str, Any]:
     return data
 
 
-def upsert_water_passage(payload: Dict[str, Any], snapshot_bytes: Optional[bytes] = None) -> Dict[str, Any]:
+def upsert_water_passage(payload: dict[str, Any], snapshot_bytes: bytes | None = None) -> dict[str, Any]:
     incoming = _validate_passage_payload(payload)
-    orphan_urls: List[str] = []
-    snapshot_path: Optional[Path] = None
-    snapshot_data: Optional[bytes] = None
+    orphan_urls: list[str] = []
+    snapshot_path: Path | None = None
+    snapshot_data: bytes | None = None
     with open_passages_db() as connection:
         existing_row = connection.execute(
             "SELECT * FROM water_passages WHERE passage_id = ?", (incoming["passage_id"],)
@@ -780,9 +779,9 @@ def upsert_water_passage(payload: Dict[str, Any], snapshot_bytes: Optional[bytes
                 count = int(connection.execute("SELECT COUNT(*) FROM water_passages").fetchone()[0])
                 if count >= PASSAGES_RETENTION_LIMIT:
                     raise RuntimeError("water passage registry is full with active passages")
-            current: Dict[str, Any] = {}
-            existing_fragments: List[int] = []
-            existing_meta: Dict[str, Any] = {}
+            current: dict[str, Any] = {}
+            existing_fragments: list[int] = []
+            existing_meta: dict[str, Any] = {}
         else:
             current = dict(existing_row)
             try:
@@ -793,7 +792,7 @@ def upsert_water_passage(payload: Dict[str, Any], snapshot_bytes: Optional[bytes
                 existing_meta = json.loads(current.get("measurement_meta_json") or "{}")
             except Exception:
                 existing_meta = {}
-        fragments: List[int] = []
+        fragments: list[int] = []
         for value in [*existing_fragments, *incoming["track_fragments"]]:
             track_id = optional_int(value)
             if track_id is not None and track_id not in fragments:
@@ -890,7 +889,7 @@ def upsert_water_passage(payload: Dict[str, Any], snapshot_bytes: Optional[bytes
     return passage_row_to_dict(row)
 
 
-def list_water_passages(limit: int = 50) -> List[Dict[str, Any]]:
+def list_water_passages(limit: int = 50) -> list[dict[str, Any]]:
     limit = max(1, min(int(limit), 200))
     with open_passages_db() as connection:
         rows = connection.execute(
@@ -898,7 +897,7 @@ def list_water_passages(limit: int = 50) -> List[Dict[str, Any]]:
         ).fetchall()
     return [passage_row_to_dict(row) for row in rows]
 
-def object_row_to_dict(row: sqlite3.Row, include_original: bool = False) -> Dict[str, Any]:
+def object_row_to_dict(row: sqlite3.Row, include_original: bool = False) -> dict[str, Any]:
     data = dict(row)
     raw = data.pop("original_event_json", "{}")
     if include_original:
@@ -910,21 +909,21 @@ def object_row_to_dict(row: sqlite3.Row, include_original: bool = False) -> Dict
 
 
 def build_objects_where(
-    date_from: Optional[str],
-    date_to: Optional[str],
-    class_name: Optional[str],
-    status: Optional[str],
-    speed_min: Optional[float],
-    speed_max: Optional[float],
-    search: Optional[str],
+    date_from: str | None,
+    date_to: str | None,
+    class_name: str | None,
+    status: str | None,
+    speed_min: float | None,
+    speed_max: float | None,
+    search: str | None,
     include_deleted: bool,
-    camera_id: Optional[str] = "cam1",
-    domain: Optional[str] = None,
-    analytics_profile: Optional[str] = None,
-    object_type: Optional[str] = None,
-) -> tuple[str, List[Any]]:
-    clauses: List[str] = []
-    values: List[Any] = []
+    camera_id: str | None = "cam1",
+    domain: str | None = None,
+    analytics_profile: str | None = None,
+    object_type: str | None = None,
+) -> tuple[str, list[Any]]:
+    clauses: list[str] = []
+    values: list[Any] = []
     if camera_id:
         clauses.append("camera_id = ?")
         values.append(camera_id)
@@ -966,7 +965,7 @@ def build_objects_where(
     return " AND ".join(clauses) if clauses else "1=1", values
 
 
-def default_state() -> Dict[str, Any]:
+def default_state() -> dict[str, Any]:
     return {
         "camera_id": "cam1",
         "analytics_profile": "water-v1",
@@ -993,7 +992,7 @@ def default_state() -> Dict[str, Any]:
     }
 
 
-def analytics_identity(camera_id: str) -> Dict[str, str]:
+def analytics_identity(camera_id: str) -> dict[str, str]:
     identity = ANALYTICS_IDENTITIES.get(camera_id)
     if identity is None:
         raise HTTPException(status_code=404, detail="Unknown analytics camera")
@@ -1014,7 +1013,7 @@ def analytics_data_file(camera_id: str, kind: str) -> Path:
     return DATA_DIR / f"{camera_id}_{kind}.json"
 
 
-def analytics_default_state(camera_id: str) -> Dict[str, Any]:
+def analytics_default_state(camera_id: str) -> dict[str, Any]:
     identity = analytics_identity(camera_id)
     data = default_state() if camera_id == "cam1" else {
         "camera_id": camera_id,
@@ -1043,7 +1042,7 @@ def analytics_default_state(camera_id: str) -> Dict[str, Any]:
     return data
 
 
-def analytics_state(camera_id: str) -> Dict[str, Any]:
+def analytics_state(camera_id: str) -> dict[str, Any]:
     state = read_json_file(analytics_data_file(camera_id, "state"), analytics_default_state(camera_id))
     identity = analytics_identity(camera_id)
     state["camera_id"] = camera_id
@@ -1071,7 +1070,7 @@ def analytics_state(camera_id: str) -> Dict[str, Any]:
     return state
 
 
-def clean_points_list(raw_points: Any, max_points: int = 2) -> List[Dict[str, int]]:
+def clean_points_list(raw_points: Any, max_points: int = 2) -> list[dict[str, int]]:
     clean = []
     if not isinstance(raw_points, list):
         return clean
@@ -1079,8 +1078,8 @@ def clean_points_list(raw_points: Any, max_points: int = 2) -> List[Dict[str, in
         if not isinstance(point, dict):
             continue
         try:
-            x = int(round(float(point.get("x"))))
-            y = int(round(float(point.get("y"))))
+            x = round(float(point.get("x")))
+            y = round(float(point.get("y")))
         except Exception:
             continue
         clean.append({"x": x, "y": y})
@@ -1098,8 +1097,8 @@ def _is_normalized_point(point: Any) -> bool:
     return isinstance(point, dict) and ("x_norm" in point or "y_norm" in point)
 
 
-def _clean_norm_points(raw_points: Any, max_points: int = 1000) -> List[Dict[str, float]]:
-    clean: List[Dict[str, float]] = []
+def _clean_norm_points(raw_points: Any, max_points: int = 1000) -> list[dict[str, float]]:
+    clean: list[dict[str, float]] = []
     if not isinstance(raw_points, list):
         return clean
     for p in raw_points[:max_points]:
@@ -1119,7 +1118,7 @@ def _clean_norm_points(raw_points: Any, max_points: int = 1000) -> List[Dict[str
     return clean
 
 
-def _infer_legacy_ref_w_h(polygon: List[Dict[str, int]]) -> tuple[int, int]:
+def _infer_legacy_ref_w_h(polygon: list[dict[str, int]]) -> tuple[int, int]:
     if not polygon:
         return DEFAULT_ROI_REF_W, DEFAULT_ROI_REF_H
     max_x = max((p.get("x", 0) for p in polygon), default=0)
@@ -1129,15 +1128,15 @@ def _infer_legacy_ref_w_h(polygon: List[Dict[str, int]]) -> tuple[int, int]:
     return DEFAULT_ROI_REF_W, DEFAULT_ROI_REF_H
 
 
-def _normalize_from_absolute(polygon: List[Dict[str, int]], ref_w: int, ref_h: int) -> List[Dict[str, float]]:
+def _normalize_from_absolute(polygon: list[dict[str, int]], ref_w: int, ref_h: int) -> list[dict[str, float]]:
     return [{"x_norm": p["x"] / ref_w, "y_norm": p["y"] / ref_h} for p in polygon]
 
 
-def _denormalize_to_absolute(polygon_norm: List[Dict[str, float]], dst_w: int, dst_h: int) -> List[Dict[str, int]]:
-    return [{"x": int(round(p["x_norm"] * dst_w)), "y": int(round(p["y_norm"] * dst_h))} for p in polygon_norm]
+def _denormalize_to_absolute(polygon_norm: list[dict[str, float]], dst_w: int, dst_h: int) -> list[dict[str, int]]:
+    return [{"x": round(p["x_norm"] * dst_w), "y": round(p["y_norm"] * dst_h)} for p in polygon_norm]
 
 
-def _normalize_legacy_polygon(legacy: List[Dict[str, int]], raw: Dict[str, Any]) -> tuple[List[Dict[str, float]], int, int]:
+def _normalize_legacy_polygon(legacy: list[dict[str, int]], raw: dict[str, Any]) -> tuple[list[dict[str, float]], int, int]:
     ref_w, ref_h = _infer_legacy_ref_w_h(legacy)
     ref_w = int(raw.get("reference_width") or raw.get("referenceWidth") or ref_w)
     ref_h = int(raw.get("reference_height") or raw.get("referenceHeight") or ref_h)
@@ -1169,7 +1168,7 @@ def validate_camera_preview_source(camera_id: str, source: str) -> str:
     return source
 
 
-def load_camera_preview_catalog() -> List[Dict[str, str]]:
+def load_camera_preview_catalog() -> list[dict[str, str]]:
     if not CAMERA_PREVIEW_CATALOG_FILE.exists():
         return []
     try:
@@ -1178,7 +1177,7 @@ def load_camera_preview_catalog() -> List[Dict[str, str]]:
         raise HTTPException(status_code=500, detail="Camera preview catalog is invalid") from exc
     if payload.get("schema") != CAMERA_PREVIEW_CATALOG_SCHEMA or not isinstance(payload.get("cameras"), list):
         raise HTTPException(status_code=500, detail="Camera preview catalog is invalid")
-    cameras: List[Dict[str, str]] = []
+    cameras: list[dict[str, str]] = []
     seen = set()
     try:
         for item in payload["cameras"]:
@@ -1205,7 +1204,7 @@ def camera_snapshot_path(camera_id: str) -> Path:
     return CAMERA_SNAPSHOT_DIR / f"{camera_id}.jpg"
 
 
-def camera_snapshot_public_metadata(camera_id: str) -> Dict[str, Any]:
+def camera_snapshot_public_metadata(camera_id: str) -> dict[str, Any]:
     path = camera_snapshot_path(camera_id)
     try:
         stat = path.stat()
@@ -1215,7 +1214,7 @@ def camera_snapshot_public_metadata(camera_id: str) -> Dict[str, Any]:
     return {"available": True, "url": f"/sea-speed/api/cameras/{camera_id}/snapshot?v={stat.st_mtime_ns}", "updated_at": updated_at}
 
 
-def build_camera_snapshot_extract_args(playlist: Path, output_path: Path) -> List[str]:
+def build_camera_snapshot_extract_args(playlist: Path, output_path: Path) -> list[str]:
     return [
         CAMERA_PREVIEW_FFMPEG_BIN, "-nostdin", "-hide_banner", "-loglevel", "error",
         "-live_start_index", "-1", "-i", str(playlist), "-map", "0:v:0", "-frames:v", "1",
@@ -1223,7 +1222,7 @@ def build_camera_snapshot_extract_args(playlist: Path, output_path: Path) -> Lis
     ]
 
 
-def camera_snapshot_luma_spread(path: Path) -> Optional[float]:
+def camera_snapshot_luma_spread(path: Path) -> float | None:
     args = [
         CAMERA_PREVIEW_FFMPEG_BIN, "-nostdin", "-hide_banner", "-loglevel", "info",
         "-i", str(path), "-frames:v", "1", "-vf", "signalstats,metadata=print", "-f", "null", "-",
@@ -1237,7 +1236,7 @@ def camera_snapshot_luma_spread(path: Path) -> Optional[float]:
         return None
     if result.returncode != 0:
         return None
-    values: Dict[str, float] = {}
+    values: dict[str, float] = {}
     for name in ("YLOW", "YHIGH"):
         match = re.search(rf"lavfi\.signalstats\.{name}=([0-9.]+)", result.stderr)
         if match:
@@ -1260,7 +1259,7 @@ def camera_snapshot_candidate_is_usable(path: Path) -> bool:
     return spread is not None and spread >= CAMERA_SNAPSHOT_MIN_LUMA_SPREAD
 
 
-def commit_camera_snapshot_locked(state: Dict[str, Any]) -> Dict[str, Any]:
+def commit_camera_snapshot_locked(state: dict[str, Any]) -> dict[str, Any]:
     camera_id = str(state.get("camera_id") or "")
     session_id = str(state.get("session_id") or "")
     if not CAMERA_PREVIEW_ID_RE.fullmatch(camera_id) or not CAMERA_PREVIEW_SESSION_RE.fullmatch(session_id):
@@ -1290,7 +1289,7 @@ def commit_camera_snapshot_locked(state: Dict[str, Any]) -> Dict[str, Any]:
     return camera_snapshot_public_metadata(camera_id)
 
 
-def camera_preview_public_state(state: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+def camera_preview_public_state(state: dict[str, Any] | None) -> dict[str, Any] | None:
     if not state:
         return None
     return {
@@ -1301,7 +1300,7 @@ def camera_preview_public_state(state: Optional[Dict[str, Any]]) -> Optional[Dic
     }
 
 
-def camera_preview_pid_matches(state: Dict[str, Any]) -> bool:
+def camera_preview_pid_matches(state: dict[str, Any]) -> bool:
     try:
         pid = int(state.get("pid") or 0)
     except (TypeError, ValueError):
@@ -1318,7 +1317,7 @@ def camera_preview_pid_matches(state: Dict[str, Any]) -> bool:
     return Path(CAMERA_PREVIEW_FFMPEG_BIN).name in cmdline and expected_playlist in cmdline
 
 
-def cleanup_camera_preview_media(state: Dict[str, Any]) -> None:
+def cleanup_camera_preview_media(state: dict[str, Any]) -> None:
     session_id = str(state.get("session_id") or "")
     if not CAMERA_PREVIEW_SESSION_RE.fullmatch(session_id):
         return
@@ -1332,7 +1331,7 @@ def cleanup_camera_preview_media(state: Dict[str, Any]) -> None:
         pass
 
 
-def terminate_camera_preview_locked() -> Optional[str]:
+def terminate_camera_preview_locked() -> str | None:
     state = read_json_file(CAMERA_PREVIEW_STATE_FILE, {})
     if not isinstance(state, dict) or not state:
         return None
@@ -1359,7 +1358,7 @@ def terminate_camera_preview_locked() -> Optional[str]:
     return camera_id
 
 
-def active_camera_preview_locked() -> Optional[Dict[str, Any]]:
+def active_camera_preview_locked() -> dict[str, Any] | None:
     state = read_json_file(CAMERA_PREVIEW_STATE_FILE, {})
     if not isinstance(state, dict) or not state:
         return None
@@ -1373,7 +1372,7 @@ def active_camera_preview_locked() -> Optional[Dict[str, Any]]:
     return state
 
 
-def build_camera_preview_ffmpeg_args(source: str, output_dir: Path) -> List[str]:
+def build_camera_preview_ffmpeg_args(source: str, output_dir: Path) -> list[str]:
     return [
         CAMERA_PREVIEW_FFMPEG_BIN, "-nostdin", "-hide_banner", "-loglevel", "error",
         "-rtsp_transport", "tcp", "-i", source, "-map", "0:v:0", "-an",
@@ -1387,7 +1386,7 @@ def build_camera_preview_ffmpeg_args(source: str, output_dir: Path) -> List[str]
     ]
 
 
-def start_camera_preview_locked(camera: Dict[str, str]) -> Dict[str, Any]:
+def start_camera_preview_locked(camera: dict[str, str]) -> dict[str, Any]:
     terminate_camera_preview_locked()
     ffmpeg_path = Path(CAMERA_PREVIEW_FFMPEG_BIN)
     if not ffmpeg_path.is_file() or not os.access(ffmpeg_path, os.X_OK):
@@ -1407,7 +1406,7 @@ def start_camera_preview_locked(camera: Dict[str, str]) -> Dict[str, Any]:
     except OSError as exc:
         cleanup_camera_preview_media({"session_id": session_id})
         raise HTTPException(status_code=503, detail="Camera preview transcoder failed to start") from exc
-    state: Dict[str, Any] = {
+    state: dict[str, Any] = {
         "camera_id": camera["camera_id"], "display_name": camera["display_name"], "session_id": session_id,
         "pid": process.pid, "output_dir": str(output_dir), "hls_url": hls_url, "started_at": started_at,
         "expires_at": expires_at, "expires_epoch": expires_epoch, "ttl_sec": CAMERA_PREVIEW_TTL_SEC,
@@ -1436,7 +1435,7 @@ initialize_water_passages_db()
 
 
 @app.get("/api/cameras")
-def get_cameras() -> Dict[str, Any]:
+def get_cameras() -> dict[str, Any]:
     cameras = load_camera_preview_catalog()
     with CAMERA_PREVIEW_LOCK:
         active = camera_preview_public_state(active_camera_preview_locked())
@@ -1460,7 +1459,7 @@ def get_camera_snapshot(camera_id: str):
 
 
 @app.post("/api/cameras/{camera_id}/snapshot/commit")
-def commit_camera_snapshot(camera_id: str, session_id: str) -> Dict[str, Any]:
+def commit_camera_snapshot(camera_id: str, session_id: str) -> dict[str, Any]:
     cameras = load_camera_preview_catalog()
     if not any(entry["camera_id"] == camera_id for entry in cameras):
         raise HTTPException(status_code=404, detail="Camera is not present in the preview catalog")
@@ -1475,14 +1474,14 @@ def commit_camera_snapshot(camera_id: str, session_id: str) -> Dict[str, Any]:
 
 
 @app.get("/api/cameras/preview")
-def get_camera_preview() -> Dict[str, Any]:
+def get_camera_preview() -> dict[str, Any]:
     with CAMERA_PREVIEW_LOCK:
         active = camera_preview_public_state(active_camera_preview_locked())
     return {"ok": True, "active": active}
 
 
 @app.post("/api/cameras/{camera_id}/preview/start")
-def start_camera_preview(camera_id: str) -> Dict[str, Any]:
+def start_camera_preview(camera_id: str) -> dict[str, Any]:
     cameras = load_camera_preview_catalog()
     camera = next((entry for entry in cameras if entry["camera_id"] == camera_id), None)
     if camera is None:
@@ -1493,14 +1492,14 @@ def start_camera_preview(camera_id: str) -> Dict[str, Any]:
 
 
 @app.post("/api/cameras/preview/stop")
-def stop_camera_preview() -> Dict[str, Any]:
+def stop_camera_preview() -> dict[str, Any]:
     with CAMERA_PREVIEW_LOCK:
         stopped_camera_id = terminate_camera_preview_locked()
     return {"ok": True, "stopped_camera_id": stopped_camera_id, "active": None}
 
 
 @app.get("/api/cam1/state")
-def get_cam1_state() -> Dict[str, Any]:
+def get_cam1_state() -> dict[str, Any]:
     state = read_json_file(STATE_FILE, default_state())
     state.setdefault("analytics_profile", "water-v1")
     state.setdefault("domain", "water")
@@ -1522,22 +1521,22 @@ def get_cam1_state() -> Dict[str, Any]:
 
 
 @app.post("/api/cam1/state")
-async def post_cam1_state(metadata: str = Form(...), overlay: Optional[UploadFile] = File(None), authorization: Optional[str] = Header(None)) -> Dict[str, Any]:
+async def post_cam1_state(metadata: str = Form(...), overlay: UploadFile | None = File(None), authorization: str | None = Header(None)) -> dict[str, Any]:
     return await post_analytics_state("cam1", metadata, overlay, authorization)
 
 
 @app.get("/api/cam1/events")
-def get_cam1_events(limit: int = 50) -> Dict[str, Any]:
+def get_cam1_events(limit: int = 50) -> dict[str, Any]:
     return get_analytics_events("cam1", limit)
 
 
 @app.post("/api/cam1/events")
-async def post_cam1_event(metadata: str = Form(...), snapshot: Optional[UploadFile] = File(None), authorization: Optional[str] = Header(None)) -> Dict[str, Any]:
+async def post_cam1_event(metadata: str = Form(...), snapshot: UploadFile | None = File(None), authorization: str | None = Header(None)) -> dict[str, Any]:
     return await post_analytics_event("cam1", metadata, snapshot, authorization)
 
 
 @app.get("/api/cam1/passages")
-def get_cam1_passages(limit: int = 50) -> Dict[str, Any]:
+def get_cam1_passages(limit: int = 50) -> dict[str, Any]:
     passages = list_water_passages(limit)
     return {"ok": True, "camera_id": "cam1", "count": len(passages), "passages": passages}
 
@@ -1545,9 +1544,9 @@ def get_cam1_passages(limit: int = 50) -> Dict[str, Any]:
 @app.post("/api/cam1/passages")
 async def post_cam1_passage(
     metadata: str = Form(...),
-    snapshot: Optional[UploadFile] = File(None),
-    authorization: Optional[str] = Header(None),
-) -> Dict[str, Any]:
+    snapshot: UploadFile | None = File(None),
+    authorization: str | None = Header(None),
+) -> dict[str, Any]:
     require_auth(authorization)
     try:
         payload = json.loads(metadata)
@@ -1570,10 +1569,10 @@ async def post_cam1_passage(
 
 @app.get("/api/cam1/objects")
 def get_cam1_objects(
-    limit: int = 50, offset: int = 0, date_from: Optional[str] = None, date_to: Optional[str] = None,
-    class_name: Optional[str] = None, status: Optional[str] = None, speed_min: Optional[float] = None,
-    speed_max: Optional[float] = None, search: Optional[str] = None, include_deleted: bool = False,
-) -> Dict[str, Any]:
+    limit: int = 50, offset: int = 0, date_from: str | None = None, date_to: str | None = None,
+    class_name: str | None = None, status: str | None = None, speed_min: float | None = None,
+    speed_max: float | None = None, search: str | None = None, include_deleted: bool = False,
+) -> dict[str, Any]:
     limit = max(1, min(limit, 200))
     offset = max(0, offset)
     if speed_min is not None and speed_min < 0:
@@ -1594,7 +1593,7 @@ def get_cam1_objects(
 
 
 @app.get("/api/cam1/objects/{object_id}")
-def get_cam1_object(object_id: str) -> Dict[str, Any]:
+def get_cam1_object(object_id: str) -> dict[str, Any]:
     with open_objects_db() as connection:
         row = connection.execute("SELECT * FROM objects WHERE object_id = ? AND camera_id = ? AND deleted_at IS NULL", (object_id, "cam1")).fetchone()
     if row is None:
@@ -1603,72 +1602,72 @@ def get_cam1_object(object_id: str) -> Dict[str, Any]:
 
 
 @app.patch("/api/cam1/objects/{object_id}")
-def patch_cam1_object(object_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+def patch_cam1_object(object_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     return patch_object_record(object_id, payload, "cam1")
 
 
 @app.delete("/api/cam1/objects/{object_id}")
-def delete_cam1_object(object_id: str) -> Dict[str, Any]:
+def delete_cam1_object(object_id: str) -> dict[str, Any]:
     return delete_object_record(object_id, "cam1")
 
 
 @app.get("/api/cam1/roi")
-def get_cam1_roi() -> Dict[str, Any]:
+def get_cam1_roi() -> dict[str, Any]:
     return get_analytics_roi("cam1")
 
 
 @app.post("/api/cam1/roi")
-def post_cam1_roi(payload: Dict[str, Any]) -> Dict[str, Any]:
+def post_cam1_roi(payload: dict[str, Any]) -> dict[str, Any]:
     return post_analytics_roi("cam1", payload)
 
 
 @app.get("/api/cam1/speed-config")
-def get_cam1_speed_config() -> Dict[str, Any]:
+def get_cam1_speed_config() -> dict[str, Any]:
     return get_analytics_speed_config("cam1")
 
 
 @app.post("/api/cam1/speed-config")
-def post_cam1_speed_config(payload: Dict[str, Any]) -> Dict[str, Any]:
+def post_cam1_speed_config(payload: dict[str, Any]) -> dict[str, Any]:
     return post_analytics_speed_config("cam1", payload)
 
 
 @app.get("/api/cam1/speed-lines")
-def get_cam1_speed_lines() -> Dict[str, Any]:
+def get_cam1_speed_lines() -> dict[str, Any]:
     return get_analytics_speed_lines("cam1")
 
 
 @app.post("/api/cam1/speed-lines")
-def post_cam1_speed_lines(payload: Dict[str, Any]) -> Dict[str, Any]:
+def post_cam1_speed_lines(payload: dict[str, Any]) -> dict[str, Any]:
     return post_analytics_speed_lines("cam1", payload)
 
 
 @app.get("/api/cam1/crossing-line")
-def get_cam1_crossing_line() -> Dict[str, Any]:
+def get_cam1_crossing_line() -> dict[str, Any]:
     return get_analytics_crossing_line("cam1")
 
 
 @app.post("/api/cam1/crossing-line")
-def post_cam1_crossing_line(payload: Dict[str, Any]) -> Dict[str, Any]:
+def post_cam1_crossing_line(payload: dict[str, Any]) -> dict[str, Any]:
     return post_analytics_crossing_line("cam1", payload)
 
 
 @app.post("/api/cam1/crossings")
 async def post_cam1_crossing(
     metadata: str = Form(...),
-    authorization: Optional[str] = Header(None),
-) -> Dict[str, Any]:
+    authorization: str | None = Header(None),
+) -> dict[str, Any]:
     return await api_post_crossing("cam1", metadata=metadata, authorization=authorization)
 
 
 @app.get("/api/cam1/crossings/summary")
 def get_cam1_crossings_summary(
-    hours: int = 24, date_from: Optional[str] = None, date_to: Optional[str] = None,
-) -> Dict[str, Any]:
+    hours: int = 24, date_from: str | None = None, date_to: str | None = None,
+) -> dict[str, Any]:
     return get_analytics_crossings_summary("cam1", hours, date_from, date_to)
 
 
-def patch_object_record(object_id: str, payload: Dict[str, Any], camera_id: Optional[str] = None) -> Dict[str, Any]:
-    updates: Dict[str, Any] = {}
+def patch_object_record(object_id: str, payload: dict[str, Any], camera_id: str | None = None) -> dict[str, Any]:
+    updates: dict[str, Any] = {}
     if "class_name" in payload:
         class_name = str(payload.get("class_name") or "").strip()
         if not class_name or len(class_name) > 80:
@@ -1701,7 +1700,7 @@ def patch_object_record(object_id: str, payload: Dict[str, Any], camera_id: Opti
     updates["updated_at"] = now_iso()
     set_sql = ", ".join(f"{name} = ?" for name in updates)
     where = "object_id = ? AND deleted_at IS NULL"
-    values: List[Any] = [*updates.values(), object_id]
+    values: list[Any] = [*updates.values(), object_id]
     if camera_id:
         where += " AND camera_id = ?"
         values.append(camera_id)
@@ -1713,10 +1712,10 @@ def patch_object_record(object_id: str, payload: Dict[str, Any], camera_id: Opti
     return {"ok": True, "object": object_row_to_dict(row, include_original=True)}
 
 
-def delete_object_record(object_id: str, camera_id: Optional[str] = None) -> Dict[str, Any]:
+def delete_object_record(object_id: str, camera_id: str | None = None) -> dict[str, Any]:
     deleted_at = now_iso()
     where = "object_id = ? AND deleted_at IS NULL"
-    values: List[Any] = [deleted_at, deleted_at, object_id]
+    values: list[Any] = [deleted_at, deleted_at, object_id]
     if camera_id:
         where += " AND camera_id = ?"
         values.append(camera_id)
@@ -1728,7 +1727,7 @@ def delete_object_record(object_id: str, camera_id: Optional[str] = None) -> Dic
 
 
 @app.get("/api/analytics/{camera_id}/state")
-def get_analytics_state(camera_id: str) -> Dict[str, Any]:
+def get_analytics_state(camera_id: str) -> dict[str, Any]:
     return analytics_state(camera_id)
 
 
@@ -1736,9 +1735,9 @@ def get_analytics_state(camera_id: str) -> Dict[str, Any]:
 async def post_analytics_state(
     camera_id: str,
     metadata: str = Form(...),
-    overlay: Optional[UploadFile] = File(None),
-    authorization: Optional[str] = Header(None),
-) -> Dict[str, Any]:
+    overlay: UploadFile | None = File(None),
+    authorization: str | None = Header(None),
+) -> dict[str, Any]:
     require_auth(authorization)
     identity = analytics_identity(camera_id)
     try:
@@ -1779,7 +1778,7 @@ async def post_analytics_state(
 
 
 @app.get("/api/analytics/{camera_id}/events")
-def get_analytics_events(camera_id: str, limit: int = 50) -> Dict[str, Any]:
+def get_analytics_events(camera_id: str, limit: int = 50) -> dict[str, Any]:
     analytics_identity(camera_id)
     events = read_json_file(analytics_data_file(camera_id, "events"), [])
     events = events[: max(1, min(limit, 200))]
@@ -1790,9 +1789,9 @@ def get_analytics_events(camera_id: str, limit: int = 50) -> Dict[str, Any]:
 async def post_analytics_event(
     camera_id: str,
     metadata: str = Form(...),
-    snapshot: Optional[UploadFile] = File(None),
-    authorization: Optional[str] = Header(None),
-) -> Dict[str, Any]:
+    snapshot: UploadFile | None = File(None),
+    authorization: str | None = Header(None),
+) -> dict[str, Any]:
     require_auth(authorization)
     identity = analytics_identity(camera_id)
     try:
@@ -1827,14 +1826,14 @@ async def post_analytics_event(
         raise HTTPException(status_code=422, detail="snapshot is required")
     sweep_events_media()
     events_path = analytics_data_file(camera_id, "events")
-    events: List[Dict[str, Any]] = read_json_file(events_path, [])
+    events: list[dict[str, Any]] = read_json_file(events_path, [])
     events.insert(0, event)
     write_json_file(events_path, events[:500])
     return {"ok": True, "event": event}
 
 
 @app.get("/api/analytics/{camera_id}/roi")
-def get_analytics_roi(camera_id: str) -> Dict[str, Any]:
+def get_analytics_roi(camera_id: str) -> dict[str, Any]:
     analytics_identity(camera_id)
     default_roi = {"ok": True, "camera_id": camera_id, "enabled": False, "polygon": [], "polygon_norm": [], "reference_width": DEFAULT_ROI_REF_W, "reference_height": DEFAULT_ROI_REF_H, "updated_at": None}
     roi_path = analytics_data_file(camera_id, "roi")
@@ -1880,7 +1879,7 @@ def get_analytics_roi(camera_id: str) -> Dict[str, Any]:
 
 
 @app.post("/api/analytics/{camera_id}/roi")
-def post_analytics_roi(camera_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+def post_analytics_roi(camera_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     analytics_identity(camera_id)
     enabled = bool(payload.get("enabled", True))
     # accept either normalized or legacy
@@ -1908,7 +1907,7 @@ def post_analytics_roi(camera_id: str, payload: Dict[str, Any]) -> Dict[str, Any
 
 
 @app.get("/api/analytics/{camera_id}/speed-config")
-def get_analytics_speed_config(camera_id: str) -> Dict[str, Any]:
+def get_analytics_speed_config(camera_id: str) -> dict[str, Any]:
     analytics_identity(camera_id)
     default_config = {"ok": True, "camera_id": camera_id, "enabled": False, "kmh_per_px_s": 0.0, "updated_at": None}
     config = read_json_file(analytics_data_file(camera_id, "speed_config"), default_config)
@@ -1921,7 +1920,7 @@ def get_analytics_speed_config(camera_id: str) -> Dict[str, Any]:
 
 
 @app.post("/api/analytics/{camera_id}/speed-config")
-def post_analytics_speed_config(camera_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+def post_analytics_speed_config(camera_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     analytics_identity(camera_id)
     enabled = bool(payload.get("enabled", True))
     try:
@@ -1937,7 +1936,7 @@ def post_analytics_speed_config(camera_id: str, payload: Dict[str, Any]) -> Dict
 
 
 @app.get("/api/analytics/{camera_id}/speed-lines")
-def get_analytics_speed_lines(camera_id: str) -> Dict[str, Any]:
+def get_analytics_speed_lines(camera_id: str) -> dict[str, Any]:
     analytics_identity(camera_id)
     default_config = {"ok": True, "camera_id": camera_id, "enabled": False, "distance_m": 57.0,
                       "line_a": [], "line_b": [], "line_a_norm": [], "line_b_norm": [], "reference_width": DEFAULT_ROI_REF_W, "reference_height": DEFAULT_ROI_REF_H, "updated_at": None}
@@ -1981,7 +1980,7 @@ def get_analytics_speed_lines(camera_id: str) -> Dict[str, Any]:
 
 
 @app.post("/api/analytics/{camera_id}/speed-lines")
-def post_analytics_speed_lines(camera_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+def post_analytics_speed_lines(camera_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     analytics_identity(camera_id)
     try:
         distance_m = float(payload.get("distance_m", 57.0))
@@ -2019,7 +2018,7 @@ def post_analytics_speed_lines(camera_id: str, payload: Dict[str, Any]) -> Dict[
     return config
 
 
-def get_analytics_crossing_line(camera_id: str) -> Dict[str, Any]:
+def get_analytics_crossing_line(camera_id: str) -> dict[str, Any]:
     analytics_identity(camera_id)
     default_config = {"ok": True, "camera_id": camera_id, "enabled": False, "line": [], "line_norm": [], "reference_width": DEFAULT_ROI_REF_W, "reference_height": DEFAULT_ROI_REF_H, "updated_at": None}
     config = read_json_file(analytics_data_file(camera_id, "crossing_line"), default_config)
@@ -2051,7 +2050,7 @@ def get_analytics_crossing_line(camera_id: str) -> Dict[str, Any]:
     return config
 
 
-def post_analytics_crossing_line(camera_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+def post_analytics_crossing_line(camera_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     analytics_identity(camera_id)
     enabled = bool(payload.get("enabled", True))
     norm = _clean_norm_points(payload.get("line_norm") or payload.get("line") or [], max_points=2)
@@ -2089,7 +2088,7 @@ def crossings_store_path(camera_id: str) -> Path:
     return analytics_data_file(camera_id, "crossings")
 
 
-def append_crossing_record(camera_id: str, record: Dict[str, Any]) -> None:
+def append_crossing_record(camera_id: str, record: dict[str, Any]) -> None:
     path = crossings_store_path(camera_id)
     records = read_json_file(path, [])
     if not isinstance(records, list):
@@ -2098,7 +2097,7 @@ def append_crossing_record(camera_id: str, record: Dict[str, Any]) -> None:
     write_json_file(path, records[:CROSSINGS_STORE_LIMIT])
 
 
-def post_analytics_crossing(camera_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
+def post_analytics_crossing(camera_id: str, data: dict[str, Any]) -> dict[str, Any]:
     identity = analytics_identity(camera_id)
     direction = str(data.get("direction") or "")
     if direction not in CROSSING_DIRECTIONS:
@@ -2142,13 +2141,13 @@ def _vlz_day_bounds(day: date) -> tuple[datetime, datetime]:
 
 def get_analytics_crossings_summary(
     camera_id: str, hours: int = 24,
-    date_from: Optional[str] = None, date_to: Optional[str] = None,
-) -> Dict[str, Any]:
+    date_from: str | None = None, date_to: str | None = None,
+) -> dict[str, Any]:
     identity = analytics_identity(camera_id)
     records = read_json_file(crossings_store_path(camera_id), [])
     if not isinstance(records, list):
         records = []
-    window: Dict[str, Any] = {"mode": "rolling_hours", "hours": max(1, min(int(hours), 168))}
+    window: dict[str, Any] = {"mode": "rolling_hours", "hours": max(1, min(int(hours), 168))}
     if date_from or date_to:
         try:
             from_day = date.fromisoformat(date_from) if date_from else None
@@ -2164,7 +2163,7 @@ def get_analytics_crossings_summary(
     else:
         cutoff = datetime.now(timezone.utc) - timedelta(hours=window["hours"])
     totals = {"left_to_right": 0, "right_to_left": 0}
-    by_class: Dict[str, Dict[str, int]] = {}
+    by_class: dict[str, dict[str, int]] = {}
     for record in records:
         if not isinstance(record, dict):
             continue
@@ -2199,12 +2198,12 @@ def get_analytics_crossings_summary(
 
 
 @app.get("/api/analytics/{camera_id}/crossing-line")
-def api_get_crossing_line(camera_id: str) -> Dict[str, Any]:
+def api_get_crossing_line(camera_id: str) -> dict[str, Any]:
     return get_analytics_crossing_line(camera_id)
 
 
 @app.post("/api/analytics/{camera_id}/crossing-line")
-def api_post_crossing_line(camera_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+def api_post_crossing_line(camera_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     return post_analytics_crossing_line(camera_id, payload)
 
 
@@ -2212,8 +2211,8 @@ def api_post_crossing_line(camera_id: str, payload: Dict[str, Any]) -> Dict[str,
 async def api_post_crossing(
     camera_id: str,
     metadata: str = Form(...),
-    authorization: Optional[str] = Header(None),
-) -> Dict[str, Any]:
+    authorization: str | None = Header(None),
+) -> dict[str, Any]:
     require_auth(authorization)
     try:
         data = json.loads(metadata)
@@ -2227,18 +2226,18 @@ async def api_post_crossing(
 @app.get("/api/analytics/{camera_id}/crossings/summary")
 def api_get_crossings_summary(
     camera_id: str, hours: int = 24,
-    date_from: Optional[str] = None, date_to: Optional[str] = None,
-) -> Dict[str, Any]:
+    date_from: str | None = None, date_to: str | None = None,
+) -> dict[str, Any]:
     return get_analytics_crossings_summary(camera_id, hours, date_from, date_to)
 
 
 @app.get("/api/analytics/{camera_id}/objects")
 def get_analytics_objects(
-    camera_id: str, limit: int = 50, offset: int = 0, date_from: Optional[str] = None,
-    date_to: Optional[str] = None, class_name: Optional[str] = None, status: Optional[str] = None,
-    speed_min: Optional[float] = None, speed_max: Optional[float] = None, search: Optional[str] = None,
-    include_deleted: bool = False, object_type: Optional[str] = None,
-) -> Dict[str, Any]:
+    camera_id: str, limit: int = 50, offset: int = 0, date_from: str | None = None,
+    date_to: str | None = None, class_name: str | None = None, status: str | None = None,
+    speed_min: float | None = None, speed_max: float | None = None, search: str | None = None,
+    include_deleted: bool = False, object_type: str | None = None,
+) -> dict[str, Any]:
     identity = analytics_identity(camera_id)
     return get_objects(limit, offset, date_from, date_to, class_name, status, speed_min, speed_max, search,
                        include_deleted, camera_id, identity["domain"], identity["analytics_profile"], object_type)
@@ -2246,12 +2245,12 @@ def get_analytics_objects(
 
 @app.get("/api/objects")
 def get_objects(
-    limit: int = 50, offset: int = 0, date_from: Optional[str] = None, date_to: Optional[str] = None,
-    class_name: Optional[str] = None, status: Optional[str] = None, speed_min: Optional[float] = None,
-    speed_max: Optional[float] = None, search: Optional[str] = None, include_deleted: bool = False,
-    camera_id: Optional[str] = None, domain: Optional[str] = None, analytics_profile: Optional[str] = None,
-    object_type: Optional[str] = None,
-) -> Dict[str, Any]:
+    limit: int = 50, offset: int = 0, date_from: str | None = None, date_to: str | None = None,
+    class_name: str | None = None, status: str | None = None, speed_min: float | None = None,
+    speed_max: float | None = None, search: str | None = None, include_deleted: bool = False,
+    camera_id: str | None = None, domain: str | None = None, analytics_profile: str | None = None,
+    object_type: str | None = None,
+) -> dict[str, Any]:
     limit = max(1, min(limit, 200))
     offset = max(0, offset)
     if camera_id:
@@ -2277,7 +2276,7 @@ def get_objects(
 
 
 @app.get("/api/objects/{object_id}")
-def get_object(object_id: str) -> Dict[str, Any]:
+def get_object(object_id: str) -> dict[str, Any]:
     with open_objects_db() as connection:
         row = connection.execute("SELECT * FROM objects WHERE object_id = ? AND deleted_at IS NULL", (object_id,)).fetchone()
     if row is None:
@@ -2286,17 +2285,17 @@ def get_object(object_id: str) -> Dict[str, Any]:
 
 
 @app.patch("/api/objects/{object_id}")
-def patch_object(object_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+def patch_object(object_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     return patch_object_record(object_id, payload)
 
 
 @app.delete("/api/objects/{object_id}")
-def delete_object(object_id: str) -> Dict[str, Any]:
+def delete_object(object_id: str) -> dict[str, Any]:
     return delete_object_record(object_id)
 
 
 @app.get("/api/worker/control")
-def get_worker_control(x_authentik_username: Optional[str] = Header(None)) -> Dict[str, Any]:
+def get_worker_control(x_authentik_username: str | None = Header(None)) -> dict[str, Any]:
     username = require_operator_identity(x_authentik_username)
     payload = call_worker_control("GET", "/v1/status")
     payload["requested_by"] = username
@@ -2304,7 +2303,7 @@ def get_worker_control(x_authentik_username: Optional[str] = Header(None)) -> Di
 
 
 @app.post("/api/worker/control/start")
-def start_worker_control(x_authentik_username: Optional[str] = Header(None)) -> Dict[str, Any]:
+def start_worker_control(x_authentik_username: str | None = Header(None)) -> dict[str, Any]:
     username = require_operator_identity(x_authentik_username)
     payload = call_worker_control("POST", "/v1/start")
     payload["requested_by"] = username
@@ -2312,7 +2311,7 @@ def start_worker_control(x_authentik_username: Optional[str] = Header(None)) -> 
 
 
 @app.post("/api/worker/control/stop")
-def stop_worker_control(x_authentik_username: Optional[str] = Header(None)) -> Dict[str, Any]:
+def stop_worker_control(x_authentik_username: str | None = Header(None)) -> dict[str, Any]:
     username = require_operator_identity(x_authentik_username)
     payload = call_worker_control("POST", "/v1/stop")
     payload["requested_by"] = username
@@ -2320,7 +2319,7 @@ def stop_worker_control(x_authentik_username: Optional[str] = Header(None)) -> D
 
 
 @app.get("/api/worker/control/road1")
-def get_road_worker_control(x_authentik_username: Optional[str] = Header(None)) -> Dict[str, Any]:
+def get_road_worker_control(x_authentik_username: str | None = Header(None)) -> dict[str, Any]:
     username = require_operator_identity(x_authentik_username)
     payload = call_worker_control("GET", "/v1/road1/status")
     payload["requested_by"] = username
@@ -2328,7 +2327,7 @@ def get_road_worker_control(x_authentik_username: Optional[str] = Header(None)) 
 
 
 @app.post("/api/worker/control/road1/start")
-def start_road_worker_control(x_authentik_username: Optional[str] = Header(None)) -> Dict[str, Any]:
+def start_road_worker_control(x_authentik_username: str | None = Header(None)) -> dict[str, Any]:
     username = require_operator_identity(x_authentik_username)
     payload = call_worker_control("POST", "/v1/road1/start")
     payload["requested_by"] = username
@@ -2336,7 +2335,7 @@ def start_road_worker_control(x_authentik_username: Optional[str] = Header(None)
 
 
 @app.post("/api/worker/control/road1/stop")
-def stop_road_worker_control(x_authentik_username: Optional[str] = Header(None)) -> Dict[str, Any]:
+def stop_road_worker_control(x_authentik_username: str | None = Header(None)) -> dict[str, Any]:
     username = require_operator_identity(x_authentik_username)
     payload = call_worker_control("POST", "/v1/road1/stop")
     payload["requested_by"] = username
@@ -2344,7 +2343,7 @@ def stop_road_worker_control(x_authentik_username: Optional[str] = Header(None))
 
 
 @app.get("/api/session")
-def get_session_identity(x_authentik_username: Optional[str] = Header(None)) -> Dict[str, Any]:
+def get_session_identity(x_authentik_username: str | None = Header(None)) -> dict[str, Any]:
     username = (x_authentik_username or "").strip()
     if not username:
         raise HTTPException(status_code=503, detail="Trusted Authentik identity is unavailable")
@@ -2356,7 +2355,7 @@ ROAD_LIVE: deque = deque(maxlen=ROAD_LIVE_MAX)
 ROAD_LIVE_SEQ = 0
 ROAD_LIVE_LOCK = threading.Lock()
 
-def _validate_road_live_envelope(payload: Dict[str, Any]) -> Dict[str, Any]:
+def _validate_road_live_envelope(payload: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise HTTPException(status_code=400, detail="live envelope must be object")
     if payload.get("schema") not in {"sea_speed_road_live_v1", "sea_speed_road_live_v2"}:
@@ -2409,7 +2408,7 @@ def _validate_road_live_envelope(payload: Dict[str, Any]) -> Dict[str, Any]:
     return payload
 
 @app.post("/api/analytics/road1/live")
-async def post_road_live(payload: Dict[str, Any], authorization: Optional[str] = Header(None)) -> Dict[str, Any]:
+async def post_road_live(payload: dict[str, Any], authorization: str | None = Header(None)) -> dict[str, Any]:
     require_auth(authorization)
     env = _validate_road_live_envelope(payload)
     # deep copy and enrich with server receipt
@@ -2426,13 +2425,14 @@ async def post_road_live(payload: Dict[str, Any], authorization: Optional[str] =
     return {"ok": True, "queued": queued, "live_seq": seq}
 
 @app.get("/api/analytics/road1/live")
-def get_road_live(limit: int = 20) -> Dict[str, Any]:
+def get_road_live(limit: int = 20) -> dict[str, Any]:
     lim = max(1, min(int(limit), ROAD_LIVE_MAX))
     items = list(ROAD_LIVE)[-lim:]
     return {"camera_id": "road1", "items": items}
 
 def _road_live_stream_gen(last_seq: int):
-    import time as _time, json as _json
+    import json as _json
+    import time as _time
     yield "data: {}\n\n"
     cursor = last_seq
     while True:
@@ -2465,7 +2465,7 @@ WATER_LIVE: deque = deque(maxlen=WATER_LIVE_MAX)
 WATER_LIVE_SEQ = 0
 WATER_LIVE_LOCK = threading.Lock()
 
-def _validate_water_live_envelope(payload: Dict[str, Any]) -> Dict[str, Any]:
+def _validate_water_live_envelope(payload: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise HTTPException(status_code=400, detail="live envelope must be object")
     if payload.get("schema") not in {"sea_speed_water_live_v1", "sea_speed_water_live_v2"}:
@@ -2510,7 +2510,7 @@ def _validate_water_live_envelope(payload: Dict[str, Any]) -> Dict[str, Any]:
     return payload
 
 @app.post("/api/cam1/live")
-async def post_water_live(payload: Dict[str, Any], authorization: Optional[str] = Header(None)) -> Dict[str, Any]:
+async def post_water_live(payload: dict[str, Any], authorization: str | None = Header(None)) -> dict[str, Any]:
     require_auth(authorization)
     env = _validate_water_live_envelope(payload)
     import copy as _copy
@@ -2526,13 +2526,14 @@ async def post_water_live(payload: Dict[str, Any], authorization: Optional[str] 
     return {"ok": True, "queued": queued, "live_seq": seq}
 
 @app.get("/api/cam1/live")
-def get_water_live(limit: int = 20) -> Dict[str, Any]:
+def get_water_live(limit: int = 20) -> dict[str, Any]:
     lim = max(1, min(int(limit), WATER_LIVE_MAX))
     items = list(WATER_LIVE)[-lim:]
     return {"camera_id": "cam1", "items": items}
 
 def _water_live_stream_gen(last_seq: int):
-    import time as _time, json as _json
+    import json as _json
+    import time as _time
     yield "data: {}\n\n"
     cursor = last_seq
     while True:
@@ -2560,6 +2561,6 @@ def water_live_stream():
     return StreamingResponse(_water_live_stream_gen(last), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 @app.get("/api/health")
-def health() -> Dict[str, Any]:
+def health() -> dict[str, Any]:
     return {"ok": True, "service": "sea-speed-api", "api_schema": API_SCHEMA,
             "source_commit": deployed_source_commit(), "time": now_iso()}
