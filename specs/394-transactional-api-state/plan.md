@@ -14,26 +14,29 @@
       `open_state_db` (per-op connection, commit/rollback/raise),
       `append_crossing`/`read_crossings` (cap 5000, newest-first),
       `append_event`/`read_events` (cap 500), `upsert_camera_state`
-      (single-statement ON CONFLICT upsert), `read_camera_state`,
-      `camera_has_rows` (per-camera emptiness probe), and the
-      transition-protocol primitives: `import_legacy_records` (dedupe by
+      (single-statement ON CONFLICT upsert), `read_camera_state`. The
+      dual-write-era transition-protocol primitives — `camera_has_rows`
+      (per-camera emptiness probe), `import_legacy_records` (dedupe by
       the camera's retained canonical payload set AND by the durable
-      `ingestion_log` registry — `_register_ingested` hashes each
-      ingested record's canonical payload bytes in the same transaction
-      as every ingestion and the log is never pruned (whole-window
-      retention; retirement is follow-up-release work);
-      no timestamp comparison in the skip decision), oldest-first, cap
-      applied in-transaction, and
+      `ingestion_log` registry; no timestamp comparison in the skip
+      decision, oldest-first, cap applied in-transaction) and
       `import_legacy_camera_state`
       (legacy wins only when strictly newer — both sides must parse as ISO
-      timestamps; undated legacy seeds empty rows only).
+      timestamps; undated legacy seeds empty rows only) — were REMOVED by
+      the RISK-005 retirement act (see D-8) and no longer exist in
+      store.py; they are listed here as the historical design record of
+      the retired dual-write window.
 2. `api/app/main.py` rewire — every hot-state mutation commits to SQLite
-   first, then mirrors the committed projection to the legacy JSON file
-   (best-effort, stderr log on failure); reads come from SQLite. Config
+   first (SQLite is the only hot-state authority since the RISK-005
+   retirement act stopped the legacy JSON projection mirrors); reads come
+   from SQLite. Config
    GETs (speed-config/speed-lines/crossing-line) and camera-preview reads
    wrap `read_json_file` in `except store.JSON_READ_ERRORS` → HTTP 500.
-   Startup calls `import_legacy_state_store()` after the existing DB
-   initialisations; `CROSSINGS_STORE_LIMIT` moves to the top constants
+   Startup called `import_legacy_state_store()` after the existing DB
+   initialisations during the dual-write window — REMOVED by the RISK-005
+   retirement act: boot now runs `initialize_state_db` only (schema
+   creation plus the idempotent `DROP TABLE IF EXISTS ingestion_log`);
+   `CROSSINGS_STORE_LIMIT` moves to the top constants
    block because the startup migration runs at import time.
 3. Tests — `tests/test_api_state_transaction.py` extracts the real
    main.py functions (AST, like the existing harnesses) and asserts the
@@ -175,8 +178,9 @@ Three coordinated pieces:
   (objects.sqlite3 already transactional), water-passages store, or ROI
   migration semantics beyond the atomic write.
 - On-disk state layout on the VPS changes: `state.sqlite3` is
-  created next to the legacy JSON stores; the legacy files are kept fresh
-  by the projection mirrors, not removed.
+  created next to the legacy JSON stores; the legacy files are no longer
+  written (the projection mirrors were stopped by the RISK-005 retirement
+  act) and are never removed — they remain on disk as inert history.
 
 ## Validation
 
@@ -208,8 +212,12 @@ Three coordinated pieces:
 ## Runtime feedback
 
 - RF-001: Operator actions expected: 0 — deploy stages and activates
-  `store.py`; the first boot runs the legacy migration inside the deploy
-  health gate (corrupt legacy input → gate fails → automatic rollback).
+  `store.py`; the first boot runs the store migration (schema creation
+  plus the idempotent `DROP TABLE IF EXISTS ingestion_log`) inside the
+  deploy health gate. No legacy input is read at boot (RISK-001), so the
+  dual-write-era corrupt-legacy-input → automatic-rollback path no longer
+  exists; any unexpected store error still fails the gate loudly and the
+  chain auto-rolls back.
 - RF-002: Failure evidence: HTTP 500 messages naming the corrupt store
   file; the legacy-JSON mirrors are retired (RISK-005), so best-effort
   mirror stderr lines no longer exist; rollback removes `store.py` when
@@ -225,7 +233,7 @@ Three coordinated pieces:
   deployment transaction audit below covers the contour.
 - RISK-001 | Category: OPS | Probability: 1 | Impact: 4 | Score: 4 | Mitigation: the boot-time store migration (initialize_state_db, import time) now only creates the hot-state tables and runs the idempotent `DROP TABLE IF EXISTS ingestion_log` retirement step; no legacy input is read at boot, so the corrupt-legacy-input failure mode no longer exists; any unexpected store error still fails the deploy health gate loudly and the chain auto-rolls back | Validation: StartupMigrationTests post-retirement (fresh schema without ingestion_log, idempotent boots, pre-existing registry dropped with retained records intact) green; full suite green | Residual risk: LOW — import-time store failure remains fail-closed by design (fail-closed acceptance) | Owner: Delivery Orchestrator | Status: MITIGATED
 - RISK-002 | Category: DATA | Probability: 1 | Impact: 3 | Score: 3 | Mitigation: the dual-write window is CLOSED by the contracted retirement act (RISK-005): SQLite is the only hot-state authority, the legacy JSON mirrors are no longer written, and legacy files on disk are never deleted (inert history); the registry drop touches no retained rows | Validation: RetiredDualWriteTests (boot drops a pre-existing ingestion_log; records accepted via the API append nothing to legacy JSON; legacy files not deleted or modified) + NoLostUpdateTests/StoreCapTests green | Residual risk: LOW — legacy JSON files go stale by design; rollback to a pre-#394 release no longer sees records accepted after the retirement (contracted expected change, documented in the PR Delivery section) | Owner: Delivery Orchestrator | Status: MITIGATED
-- RISK-003 | Category: OPS | Probability: 1 | Impact: 4 | Score: 4 | Mitigation: legacy JSON files are never deleted and stay fresh via mirrors; activation is bound to the selected release's content — staged `.next` is promoted only when the release ships `api/app/store.py` (same condition as staging), otherwise the live copy and any stale `.next` are removed; the bootstrap capture keeps a live store.py with the captured main.py | Validation: test_vps_deploy_transaction behavioral suite (20 tests) including the store-less fixture: test_store_less_rollback_removes_live_store_and_stale_next and test_store_release_stages_and_promotes_normally; peer rollback-completeness verdict | Residual risk: NONE — the downgrade branch is now exercised against a store-less release fixture with a stale `.next` present | Owner: Delivery Orchestrator | Status: MITIGATED
+- RISK-003 | Category: OPS | Probability: 1 | Impact: 4 | Score: 4 | Mitigation: legacy JSON files are never deleted (inert history — the dual-write mirrors were stopped by the RISK-005 retirement act, so they are no longer kept fresh); activation is bound to the selected release's content — staged `.next` is promoted only when the release ships `api/app/store.py` (same condition as staging), otherwise the live copy and any stale `.next` are removed; the bootstrap capture keeps a live store.py with the captured main.py | Validation: test_vps_deploy_transaction behavioral suite (20 tests) including the store-less fixture: test_store_less_rollback_removes_live_store_and_stale_next and test_store_release_stages_and_promotes_normally; peer rollback-completeness verdict | Residual risk: NONE — the downgrade branch is now exercised against a store-less release fixture with a stale `.next` present | Owner: Delivery Orchestrator | Status: MITIGATED
 - RISK-004 | Category: OPS | Probability: 1 | Impact: 2 | Score: 2 | Mitigation: store.py install plumbing is a disclosed deviation from the work order's "No other deploy.sh changes"; required for boot; follows the file's existing conditional-install idiom; documented in SDD trio + amendment receipt 6052476179 | Validation: amendment receipt on #394; SDD validate green | Residual risk: NONE | Owner: Delivery Orchestrator | Status: ACCEPTED
 - RISK-005 | Category: DATA | Probability: 2 | Impact: 4 | Score: 8 | Mitigation: RETIRED — the bounded dual-write/rollback compatibility window delivered by this plan is CLOSED by the contracted retirement act, executed in full on branch sdd/394-retirement (this PR): startup migration runs `DROP TABLE IF EXISTS ingestion_log` (one-time, idempotent — existing VPS databases from the dual-write era shed the retired table), the dual-write legacy-JSON mirrors are stopped, and the legacy-JSON import path (import_legacy_records, import_legacy_camera_state, camera_has_rows and the ingestion-log registration) is removed — all three together, exactly as the pre-recorded residual-risk clause required. Trigger evidence: FIRED 2026-10-09 — first verified full VPS contour deploy 9e3b9ee8e02b75785393dc8ef246af5e4e05281b (issue #394 comment 6073231021); deadline (next release cycle) reached; the pre-agreed indexed-membership fallback was NOT needed. Historical rounds 1-5 (four validation blocks, the durable ingestion identity, the no-prune decision) remain recorded in D-8 as the audit trail of the retired design. Legacy JSON files are never deleted — they become inert history. Contracted rollback-semantics change: after this act, rollback to a pre-#394 release no longer sees records accepted during the (now closed) dual-write window | Validation: StartupMigrationTests (fresh boot creates the schema without ingestion_log; boots are idempotent; a pre-existing dual-write-era ingestion_log table is dropped while retained crossing records survive) + RetiredDualWriteTests (boot drops a pre-existing ingestion_log; records accepted via the API append path commit to SQLite and append nothing to legacy JSON; pre-existing legacy JSON files are byte-unchanged and never deleted) + full suite green; ruff E9/F + bash -n deploy.sh clean | Residual risk: NONE — the mechanism (registry growth, dual-write mirror amplification, import-path complexity) no longer exists in the codebase; the only residue is the contracted rollback-window closing above | Owner: Delivery Orchestrator | Status: CLOSED
 
@@ -239,7 +247,10 @@ Three coordinated pieces:
 - TEST-006 | Covers: RISK-005 | Level: unit | Priority: P0 | Evidence: RetiredDualWriteTests — the contracted regression: boot drops a pre-existing (dual-write-era) ingestion_log table; records accepted via the API append path (append_crossing_record) commit to SQLite and append nothing to the legacy JSON mirrors; pre-existing legacy JSON files are byte-unchanged and never deleted; second boot stays idempotent
 - TEST-007 | Covers: RISK-002,RISK-005 | Level: unit | Priority: P0 | Evidence: import-path coverage (T-A..T-D, V-A..V-E, W-A..W-E) deleted WITH the import path — the contracted retirement of that coverage, not a weakening: the merge/anti-resurrection machinery it tested no longer exists; retained regression strength: test_concurrent_appenders_never_lose_records (8 racers, exact set, no duplicates in SQLite), caps tests, camera-state upsert tests
 - TEST-008 | Covers: RISK-003,RISK-005 | Level: integration | Priority: P0 | Evidence: T-E test_store_less_rollback_removes_live_store_and_stale_next (store-less rollback release + stale `${STORE_TARGET}.next` → activation removes both, promotes nothing) + test_store_release_stages_and_promotes_normally
-- Regression: full suite (777 passed, 4 skipped) including the updated
+- Regression: full suite green — Ran 904 tests, OK, 4 skipped (the 902-test
+  retirement run plus the two RetiredDualWriteTests event-feed/camera-state
+  mirror pins added by the review follow-ups; the skips are
+  pre-existing/environmental — see Validation above), including the updated
   harnesses and the untouched `test_roi_normalization.py`.
 
 ## Correct-course check
@@ -277,7 +288,7 @@ Three coordinated pieces:
 - TX-001 | Stage: ADMISSION | Mutation: NO | Failure disposition: FATAL | State after failure: unchanged | Retry: NO | Rollback: NONE | Evidence: Block A owner approval (OUTCOME APPROVED session 2026-10-08) + receipts issuecomment-6051940042 (base scope) and issuecomment-6052476179 (deploy.sh install-plumbing amendment, peer rollback verdict)
 - TX-002 | Stage: PRE-MUTATION | Mutation: NO | Failure disposition: FATAL | State after failure: unchanged VPS state | Retry: NO | Rollback: NONE | Evidence: release_complete + download_release required-list gate exits before rm -rf of the staged target (deploy.sh:203-286)
 - TX-003 | Stage: MUTATION | Mutation: YES | Failure disposition: FATAL | State after failure: staged .next copies discarded; live API unchanged | Retry: NO | Rollback: install_release stages to .next and promotes via mv only after all copies stage successfully; store.py mv precedes main.py mv (new main cannot boot without it) | Evidence: install_release soft pattern (deploy.sh:603-649); test_vps_deploy_transaction behavioral suite (20 tests)
-- TX-004 | Stage: VERIFICATION | Mutation: NO | Failure disposition: FATAL | State after failure: previous release still active | Retry: NO | Rollback: NONE | Evidence: restart_and_verify health gate (deploy.sh:738-753); fail-closed boot on corrupt legacy store (import_legacy_state_store propagates, deploy auto-rollback)
+- TX-004 | Stage: VERIFICATION | Mutation: NO | Failure disposition: FATAL | State after failure: previous release still active | Retry: NO | Rollback: NONE | Evidence: restart_and_verify health gate (deploy.sh:738-753); fail-closed boot on unexpected store errors (initialize_state_db raises at import time, deploy auto-rollback); the dual-write-era fail-closed-on-corrupt-legacy-input clause (import_legacy_state_store propagates) is retired — the import path was removed and no legacy input is read at boot since the RISK-005 retirement act
 - TX-005 | Stage: STATE-COMMIT | Mutation: NO | Failure disposition: FATAL | State after failure: unchanged | Retry: NO | Rollback: NONE | Evidence: dual-write window (now CLOSED by the RISK-005 retirement act: legacy JSON mirrors are no longer written; legacy files on disk are never deleted and become inert history; a rollback to a pre-#394 release no longer sees records accepted after the retirement — contracted and disclosed in the PR Delivery section)
 - TX-006 | Stage: HOUSEKEEPING | Mutation: NO | Failure disposition: BEST-EFFORT | State after failure: staging dirs may remain on abrupt kill only | Retry: NO | Rollback: NONE | Evidence: deploy.sh staging layout semantics unchanged
 - TX-007 | Stage: EVIDENCE | Mutation: NO | Failure disposition: BEST-EFFORT | State after failure: evidence partial | Retry: NO | Rollback: NONE | Evidence: DEPLOYMENT_ACCEPTED line from the autonomous chain at exact-green-head merge

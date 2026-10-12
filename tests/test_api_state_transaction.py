@@ -25,6 +25,7 @@ retirement of that coverage, not a weakening.
 """
 
 import ast
+import asyncio
 import copy
 import importlib.util
 import json
@@ -35,7 +36,7 @@ import threading
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 API = REPO_ROOT / "api" / "app" / "main.py"
@@ -53,14 +54,19 @@ STORE = _load_store() if STORE_FILE.exists() else None
 
 MAIN_TREE = ast.parse(API.read_text(encoding="utf-8-sig"), filename=str(API))
 MAIN_FUNCTION_NAMES = {
-    node.name for node in MAIN_TREE.body if isinstance(node, ast.FunctionDef)
+    node.name
+    for node in MAIN_TREE.body
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
 }
 
 
 def _extract_functions(names):
-    found: Dict[str, ast.FunctionDef] = {}
+    found: Dict[str, Any] = {}
     for node in MAIN_TREE.body:
-        if isinstance(node, ast.FunctionDef) and node.name in names:
+        if (
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name in names
+        ):
             found[node.name] = node
     missing = set(names) - set(found)
     if missing:
@@ -496,7 +502,10 @@ class RetiredDualWriteTests(unittest.TestCase, _ConfigEndpointMixin):
 
     1. the post-retirement boot DROPS a pre-existing ingestion_log table;
     2. records accepted via the API append NOTHING to the legacy JSON
-       mirrors (dual-write is over);
+       mirrors (dual-write is over) — pinned end-to-end for ALL THREE
+       accept paths: crossings (append_crossing_record), the analytics
+       event feed (post_analytics_event) and the 1 Hz camera state
+       (post_analytics_state);
     3. legacy JSON files are never deleted (inert history on disk).
     """
 
@@ -575,6 +584,114 @@ class RetiredDualWriteTests(unittest.TestCase, _ConfigEndpointMixin):
         for kind, path in self.legacy_files.items():
             self.assertTrue(path.exists(), f"legacy {kind} file must never be deleted")
             self.assertEqual(path.read_bytes(), self.legacy_bytes[kind])
+
+    def _retired_mirror_namespace(self) -> Dict[str, Any]:
+        """Namespace for the event/state accept paths (post-retirement).
+
+        Mirrors the crossings pattern: the real legacy mirror files seeded
+        in setUp are wired in as BOTH the ``analytics_data_file`` targets
+        and the module constants, so a re-added dual-write mirror —
+        whichever spelling it uses — would hit a byte-pinned baseline file.
+        """
+        return self.make_namespace(
+            {
+                "STATE_DB_FILE": self.state_db,
+                "EVENTS_FEED_LIMIT": 500,
+                # Real legacy file targets: point both the
+                # analytics_data_file mapping and the constants at the
+                # recorded baseline paths.
+                "STATE_FILE": self.legacy_files["state"],
+                "EVENTS_FILE": self.legacy_files["events"],
+                "uuid": __import__("uuid"),
+                "require_auth": lambda token: None,
+                "persist_object_event": lambda event: True,
+                "sweep_events_media": lambda force=False, now=None: 0,
+                "EVENTS_MEDIA_DIR": Path(self.tmp.name) / "events_media",
+                "Form": lambda *args, **kwargs: None,
+                "File": lambda *args, **kwargs: None,
+                "Header": lambda *args, **kwargs: None,
+                "Optional": Optional,
+                "UploadFile": object,
+                "WORKER_STATE_SCHEMA": "sea_speed_worker_state_v1",
+                "VEHICLE_EVENT_SCHEMA": "sea_speed_vehicle_event_v1",
+                "TELEMETRY_SCHEMA": "sea_speed_telemetry_v1",
+            }
+        )
+
+    # The event-feed accept path: the real post_analytics_event is
+    # AST-executed and must commit to SQLite while leaving the legacy
+    # events mirror byte-identical (the write_json_file stub is NOT
+    # injected — the real store writer runs, so a re-added dual-write
+    # mirror would fail this test).
+    def test_retired_event_accept_appends_nothing_to_legacy_events_mirror(self) -> None:
+        STORE.initialize_state_db(self.state_db)
+        namespace = self._retired_mirror_namespace()
+        _exec_functions(["post_analytics_event"], namespace)
+        namespace["EVENTS_MEDIA_DIR"].mkdir(parents=True, exist_ok=True)
+
+        class _FakeSnapshot:
+            async def read(self) -> bytes:
+                return b"jpeg-bytes"
+
+        result = asyncio.run(
+            namespace["post_analytics_event"](
+                "cam1",
+                metadata=json.dumps(
+                    {"event_id": "e-new", "created_at": "2026-01-02T00:00:00+00:00"}
+                ),
+                snapshot=_FakeSnapshot(),
+                authorization=None,
+            )
+        )
+        self.assertTrue(result["ok"])
+        self.assertEqual(
+            [event["event_id"] for event in STORE.read_events(self.state_db, "cam1")],
+            ["e-new"],
+            "the API accept path must remain authoritative in SQLite",
+        )
+        self.assertTrue(
+            self.legacy_files["events"].exists(),
+            "legacy events file must never be deleted",
+        )
+        self.assertEqual(
+            self.legacy_files["events"].read_bytes(),
+            self.legacy_bytes["events"],
+            "legacy events mirror must no longer be written by API accepts",
+        )
+
+    # The camera-state accept path: the real post_analytics_state is
+    # AST-executed (with the real default-state fallback) and must upsert
+    # to SQLite while leaving the legacy state mirror byte-identical.
+    def test_retired_state_accept_writes_nothing_to_legacy_state_mirror(self) -> None:
+        STORE.initialize_state_db(self.state_db)
+        namespace = self._retired_mirror_namespace()
+        _exec_functions(
+            ["post_analytics_state", "analytics_default_state", "default_state"],
+            namespace,
+        )
+        result = asyncio.run(
+            namespace["post_analytics_state"](
+                "cam1",
+                metadata=json.dumps({"frame_no": 8}),
+                overlay=None,
+                authorization=None,
+            )
+        )
+        self.assertTrue(result["ok"])
+        self.assertEqual(
+            STORE.read_camera_state(self.state_db, "cam1").get("frame_no"),
+            8,
+            "the API accept path must remain authoritative in SQLite",
+        )
+        self.assertTrue(
+            self.legacy_files["state"].exists(),
+            "legacy state file must never be deleted",
+        )
+        self.assertEqual(
+            self.legacy_files["state"].read_bytes(),
+            self.legacy_bytes["state"],
+            "legacy state mirror must no longer be written by API accepts",
+        )
 
 
 if __name__ == "__main__":
