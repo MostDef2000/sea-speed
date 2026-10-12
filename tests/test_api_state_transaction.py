@@ -1,40 +1,42 @@
 """Behavioral tests for transactional API state persistence (issue #394).
 
-These tests load the real ``api/app/main.py`` functions (and the new
-``api/app/store.py`` primitives) and assert the failure/concurrency
-properties that the legacy implementation violated:
+These tests load the real ``api/app/store.py`` primitives and the real
+``api/app/main.py`` functions (AST extraction, like the existing
+harnesses) and assert the properties the legacy implementation violated:
 
 * fail-loud reads — a corrupt JSON store surfaces HTTP 500 instead of
   silently degrading to defaults;
 * unique temporary files — concurrent writers can never share a fixed
   ``.tmp`` sibling;
-* no lost updates — concurrent appenders never overwrite each other's
-  records;
+* no lost updates — concurrent appenders never lose records;
 * bounded stores — the crossings (5000) and event feed (500) caps prune
   in the same transaction as the insert;
 * transactional camera state upsert;
-* idempotent, fail-closed startup migration that never deletes the
-  legacy files.
+* RISK-005 retirement — the boot schema has no ``ingestion_log``, a
+  pre-existing (dual-write-era) ``ingestion_log`` table is dropped at
+  startup, records accepted via the API append nothing to the legacy
+  JSON mirrors, and legacy files are never deleted.
 
-On the pre-fix base the first four groups fail (RED); on the fixed head
-they pass (GREEN). Tests that exercise main.py functions which only
-exist after the fix are skipped on the base via ``skipUnless``.
+The import-path coverage (T-A..T-D, V-A..V-E, W-A..W-E) was retired WITH
+the dual-write window: the contracted retirement act removed the legacy
+import path and its ``ingestion_log`` registry, so those tests were
+deleted together with the machinery they exercised — the contracted
+retirement of that coverage, not a weakening.
 """
 
 import ast
-import contextlib
+import asyncio
 import copy
 import importlib.util
-import io
 import json
 import os
 import sys
 import tempfile
 import threading
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 API = REPO_ROOT / "api" / "app" / "main.py"
@@ -52,14 +54,19 @@ STORE = _load_store() if STORE_FILE.exists() else None
 
 MAIN_TREE = ast.parse(API.read_text(encoding="utf-8-sig"), filename=str(API))
 MAIN_FUNCTION_NAMES = {
-    node.name for node in MAIN_TREE.body if isinstance(node, ast.FunctionDef)
+    node.name
+    for node in MAIN_TREE.body
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
 }
 
 
 def _extract_functions(names):
-    found: Dict[str, ast.FunctionDef] = {}
+    found: Dict[str, Any] = {}
     for node in MAIN_TREE.body:
-        if isinstance(node, ast.FunctionDef) and node.name in names:
+        if (
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name in names
+        ):
             found[node.name] = node
     missing = set(names) - set(found)
     if missing:
@@ -296,15 +303,6 @@ class NoLostUpdateTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.state_db = Path(self.tmp.name) / "state.sqlite3"
-        self.crossings_path = Path(self.tmp.name) / "cam1_crossings.json"
-        read_barrier = threading.Barrier(self.PARTIES)
-
-        def barriered_read(path: Any, default: Any) -> Any:
-            result = _resolved_read_json_file()(path, default)
-            if str(path).endswith("_crossings.json"):
-                read_barrier.wait(timeout=10)
-            return result
-
         namespace: Dict[str, Any] = {
             "HTTPException": _StubHTTPException,
             "Path": Path,
@@ -320,13 +318,11 @@ class NoLostUpdateTests(unittest.TestCase):
             "ROI_FILE": Path(self.tmp.name) / "cam1_roi.json",
             "SPEED_CONFIG_FILE": Path(self.tmp.name) / "cam1_speed_config.json",
             "SPEED_LINES_FILE": Path(self.tmp.name) / "cam1_speed_lines.json",
-            "read_json_file": barriered_read,
+            "read_json_file": _resolved_read_json_file(),
             "write_json_file": _resolved_write_json_file(),
             "analytics_identity": lambda camera_id: {"domain": "water", "analytics_profile": "water-v1"},
         }
-        _exec_functions(
-            ["analytics_data_file", "crossings_store_path", "append_crossing_record"], namespace
-        )
+        _exec_functions(["analytics_data_file", "append_crossing_record"], namespace)
         self.append_crossing_record = namespace["append_crossing_record"]
 
     def test_concurrent_appenders_never_lose_records(self) -> None:
@@ -342,23 +338,16 @@ class NoLostUpdateTests(unittest.TestCase):
             thread.join()
         stored = STORE.read_crossings(self.state_db, "cam1")
         seen = {record.get("event_id") for record in stored}
-        seen.update(self._legacy_file_event_ids())
         self.assertEqual(
             seen,
             expected,
             "concurrent appenders lost records — persistence is not transactional",
         )
-
-    def _legacy_file_event_ids(self) -> set:
-        if not self.crossings_path.exists():
-            return set()
-        try:
-            payload = json.loads(self.crossings_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return set()
-        if not isinstance(payload, list):
-            return set()
-        return {record.get("event_id") for record in payload if isinstance(record, dict)}
+        self.assertEqual(
+            len(stored),
+            self.PARTIES,
+            "no duplicate rows may appear under concurrent appends",
+        )
 
 
 @unittest.skipUnless(STORE is not None, "api/app/store.py is required")
@@ -416,519 +405,293 @@ class CameraStateTests(unittest.TestCase):
         self.assertEqual(state, {"frame_no": 2, "ai_active": True})
 
 
+def _seed_dual_write_era_registry(state_db: Path) -> None:
+    """Recreate the dual-write-era schema: an ingestion_log registry with rows.
+
+    Existing VPS databases from the dual-write window carry exactly this
+    retired table (created by the pre-retirement ``_SCHEMA_STATEMENTS``).
+    """
+    STORE.initialize_state_db(state_db)
+    with STORE.open_state_db(state_db) as connection:
+        connection.execute(
+            "CREATE TABLE ingestion_log ("
+            "seq INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "camera_id TEXT NOT NULL, "
+            "kind TEXT NOT NULL, "
+            "payload_hash TEXT NOT NULL)"
+        )
+        connection.execute(
+            "CREATE INDEX idx_ingestion_log_keys ON ingestion_log(camera_id, kind, payload_hash)"
+        )
+        connection.execute(
+            "INSERT INTO ingestion_log (camera_id, kind, payload_hash) VALUES (?, ?, ?)",
+            ("cam1", "crossings", "a" * 64),
+        )
+
+
+def _table_names(state_db: Path) -> set:
+    with STORE.open_state_db(state_db) as connection:
+        return {
+            row["name"]
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+        }
+
+
 @unittest.skipUnless(STORE is not None, "api/app/store.py is required")
-class LegacyMigrationTests(unittest.TestCase):
+class StartupMigrationTests(unittest.TestCase):
+    """Post-retirement boot schema: ``ingestion_log`` is gone after boot."""
+
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.state_db = Path(self.tmp.name) / "state.sqlite3"
 
-    def test_import_preserves_newest_first_order_and_is_idempotent(self) -> None:
-        legacy = [{"event_id": "e3"}, {"event_id": "e2"}, {"event_id": "e1"}]
-        imported = STORE.import_legacy_records(self.state_db, "events", "cam1", legacy, 500)
-        self.assertEqual(imported, 3)
-        self.assertEqual(
-            [event["event_id"] for event in STORE.read_events(self.state_db, "cam1")],
-            ["e3", "e2", "e1"],
-        )
-        self.assertEqual(STORE.import_legacy_records(self.state_db, "events", "cam1", legacy, 500), 0)
-        self.assertEqual(len(STORE.read_events(self.state_db, "cam1")), 3)
-
-    def test_import_skips_non_dict_records(self) -> None:
-        imported = STORE.import_legacy_records(self.state_db, "crossings", "cam1", [{"event_id": "e1"}, "junk", 7], 5000)
-        self.assertEqual(imported, 1)
-        self.assertEqual(len(STORE.read_crossings(self.state_db, "cam1")), 1)
-
-    def test_import_legacy_camera_state_without_timestamp_never_displaces_stored_row(self) -> None:
-        # An undated legacy payload cannot be ordered against the stored row,
-        # so it may only seed an empty camera_state (T-D edge case).
-        STORE.upsert_camera_state(self.state_db, "cam1", {"frame_no": 99})
-        self.assertFalse(STORE.import_legacy_camera_state(self.state_db, "cam1", {"frame_no": 1}))
-        self.assertEqual(STORE.read_camera_state(self.state_db, "cam1"), {"frame_no": 99})
-        self.assertTrue(STORE.import_legacy_camera_state(self.state_db, "road1", {"frame_no": 1}))
-        self.assertEqual(STORE.read_camera_state(self.state_db, "road1"), {"frame_no": 1})
-
-    # T-C — core lifecycle regression: import -> rollback-window writes by
-    # the previous release -> re-upgrade must merge the new records in,
-    # ignore duplicates, and respect the per-camera cap.
-    def test_rollback_window_records_are_merged_idempotent(self) -> None:
-        t1, t2, t3 = (
-            "2026-01-01T00:00:00+00:00",
-            "2026-01-02T00:00:00+00:00",
-            "2026-01-03T00:00:00+00:00",
-        )
-        legacy = [{"event_id": "e2", "created_at": t2}, {"event_id": "e1", "created_at": t1}]
-        self.assertEqual(STORE.import_legacy_records(self.state_db, "crossings", "cam1", legacy, 5000), 2)
-
-        # Rollback window: the old release appends a NEW record to the JSON.
-        upgraded_file = legacy + [{"event_id": "e3", "created_at": t3}]
-        self.assertEqual(
-            STORE.import_legacy_records(self.state_db, "crossings", "cam1", upgraded_file, 5000),
-            1,
-            "only the rollback-window record may be inserted",
-        )
-        self.assertEqual(
-            [record["event_id"] for record in STORE.read_crossings(self.state_db, "cam1")],
-            ["e3", "e2", "e1"],
+    def test_fresh_boot_creates_schema_without_ingestion_log(self) -> None:
+        STORE.initialize_state_db(self.state_db)
+        tables = _table_names(self.state_db)
+        self.assertIn("crossings", tables)
+        self.assertIn("event_feed", tables)
+        self.assertIn("camera_state", tables)
+        self.assertNotIn(
+            "ingestion_log",
+            tables,
+            "the retired registry must not be created on a fresh install",
         )
 
-        # Repeated boots are no-ops: canonical-payload duplicates are skipped.
-        self.assertEqual(STORE.import_legacy_records(self.state_db, "crossings", "cam1", upgraded_file, 5000), 0)
-        self.assertEqual(len(STORE.read_crossings(self.state_db, "cam1")), 3)
-
-        # The per-camera cap is applied to the merged result.
-        self.assertEqual(STORE.import_legacy_records(self.state_db, "crossings", "cam1", upgraded_file, 2), 0)
-        with STORE.open_state_db(self.state_db) as connection:
-            self.assertEqual(
-                connection.execute("SELECT COUNT(*) FROM crossings WHERE camera_id = ?", ("cam1",)).fetchone()[0],
-                2,
-            )
-        self.assertEqual(
-            [record["event_id"] for record in STORE.read_crossings(self.state_db, "cam1")],
-            ["e3", "e2"],
-        )
-
-    # V-A — live-appended rows carry no dedupe key: a legacy mirror that
-    # contains a live row (exactly what the rollback-window JSON becomes)
-    # must never duplicate it, on any number of re-imports.
-    def test_live_rows_are_not_duplicated_by_mirror_import(self) -> None:
-        record = {"event_id": "c1", "created_at": "2026-01-01T00:00:00+00:00"}
-        STORE.append_crossing(self.state_db, "cam1", record)
-        mirror = [record]
-
-        self.assertEqual(
-            STORE.import_legacy_records(self.state_db, "crossings", "cam1", mirror, 5000),
-            0,
-            "the mirror copy of a live row must be deduped away",
-        )
-        self.assertEqual(STORE.read_crossings(self.state_db, "cam1"), [record])
-
-        # Restart equivalent: importing the same mirror again stays a no-op.
-        self.assertEqual(STORE.import_legacy_records(self.state_db, "crossings", "cam1", mirror, 5000), 0)
-        self.assertEqual(STORE.read_crossings(self.state_db, "cam1"), [record])
-
-    # V-B — mixed imported + live rows at the production caps (5000
-    # crossings / 500 events): a mirror of exactly the retained rows must
-    # be a complete no-op (no duplication, no eviction), and only genuinely
-    # new records may consume cap headroom with exact arithmetic.
-    def test_import_at_production_caps_preserves_retained_history(self) -> None:
-        base = datetime(2026, 1, 1, tzinfo=timezone.utc)
-        stamp = lambda i: (base + timedelta(seconds=i)).isoformat()
-
-        # Legacy files are newest-first: e2499 is the first list entry.
-        legacy = [{"event_id": f"e{i}", "created_at": stamp(i)} for i in range(2499, -1, -1)]
-        self.assertEqual(STORE.import_legacy_records(self.state_db, "crossings", "cam1", legacy, 5000), 2500)
-        live = [{"event_id": f"e{i}", "created_at": stamp(i)} for i in range(2500, 5000)]
-        for record in live:
-            STORE.append_crossing(self.state_db, "cam1", record)
-        self.assertEqual(len(STORE.read_crossings(self.state_db, "cam1")), 5000)
-
-        # Mirror holding exactly the retained rows (live rows included):
-        # zero inserts, zero evictions, live history intact.
-        mirror = list(reversed(legacy + live))  # newest-first, as the file is written
-        self.assertEqual(STORE.import_legacy_records(self.state_db, "crossings", "cam1", mirror, 5000), 0)
-        retained = STORE.read_crossings(self.state_db, "cam1")
-        self.assertEqual(len(retained), 5000)
-        self.assertEqual(retained[0], live[-1], "newest live record must survive")
-        self.assertEqual(retained[-1], legacy[-1], "oldest retained record must survive")
-
-        # +5 genuinely new records → exactly 5 inserts, cap evicts exactly
-        # the 5 oldest rows (new block appended newest-first, as in a file).
-        mirror = [{"event_id": f"e{i}", "created_at": stamp(i)} for i in range(5004, 4999, -1)] + mirror
-        self.assertEqual(STORE.import_legacy_records(self.state_db, "crossings", "cam1", mirror, 5000), 5)
-        retained = STORE.read_crossings(self.state_db, "cam1")
-        self.assertEqual(len(retained), 5000)
-        self.assertEqual(retained[0]["event_id"], "e5004")
-        self.assertEqual(retained[-1]["event_id"], "e5", "eviction removed exactly the 5 oldest")
-
-        # Same discipline at the event-feed cap (500).
-        legacy_events = [{"event_id": f"f{i}", "created_at": stamp(i)} for i in range(249, -1, -1)]
-        self.assertEqual(STORE.import_legacy_records(self.state_db, "events", "cam1", legacy_events, 500), 250)
-        for i in range(250, 500):
-            STORE.append_event(self.state_db, "cam1", {"event_id": f"f{i}", "created_at": stamp(i)})
-        events_mirror = [{"event_id": f"f{i}", "created_at": stamp(i)} for i in range(499, -1, -1)]
-        self.assertEqual(STORE.import_legacy_records(self.state_db, "events", "cam1", events_mirror, 500), 0)
-        self.assertEqual(len(STORE.read_events(self.state_db, "cam1")), 500)
-        self.assertEqual(STORE.read_events(self.state_db, "cam1")[0]["event_id"], "f499")
-
-    # W-A — anti-resurrection by ingestion history (round-4 design). The
-    # round-3 timestamp floor failed when a pruned record's timestamp EQUALS
-    # the retained floor: it re-imported from a stale mirror with a new id,
-    # evicted retained records and churned on every restart. The
-    # ingestion-log registry is time-blind — a record that was ever
-    # ingested is skipped, whatever (or whether) it is dated.
-    def test_equal_timestamp_stale_mirror_never_resurrects_or_churns(self) -> None:
-        t = "2026-01-01T00:00:00+00:00"  # every record shares ONE timestamp
-        cap = 3
-        for event_id in ("a", "b", "c"):
-            STORE.append_crossing(self.state_db, "cam1", {"event_id": event_id, "created_at": t}, cap)
-        STORE.append_crossing(self.state_db, "cam1", {"event_id": "d", "created_at": t}, cap)
-        self.assertEqual(
-            [record["event_id"] for record in STORE.read_crossings(self.state_db, "cam1")],
-            ["d", "c", "b"],
-            "cap pruned a; b/c/d retained — all four records share one timestamp",
-        )
-
-        # The old release's mirror update failed, so its file is the stale
-        # snapshot [c, b, a] from before d was appended. Importing it must
-        # NOT resurrect the pruned a with a fresh id.
-        stale_mirror = [
-            {"event_id": "c", "created_at": t},
-            {"event_id": "b", "created_at": t},
-            {"event_id": "a", "created_at": t},
-        ]
-        self.assertEqual(
-            STORE.import_legacy_records(self.state_db, "crossings", "cam1", stale_mirror, cap),
-            0,
-            "equal-timestamp pruned record must be skipped via ingestion history",
-        )
-        self.assertEqual(
-            [record["event_id"] for record in STORE.read_crossings(self.state_db, "cam1")],
-            ["d", "c", "b"],
-            "b/c must not be evicted by a resurrected row",
-        )
-
-        # Repeated restarts: the same stale mirror must never churn retention.
-        for _ in range(2):
-            self.assertEqual(STORE.import_legacy_records(self.state_db, "crossings", "cam1", stale_mirror, cap), 0)
-            self.assertEqual(
-                [record["event_id"] for record in STORE.read_crossings(self.state_db, "cam1")],
-                ["d", "c", "b"],
-            )
-
-    # W-B — the registry is timestamp-blind, so undated records are
-    # covered: an undated record that was ingested and later pruned stays
-    # skipped (no timestamp comparison could order it), while a genuinely
-    # new undated rollback-period record (never ingested) merges.
-    def test_undated_records_obey_the_ingestion_registry(self) -> None:
-        undated = {"event_id": "u1"}  # no created_at at all
-        STORE.append_event(self.state_db, "cam1", undated, 1)
-        live = {"event_id": "x1"}
-        STORE.append_event(self.state_db, "cam1", live, 1)  # cap 1 prunes u1
-        self.assertEqual([event["event_id"] for event in STORE.read_events(self.state_db, "cam1")], ["x1"])
-
-        # Stale mirror still carrying the pruned undated record: skipped.
-        stale_mirror = [live, undated]
-        self.assertEqual(
-            STORE.import_legacy_records(self.state_db, "events", "cam1", stale_mirror, 1),
-            0,
-            "a pruned undated record must be skipped via the ingestion registry",
-        )
-        self.assertEqual([event["event_id"] for event in STORE.read_events(self.state_db, "cam1")], ["x1"])
-
-        # A genuinely new undated rollback-period record (never ingested) merges.
-        rollback = {"event_id": "r1"}  # undated, never seen by this store
-        self.assertEqual(
-            STORE.import_legacy_records(self.state_db, "events", "cam1", [rollback, live], 2),
-            1,
-        )
-        self.assertEqual(
-            sorted(event["event_id"] for event in STORE.read_events(self.state_db, "cam1")),
-            ["r1", "x1"],
-        )
-
-    # W-C — event time is not ingestion order: a rollback-period record
-    # with an event timestamp OLDER than every retained row (a delayed
-    # submission) must merge when it was never ingested. The round-3
-    # timestamp floor silently discarded exactly this record.
-    def test_delayed_rollback_record_with_old_event_time_merges(self) -> None:
-        t0, t1, t2 = (
-            "2025-12-31T00:00:00+00:00",
-            "2026-01-01T00:00:00+00:00",
-            "2026-01-02T00:00:00+00:00",
-        )
-        legacy = [{"event_id": "e2", "created_at": t2}, {"event_id": "e1", "created_at": t1}]
-        self.assertEqual(STORE.import_legacy_records(self.state_db, "crossings", "cam1", legacy, 10), 2)
-
-        # The old release ingests a delayed record (old event time, free cap
-        # headroom); its file becomes [e0, e2, e1] (newest-first).
-        delayed_mirror = [{"event_id": "e0", "created_at": t0}] + legacy
-        self.assertEqual(
-            STORE.import_legacy_records(self.state_db, "crossings", "cam1", delayed_mirror, 10),
-            1,
-            "a never-ingested record must merge regardless of its old event timestamp",
-        )
-        self.assertEqual(
-            [record["event_id"] for record in STORE.read_crossings(self.state_db, "cam1")],
-            ["e0", "e2", "e1"],
-        )
-        # The merged record is now registered: rebooting on the same mirror is a no-op.
-        self.assertEqual(STORE.import_legacy_records(self.state_db, "crossings", "cam1", delayed_mirror, 10), 0)
-
-    # W-D — repeated boots over a stable intact mirror are zero-mutation
-    # (only merged records are registered, so every boot after the first is
-    # a complete no-op), and identities NEVER expire (round-5: the registry
-    # has no prune at all). After churn far beyond any 4×cap-scale window —
-    # enough that a pruned registry would have expired every original
-    # identity — importing the ORIGINAL stale mirror is still a complete
-    # no-op: zero new rows, retained rows byte-identical, registry count
-    # unchanged.
-    def test_repeated_boots_are_zero_mutation_and_identities_never_expire(self) -> None:
-        def registry_count() -> int:
-            with STORE.open_state_db(self.state_db) as connection:
-                return connection.execute(
-                    "SELECT COUNT(*) FROM ingestion_log WHERE camera_id = ? AND kind = ?",
-                    ("cam1", "crossings"),
-                ).fetchone()[0]
-
-        def table_snapshot() -> List[Any]:
-            with STORE.open_state_db(self.state_db) as connection:
-                return [
-                    tuple(row)
-                    for row in connection.execute(
-                        "SELECT id, payload_json, created_at FROM crossings WHERE camera_id = ? ORDER BY id",
-                        ("cam1",),
-                    )
-                ]
-
-        cap = 2  # a round-4 4×cap window would have been 8
-        legacy = [
-            {"event_id": "e2", "created_at": "2026-01-02T00:00:00+00:00"},
-            {"event_id": "e1", "created_at": "2026-01-01T00:00:00+00:00"},
-            {"event_id": "e0", "created_at": "2025-12-31T00:00:00+00:00"},
-        ]
-        self.assertEqual(STORE.import_legacy_records(self.state_db, "crossings", "cam1", legacy, cap), 3)
-        self.assertEqual(len(table_snapshot()), 2)
-        self.assertEqual(registry_count(), 3)
-
-        # Three consecutive boots on the SAME intact mirror (the file's e0
-        # was pruned from the table but is registered): zero mutations.
-        snapshot = table_snapshot()
-        for boot in range(3):
-            self.assertEqual(
-                STORE.import_legacy_records(self.state_db, "crossings", "cam1", legacy, cap),
-                0,
-                f"boot {boot + 2} must be a complete no-op",
-            )
-            self.assertEqual(table_snapshot(), snapshot, f"boot {boot + 2} mutated retained rows")
-        self.assertEqual(registry_count(), 3, "no-op boots must not write the registry either")
-
-        # Churn far beyond any window scale: 40 live appends (43 total
-        # ingestions, window would have been 8) evict the original rows
-        # from retention — and would have expired their identities from a
-        # pruned registry.
-        base = datetime(2026, 2, 1, tzinfo=timezone.utc)
-        for index in range(40):
-            STORE.append_crossing(
-                self.state_db,
-                "cam1",
-                {"event_id": f"n{index}", "created_at": (base + timedelta(seconds=index)).isoformat()},
-                cap,
-            )
-        self.assertEqual(
-            {record["event_id"] for record in STORE.read_crossings(self.state_db, "cam1")},
-            {"n39", "n38"},
-            "churn evicted the original rows from retention",
-        )
-        self.assertEqual(registry_count(), 43, "the registry never prunes — identities never expire")
-
-        # The validator's missing assertion: importing the ORIGINAL stale
-        # mirror after all that churn is still a complete no-op — zero new
-        # rows, retained rows byte-identical, registry count unchanged.
-        churned_snapshot = table_snapshot()
-        self.assertEqual(
-            STORE.import_legacy_records(self.state_db, "crossings", "cam1", legacy, cap),
-            0,
-            "stale identities must never expire — the original mirror stays a no-op",
-        )
-        self.assertEqual(table_snapshot(), churned_snapshot, "the stale mirror must not evict retained rows")
-        self.assertEqual(registry_count(), 43, "the no-op boot must not write the registry either")
-
-    # W-E — the validator's production-cap failure sequence, scaled down:
-    # import file F at the cap → churn with FAILING mirror writes far
-    # beyond the round-4 4×cap window (SQLite retention evicts every
-    # original row; the legacy file stays stale) → rollback (the old
-    # release appends rollback-period records to the stale file → F') →
-    # re-upgrade imports F'. The rollback records must merge, F's stale
-    # records must NOT resurrect with fresh ids, and the retained set must
-    # stay stable. The round-4 4×cap prune failed exactly this sequence:
-    # every original identity expired, the intact stale file re-imported
-    # and evicted the authoritative records.
-    def test_rollback_after_churn_beyond_window_keeps_retention_stable(self) -> None:
-        def registry_count() -> int:
-            with STORE.open_state_db(self.state_db) as connection:
-                return connection.execute(
-                    "SELECT COUNT(*) FROM ingestion_log WHERE camera_id = ? AND kind = ?",
-                    ("cam1", "crossings"),
-                ).fetchone()[0]
-
-        cap = 5  # a round-4 4×cap window would have been 20
-        base = datetime(2026, 3, 1, tzinfo=timezone.utc)
-        stamp = lambda i: (base + timedelta(seconds=i)).isoformat()
-
-        # Boot 1: import F (50 records, newest-first file) at the cap.
-        f_file = [{"event_id": f"f{i}", "created_at": stamp(i)} for i in range(49, -1, -1)]
-        self.assertEqual(STORE.import_legacy_records(self.state_db, "crossings", "cam1", f_file, cap), 50)
-        self.assertEqual(len(STORE.read_crossings(self.state_db, "cam1")), cap)
-        self.assertEqual(registry_count(), 50)
-
-        # Churn with failing mirror writes: 60 live appends (>> 20) —
-        # retention evicts every f-record and a pruned registry would have
-        # expired every f-identity. File F never updates (writes fail).
-        for index in range(50, 110):
-            STORE.append_crossing(self.state_db, "cam1", {"event_id": f"n{index}", "created_at": stamp(index)}, cap)
-        self.assertEqual(
-            {record["event_id"] for record in STORE.read_crossings(self.state_db, "cam1")},
-            {f"n{i}" for i in range(105, 110)},
-            "churn evicted all original rows from retention",
-        )
-        self.assertEqual(registry_count(), 110, "no identities expired during churn")
-
-        # Rollback: the old release appends two rollback-period records to
-        # the STALE file → F' (newest-first: rollback records on top).
-        f_prime = [
-            {"event_id": "rb1", "created_at": stamp(200)},
-            {"event_id": "rb0", "created_at": stamp(199)},
-        ] + f_file
-
-        # Re-upgrade: import F'. Exactly the two rollback records merge;
-        # the stale f-records do NOT resurrect; retention stays stable.
-        self.assertEqual(
-            STORE.import_legacy_records(self.state_db, "crossings", "cam1", f_prime, cap),
-            2,
-            "only the rollback-period records may merge",
-        )
-        merged = [record["event_id"] for record in STORE.read_crossings(self.state_db, "cam1")]
-        self.assertEqual(merged, ["rb1", "rb0", "n109", "n108", "n107"])
-        self.assertEqual(
-            {event_id for event_id in merged if event_id.startswith("f")},
-            set(),
-            "stale file records must not resurrect with fresh ids",
-        )
-
-        # Repeated boots on F' stay no-ops with the retained set stable.
-        self.assertEqual(STORE.import_legacy_records(self.state_db, "crossings", "cam1", f_prime, cap), 0)
-        self.assertEqual(
-            [record["event_id"] for record in STORE.read_crossings(self.state_db, "cam1")],
-            ["rb1", "rb0", "n109", "n108", "n107"],
-        )
-        self.assertEqual(registry_count(), 112, "no-op boots register nothing")
-
-    # V-D — unusable/absent timestamps cannot displace stored camera
-    # state; only a genuinely newer ISO timestamp replaces it, and an
-    # undated payload only ever seeds an empty row.
-    def test_camera_state_import_ignores_unusable_timestamps(self) -> None:
-        stored = {"frame_no": 10, "updated_at": "2026-01-02T00:00:00+00:00"}
-        STORE.upsert_camera_state(self.state_db, "cam1", stored)
-
-        unparseable = {"frame_no": 1, "updated_at": "zzz"}
-        self.assertFalse(STORE.import_legacy_camera_state(self.state_db, "cam1", unparseable))
-        self.assertEqual(STORE.read_camera_state(self.state_db, "cam1"), stored)
-
-        newer = {"frame_no": 20, "updated_at": "2026-01-03T00:00:00+00:00"}
-        self.assertTrue(STORE.import_legacy_camera_state(self.state_db, "cam1", newer))
-        self.assertEqual(STORE.read_camera_state(self.state_db, "cam1"), newer)
-
-        undated = {"frame_no": 1}
-        self.assertFalse(STORE.import_legacy_camera_state(self.state_db, "cam1", undated))
-        self.assertEqual(STORE.read_camera_state(self.state_db, "cam1"), newer)
-
-        # Undated still seeds a genuinely empty camera.
-        self.assertTrue(STORE.import_legacy_camera_state(self.state_db, "road1", undated))
-        self.assertEqual(STORE.read_camera_state(self.state_db, "road1"), undated)
-
-    # T-D — camera_state: legacy NEWER than stored wins; older loses.
-    def test_camera_state_import_is_newer_wins(self) -> None:
-        stored_updated_at = "2026-01-02T00:00:00+00:00"
-        STORE.upsert_camera_state(self.state_db, "cam1", {"frame_no": 10, "updated_at": stored_updated_at})
-
-        older = {"frame_no": 5, "updated_at": "2026-01-01T00:00:00+00:00"}
-        self.assertFalse(STORE.import_legacy_camera_state(self.state_db, "cam1", older))
-        self.assertEqual(STORE.read_camera_state(self.state_db, "cam1"), {"frame_no": 10, "updated_at": stored_updated_at})
-
-        newer = {"frame_no": 20, "updated_at": "2026-01-03T00:00:00+00:00"}
-        self.assertTrue(STORE.import_legacy_camera_state(self.state_db, "cam1", newer))
-        self.assertEqual(STORE.read_camera_state(self.state_db, "cam1"), newer)
-
-        # Mixed UTC offsets must order by the actual instant, not by string:
-        # 2026-01-03T01:00+03:00 == 2026-01-02T22:00Z, which is older.
-        stale_other_offset = {"frame_no": 7, "updated_at": "2026-01-03T01:00:00+03:00"}
-        self.assertFalse(STORE.import_legacy_camera_state(self.state_db, "cam1", stale_other_offset))
-        self.assertEqual(STORE.read_camera_state(self.state_db, "cam1"), newer)
-
-
-@unittest.skipUnless(
-    "import_legacy_state_store" in MAIN_FUNCTION_NAMES,
-    "startup migration only exists after the fix",
-)
-class StartupMigrationTests(unittest.TestCase, _ConfigEndpointMixin):
-    def setUp(self) -> None:
-        self.tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.tmp.cleanup)
-        self.state_db = Path(self.tmp.name) / "state.sqlite3"
-
-    def _namespace(self, read_override: Any = None) -> Dict[str, Any]:
-        namespace = self.make_namespace(
-            {
-                "ANALYTICS_IDENTITIES": {"cam1": {}, "road1": {}},
-                "EVENTS_FEED_LIMIT": 500,
-                "CROSSINGS_STORE_LIMIT": 5000,
-                "STATE_DB_FILE": self.state_db,
-            }
-        )
-        if read_override is not None:
-            namespace["read_json_file"] = read_override
-        _exec_functions(["import_legacy_state_store"], namespace)
-        return namespace
-
-    # T-B — empty target + corrupt legacy JSON: the initial authoritative
-    # migration must fail closed so the deploy gate rolls the release back
-    # instead of silently losing history.
-    def test_corrupt_legacy_file_fails_closed(self) -> None:
-        crossings = Path(self.tmp.name) / "cam1_crossings.json"
-        crossings.write_text("{corrupt", encoding="utf-8")
-        namespace = self._namespace()
-        with self.assertRaises((OSError, ValueError)):
-            namespace["import_legacy_state_store"]()
-
-    # T-A — populated (healthy authoritative) store + corrupt non-authoritative
-    # legacy mirror: the boot import path must NOT raise, must log a warning to
-    # stderr, and the authoritative data must stay intact.
-    def test_corrupt_legacy_mirror_is_best_effort_when_store_is_populated(self) -> None:
-        crossings = Path(self.tmp.name) / "cam1_crossings.json"
-        crossings.write_text("{corrupt", encoding="utf-8")
-        STORE.append_crossing(self.state_db, "cam1", {"event_id": "c-live", "created_at": "2026-01-01T00:00:00+00:00"})
-        STORE.append_event(self.state_db, "cam1", {"event_id": "e-live", "created_at": "2026-01-01T00:00:00+00:00"})
-        STORE.upsert_camera_state(self.state_db, "cam1", {"frame_no": 1})
-
-        namespace = self._namespace()
-        stderr = io.StringIO()
-        with contextlib.redirect_stderr(stderr):
-            namespace["import_legacy_state_store"]()
-
-        self.assertIn("legacy cam1 crossings mirror is unreadable", stderr.getvalue())
-        self.assertEqual(
-            [record["event_id"] for record in STORE.read_crossings(self.state_db, "cam1")],
-            ["c-live"],
-            "authoritative crossing rows must be untouched",
-        )
-        self.assertEqual(
-            [record["event_id"] for record in STORE.read_events(self.state_db, "cam1")],
-            ["e-live"],
-        )
-        self.assertEqual(STORE.read_camera_state(self.state_db, "cam1"), {"frame_no": 1})
-
-    def test_import_never_deletes_legacy_files(self) -> None:
-        crossings = Path(self.tmp.name) / "cam1_crossings.json"
-        crossings.write_text(json.dumps([{"event_id": "c1", "created_at": "2026-01-01T00:00:00+00:00"}]), encoding="utf-8")
-        events = Path(self.tmp.name) / "events.json"
-        events.write_text(json.dumps([{"event_id": "e1", "created_at": "2026-01-01T00:00:00+00:00"}]), encoding="utf-8")
-        namespace = self._namespace()
-        namespace["import_legacy_state_store"]()
-        self.assertTrue(crossings.exists(), "migration must not delete the legacy file")
-        self.assertTrue(events.exists(), "migration must not delete the legacy file")
+    def test_boot_is_idempotent(self) -> None:
+        STORE.initialize_state_db(self.state_db)
+        STORE.initialize_state_db(self.state_db)
+        STORE.initialize_state_db(self.state_db)
+        self.assertNotIn("ingestion_log", _table_names(self.state_db))
+        # The store stays fully functional across repeated boots.
+        STORE.append_crossing(self.state_db, "cam1", {"event_id": "c1"})
         self.assertEqual(
             [record["event_id"] for record in STORE.read_crossings(self.state_db, "cam1")],
             ["c1"],
         )
+
+    # Contracted retirement act, part 1: the startup migration drops a
+    # pre-existing (dual-write-era) ingestion_log table, idempotently, and
+    # retained records survive untouched.
+    def test_boot_drops_preexisting_ingestion_log(self) -> None:
+        _seed_dual_write_era_registry(self.state_db)
+        STORE.append_crossing(self.state_db, "cam1", {"event_id": "c-live", "created_at": "2026-01-01T00:00:00+00:00"})
+
+        # A real boot is a fresh process: simulate it by clearing the
+        # module's per-process init cache so the startup migration re-runs.
+        STORE._initialized.discard(str(self.state_db))
+        STORE.initialize_state_db(self.state_db)  # the post-retirement boot
+
+        self.assertNotIn(
+            "ingestion_log",
+            _table_names(self.state_db),
+            "the pre-existing ingestion_log table must be dropped at boot",
+        )
+        self.assertEqual(
+            [record["event_id"] for record in STORE.read_crossings(self.state_db, "cam1")],
+            ["c-live"],
+            "retained records must survive the registry drop",
+        )
+        # Idempotent: a second boot neither fails nor resurrects the table.
+        STORE.initialize_state_db(self.state_db)
+        self.assertNotIn("ingestion_log", _table_names(self.state_db))
+
+
+class RetiredDualWriteTests(unittest.TestCase, _ConfigEndpointMixin):
+    """Contracted RISK-005 retirement regression, all three parts together:
+
+    1. the post-retirement boot DROPS a pre-existing ingestion_log table;
+    2. records accepted via the API append NOTHING to the legacy JSON
+       mirrors (dual-write is over) — pinned end-to-end for ALL THREE
+       accept paths: crossings (append_crossing_record), the analytics
+       event feed (post_analytics_event) and the 1 Hz camera state
+       (post_analytics_state);
+    3. legacy JSON files are never deleted (inert history on disk).
+    """
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.state_db = Path(self.tmp.name) / "state.sqlite3"
+        self.legacy_files = {
+            "crossings": Path(self.tmp.name) / "cam1_crossings.json",
+            "events": Path(self.tmp.name) / "cam1_events.json",
+            "state": Path(self.tmp.name) / "cam1_state.json",
+        }
+        self.legacy_files["crossings"].write_text(
+            json.dumps([{"event_id": "legacy-c1", "created_at": "2026-01-01T00:00:00+00:00"}]),
+            encoding="utf-8",
+        )
+        self.legacy_files["events"].write_text(
+            json.dumps([{"event_id": "legacy-e1", "created_at": "2026-01-01T00:00:00+00:00"}]),
+            encoding="utf-8",
+        )
+        self.legacy_files["state"].write_text(
+            json.dumps({"frame_no": 7, "updated_at": "2026-01-01T00:00:00+00:00"}),
+            encoding="utf-8",
+        )
+        self.legacy_bytes = {kind: path.read_bytes() for kind, path in self.legacy_files.items()}
+
+    def test_retired_boot_drops_registry_and_leaves_legacy_files_inert(self) -> None:
+        # Dual-write-era shape: a registered identity plus a retained record.
+        _seed_dual_write_era_registry(self.state_db)
+        STORE.append_crossing(self.state_db, "cam1", {"event_id": "c-live", "created_at": "2026-01-01T00:00:00+00:00"})
+
+        # Boot exactly as a fresh API process does at startup (the module's
+        # per-process init cache is cleared to simulate the new process).
+        STORE._initialized.discard(str(self.state_db))
+        STORE.initialize_state_db(self.state_db)
+
+        # Part 1: the pre-existing registry is dropped; records survive.
+        self.assertNotIn("ingestion_log", _table_names(self.state_db))
+        self.assertEqual(
+            [record["event_id"] for record in STORE.read_crossings(self.state_db, "cam1")],
+            ["c-live"],
+        )
+
+        # Part 2: a record accepted via the API write path commits to
+        # SQLite and appends NOTHING to the legacy JSON mirror.
+        namespace = self.make_namespace(
+            {
+                "STATE_DB_FILE": self.state_db,
+                "CROSSINGS_STORE_LIMIT": 5000,
+            }
+        )
+        _exec_functions(["append_crossing_record"], namespace)
+        namespace["append_crossing_record"](
+            "cam1", {"event_id": "c-new", "created_at": "2026-01-02T00:00:00+00:00"}
+        )
+        self.assertEqual(
+            [record["event_id"] for record in STORE.read_crossings(self.state_db, "cam1")],
+            ["c-new", "c-live"],
+            "the API accept path must remain authoritative in SQLite",
+        )
+
+        # Part 3: legacy files are neither deleted nor rewritten.
+        for kind, path in self.legacy_files.items():
+            self.assertTrue(path.exists(), f"legacy {kind} file must never be deleted")
+            self.assertEqual(
+                path.read_bytes(),
+                self.legacy_bytes[kind],
+                f"legacy {kind} mirror must no longer be written by API accepts",
+            )
+
+        # A second boot stays idempotent: registry stays gone, records and
+        # legacy files remain untouched.
+        STORE.initialize_state_db(self.state_db)
+        self.assertNotIn("ingestion_log", _table_names(self.state_db))
+        self.assertEqual(len(STORE.read_crossings(self.state_db, "cam1")), 2)
+        for kind, path in self.legacy_files.items():
+            self.assertTrue(path.exists(), f"legacy {kind} file must never be deleted")
+            self.assertEqual(path.read_bytes(), self.legacy_bytes[kind])
+
+    def _retired_mirror_namespace(self) -> Dict[str, Any]:
+        """Namespace for the event/state accept paths (post-retirement).
+
+        Mirrors the crossings pattern: the real legacy mirror files seeded
+        in setUp are wired in as BOTH the ``analytics_data_file`` targets
+        and the module constants, so a re-added dual-write mirror —
+        whichever spelling it uses — would hit a byte-pinned baseline file.
+        """
+        return self.make_namespace(
+            {
+                "STATE_DB_FILE": self.state_db,
+                "EVENTS_FEED_LIMIT": 500,
+                # Real legacy file targets: point both the
+                # analytics_data_file mapping and the constants at the
+                # recorded baseline paths.
+                "STATE_FILE": self.legacy_files["state"],
+                "EVENTS_FILE": self.legacy_files["events"],
+                "uuid": __import__("uuid"),
+                "require_auth": lambda token: None,
+                "persist_object_event": lambda event: True,
+                "sweep_events_media": lambda force=False, now=None: 0,
+                "EVENTS_MEDIA_DIR": Path(self.tmp.name) / "events_media",
+                "Form": lambda *args, **kwargs: None,
+                "File": lambda *args, **kwargs: None,
+                "Header": lambda *args, **kwargs: None,
+                "Optional": Optional,
+                "UploadFile": object,
+                "WORKER_STATE_SCHEMA": "sea_speed_worker_state_v1",
+                "VEHICLE_EVENT_SCHEMA": "sea_speed_vehicle_event_v1",
+                "TELEMETRY_SCHEMA": "sea_speed_telemetry_v1",
+            }
+        )
+
+    # The event-feed accept path: the real post_analytics_event is
+    # AST-executed and must commit to SQLite while leaving the legacy
+    # events mirror byte-identical (the write_json_file stub is NOT
+    # injected — the real store writer runs, so a re-added dual-write
+    # mirror would fail this test).
+    def test_retired_event_accept_appends_nothing_to_legacy_events_mirror(self) -> None:
+        STORE.initialize_state_db(self.state_db)
+        namespace = self._retired_mirror_namespace()
+        _exec_functions(["post_analytics_event"], namespace)
+        namespace["EVENTS_MEDIA_DIR"].mkdir(parents=True, exist_ok=True)
+
+        class _FakeSnapshot:
+            async def read(self) -> bytes:
+                return b"jpeg-bytes"
+
+        result = asyncio.run(
+            namespace["post_analytics_event"](
+                "cam1",
+                metadata=json.dumps(
+                    {"event_id": "e-new", "created_at": "2026-01-02T00:00:00+00:00"}
+                ),
+                snapshot=_FakeSnapshot(),
+                authorization=None,
+            )
+        )
+        self.assertTrue(result["ok"])
         self.assertEqual(
             [event["event_id"] for event in STORE.read_events(self.state_db, "cam1")],
-            ["e1"],
+            ["e-new"],
+            "the API accept path must remain authoritative in SQLite",
         )
-        # Idempotent: a restart must not duplicate rows.
-        namespace["import_legacy_state_store"]()
-        self.assertEqual(len(STORE.read_crossings(self.state_db, "cam1")), 1)
-        self.assertEqual(len(STORE.read_events(self.state_db, "cam1")), 1)
+        self.assertTrue(
+            self.legacy_files["events"].exists(),
+            "legacy events file must never be deleted",
+        )
+        self.assertEqual(
+            self.legacy_files["events"].read_bytes(),
+            self.legacy_bytes["events"],
+            "legacy events mirror must no longer be written by API accepts",
+        )
+
+    # The camera-state accept path: the real post_analytics_state is
+    # AST-executed (with the real default-state fallback) and must upsert
+    # to SQLite while leaving the legacy state mirror byte-identical.
+    def test_retired_state_accept_writes_nothing_to_legacy_state_mirror(self) -> None:
+        STORE.initialize_state_db(self.state_db)
+        namespace = self._retired_mirror_namespace()
+        _exec_functions(
+            ["post_analytics_state", "analytics_default_state", "default_state"],
+            namespace,
+        )
+        result = asyncio.run(
+            namespace["post_analytics_state"](
+                "cam1",
+                metadata=json.dumps({"frame_no": 8}),
+                overlay=None,
+                authorization=None,
+            )
+        )
+        self.assertTrue(result["ok"])
+        self.assertEqual(
+            STORE.read_camera_state(self.state_db, "cam1").get("frame_no"),
+            8,
+            "the API accept path must remain authoritative in SQLite",
+        )
+        self.assertTrue(
+            self.legacy_files["state"].exists(),
+            "legacy state file must never be deleted",
+        )
+        self.assertEqual(
+            self.legacy_files["state"].read_bytes(),
+            self.legacy_bytes["state"],
+            "legacy state mirror must no longer be written by API accepts",
+        )
 
 
 if __name__ == "__main__":

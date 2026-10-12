@@ -225,7 +225,6 @@ CROSSING_API_FUNCTIONS = {
     "post_analytics_crossing_line",
     "post_analytics_crossing",
     "append_crossing_record",
-    "crossings_store_path",
     "get_analytics_crossings_summary",
 }
 
@@ -333,7 +332,7 @@ class ApiCrossingTests(unittest.TestCase):
         row = self.persisted[0]
         self.assertEqual(row["domain"], "road")
         self.assertEqual(row["kind"], "line_crossing")
-        store = ns["read_json_file"](ns["crossings_store_path"]("road1"), [])
+        store = ns["store"].read_crossings(ns["STATE_DB_FILE"], "road1")
         self.assertEqual(store[0]["event_id"], result["event_id"])
         speed_row = ns["post_analytics_crossing"](
             "road1",
@@ -361,7 +360,7 @@ class ApiCrossingTests(unittest.TestCase):
         )
         self.assertTrue(result["ok"])
         self.assertEqual(self.persisted, [])
-        store = ns["read_json_file"](ns["crossings_store_path"]("road1"), [])
+        store = ns["store"].read_crossings(ns["STATE_DB_FILE"], "road1")
         self.assertEqual(store[0]["object_type"], "person")
 
     def test_water_person_crossing_would_persist_registry(self) -> None:

@@ -41,6 +41,18 @@
   suite verbose, RED check against the stashed base implementation, ruff
   E9/F, bash -n) and leave the changes uncommitted for orchestrator
   admission
+- T-394-006 (contracted retirement, RISK-005): execute the retirement act
+  together on branch sdd/394-retirement — `DROP TABLE IF EXISTS
+  ingestion_log` in the startup migration (store.py), stop the dual-write
+  legacy-JSON mirrors and remove the legacy-JSON import path (store.py +
+  main.py call sites), delete the import-path coverage (T-A..T-D,
+  V-A..V-E, W-A..W-E) with the path, adapt StartupMigrationTests to the
+  post-retirement schema, add the RetiredDualWriteTests regression (boot
+  drops a pre-existing ingestion_log; API accepts append no legacy JSON;
+  legacy files never deleted), keep store primitives, caps, concurrency,
+  fail-loud and T-E deploy coverage intact; legacy JSON files never
+  deleted; trigger evidence: issue #394 comment 6073231021, deployed_sha
+  9e3b9ee8e02b75785393dc8ef246af5e4e05281b (2026-10-09)
 
 ## Completion gate
 
@@ -56,7 +68,7 @@
 - [x] Exact-green-head merge complete — orchestrator-owned — auto-synced on merge to main
 - [x] Deployment state resolved — first verified full VPS contour deploy via operator DEPLOY-HANDOFF: deployed_sha=9e3b9ee8e02b75785393dc8ef246af5e4e05281b, manifest runtime_verified 9/9, previous-release 2a0b6f18 (two-slot rollback ready_not_used) — orchestrator-owned
 - [x] Runtime acceptance resolved — health 200; migration idempotent + fail-closed (state.sqlite3 5.3MB: crossings 6175, event_feed 1000, ingestion_log 7175, camera_state 2; legacy JSON untouched); sha256 of live main.py/store.py byte-equal to exact-SHA artifacts; TEST-008 control=200/ingest=403; ИБ-пробы green (X-Authentik outbound-only, :18889 NL-probe 000, TLS baseline); 0 tracebacks/10min — orchestrator-owned (VPS restart, health gate, dual-write window verified post-deploy)
-- [ ] Deferred work recorded — none
+- [x] Deferred work recorded — dual-write JSON mirror retirement EXECUTED (trigger fired 2026-10-09: first verified full VPS contour deploy 9e3b9ee8…, issue #394 comment 6073231021; deadline "next release cycle" met; act = DROP ingestion_log + stop dual-write + drop import path, together, with the RetiredDualWriteTests regression — see T-394-006)
 - [ ] Risks resolved or explicitly accepted — RISK-001..RISK-005 mitigated or disclosed in plan.md
 - [ ] Waivers resolved or current — none
 
@@ -69,7 +81,7 @@
 - [x] Exact-green-head merge complete — orchestrator-owned — auto-synced on merge to main
 - [x] Deployment state resolved — first verified full VPS contour deploy via operator DEPLOY-HANDOFF: deployed_sha=9e3b9ee8e02b75785393dc8ef246af5e4e05281b, manifest runtime_verified 9/9, previous-release 2a0b6f18 (two-slot rollback ready_not_used) — orchestrator-owned (full autonomous VPS contour deploy fans out at merge)
 - [x] Runtime acceptance resolved — health 200; migration idempotent + fail-closed (state.sqlite3 5.3MB: crossings 6175, event_feed 1000, ingestion_log 7175, camera_state 2; legacy JSON untouched); sha256 of live main.py/store.py byte-equal to exact-SHA artifacts; TEST-008 control=200/ingest=403; ИБ-пробы green (X-Authentik outbound-only, :18889 NL-probe 000, TLS baseline); 0 tracebacks/10min — orchestrator-owned (fail-closed boot health gate + dual-write window verified post-deploy; ИБ-пробы relayed per #393 tail plan)
-- [x] Deferred work recorded — dual-write JSON mirror retirement TRIGGERED (first verified full VPS contour deploy: 9e3b9ee8…, 2026-10-09); deadline = next release cycle (retirement = DROP ingestion_log + stop dual-write + drop import path, together; owner: Delivery Orchestrator)
+- [x] Deferred work recorded — dual-write JSON mirror retirement TRIGGERED (first verified full VPS contour deploy: 9e3b9ee8…, 2026-10-09) and then EXECUTED within the deadline (next release cycle): retirement act = DROP ingestion_log + stop dual-write + drop import path, together, on branch sdd/394-retirement (T-394-006); rollback to a pre-#394 release no longer sees records accepted after the retirement (contracted semantics change, disclosed in the PR Delivery section)
 - [ ] Risks resolved or explicitly accepted — RISK-001..RISK-005 in plan.md Risk profile
 - [ ] Waivers resolved or current — none
 
@@ -81,6 +93,6 @@
 - AC-004 | Task: T-394-002,T-394-003 | Evidence: test_concurrent_appenders_never_lose_records (8 barrier-forced racers, zero lost records on head, RED on base RMW) | Coverage: COVERED
 - AC-005 | Task: T-394-001,T-394-003 | Evidence: StoreCapTests — crossings prune to 5000, events to 500, caps per camera | Coverage: COVERED
 - AC-006 | Task: T-394-001,T-394-003 | Evidence: CameraStateTests (last-write-wins upsert, absent state reads None) | Coverage: COVERED
-- AC-007 | Task: T-394-002,T-394-003 | Evidence: T-A test_corrupt_legacy_mirror_is_best_effort_when_store_is_populated, T-B test_corrupt_legacy_file_fails_closed, T-C test_rollback_window_records_are_merged_idempotent, T-D test_camera_state_import_is_newer_wins, V-A test_live_rows_are_not_duplicated_by_mirror_import, V-B test_import_at_production_caps_preserves_retained_history, W-A test_equal_timestamp_stale_mirror_never_resurrects_or_churns, W-B test_undated_records_obey_the_ingestion_registry, W-C test_delayed_rollback_record_with_old_event_time_merges, W-D test_repeated_boots_are_zero_mutation_and_identities_never_expire, W-E test_rollback_after_churn_beyond_window_keeps_retention_stable, V-D test_camera_state_import_ignores_unusable_timestamps + StartupMigrationTests (never deletes legacy files, restart-idempotent) | Coverage: COVERED
+- AC-007 | Task: T-394-002,T-394-003,T-394-006 | Evidence: import-path coverage (T-A..T-D, V-A..V-E, W-A..W-E) RETIRED with the dual-write window by the contracted retirement act — the merge/anti-resurrection machinery it tested no longer exists, so that coverage was deleted with the path (not weakened); post-retirement evidence: StartupMigrationTests (ingestion_log absent after boot, boots idempotent, pre-existing dual-write-era registry dropped while retained records survive) + RetiredDualWriteTests (records accepted via the API append path commit to SQLite and append nothing to legacy JSON; pre-existing legacy JSON files byte-unchanged and never deleted) | Coverage: COVERED
 - AC-008 | Task: T-394-003,T-394-004 | Evidence: T-E test_store_less_rollback_removes_live_store_and_stale_next, test_store_release_stages_and_promotes_normally (release-bound activation, stale .next never promoted, bootstrap captures live store.py) | Coverage: COVERED
 - AC-009 | Task: T-394-003,T-394-005 | Evidence: tests.test_api_contract (14), tests.test_line_crossing (45), tests.test_road_event_hygiene (7), tests.test_roi_normalization (unchanged green), tests.test_vps_deploy_transaction (20) — full suite green (exact counts in the verification transcript); two-file battery 46 passed / 1 skipped; RED on base (session-4 run against the pre-repair test file): 6 failed / 12 passed / 2 skipped | Coverage: COVERED

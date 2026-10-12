@@ -352,57 +352,6 @@ def import_existing_events() -> int:
     return imported
 
 
-def import_legacy_state_store() -> None:
-    """Necessity-gated import of legacy JSON hot state into state.sqlite3.
-
-    Runs at startup. For every (camera, kind) pair the store decides whether
-    the target is still empty (see store.camera_has_rows):
-
-    * EMPTY target — this boot performs the authoritative initial migration:
-      the legacy JSON is read and merged, and an unreadable/corrupt legacy
-      file raises (fail closed) so the deploy health gate rolls the release
-      back instead of silently losing history.
-    * NON-EMPTY target — the migration already completed and the legacy file
-      is now a non-authoritative mirror that the rollback window keeps
-      reading. Its reads become best-effort: a read/parse failure prints a
-      warning to stderr and skips, so a corrupt mirror can never fail every
-      boot of a healthy authoritative store.
-
-    Records are merged under a durable ingestion identity
-    (store.import_legacy_records): records the previous release wrote
-    during a rollback window are picked up on the next boot, repeated
-    boots and mirrors of live-appended rows are no-ops, and records that
-    were ever ingested (including ones the cap has since pruned) are never
-    resurrected — anti-resurrection is decided by ingestion-log history,
-    not by event time. Legacy files are never deleted.
-    """
-    store.initialize_state_db(STATE_DB_FILE)
-    for camera_id in ANALYTICS_IDENTITIES:
-        for kind, limit in (
-            ("state", None),
-            ("events", EVENTS_FEED_LIMIT),
-            ("crossings", CROSSINGS_STORE_LIMIT),
-        ):
-            path = analytics_data_file(camera_id, kind)
-            if not path.exists():
-                continue
-            try:
-                payload = read_json_file(path, None)
-            except store.JSON_READ_ERRORS as error:
-                if not store.camera_has_rows(STATE_DB_FILE, kind, camera_id):
-                    raise
-                print(
-                    f"legacy {camera_id} {kind} mirror is unreadable and will be skipped: {error}",
-                    file=sys.stderr,
-                )
-                continue
-            if kind == "state":
-                if isinstance(payload, dict):
-                    store.import_legacy_camera_state(STATE_DB_FILE, camera_id, payload)
-            elif isinstance(payload, list) and payload:
-                store.import_legacy_records(STATE_DB_FILE, kind, camera_id, payload, limit)
-
-
 def persist_passage_object(passage: Dict[str, Any]) -> bool:
     snapshot_url = passage.get("snapshot_url")
     if not snapshot_url or not str(snapshot_url).strip().startswith("/sea-speed/media/"):
@@ -1435,7 +1384,6 @@ import_existing_passages()
 reconcile_passage_mirrors()
 sweep_events_media(force=True)
 initialize_water_passages_db()
-import_legacy_state_store()
 
 
 @app.get("/api/cameras")
@@ -1757,7 +1705,6 @@ async def post_analytics_state(
     data.setdefault("worker_source_commit", None)
     data["updated_at"] = now_iso()
     data["worker_online"] = True
-    path = analytics_data_file(camera_id, "state")
     if overlay is not None:
         overlay_path = OVERLAY_DIR / f"{camera_id}_latest_overlay.jpg"
         overlay_bytes = await overlay.read()
@@ -1781,10 +1728,6 @@ async def post_analytics_state(
         if data.get("overlay_rev") is None:
             data["overlay_rev"] = old_state.get("overlay_rev", old_state.get("frame_no", 0))
     store.upsert_camera_state(STATE_DB_FILE, camera_id, data)
-    try:  # dual-write window: keep the legacy JSON fresh for rollback/tooling
-        write_json_file(path, data)
-    except OSError as error:
-        print(f"legacy state mirror failed for {camera_id}: {error}", file=sys.stderr)
     return {"ok": True, "state": data}
 
 
@@ -1837,13 +1780,6 @@ async def post_analytics_event(
         raise HTTPException(status_code=422, detail="snapshot is required")
     sweep_events_media()
     store.append_event(STATE_DB_FILE, camera_id, event, EVENTS_FEED_LIMIT)
-    try:  # dual-write window: projection of the committed SQLite rows
-        write_json_file(
-            analytics_data_file(camera_id, "events"),
-            store.read_events(STATE_DB_FILE, camera_id, EVENTS_FEED_LIMIT),
-        )
-    except OSError as error:
-        print(f"legacy event mirror failed for {camera_id}: {error}", file=sys.stderr)
     return {"ok": True, "event": event}
 
 
@@ -2107,16 +2043,8 @@ def post_analytics_crossing_line(camera_id: str, payload: Dict[str, Any]) -> Dic
 CROSSING_DIRECTIONS = ("left_to_right", "right_to_left")
 
 
-def crossings_store_path(camera_id: str) -> Path:
-    return analytics_data_file(camera_id, "crossings")
-
-
 def append_crossing_record(camera_id: str, record: Dict[str, Any]) -> None:
     store.append_crossing(STATE_DB_FILE, camera_id, record, CROSSINGS_STORE_LIMIT)
-    try:  # dual-write window: projection of the committed SQLite rows
-        write_json_file(crossings_store_path(camera_id), store.read_crossings(STATE_DB_FILE, camera_id))
-    except OSError as error:
-        print(f"legacy crossings mirror failed for {camera_id}: {error}", file=sys.stderr)
 
 
 def post_analytics_crossing(camera_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
