@@ -36,6 +36,10 @@ QUALITY_TASK_MARKERS = ("## Requirements traceability", "## Definition of Done")
 
 GRANDFATHERED_PREFIX_COLLISIONS = {
     "002": {"002-camera-preview-gallery", "002-sdd-adoption"},
+    # Issue #396 ships as staged waves under one issue number (waves 2-6
+    # planned by the program contract); the wave pair shares the 396 prefix
+    # by design (delivery-orchestrator decision, 2026-10-12).
+    "396": {"396-wave1-shared-kernel", "396-wave2-objects-registry"},
 }
 
 SIGNIFICANT_PREFIXES = (

@@ -16,6 +16,9 @@ from typing import Any, Dict, List
 ROOT = Path(__file__).resolve().parents[1]
 WORKER = ROOT / "worker" / "hls_motion_yolo_worker_events.py"
 API = ROOT / "api" / "app" / "main.py"
+# Issue #396 wave 2: objects-registry layer moved out of main.py.
+OBJECTS_REGISTRY_SOURCE = ROOT / "api" / "app" / "objects_registry.py"
+PASSAGE_MIRRORS_SOURCE = ROOT / "api" / "app" / "passage_mirrors.py"
 STORE_FILE = ROOT / "api" / "app" / "store.py"
 
 
@@ -273,15 +276,19 @@ class ApiCrossingTests(unittest.TestCase):
         }
         cls.persisted: List[Dict[str, Any]] = []
         cls.namespace["persist_object_event"] = lambda event: cls.persisted.append(event) or True
-        tree = ast.parse(API.read_text(encoding="utf-8-sig"), filename=str(API))
+        tree_candidates = (API, OBJECTS_REGISTRY_SOURCE, PASSAGE_MIRRORS_SOURCE)
         selected = []
         found = set()
-        for node in tree.body:
-            if isinstance(node, ast.FunctionDef) and node.name in CROSSING_API_FUNCTIONS:
-                cloned = copy.deepcopy(node)
-                cloned.decorator_list = []
-                selected.append(cloned)
-                found.add(node.name)
+        for source in tree_candidates:
+            if not source.exists():
+                continue
+            tree = ast.parse(source.read_text(encoding="utf-8-sig"), filename=str(source))
+            for node in tree.body:
+                if isinstance(node, ast.FunctionDef) and node.name in CROSSING_API_FUNCTIONS and node.name not in found:
+                    cloned = copy.deepcopy(node)
+                    cloned.decorator_list = []
+                    selected.append(cloned)
+                    found.add(node.name)
         missing = CROSSING_API_FUNCTIONS - found
         if missing:
             raise AssertionError(f"missing API functions: {sorted(missing)}")

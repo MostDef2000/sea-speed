@@ -13,6 +13,8 @@ API_TARGET="${SEA_SPEED_API_TARGET:-/opt/sea-speed-api/app/main.py}"
 STORE_TARGET="$(dirname "$API_TARGET")/store.py"
 CONFIG_TARGET="$(dirname "$API_TARGET")/config.py"
 IDENTITY_TARGET="$(dirname "$API_TARGET")/identity.py"
+OBJECTS_REGISTRY_TARGET="$(dirname "$API_TARGET")/objects_registry.py"
+PASSAGE_MIRRORS_TARGET="$(dirname "$API_TARGET")/passage_mirrors.py"
 FRONTEND_TARGET="${SEA_SPEED_FRONTEND_TARGET:-/var/www/mostdef.ru/sea-speed/index.html}"
 OBJECTS_FRONTEND_TARGET="${SEA_SPEED_OBJECTS_FRONTEND_TARGET:-/var/www/mostdef.ru/sea-speed/objects/index.html}"
 CAMERAS_FRONTEND_TARGET="${SEA_SPEED_CAMERAS_FRONTEND_TARGET:-/var/www/mostdef.ru/sea-speed/cameras/index.html}"
@@ -208,6 +210,8 @@ release_complete() {
      -f "$root/api/app/store.py" && \
      -f "$root/api/app/config.py" && \
      -f "$root/api/app/identity.py" && \
+     -f "$root/api/app/objects_registry.py" && \
+     -f "$root/api/app/passage_mirrors.py" && \
      -f "$root/frontend/sea-speed/index.html" && \
      -f "$root/frontend/sea-speed/objects/index.html" && \
      -f "$root/frontend/sea-speed/cameras/index.html" && \
@@ -247,6 +251,8 @@ download_release() {
     api/app/store.py \
     api/app/config.py \
     api/app/identity.py \
+    api/app/objects_registry.py \
+    api/app/passage_mirrors.py \
     frontend/sea-speed/index.html \
     frontend/sea-speed/objects/index.html \
     frontend/sea-speed/cameras/index.html \
@@ -276,6 +282,8 @@ download_release() {
   install -m 0644 "$extracted/api/app/store.py" "$TARGET_RELEASE/api/app/store.py"
   install -m 0644 "$extracted/api/app/config.py" "$TARGET_RELEASE/api/app/config.py"
   install -m 0644 "$extracted/api/app/identity.py" "$TARGET_RELEASE/api/app/identity.py"
+  install -m 0644 "$extracted/api/app/objects_registry.py" "$TARGET_RELEASE/api/app/objects_registry.py"
+  install -m 0644 "$extracted/api/app/passage_mirrors.py" "$TARGET_RELEASE/api/app/passage_mirrors.py"
   install -m 0644 "$extracted/frontend/sea-speed/index.html" "$TARGET_RELEASE/frontend/sea-speed/index.html"
   install -m 0644 "$extracted/frontend/sea-speed/objects/index.html" "$TARGET_RELEASE/frontend/sea-speed/objects/index.html"
   install -m 0644 "$extracted/frontend/sea-speed/cameras/index.html" "$TARGET_RELEASE/frontend/sea-speed/cameras/index.html"
@@ -542,6 +550,16 @@ bootstrap_current_release() {
     # stay bootable on its own.
     install -m 0644 "$STORE_TARGET" "$bootstrap_release/api/app/store.py"
   fi
+  if [[ -f "$OBJECTS_REGISTRY_TARGET" ]]; then
+    # Same for objects_registry.py (issue #396 wave 2): the captured main.py
+    # imports it at boot, so the bootstrap baseline must stay bootable.
+    install -m 0644 "$OBJECTS_REGISTRY_TARGET" "$bootstrap_release/api/app/objects_registry.py"
+  fi
+  if [[ -f "$PASSAGE_MIRRORS_TARGET" ]]; then
+    # Same for passage_mirrors.py (issue #396 wave 2): the captured main.py
+    # imports it at boot, so the bootstrap baseline must stay bootable.
+    install -m 0644 "$PASSAGE_MIRRORS_TARGET" "$bootstrap_release/api/app/passage_mirrors.py"
+  fi
   install -m 0644 "$FRONTEND_TARGET" "$bootstrap_release/frontend/sea-speed/index.html"
   if [[ -f "$OBJECTS_FRONTEND_TARGET" ]]; then
     install -m 0644 "$OBJECTS_FRONTEND_TARGET" "$bootstrap_release/frontend/sea-speed/objects/index.html"
@@ -670,6 +688,12 @@ install_release() {
   if [[ -f "$release_dir/api/app/store.py" ]]; then
     install -m 0644 "$release_dir/api/app/store.py" "${STORE_TARGET}.next"
   fi
+  if [[ -f "$release_dir/api/app/objects_registry.py" ]]; then
+    install -m 0644 "$release_dir/api/app/objects_registry.py" "${OBJECTS_REGISTRY_TARGET}.next"
+  fi
+  if [[ -f "$release_dir/api/app/passage_mirrors.py" ]]; then
+    install -m 0644 "$release_dir/api/app/passage_mirrors.py" "${PASSAGE_MIRRORS_TARGET}.next"
+  fi
   install -m 0644 "$release_dir/frontend/sea-speed/index.html" "${FRONTEND_TARGET}.next"
   install -m 0644 "$release_dir/frontend/root/index.html" "${ROOT_FRONTEND_TARGET}.next"
   if [[ -f "$release_dir/frontend/sea-speed/objects/index.html" ]]; then
@@ -718,6 +742,21 @@ install_release() {
     mv -f "${STORE_TARGET}.next" "$STORE_TARGET"
   else
     rm -f "$STORE_TARGET" "${STORE_TARGET}.next"
+  fi
+  if [[ -f "$release_dir/api/app/objects_registry.py" ]]; then
+    # Activation is bound to the selected release content — the same
+    # condition as staging above. objects_registry.py must land before
+    # main.py: the new main imports it at boot (issue #396 wave 2).
+    mv -f "${OBJECTS_REGISTRY_TARGET}.next" "$OBJECTS_REGISTRY_TARGET"
+  else
+    rm -f "$OBJECTS_REGISTRY_TARGET" "${OBJECTS_REGISTRY_TARGET}.next"
+  fi
+  if [[ -f "$release_dir/api/app/passage_mirrors.py" ]]; then
+    # passage_mirrors.py must also land before main.py: the new main imports
+    # it at boot and binds open_passages_db into it (issue #396 wave 2).
+    mv -f "${PASSAGE_MIRRORS_TARGET}.next" "$PASSAGE_MIRRORS_TARGET"
+  else
+    rm -f "$PASSAGE_MIRRORS_TARGET" "${PASSAGE_MIRRORS_TARGET}.next"
   fi
   mv -f "${API_TARGET}.next" "$API_TARGET"
   mv -f "${FRONTEND_TARGET}.next" "$FRONTEND_TARGET"

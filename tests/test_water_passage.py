@@ -14,6 +14,9 @@ from typing import Any, Dict, List, Optional
 ROOT = Path(__file__).resolve().parents[1]
 WORKER_SOURCE = ROOT / "worker" / "hls_motion_yolo_worker_events.py"
 API_SOURCE = ROOT / "api" / "app" / "main.py"
+# Issue #396 wave 2: objects-registry layer moved out of main.py.
+OBJECTS_REGISTRY_SOURCE = ROOT / "api" / "app" / "objects_registry.py"
+PASSAGE_MIRRORS_SOURCE = ROOT / "api" / "app" / "passage_mirrors.py"
 FRONTEND_SOURCE = ROOT / "frontend" / "sea-speed" / "index.html"
 ARTIFACT_SOURCE = ROOT / "scripts" / "quality" / "build_exact_artifacts.py"
 
@@ -36,15 +39,20 @@ class HTTPExceptionStub(Exception):
 
 
 def load_api_functions(names: set[str], namespace: dict[str, Any]) -> dict[str, Any]:
-    tree = ast.parse(API_SOURCE.read_text(encoding="utf-8-sig"), filename=str(API_SOURCE))
+    # Issue #396 wave 2: objects-registry layer moved out of main.py — resolve
+    # moved functions from the new modules with fallback to main.
     selected = []
     found = set()
-    for node in tree.body:
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in names:
-            cloned = copy.deepcopy(node)
-            cloned.decorator_list = copy.deepcopy(node.decorator_list) if node.name in {"open_passages_db"} else []
-            selected.append(cloned)
-            found.add(node.name)
+    for source in (API_SOURCE, OBJECTS_REGISTRY_SOURCE, PASSAGE_MIRRORS_SOURCE):
+        if not source.exists():
+            continue
+        tree = ast.parse(source.read_text(encoding="utf-8-sig"), filename=str(source))
+        for node in tree.body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in names and node.name not in found:
+                cloned = copy.deepcopy(node)
+                cloned.decorator_list = copy.deepcopy(node.decorator_list) if node.name in {"open_passages_db"} else []
+                selected.append(cloned)
+                found.add(node.name)
     missing = names - found
     if missing:
         raise AssertionError(f"missing API functions: {sorted(missing)}")
@@ -520,7 +528,13 @@ class PassageApiRetentionTests(unittest.TestCase):
         api_dir = ROOT / "api/app"
         source = "\n".join(
             path.read_text(encoding="utf-8")
-            for path in (api_dir / "main.py", api_dir / "identity.py", api_dir / "config.py")
+            for path in (
+                api_dir / "main.py",
+                api_dir / "objects_registry.py",
+                api_dir / "passage_mirrors.py",
+                api_dir / "identity.py",
+                api_dir / "config.py",
+            )
             if path.exists()
         )
         self.assertIn("PASSAGES_RETENTION_LIMIT = 300", source)

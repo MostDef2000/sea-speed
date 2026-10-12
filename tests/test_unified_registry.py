@@ -13,23 +13,30 @@ from typing import Any, Dict, List, Optional
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "api" / "app" / "main.py"
+# Issue #396 wave 2: objects-registry layer moved out of main.py — resolve
+# moved functions from the new modules with fallback to main.
+OBJECTS_REGISTRY_SOURCE = ROOT / "api" / "app" / "objects_registry.py"
+PASSAGE_MIRRORS_SOURCE = ROOT / "api" / "app" / "passage_mirrors.py"
 REGISTRY_PAGE = ROOT / "frontend" / "sea-speed" / "objects" / "index.html"
 
 
 def load_functions(names: set[str], namespace: dict[str, Any]) -> dict[str, Any]:
-    tree = ast.parse(SOURCE.read_text(encoding="utf-8-sig"), filename=str(SOURCE))
     selected = []
     found = set()
-    for node in tree.body:
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in names:
-            cloned = copy.deepcopy(node)
-            cloned.decorator_list = (
-                copy.deepcopy(node.decorator_list)
-                if node.name in {"open_objects_db", "open_passages_db"}
-                else []
-            )
-            selected.append(cloned)
-            found.add(node.name)
+    for source in (SOURCE, OBJECTS_REGISTRY_SOURCE, PASSAGE_MIRRORS_SOURCE):
+        if not source.exists():
+            continue
+        tree = ast.parse(source.read_text(encoding="utf-8-sig"), filename=str(source))
+        for node in tree.body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in names and node.name not in found:
+                cloned = copy.deepcopy(node)
+                cloned.decorator_list = (
+                    copy.deepcopy(node.decorator_list)
+                    if node.name in {"open_objects_db", "open_passages_db"}
+                    else []
+                )
+                selected.append(cloned)
+                found.add(node.name)
     missing = names - found
     if missing:
         raise AssertionError(f"missing API functions: {sorted(missing)}")
