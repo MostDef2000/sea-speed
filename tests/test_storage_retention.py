@@ -16,14 +16,16 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "api" / "app" / "main.py"
 # Issue #396 wave 2: objects-registry layer moved out of main.py — resolve
 # moved functions from the new modules with fallback to main.
+# Issue #396 wave 3: the water-passages store joined them.
 OBJECTS_REGISTRY_SOURCE = ROOT / "api" / "app" / "objects_registry.py"
 PASSAGE_MIRRORS_SOURCE = ROOT / "api" / "app" / "passage_mirrors.py"
+WATER_PASSAGES_SOURCE = ROOT / "api" / "app" / "water_passages.py"
 
 
 def load_functions(names: set[str], namespace: dict[str, Any]) -> dict[str, Any]:
     selected = []
     found = set()
-    for source in (SOURCE, OBJECTS_REGISTRY_SOURCE, PASSAGE_MIRRORS_SOURCE):
+    for source in (SOURCE, OBJECTS_REGISTRY_SOURCE, PASSAGE_MIRRORS_SOURCE, WATER_PASSAGES_SOURCE):
         if not source.exists():
             continue
         tree = ast.parse(source.read_text(encoding="utf-8-sig"), filename=str(source))

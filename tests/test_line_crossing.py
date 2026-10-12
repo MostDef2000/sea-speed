@@ -19,6 +19,8 @@ API = ROOT / "api" / "app" / "main.py"
 # Issue #396 wave 2: objects-registry layer moved out of main.py.
 OBJECTS_REGISTRY_SOURCE = ROOT / "api" / "app" / "objects_registry.py"
 PASSAGE_MIRRORS_SOURCE = ROOT / "api" / "app" / "passage_mirrors.py"
+# Issue #396 wave 3: the water-passages store moved out of main.py.
+WATER_PASSAGES_SOURCE = ROOT / "api" / "app" / "water_passages.py"
 STORE_FILE = ROOT / "api" / "app" / "store.py"
 
 
@@ -276,7 +278,9 @@ class ApiCrossingTests(unittest.TestCase):
         }
         cls.persisted: List[Dict[str, Any]] = []
         cls.namespace["persist_object_event"] = lambda event: cls.persisted.append(event) or True
-        tree_candidates = (API, OBJECTS_REGISTRY_SOURCE, PASSAGE_MIRRORS_SOURCE)
+        # Issue #396 wave 3: water_passages.py joined the walk (defensive —
+        # the crossing slice stays in main.py this wave).
+        tree_candidates = (API, OBJECTS_REGISTRY_SOURCE, PASSAGE_MIRRORS_SOURCE, WATER_PASSAGES_SOURCE)
         selected = []
         found = set()
         for source in tree_candidates:

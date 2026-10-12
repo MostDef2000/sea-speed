@@ -17,6 +17,8 @@ API_SOURCE = ROOT / "api" / "app" / "main.py"
 # Issue #396 wave 2: objects-registry layer moved out of main.py.
 OBJECTS_REGISTRY_SOURCE = ROOT / "api" / "app" / "objects_registry.py"
 PASSAGE_MIRRORS_SOURCE = ROOT / "api" / "app" / "passage_mirrors.py"
+# Issue #396 wave 3: the water-passages store moved out of main.py.
+WATER_PASSAGES_SOURCE = ROOT / "api" / "app" / "water_passages.py"
 FRONTEND_SOURCE = ROOT / "frontend" / "sea-speed" / "index.html"
 ARTIFACT_SOURCE = ROOT / "scripts" / "quality" / "build_exact_artifacts.py"
 
@@ -41,9 +43,10 @@ class HTTPExceptionStub(Exception):
 def load_api_functions(names: set[str], namespace: dict[str, Any]) -> dict[str, Any]:
     # Issue #396 wave 2: objects-registry layer moved out of main.py — resolve
     # moved functions from the new modules with fallback to main.
+    # Issue #396 wave 3: the water-passages store joined them.
     selected = []
     found = set()
-    for source in (API_SOURCE, OBJECTS_REGISTRY_SOURCE, PASSAGE_MIRRORS_SOURCE):
+    for source in (API_SOURCE, OBJECTS_REGISTRY_SOURCE, PASSAGE_MIRRORS_SOURCE, WATER_PASSAGES_SOURCE):
         if not source.exists():
             continue
         tree = ast.parse(source.read_text(encoding="utf-8-sig"), filename=str(source))
@@ -525,6 +528,8 @@ class PassageApiRetentionTests(unittest.TestCase):
     def test_api_schema_does_not_persist_per_frame_trajectory_rows(self) -> None:
         # Issue #396 wave 1: PASSAGES_RETENTION_LIMIT moved to config.py —
         # read the API sources so the pin follows the constant.
+        # Issue #396 wave 3: the water-passages store joined the walk —
+        # the water_passages DDL pin follows the moved store.
         api_dir = ROOT / "api/app"
         source = "\n".join(
             path.read_text(encoding="utf-8")
@@ -532,6 +537,7 @@ class PassageApiRetentionTests(unittest.TestCase):
                 api_dir / "main.py",
                 api_dir / "objects_registry.py",
                 api_dir / "passage_mirrors.py",
+                api_dir / "water_passages.py",
                 api_dir / "identity.py",
                 api_dir / "config.py",
             )
