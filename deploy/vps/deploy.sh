@@ -15,6 +15,7 @@ CONFIG_TARGET="$(dirname "$API_TARGET")/config.py"
 IDENTITY_TARGET="$(dirname "$API_TARGET")/identity.py"
 OBJECTS_REGISTRY_TARGET="$(dirname "$API_TARGET")/objects_registry.py"
 PASSAGE_MIRRORS_TARGET="$(dirname "$API_TARGET")/passage_mirrors.py"
+WATER_PASSAGES_TARGET="$(dirname "$API_TARGET")/water_passages.py"
 FRONTEND_TARGET="${SEA_SPEED_FRONTEND_TARGET:-/var/www/mostdef.ru/sea-speed/index.html}"
 OBJECTS_FRONTEND_TARGET="${SEA_SPEED_OBJECTS_FRONTEND_TARGET:-/var/www/mostdef.ru/sea-speed/objects/index.html}"
 CAMERAS_FRONTEND_TARGET="${SEA_SPEED_CAMERAS_FRONTEND_TARGET:-/var/www/mostdef.ru/sea-speed/cameras/index.html}"
@@ -212,6 +213,7 @@ release_complete() {
      -f "$root/api/app/identity.py" && \
      -f "$root/api/app/objects_registry.py" && \
      -f "$root/api/app/passage_mirrors.py" && \
+     -f "$root/api/app/water_passages.py" && \
      -f "$root/frontend/sea-speed/index.html" && \
      -f "$root/frontend/sea-speed/objects/index.html" && \
      -f "$root/frontend/sea-speed/cameras/index.html" && \
@@ -253,6 +255,7 @@ download_release() {
     api/app/identity.py \
     api/app/objects_registry.py \
     api/app/passage_mirrors.py \
+    api/app/water_passages.py \
     frontend/sea-speed/index.html \
     frontend/sea-speed/objects/index.html \
     frontend/sea-speed/cameras/index.html \
@@ -284,6 +287,7 @@ download_release() {
   install -m 0644 "$extracted/api/app/identity.py" "$TARGET_RELEASE/api/app/identity.py"
   install -m 0644 "$extracted/api/app/objects_registry.py" "$TARGET_RELEASE/api/app/objects_registry.py"
   install -m 0644 "$extracted/api/app/passage_mirrors.py" "$TARGET_RELEASE/api/app/passage_mirrors.py"
+  install -m 0644 "$extracted/api/app/water_passages.py" "$TARGET_RELEASE/api/app/water_passages.py"
   install -m 0644 "$extracted/frontend/sea-speed/index.html" "$TARGET_RELEASE/frontend/sea-speed/index.html"
   install -m 0644 "$extracted/frontend/sea-speed/objects/index.html" "$TARGET_RELEASE/frontend/sea-speed/objects/index.html"
   install -m 0644 "$extracted/frontend/sea-speed/cameras/index.html" "$TARGET_RELEASE/frontend/sea-speed/cameras/index.html"
@@ -560,6 +564,11 @@ bootstrap_current_release() {
     # imports it at boot, so the bootstrap baseline must stay bootable.
     install -m 0644 "$PASSAGE_MIRRORS_TARGET" "$bootstrap_release/api/app/passage_mirrors.py"
   fi
+  if [[ -f "$WATER_PASSAGES_TARGET" ]]; then
+    # Same for water_passages.py (issue #396 wave 3): the captured main.py
+    # imports it at boot, so the bootstrap baseline must stay bootable.
+    install -m 0644 "$WATER_PASSAGES_TARGET" "$bootstrap_release/api/app/water_passages.py"
+  fi
   install -m 0644 "$FRONTEND_TARGET" "$bootstrap_release/frontend/sea-speed/index.html"
   if [[ -f "$OBJECTS_FRONTEND_TARGET" ]]; then
     install -m 0644 "$OBJECTS_FRONTEND_TARGET" "$bootstrap_release/frontend/sea-speed/objects/index.html"
@@ -694,6 +703,9 @@ install_release() {
   if [[ -f "$release_dir/api/app/passage_mirrors.py" ]]; then
     install -m 0644 "$release_dir/api/app/passage_mirrors.py" "${PASSAGE_MIRRORS_TARGET}.next"
   fi
+  if [[ -f "$release_dir/api/app/water_passages.py" ]]; then
+    install -m 0644 "$release_dir/api/app/water_passages.py" "${WATER_PASSAGES_TARGET}.next"
+  fi
   install -m 0644 "$release_dir/frontend/sea-speed/index.html" "${FRONTEND_TARGET}.next"
   install -m 0644 "$release_dir/frontend/root/index.html" "${ROOT_FRONTEND_TARGET}.next"
   if [[ -f "$release_dir/frontend/sea-speed/objects/index.html" ]]; then
@@ -757,6 +769,14 @@ install_release() {
     mv -f "${PASSAGE_MIRRORS_TARGET}.next" "$PASSAGE_MIRRORS_TARGET"
   else
     rm -f "$PASSAGE_MIRRORS_TARGET" "${PASSAGE_MIRRORS_TARGET}.next"
+  fi
+  if [[ -f "$release_dir/api/app/water_passages.py" ]]; then
+    # water_passages.py must also land before main.py: the new main imports
+    # it at boot and binds open_passages_db into passage_mirrors from it
+    # (issue #396 wave 3).
+    mv -f "${WATER_PASSAGES_TARGET}.next" "$WATER_PASSAGES_TARGET"
+  else
+    rm -f "$WATER_PASSAGES_TARGET" "${WATER_PASSAGES_TARGET}.next"
   fi
   mv -f "${API_TARGET}.next" "$API_TARGET"
   mv -f "${FRONTEND_TARGET}.next" "$FRONTEND_TARGET"

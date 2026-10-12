@@ -129,6 +129,9 @@ class VpsDeployTransactionTests(unittest.TestCase):
             # modules, so synthetic releases carry them like the real tree does.
             "api/app/objects_registry.py": f"# objects registry fixture {sha}\n",
             "api/app/passage_mirrors.py": f"# passage mirrors fixture {sha}\n",
+            # Issue #396 wave 3: release_complete requires the water-passages
+            # store module too, so synthetic releases carry it as well.
+            "api/app/water_passages.py": f"# water passages fixture {sha}\n",
             "frontend/sea-speed/index.html": f"operator {sha}\n",
             "frontend/sea-speed/objects/index.html": f"objects {sha}\n",
             "frontend/sea-speed/cameras/index.html": f"cameras {sha}\n",

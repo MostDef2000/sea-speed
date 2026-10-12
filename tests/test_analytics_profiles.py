@@ -99,6 +99,8 @@ class AnalyticsProfilesTests(unittest.TestCase):
         # Issue #396 wave 2: include the objects-registry modules — the
         # ALTER TABLE objects ADD COLUMN migration pins moved with
         # initialize_objects_db into objects_registry.py.
+        # Issue #396 wave 3: the water-passages store joined the walk
+        # (water_passages DDL now lives in water_passages.py).
         api_dir = ROOT / "api/app"
         source = "\n".join(
             path.read_text(encoding="utf-8")
@@ -106,6 +108,7 @@ class AnalyticsProfilesTests(unittest.TestCase):
                 api_dir / "main.py",
                 api_dir / "objects_registry.py",
                 api_dir / "passage_mirrors.py",
+                api_dir / "water_passages.py",
                 api_dir / "identity.py",
                 api_dir / "config.py",
             )

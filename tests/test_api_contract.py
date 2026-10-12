@@ -22,11 +22,14 @@ SOURCE = ROOT / "api" / "app" / "main.py"
 # Issue #396 wave 2: the objects registry + passage mirrors live in their own
 # modules; readers walk them BEFORE identity/config so source block-scans that
 # rely on ordering (build_objects_where → analytics_identity) keep working.
+# Issue #396 wave 3: the water-passages store joined the walk (its modules
+# carry no ordering constraints, so it walks after passage_mirrors).
 IDENTITY_SOURCE = ROOT / "api" / "app" / "identity.py"
 CONFIG_SOURCE = ROOT / "api" / "app" / "config.py"
 STORE_SOURCE = ROOT / "api" / "app" / "store.py"
 OBJECTS_REGISTRY_SOURCE = ROOT / "api" / "app" / "objects_registry.py"
 PASSAGE_MIRRORS_SOURCE = ROOT / "api" / "app" / "passage_mirrors.py"
+WATER_PASSAGES_SOURCE = ROOT / "api" / "app" / "water_passages.py"
 FRONTEND = ROOT / "frontend" / "sea-speed" / "index.html"
 
 
@@ -37,6 +40,7 @@ def api_sources() -> str:
             SOURCE,
             OBJECTS_REGISTRY_SOURCE,
             PASSAGE_MIRRORS_SOURCE,
+            WATER_PASSAGES_SOURCE,
             IDENTITY_SOURCE,
             CONFIG_SOURCE,
         )
@@ -63,7 +67,7 @@ class HTTPExceptionStub(Exception):
 def load_functions(names: set[str], namespace: dict[str, Any]) -> dict[str, Any]:
     selected = []
     found = set()
-    for source in (SOURCE, OBJECTS_REGISTRY_SOURCE, PASSAGE_MIRRORS_SOURCE, IDENTITY_SOURCE, CONFIG_SOURCE):
+    for source in (SOURCE, OBJECTS_REGISTRY_SOURCE, PASSAGE_MIRRORS_SOURCE, WATER_PASSAGES_SOURCE, IDENTITY_SOURCE, CONFIG_SOURCE):
         if not source.exists():
             continue
         tree = ast.parse(source.read_text(encoding="utf-8-sig"), filename=str(source))
