@@ -332,7 +332,7 @@ check_auth_privilege_boundary() {
   }
 
   write_privileged_request status
-  local output rc
+  local output rc recovery_lines
   set +e
   output="$(invoke_privileged_helper 2>&1)"
   rc=$?
@@ -386,11 +386,18 @@ check_auth_privilege_boundary() {
     # The privileged helper prints SEA_SPEED_AUTH_RECOVERY=PASS only when the
     # reconcile actually ran the bounded broken-500 recovery path; a normal
     # reconcile ends with SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS and no
-    # recovery marker at all. Accept both outcomes: when a recovery marker is
-    # present it must be PASS (any other recovery value fails closed), but its
-    # presence is never required.
-    if grep -Fq 'SEA_SPEED_AUTH_RECOVERY=' <<<"$output"; then
-      grep -Fq 'SEA_SPEED_AUTH_RECOVERY=PASS' <<<"$output" || return 44
+    # recovery marker at all. Accept both outcomes: absence of the recovery
+    # marker is admissible, and UNIVERSALLY every occurrence of
+    # SEA_SPEED_AUTH_RECOVERY= in the output must be =PASS — a stray =PASS
+    # line must not rescue a =FAIL occurrence (peer review F-1). The matching
+    # lines are captured first and re-checked in a single grep pass, so the
+    # verdict stays exact under set -o pipefail (no SIGPIPE-skewed pipeline
+    # status); the [[ -n ]] guard skips the check when no recovery marker was
+    # printed (a herestring of an empty capture is one empty line, which -v
+    # would otherwise select) and keeps set -e from exiting on no-match.
+    recovery_lines="$(grep -F 'SEA_SPEED_AUTH_RECOVERY=' <<<"$output" || true)"
+    if [[ -n "$recovery_lines" ]] && grep -Fqv 'SEA_SPEED_AUTH_RECOVERY=PASS' <<<"$recovery_lines"; then
+      return 44
     fi
     grep -Fq 'SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS' <<<"$output" || return 44
     log "Restricted Auth privilege boundary auto-reconciled for ${COMMIT_SHA} before live source mutation"
@@ -421,7 +428,7 @@ private_authentik_health_status() {
 
 recover_auth_boundary_before_source_mutation() {
   [[ "$AUTH_BOUNDARY_REQUIRED" == "1" ]] || return 0
-  local status output rc recovered private_health
+  local status output rc recovered private_health recovery_lines
   status="$(protected_frontend_status)"
   case "$status" in
     302|401|403)
@@ -472,14 +479,22 @@ recover_auth_boundary_before_source_mutation() {
   grep -Fq "SOURCE_SHA=${COMMIT_SHA}" <<<"$output" || return 44
   grep -Fq 'ACTION=reconcile' <<<"$output" || return 44
   grep -Fq 'ARBITRARY_ROOT_EXECUTION=NO' <<<"$output" || return 44
-  # Same two-outcome contract as the auto-reconcile preflight above: the
-  # privileged helper prints SEA_SPEED_AUTH_RECOVERY=PASS only when the
-  # reconcile took the bounded broken-500 recovery path; a normal reconcile
-  # ends with SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS and no recovery marker.
-  # Require the recovery marker to be PASS when present, never require its
-  # presence.
-  if grep -Fq 'SEA_SPEED_AUTH_RECOVERY=' <<<"$output"; then
-    grep -Fq 'SEA_SPEED_AUTH_RECOVERY=PASS' <<<"$output" || return 44
+  # Same two-outcome contract as the auto-reconcile preflight above, and
+  # universally over occurrences: the privileged helper prints
+  # SEA_SPEED_AUTH_RECOVERY=PASS only when the reconcile took the bounded
+  # broken-500 recovery path; a normal reconcile ends with
+  # SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS and no recovery marker. Absence
+  # is admissible, but EVERY occurrence of SEA_SPEED_AUTH_RECOVERY= must be
+  # =PASS — a stray =PASS line must not rescue a =FAIL one (peer review F-1).
+  # The matching lines are captured first and re-checked in a single grep
+  # pass, so the verdict stays exact under set -o pipefail (no
+  # SIGPIPE-skewed pipeline status); the [[ -n ]] guard skips the check when
+  # no recovery marker was printed (a herestring of an empty capture is one
+  # empty line, which -v would otherwise select) and keeps set -e from
+  # exiting on no-match.
+  recovery_lines="$(grep -F 'SEA_SPEED_AUTH_RECOVERY=' <<<"$output" || true)"
+  if [[ -n "$recovery_lines" ]] && grep -Fqv 'SEA_SPEED_AUTH_RECOVERY=PASS' <<<"$recovery_lines"; then
+    return 44
   fi
   grep -Fq 'SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS' <<<"$output" || return 44
 

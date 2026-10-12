@@ -241,7 +241,7 @@ mode = os.environ.get('FAKE_PRIV_MODE', 'success')
 public_mode = os.environ.get('FAKE_PUBLIC_MODE', 'healthy')
 recovery_marker = Path(os.environ['FAKE_RECOVERY_MARKER'])
 if action == 'status':
-    if mode in {'mismatch', 'reconcile-fail', 'recovery-marker-fail'}:
+    if mode in {'mismatch', 'reconcile-fail', 'recovery-marker-fail', 'recovery-marker-mixed'}:
         print('ERROR privileged bundle source SHA does not match request')
         print('PRIVILEGE_BOUNDARY_BOOTSTRAP_REQUIRED=YES')
         raise SystemExit(41)
@@ -283,6 +283,17 @@ if action == 'reconcile':
         print('WORKER_PRIVATE_ROAD_API_BASE=http://10.123.239.101:18080/api/analytics/road1')
         print('SEA_SPEED_AUTH_RECOVERY=FAIL')
         print('ROLLBACK_CAPABILITY=VERIFIED')
+        print('SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS')
+        raise SystemExit(0)
+    if mode == 'recovery-marker-mixed':
+        # Peer review F-1 (universal semantics): a stray =PASS line after a
+        # =FAIL occurrence must not rescue the output — EVERY occurrence of
+        # SEA_SPEED_AUTH_RECOVERY= must be =PASS.
+        print('SEA_SPEED_AUTH_CUTOVER=PASS')
+        print('WORKER_PRIVATE_ROAD_API_BASE=http://10.123.239.101:18080/api/analytics/road1')
+        print('SEA_SPEED_AUTH_RECOVERY=FAIL')
+        print('ROLLBACK_CAPABILITY=VERIFIED')
+        print('SEA_SPEED_AUTH_RECOVERY=PASS')
         print('SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS')
         raise SystemExit(0)
     # Contract fidelity with the real helper (deploy/vps/
@@ -465,6 +476,22 @@ if action == 'reconcile':
         self.assertEqual(self.road.read_bytes(), before_road)
         self.assertEqual(self.current(), OLD)
         self.assertIn("SEA_SPEED_AUTH_RECOVERY=FAIL", result.stdout)
+        self.assertFalse((self.state / "deployment-manifest.json").exists())
+
+    def test_privilege_boundary_reconcile_recovery_fail_with_stray_pass_stops_before_live_source_mutation(self) -> None:
+        # Universal recovery-marker semantics (peer review F-1): a stray
+        # SEA_SPEED_AUTH_RECOVERY=PASS line must not rescue a =FAIL
+        # occurrence — the reconcile must abort before any live source
+        # mutation.
+        before_api = self.api.read_bytes()
+        before_road = self.road.read_bytes()
+        result = self.run_deploy(priv_mode="recovery-marker-mixed")
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(self.api.read_bytes(), before_api)
+        self.assertEqual(self.road.read_bytes(), before_road)
+        self.assertEqual(self.current(), OLD)
+        self.assertIn("SEA_SPEED_AUTH_RECOVERY=FAIL", result.stdout)
+        self.assertIn("SEA_SPEED_AUTH_RECOVERY=PASS", result.stdout)
         self.assertFalse((self.state / "deployment-manifest.json").exists())
 
     def test_privilege_boundary_mismatch_reconcile_failure_stops_before_live_source_mutation(self) -> None:
