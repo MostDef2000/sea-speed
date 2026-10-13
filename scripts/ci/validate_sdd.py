@@ -53,6 +53,14 @@ GRANDFATHERED_PREFIX_COLLISIONS = {
         "396-wave6-live-feeds-worker-control",
         "396-d6-artifact-convergence",
     },
+    # Issue #397 ships as staged waves under one issue number (worker
+    # decomposition: wave 1 kernel extraction, wave 2 media layer, further
+    # waves planned by the program contract); the wave set shares the 397
+    # prefix by design — same staged-wave precedent as 396.
+    "397": {
+        "397-wave1-worker-kernel",
+        "397-wave2-worker-media",
+    },
 }
 
 SIGNIFICANT_PREFIXES = (

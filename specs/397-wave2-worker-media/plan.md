@@ -1,0 +1,106 @@
+# Plan: wave-2 worker media — reader/media extraction + multi-file compatibility gate (move-only)
+
+- Issue: #397
+- Specification: specs/397-wave2-worker-media/spec.md
+
+## Implementation approach
+
+1. RECON-established facts (re-derived from live source, per the work order — the progress-file map is a guide, not authority): the media/reader region of `worker/hls_motion_yolo_worker_events.py` resolves to exactly 7 defs — `_resolve_frame_size`, `start_ffmpeg`, `read_exact`, `_frame_time_seconds`, `class FFmpegFrameReader`, `class RtspFrameReader`, `start_media_reader` — in 2 contiguous regions ([_resolve_frame_size..crop_sharpness) and [start_ffmpeg..MotionDetector)). No standalone terminate/kill/wait/restart helpers exist in the worker file (the only lifecycle primitive is `proc.kill()` inside `FFmpegFrameReader.close`, moving with its class; restart supervision lives in `ubuntu_worker_entrypoint.py`, out of scope); no standalone ffmpeg arg-builder exists (the arg list is inline in `start_ffmpeg`); NO module-level constants live in the moved region (the "constants move + re-export" contingency was checked and is empty). `check_ubuntu_compatibility` has NO workflow/CI invocation (zero references in .github/workflows/** and scripts/ci/**) — it is exercised by unit tests + CLI.
+2. Move-only mechanics: a script extracted the 2 regions verbatim (bottom-up cuts, blank-line runs collapsed to exactly 2), wrote `worker/worker_media.py` (imports: subprocess, time, numpy as np; `from analytics_profiles import get_profile`; `from worker_kernel import _media_input_scheme, env_float, env_int, env_str, media_basic_auth_for_input, safe_media_input_label`) and deleted the regions from the worker; the re-export `from worker_media import (7 names)` (`# noqa: F401`, flat sibling style) was inserted directly after the wave-1 kernel re-export block. The now-orphaned `import subprocess` was removed from the worker (its only user, start_ffmpeg's Popen, moved; the gate's union scan still sees subprocess via worker_media). `_resolve_frame_size` moved too (forced by `start_media_reader`'s call — move-only forbids rewriting it; its 4 staying call sites resolve via the re-export).
+3. Gate extension (the protected part): `MODULE_SOURCES` tuple at the top (worker + worker_media, mirroring the harness's DEFAULT_WORKER_SOURCES naming); `inspect_worker` accepts Path | list/tuple (single-Path back-compat kept for existing callers); scans union imports/calls/literals across files; env-names, Popen-usage, pathlib/subprocess import presence and forbidden markers computed on the union; missing file → SystemExit in BOTH `inspect_worker` and `main()` (default path validates every MODULE_SOURCES file exists BEFORE scanning — a missing worker_media.py fails the gate, it never silently narrows it); `--worker` remains an explicit single-file debug override; schema keys unchanged; `worker` value = comma-joined display paths. NO check weakened.
+4. Convergence: worker_media.py added to build_exact_artifacts ubuntu-worker+edge required lists, validate_exact_artifacts matching sets, validate_repo REQUIRED_FILES, and install-systemd.sh prepared-release required loop (fail-closed at install). rollback-exact.sh deliberately untouched (its check targets PREVIOUS releases that may predate the media module — same rationale as wave 1).
+5. Harness: tests/support/worker_source.py DEFAULT_WORKER_SOURCES gains worker/worker_media.py (3 files, first-definition-wins); the #398 pins resolve moved names from worker_media and staying names from the worker with ZERO pin edits (observed).
+6. Integrity tests (tests/test_worker_media_module.py, 8 tests): media import-allowlist AST check (top-level ⊆ cv2/numpy/subprocess/os/time/pathlib/datetime/urllib.parse/typing + repo-pure worker_kernel/analytics_profiles; `av` deliberately excluded) + lazy-av pin (exactly one `import av` inside RtspFrameReader.__init__); exact-list re-export check (both directions); def placement (moved only in media / staying only in worker / nothing in the kernel); gate tests (single-file worker scan misses HLS_URL → proves union work; union → compatible; negative temp-tree: required env call site removed from BOTH files → FAIL; missing file → SystemExit).
+7. Verification battery: full discover (observed 931 OK skipped=4 = 923 + 8 new tests); focused 6-module run (Ran 32, OK skipped=1); ruff with the CI config; validate_repo; validate_sdd; gate CLI (compatible=True, multi-file evidence); py_compile of both worker modules (the cv2-dependent runtime import probe is intentionally REPLACED by py_compile + AST parse — worker_media deliberately requires cv2-class deps absent from this sandbox; the work order prescribes exactly this substitution).
+
+## Architecture
+
+- worker_media.py: media layer over the kernel — imports worker_kernel (env/identity helpers), analytics_profiles (frame size) and the media stack (subprocess/numpy; cv2 allowed but currently unused); the ffmpeg Popen and the RTSP reader live here; `import av` stays LAZY inside RtspFrameReader.__init__ (the no-PyAV RuntimeError fallback is a runtime contract, preserved byte-identically).
+- hls_motion_yolo_worker_events.py: keeps analytics/rendering/posting/config-fetch; staying functions calling moved helpers (fetch_remote_roi→_resolve_frame_size, fetch_speed_lines_config region→_resolve_frame_size, main→start_media_reader/_resolve_frame_size) resolve via worker-module globals where the re-export lives — runtime rebinding of worker.start_media_reader by the entrypoint keeps working.
+- Import cycle safety: worker_media imports worker_kernel + analytics_profiles, never the worker → no cycle; the worker's `from worker_media import ...` sits after the kernel re-export, sibling style.
+- Gate scan model: REQUIRED_ENV_NAMES union across MODULE_SOURCES — HLS_URL call sites live only in worker_media since this wave (start_ffmpeg + start_media_reader); SEA_SPEED_API_URL/TOKEN/MODEL_NAME live only in the worker; the union is exactly the pre-split single-file set. A test pins this: the worker scanned ALONE now misses HLS_URL (the extension demonstrably changed behavior), the union is compatible.
+
+## Decisions
+
+- D-1: Verbatim byte-level move (script-extracted regions) instead of retyping: guarantees AST-identity, verified programmatically after the move against `git show HEAD` (7/7 identical, staying defs intact, zero duplicate defs).
+- D-2: `_resolve_frame_size` moves despite the cut's "if cv2-entangled" conditional: it is not cv2-entangled, but `start_media_reader` (moving) calls it and move-only forbids rewriting that call — leaving it would require a cross-module back-reference and risk exactly the NameError RISK-005 guards; its 4 staying call sites are covered by the re-export. Recorded as a deliberate cut addition.
+- D-3: No module-level constants move (none exist in the moved region); the six kernel names and get_profile are IMPORTS in worker_media, not constants — the spec's "constants move" contingency is recorded as empty.
+- D-4: Gate design — MODULE_SOURCES tuple + back-compatible `inspect_worker` (Path or sequence) + fail-closed missing-file checks in both the API and the CLI default path; `--worker` stays for single-file debugging only; the union semantics mean "missing call sites in EITHER file satisfy the requirement" while removal from ALL files fails.
+- D-5: The worker's `import subprocess` is removed (now-unused, ruff F401); the gate keeps requiring subprocess usage via the union scan (worker_media owns the Popen). Uses_pathlib remains satisfied by the worker itself.
+- D-6: `av` is deliberately ABSENT from the media import allowlist: the lazy import inside RtspFrameReader is part of the no-PyAV fallback contract; hoisting it to module level (or adding ultralytics/requests) must fail CI — pinned by two tests (allowlist + lazy-import count).
+- D-7: The wave-1 test's STAYING_NAMES list drops the three wave-2-moved names — a CONTRACT TRANSFER mandated by the work order ("extend tests/test_worker_kernel_module.py OR add tests/test_worker_media_module.py"), not a pin failure fix; their placement is now guarded by the wave-2 test.
+
+## Risk profile
+
+- Risk profile: REQUIRED
+- RISK-001 | Category: TECH | Probability: 2 | Impact: 5 | Score: 10 | Mitigation: re-export surface drift would break runtime main()/entrypoint resolution (the worker.start_media_reader supervision seam) or the test monkeypatch surface; integrity test checks the re-export surface as an exact list in BOTH directions (missing and extra both fail), and the full battery runs every worker test unedited | Validation: tests/test_worker_media_module.py re-export tests OK; full discover battery Ran 931 OK (skipped=4) with ZERO #398 pin edits | Residual risk: LOW | Owner: Worker | Status: MITIGATED
+- RISK-002 | Category: TECH | Probability: 2 | Impact: 5 | Score: 10 | Mitigation: the gate extension could miss a call site living only in worker_media.py and report falsely green; the union scan covers BOTH files, and three unit tests prove the semantics: the worker scanned ALONE now misses HLS_URL (the extension demonstrably does cross-file work), a required env call site removed from BOTH files (temp-tree test on inspect_worker) puts HLS_URL into missing_required_environment_names with compatible=False, and a missing file raises SystemExit (fail closed) | Validation: tests/test_worker_media_module.py gate tests OK; CLI transcript compatible=True with the union env set | Residual risk: LOW | Owner: Worker | Status: MITIGATED
+- RISK-003 | Category: TECH | Probability: 1 | Impact: 5 | Score: 5 | Mitigation: the process-lifecycle move could change spawn/cleanup behavior (Popen args, kill/close, RTSP open/read/reformat, sample-interval pacing); byte-level AST identity for all 7 defs INCLUDING class methods guarantees identical behavior, and the focused RTSP media-security tests run untouched | Validation: "AST-identical moved=7: True" observed before the first test run; tests.test_worker_rtsp_media_security green in the focused run | Residual risk: LOW | Owner: Worker | Status: MITIGATED
+- RISK-004 | Category: OPS | Probability: 2 | Impact: 5 | Score: 10 | Mitigation: a pinned required-list miss (exact-artifact build/validate, validate_repo top-level required-files allowlist, install-systemd prepared-release check) would ship a payload without worker_media.py — failure at deploy boot instead of CI; all four convergence sites updated in the same diff (build_exact_artifacts ubuntu-worker+edge, validate_exact_artifacts matching sets, validate_repo REQUIRED_FILES, install-systemd.sh required loop), all validators run locally, install-systemd.sh fails closed at prepare-check, and the CI exact-artifact gate re-verifies at merge | Validation: validate_repo green at final head (693 files); artifact required lists verified to contain worker/worker_media.py in both build and validate | Residual risk: LOW | Owner: Delivery Orchestrator | Status: MITIGATED
+- RISK-005 | Category: TECH | Probability: 2 | Impact: 5 | Score: 10 | Mitigation: a free-variable sweep miss (moved body referencing a worker-module global that did not move) would NameError at runtime; a programmatic symtable free-variable check of worker_media found NONE unresolved, the staying worker's closure set was verified byte-identical to HEAD (pre-existing closures, not introduced), and `_resolve_frame_size` moved WITH its caller `start_media_reader` per move-only rules | Validation: symtable transcript in the progress file; full battery green (any module-level resolution break would surface at import/call time in the worker tests) | Residual risk: LOW | Owner: Worker | Status: MITIGATED
+
+## Test design
+
+- TEST-001 | Covers: AC-001 | Level: unit | Priority: P1 | Evidence: per-function ast.dump equality HEAD vs worker_media.py for all 7 defs incl. class methods ("AST-identical moved=7: True; staying defs intact: True")
+- TEST-002 | Covers: AC-002, AC-003 | Level: unit | Priority: P1 | Evidence: tests/test_worker_media_module.py re-export exact-list (both directions), def placement, import allowlist, lazy-av pin — 4/4 OK
+- TEST-003 | Covers: AC-001 | Level: unit | Priority: P1 | Evidence: symtable free-variable check of worker_media → NONE unresolved; worker closure set identical to HEAD
+- TEST-004 | Covers: AC-004, AC-006 | Level: unit | Priority: P1 | Evidence: gate unit tests (single-file miss, union pass, removed-from-both FAIL, missing-file SystemExit) + focused 6-module run → Ran 32, OK (skipped=1)
+- TEST-005 | Covers: AC-006 | Level: integration | Priority: P1 | Evidence: full `python3 -m unittest discover -s tests -p 'test_*.py'` → Ran 931, OK (skipped=4) = 923 + 8 new, zero #398 pin edits
+- TEST-006 | Covers: AC-005, AC-006 | Level: integration | Priority: P1 | Evidence: validate_repo green; build/validate exact-artifact required lists contain worker/worker_media.py (ubuntu-worker AND edge); validate_sdd green; ruff clean
+- TEST-007 | Covers: AC-004 | Level: unit | Priority: P2 | Evidence: `python3 scripts/worker/check_ubuntu_compatibility.py` → compatible=True, forbidden_markers=[], multi-file scan evidence (union env set, subprocess via worker_media)
+- TEST-008 | Covers: AC-006 | Level: unit | Priority: P2 | Evidence: py_compile of worker_media.py + hls_motion_yolo_worker_events.py (cv2-dependent runtime import probe deliberately substituted per work order)
+
+## Correct-course check
+
+- Trigger: NONE
+- Issue impact: NONE
+- Specification impact: NONE
+- Plan impact: NONE
+- Tasks impact: NONE
+- Authorization impact: NONE
+- Follow-up: NONE
+
+Standing correction policy (pre-declared triggers, no event occurred during wave 2):
+any existing #398 pin failing after the move → fix the MOVE, never the test (observed:
+zero pin edits); wave-1 STAYING_NAMES list change is a contract transfer required by
+the work order, recorded as D-7; validator failure on artifact lists → fix the list
+(convergence), never weaken the validator (observed: all four sites updated, validators
+green); gate findings drift → fix the SOURCE or the SCAN per the no-weakening rule
+(observed: union extension only, fail-closed file validity added).
+
+## Affected contours
+
+- Ubuntu Worker/relay: `worker/worker_media.py` (NEW), `worker/hls_motion_yolo_worker_events.py` (moved defs → re-export, subprocess import removed); shipped by the exact artifacts (build_exact_artifacts ubuntu-worker+edge) and installed by deploy/worker/ubuntu/install-systemd.sh; runtime verification lands with the next routine worker deploy.
+- Control plane: `scripts/worker/check_ubuntu_compatibility.py` (multi-file extension, no weakening); `scripts/ci/validate_repo.py`, `scripts/quality/build_exact_artifacts.py`, `scripts/quality/validate_exact_artifacts.py` (required-list convergence only — additions).
+- Test harness: `tests/support/worker_source.py` (DEFAULT_WORKER_SOURCES gains the media module), NEW `tests/test_worker_media_module.py`, `tests/test_worker_kernel_module.py` (STAYING_NAMES contract transfer), `tests/test_ubuntu_worker_compatibility.py` (default contract scans MODULE_SOURCES).
+- SDD trio `specs/397-wave2-worker-media/` (+ durable progress file outside the repo tree).
+- No change to: deploy/vps/**, api/**, frontend/**, .github/workflows/** (the gate has no workflow invocation — verified), rollback-exact.sh, any #398 test pin, live worker host state.
+
+## Validation
+
+- AST equivalence: per-function `ast.dump` equality between `git show HEAD:worker/hls_motion_yolo_worker_events.py` and worker_media.py for all 7 defs → "AST-identical moved=7: True; defs removed from worker: True; staying defs intact: True" (observed before the first test run).
+- Free-variable proof: symtable scan of worker_media → "media free vars outside module scope: NONE"; worker closure set byte-identical to HEAD's (pre-existing nested-function closures only).
+- Integrity: tests/test_worker_media_module.py 8/8 OK (allowlist, lazy-av, re-export both directions, placement, 4 gate tests).
+- Focused: media_module + kernel_module + ubuntu_worker_compatibility + rtsp_media_security + worker_contract + roi_pipeline → `Ran 32 ... OK (skipped=1)`.
+- Full suite: `python3 -m unittest discover -s tests -p 'test_*.py'` → `Ran 931 tests ... OK (skipped=4)` = 923 + 8 new, ZERO #398 pin edits (observed; delta = 8 new tests in test_worker_media_module.py; no tests removed — kernel STAYING_NAMES list edited without changing its 3-test count, compat default-contract test edited in place).
+- `ruff check . --config scripts/quality/ruff.toml` → clean ("All checks passed!").
+- `python3 scripts/ci/validate_repo.py` → passed at final head ("Tracked files checked: 693").
+- `python3 scripts/ci/validate_sdd.py` → passed (plain mode) at final head; the orchestrator's --event run uses the same trio (the synthetic PR event needs `- Specification: specs/397-wave2-worker-media/spec.md` and `- Risk profile: REQUIRED`, both present).
+- `python3 scripts/worker/check_ubuntu_compatibility.py` → `compatible=True`, `forbidden_markers=[]`, union env evidence in the transcript.
+- py_compile: both worker modules compile clean (substitute for the heavy-dep import probe).
+
+## Runtime feedback
+
+- RF-001: Operator actions expected: 0; this wave changes only the worker source layout (move-only) plus gate/validator coverage — runtime verification lands with the next routine Ubuntu-worker deploy (batched with wave 3, owner deploy gate); the orchestrator records runtime acceptance on issue #397.
+- RF-002: Evidence: the next deploy-ubuntu-worker run for a post-wave-2 SHA shows the media module shipped in the exact artifacts and both worker services restarting green; AST-equivalence, symtable and battery transcripts are recorded in the durable progress file.
+
+## Deployment transaction audit
+
+- TX-001 | Stage: ADMISSION | Mutation: NO | Failure disposition: FATAL | State after failure: unchanged | Retry: NO | Rollback: NONE | Evidence: work order W-A2 for #397 wave 2 (move-only media extraction + gate extension scope); branch sdd/397-wave2-worker-media from origin/main 62524ee; install-systemd.sh is the only deploy/** change (prepared-release required check)
+- TX-002 | Stage: PRE-MUTATION | Mutation: NO | Failure disposition: FATAL | State after failure: unchanged worker host state | Retry: NO | Rollback: NONE | Evidence: install-systemd.sh required loop now also demands worker/worker_media.py in the prepared release before any install step — a payload missing the media module exits 4 before the live tree is touched
+- TX-003 | Stage: MUTATION | Mutation: POSSIBLE | Failure disposition: FATAL | State after failure: staged release discarded; currently-running worker services unchanged | Retry: NO | Rollback: the installer stages the release before service restart exactly as before; the media module ships as one additional source file in the same staged tree — the mutation pattern is unchanged, no new staging or promotion step | Evidence: install-systemd.sh install flow untouched apart from the required check; runtime verification lands with the next routine worker deploy (owner deploy gate)
+- TX-004 | Stage: VERIFICATION | Mutation: NO | Failure disposition: FATAL | State after failure: previous release still active | Retry: NO | Rollback: NONE | Evidence: the next worker deploy's health gate (deploy-authorized.sh → verify-runtime-progression/check-worker-health) applies unchanged; this wave ships no runtime mutation itself
+- TX-005 | Stage: STATE-COMMIT | Mutation: NO | Failure disposition: FATAL | State after failure: unchanged | Retry: NO | Rollback: NONE | Evidence: the worker's output/state contour (output/, state JSON) is untouched by the source-layout move; no state schema or write path changes
+- TX-006 | Stage: HOUSEKEEPING | Mutation: NO | Failure disposition: BEST-EFFORT | State after failure: staging dirs may remain on abrupt kill only | Retry: NO | Rollback: NONE | Evidence: installer staging layout semantics unchanged
+- TX-007 | Stage: EVIDENCE | Mutation: NO | Failure disposition: BEST-EFFORT | State after failure: evidence partial | Retry: NO | Rollback: NONE | Evidence: deployment/acceptance evidence for the next worker deploy is orchestrator-owned (DEPLOY-TRIGGER lane); this wave's repo-level evidence is the validator + battery + gate transcripts in the durable progress file
+- TX-008 | Stage: ROLLBACK | Mutation: NO | Failure disposition: FATAL | State after failure: NONE | Retry: NO | Rollback: rollback-exact.sh contour DELIBERATELY UNCHANGED (same rationale as wave 1): it targets PREVIOUS complete releases which may predate the media module (adding a media requirement there would break rollback to pre-#397 releases); a rollback target is self-consistent by construction — its own release tree contains its own worker sources | Evidence: deploy/worker/ubuntu/rollback-exact.sh untouched in this diff; releases are self-contained exact artifacts

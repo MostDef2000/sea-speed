@@ -53,18 +53,16 @@ MOVED_NAMES = (
     "_scale_norm_points",
 )
 
-# Names the kernel must NOT gain this wave: heavy-dependency runtime helpers
-# stay in the worker until later waves (wave-3 candidates noted in the
-# progress file).
+# Names the kernel must NOT gain: heavy-dependency runtime helpers stay in the
+# worker or the media module (wave 2 moved start_ffmpeg/start_media_reader/
+# _resolve_frame_size to worker_media.py — their placement is now guarded by
+# tests/test_worker_media_module.py).
 STAYING_NAMES = (
-    "start_ffmpeg",
-    "start_media_reader",
     "detect_vehicles",
     "main",
     "write_passage_snapshot",
     "build_event",
     "draw_overlay",
-    "_resolve_frame_size",
     "crop_sharpness",
     "fetch_remote_roi",
 )
