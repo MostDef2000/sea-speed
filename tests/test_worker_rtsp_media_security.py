@@ -8,7 +8,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 ENTRYPOINT = ROOT / "worker/ubuntu_worker_entrypoint.py"
 UNIT = ROOT / "deploy/worker/ubuntu/sea-speed-worker.service.template"
-CORE_WORKER = ROOT / "worker/hls_motion_yolo_worker_events.py"
 
 try:
     from tests.support import worker_source
@@ -102,11 +101,27 @@ class WorkerRtspRuntimeContractTests(unittest.TestCase):
         reader_node = worker_source.function_node("start_media_reader")
         parameter_names = [arg.arg for arg in reader_node.args.args]
         self.assertIn("av_module", parameter_names, "start_media_reader must keep the av_module seam parameter")
-        optional_defaults = len(reader_node.args.defaults)
-        self.assertGreaterEqual(optional_defaults, 1, "av_module must stay optional (None default)")
+        # Pair every parameter with its own default from the right (same
+        # reversed-zip pattern as crossing_summary in test_line_crossing.py):
+        # av_module's ALIGNED default must be None, regardless of how many
+        # other optional parameters precede it.
+        aligned = [
+            (arg, default)
+            for arg, default in zip(
+                reversed(reader_node.args.args),
+                reversed([*reader_node.args.defaults]),
+            )
+        ]
+        av_defaults = [
+            default for parameter, default in aligned if parameter.arg == "av_module"
+        ]
         self.assertEqual(
-            worker_source.dump(reader_node.args.defaults[-1]),
-            worker_source.expr_dump("None"),
+            len(av_defaults),
+            1,
+            "av_module must stay optional (exactly one aligned None default)",
+        )
+        self.assertTrue(
+            isinstance(av_defaults[0], ast.Constant) and av_defaults[0].value is None,
             "av_module default must stay None",
         )
         try:

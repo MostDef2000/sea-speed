@@ -1,31 +1,30 @@
 from __future__ import annotations
 
-import ast
-import copy
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / "worker/hls_motion_yolo_worker_events.py"
+
+try:
+    from tests.support import worker_source
+except ModuleNotFoundError:  # direct file execution: put the repo root on sys.path
+    import sys
+
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    from tests.support import worker_source
 
 
 def load_nodes(names: set[str], namespace: dict[str, Any]) -> dict[str, Any]:
-    tree = ast.parse(SOURCE.read_text(encoding="utf-8-sig"), filename=str(SOURCE))
-    selected = []
-    found: set[str] = set()
-    for node in tree.body:
-        if isinstance(node, (ast.FunctionDef, ast.ClassDef)) and node.name in names:
-            selected.append(copy.deepcopy(node))
-            found.add(node.name)
-    missing = names - found
-    if missing:
-        raise AssertionError(f"missing worker nodes: {sorted(missing)}")
-    module = ast.Module(body=selected, type_ignores=[])
-    ast.fix_missing_locations(module)
-    exec(compile(module, str(SOURCE), "exec"), namespace)
-    return namespace
+    """Shared-harness delegate (398 F1): the private single-file AST scan is retired.
+
+    Resolution, extraction and exec semantics now come from the shared loader
+    (tests/support/worker_source.py), including the SEA_SPEED_WORKER_SOURCE
+    multi-file override for the #397 decomposition.
+    """
+    return worker_source.load_functions(names, namespace)
 
 
 class WaterDetectionPolicyTests(unittest.TestCase):

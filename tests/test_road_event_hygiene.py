@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Any, Dict
 
 ROOT = Path(__file__).resolve().parents[1]
-WORKER = ROOT / "worker" / "hls_motion_yolo_worker_events.py"
 API = ROOT / "api" / "app" / "main.py"
 STORE_FILE = ROOT / "api" / "app" / "store.py"
 PROFILES = ROOT / "worker" / "analytics_profiles.py"

@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / "worker/hls_motion_yolo_worker_events.py"
 
 try:
     from tests.support import worker_source

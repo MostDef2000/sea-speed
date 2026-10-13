@@ -5,9 +5,13 @@ file text) into structural (AST) or behavioral (exec) checks so the #397
 decomposition can move worker code between files without false test failures.
 
 This module is the single implementation of the AST function-extract + exec
-harness that was previously duplicated (privately) across test_worker_contract.py,
+harness for worker-referencing tests: test_worker_contract.py,
 test_line_crossing.py, test_water_detection_pipeline.py, test_worker_roi_pipeline.py,
-test_worker_tracking_overlay.py and test_road_event_hygiene.py.
+test_worker_tracking_overlay.py, test_road_event_hygiene.py, test_water_passage.py,
+test_analytics_profiles.py, test_frame_quality.py and test_worker_rtsp_media_security.py
+all import it — no private copies remain (the last single-file private scan,
+test_water_detection_pipeline.load_nodes, was converted to this loader in the
+#398 wave A review follow-ups).
 
 Path resolution supports BOTH the current single-file worker layout and a future
 multi-file layout: set ``SEA_SPEED_WORKER_SOURCE`` to one or more paths joined by
@@ -196,8 +200,14 @@ def find_stmt(scope: ast.AST, snippet: str) -> list[ast.stmt]:
 
     The snippet must contain exactly one top-level statement; the returned
     nodes are the live matches (so callers can assert source order via lineno).
+    Multi-statement snippets fail closed — use ``contains_stmt`` for those.
     """
-    pattern = dump(_snippet_stmts(snippet)[0])
+    stmts = _snippet_stmts(snippet)
+    if len(stmts) != 1:
+        raise AssertionError(
+            f"find_stmt snippet must contain exactly one statement, got {len(stmts)}"
+        )
+    pattern = dump(stmts[0])
     return [node for node in ast.walk(scope) if isinstance(node, ast.stmt) and dump(node) == pattern]
 
 
