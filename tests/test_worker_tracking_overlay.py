@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import ast
-import copy
 import io
 import json
 import time as real_time
@@ -16,22 +15,21 @@ from urllib.parse import urlsplit
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "worker/hls_motion_yolo_worker_events.py"
 
+try:
+    from tests.support import worker_source
+except ModuleNotFoundError:  # direct file execution: put the repo root on sys.path
+    import sys
+
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    from tests.support import worker_source
+
 
 def load_functions(names: set[str], namespace: dict[str, Any]) -> dict[str, Any]:
-    tree = ast.parse(SOURCE.read_text(encoding="utf-8-sig"), filename=str(SOURCE))
-    selected = []
-    found: set[str] = set()
-    for node in tree.body:
-        if isinstance(node, ast.FunctionDef) and node.name in names:
-            selected.append(copy.deepcopy(node))
-            found.add(node.name)
-    missing = names - found
-    if missing:
-        raise AssertionError(f"missing worker functions: {sorted(missing)}")
-    module = ast.Module(body=selected, type_ignores=[])
-    ast.fix_missing_locations(module)
-    exec(compile(module, str(SOURCE), "exec"), namespace)
-    return namespace
+    # 398-wave-a: shared AST-slice+exec harness (was a private duplicate pinned
+    # to one path) — tests/support/worker_source.py resolves the worker source
+    # so the #397 decomposition can move functions between files.
+    return worker_source.load_functions(names, namespace)
 
 
 class Scalar:
@@ -203,12 +201,73 @@ class WorkerTrackingOverlayTests(unittest.TestCase):
         self.assertNotIn("HLS_URL", line)
 
     def test_profiled_detector_normalizes_water_boat_to_vessel(self) -> None:
-        source = SOURCE.read_text(encoding="utf-8-sig")
-        self.assertIn('profile_name = env_str("ANALYTICS_PROFILE", "").strip()', source)
-        self.assertIn("normalize_model_class(model_class, profile.name)", source)
-        self.assertIn('confidence_default = profile.confidence', source)
-        self.assertIn('image_size_default = profile.image_size', source)
-        self.assertIn('tracker_default = profile.tracker', source)
+        # 398-wave-a: converted from source-text pin (was L205-211) — now
+        # behavioral: the profiled detector path must (a) strip the
+        # ANALYTICS_PROFILE env value before profile lookup, (b) map model
+        # classes through normalize_model_class(model_class, profile.name),
+        # and (c) feed tracker/confidence/image-size defaults from the profile
+        # into model.track, instead of pinning those behaviors to literal
+        # source lines.
+        received_profile_names: list[str] = []
+
+        class Profile:
+            name = "water-v1"
+            confidence = 0.15
+            image_size = 960
+            tracker = "profile-tracker.yaml"
+
+        profile = Profile()
+
+        def get_profile(name: str) -> Profile:
+            received_profile_names.append(name)
+            if name == "water-v1":
+                return profile
+            raise ValueError(name)
+
+        def normalize_model_class(model_class: str, profile_name: str) -> dict[str, Any] | None:
+            if profile_name != "water-v1" or model_class != "boat":
+                return None
+            return {
+                "analytics_profile": "water-v1",
+                "domain": "water",
+                "object_type": "vessel",
+                "model_class": "boat",
+                "class_name": "vessel",
+            }
+
+        class ProfiledResult:
+            names = {2: "boat"}
+            boxes = FakeBoxes()
+
+        class ProfiledModel(FakeModel):
+            def track(self, _frame: object, **kwargs: Any) -> list[Any]:  # type: ignore[override]
+                self.calls.append(kwargs)
+                return [ProfiledResult()]
+
+        ns: dict[str, Any] = {
+            "env_float": lambda _name, default: default,
+            "env_int": lambda _name, default: default,
+            # whitespace-padded ANALYTICS_PROFILE proves the env value is
+            # .strip()ed before profile lookup (was the
+            # `profile_name = env_str(...).strip()` pin); every other read
+            # falls through to its default so profile values flow through.
+            "env_str": lambda name, default="": " water-v1 " if name == "ANALYTICS_PROFILE" else default,
+            "get_profile": get_profile,
+            "normalize_model_class": normalize_model_class,
+            "VEHICLE_CLASSES": {"car", "truck", "bus", "motorcycle", "bicycle"},
+        }
+        load_functions({"detect_vehicles"}, ns)
+        model = ProfiledModel()
+        detections = ns["detect_vehicles"](model, object())
+        self.assertEqual(received_profile_names, ["water-v1"], "ANALYTICS_PROFILE must be stripped before profile lookup")
+        self.assertTrue(model.calls[0]["persist"])
+        self.assertEqual(model.calls[0]["tracker"], profile.tracker, "tracker default must come from the profile")
+        self.assertEqual(model.calls[0]["conf"], 0.15, "confidence default must come from the profile")
+        self.assertEqual(model.calls[0]["imgsz"], 960, "image-size default must come from the profile")
+        self.assertEqual(len(detections), 1)
+        self.assertEqual(detections[0]["class_name"], "vessel")
+        self.assertEqual(detections[0]["model_class"], "boat")
+        self.assertEqual(detections[0]["object_type"], "vessel")
 
     def test_overlay_label_contains_id_and_speed_or_pending_marker(self) -> None:
         ns = load_functions({"format_detection_label"}, {})
@@ -238,29 +297,74 @@ class WorkerTrackingOverlayTests(unittest.TestCase):
         self.assertEqual(event["class_name"], "vessel")
 
     def test_overlay_uses_translucent_blending(self) -> None:
-        source = SOURCE.read_text(encoding="utf-8-sig")
-        start = source.index("def draw_overlay(")
-        end = source.index("def post_state(", start)
-        draw = source[start:end]
-        self.assertIn("label_layer = out.copy()", draw)
-        self.assertIn("cv2.addWeighted(", draw)
-        self.assertIn("opacity = overlay_label_opacity()", draw)
+        # 398-wave-a: converted from source-text pin (was L240-247) — the
+        # label backdrop must be blended translucently: the label layer is a
+        # copy of the frame, blended via cv2.addWeighted with an opacity
+        # resolved from overlay_label_opacity().
+        draw = worker_source.function_node("draw_overlay")
+        self.assertTrue(
+            any(
+                worker_source.dump(a.value) == worker_source.expr_dump("out.copy()")
+                for a in worker_source.find_assignments(draw, "label_layer")
+            ),
+            "the label layer must be a copy of the rendered frame",
+        )
+        self.assertTrue(worker_source.method_calls(draw, "cv2", "addWeighted"), "the label layer must be blended via cv2.addWeighted")
+        opacity_assigns = worker_source.find_assignments(draw, "opacity")
+        self.assertTrue(
+            any(worker_source.dump(a.value) == worker_source.expr_dump("overlay_label_opacity()") for a in opacity_assigns),
+            "label opacity must come from overlay_label_opacity()",
+        )
 
     def test_water_live_speed_is_owned_by_passage_state(self) -> None:
-        source = SOURCE.read_text(encoding="utf-8-sig")
-        start = source.index("if is_water and passage_engine is not None:")
-        end = source.index("crossing_snapshot = crossing_overlay_summary()", start)
-        water = source[start:end]
-        ingress = 'det["_line_speed_info"] = update_speed_lines_estimate(det)'
-        passage_update = "passage_updates = passage_engine.update(detections, now)"
-        self.assertIn(ingress, water)
-        self.assertIn(passage_update, water)
-        self.assertLess(water.index(ingress), water.index(passage_update))
-        self.assertIn('det["speed_kmh"] = passage.get("speed_kmh")', water)
-        self.assertIn('det["speed_source"] = passage.get("speed_method")', water)
-        self.assertNotIn('_det["speed_kmh"] = _inst', water)
-        self.assertIn('"speed_sample_fresh": False', source)
-        self.assertIn('info["speed_sample_fresh"] = True', source)
+        # 398-wave-a: converted from source-text pin (was L249-263) — inside
+        # main(): the calibrated line-speed telemetry is computed per detection
+        # BEFORE the passage engine consumes the detections, the passage owns
+        # the published live speed fields (speed_kmh/speed_source read from
+        # the passage result), the retired instant-speed injection stays
+        # removed, and update_speed_lines_estimate keeps the
+        # speed_sample_fresh flag (False default, True on fresh samples).
+        main_node = worker_source.function_node("main")
+        ingress_nodes = worker_source.find_stmt(main_node, 'det["_line_speed_info"] = update_speed_lines_estimate(det)')
+        self.assertTrue(ingress_nodes, "water path must compute calibrated line-speed telemetry per detection")
+        passage_nodes = worker_source.find_stmt(main_node, "passage_updates = passage_engine.update(detections, now)")
+        self.assertTrue(passage_nodes, "the passage engine must own the live speed state")
+        self.assertLess(
+            min(node.lineno for node in ingress_nodes),
+            min(node.lineno for node in worker_source.find_stmt(main_node, "passage_updates = passage_engine.update(detections, now)")),
+            "calibrated telemetry must be computed before the passage engine update",
+        )
+        self.assertTrue(
+            worker_source.find_stmt(main_node, 'det["speed_kmh"] = passage.get("speed_kmh")'),
+            "live speed_kmh must be owned by the passage state",
+        )
+        self.assertTrue(
+            worker_source.find_stmt(main_node, 'det["speed_source"] = passage.get("speed_method")'),
+            "live speed_source must be owned by the passage state",
+        )
+        self.assertEqual(
+            worker_source.find_stmt(main_node, '_det["speed_kmh"] = _inst'),
+            [],
+            "the retired instant-speed injection must stay removed",
+        )
+        estimate_node = worker_source.function_node("update_speed_lines_estimate")
+        fresh_defaults = [
+            node
+            for node in ast.walk(estimate_node)
+            if isinstance(node, ast.Dict)
+            and any(
+                isinstance(key, ast.Constant)
+                and key.value == "speed_sample_fresh"
+                and isinstance(value, ast.Constant)
+                and value.value is False
+                for key, value in zip(node.keys, node.values)
+            )
+        ]
+        self.assertTrue(fresh_defaults, "speed_sample_fresh must default to False in the speed info payload")
+        self.assertTrue(
+            worker_source.find_stmt(estimate_node, 'info["speed_sample_fresh"] = True'),
+            "speed_sample_fresh must flip to True for fresh samples",
+        )
 
 
 if __name__ == "__main__":

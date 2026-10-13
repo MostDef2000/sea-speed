@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import importlib.util
 import json
 import os
@@ -16,6 +17,13 @@ if str(WORKER) not in sys.path:
     sys.path.insert(0, str(WORKER))
 
 import analytics_profiles as profiles
+
+try:
+    from tests.support import worker_source
+except ModuleNotFoundError:  # direct file execution: put the repo root on sys.path
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    from tests.support import worker_source
 
 CONFIGURE = ROOT / "deploy/worker/ubuntu/configure-analytics-profiles.py"
 configure_spec = importlib.util.spec_from_file_location("configure_analytics_profiles", CONFIGURE)
@@ -85,13 +93,50 @@ class AnalyticsProfilesTests(unittest.TestCase):
         self.assertNotIn('MODEL_NAME", "yolo11s.pt"', entry)
 
     def test_worker_separates_water_continuous_detection_from_road_motion_policy(self) -> None:
-        worker = (ROOT / "worker/hls_motion_yolo_worker_events.py").read_text(encoding="utf-8")
-        self.assertIn("def select_profile_detections(", worker)
-        self.assertIn('profile.domain == "water"', worker)
-        self.assertIn("filter_detections_by_motion(raw_detections, motion_boxes)", worker)
-        self.assertIn("def water_event_candidates(", worker)
-        self.assertIn('det.get("class_name") != "vessel"', worker)
-        self.assertIn('profile.domain == "water":\n                for vessel in water_event_candidates', worker)
+        # 398-wave-a: converted from source-text pin (was L87-94) — the
+        # water/road split must hold structurally so the #397 decomposition
+        # can move the code between files: water runs continuous detection
+        # (profile-gated, ROI-filtered), road stays motion-gated
+        # (filter_detections_by_motion), water events are vessel-only, and
+        # the water branch iterates water_event_candidates(profile,
+        # detections) — the structural form of the 2-line indentation-coupled
+        # pin (byte-identical twin of the pin converted at
+        # test_water_passage.py IntegrationContractTests).
+        select_node = worker_source.function_node("select_profile_detections")
+        water_node = worker_source.function_node("water_event_candidates")
+        self.assertTrue(
+            worker_source.contains_expr(select_node, 'profile.domain == "water"'),
+            "select_profile_detections must gate water on profile.domain",
+        )
+        self.assertTrue(
+            worker_source.contains_expr(select_node, "filter_detections_by_motion(raw_detections, motion_boxes)"),
+            "road path must stay motion-filtered",
+        )
+        self.assertTrue(
+            worker_source.contains_expr(select_node, "detect_vehicles(model, processing_frame)"),
+            "water path must run continuous detection",
+        )
+        self.assertEqual([arg.arg for arg in water_node.args.args], ["profile", "detections"])
+        self.assertTrue(
+            worker_source.contains_expr(water_node, 'det.get("class_name") != "vessel"'),
+            "water events must be vessel-only",
+        )
+        main_node = worker_source.function_node("main")
+        water_branches = [
+            node
+            for node in ast.walk(main_node)
+            if isinstance(node, ast.If)
+            and worker_source.contains_expr(node.test, 'profile.domain == "water"')
+            and any(
+                isinstance(loop, ast.For)
+                and isinstance(loop.target, ast.Name)
+                and loop.target.id == "vessel"
+                and worker_source.dump(loop.iter) == worker_source.expr_dump("water_event_candidates(profile, detections)")
+                for branch_stmt in node.body
+                for loop in ast.walk(branch_stmt)
+            )
+        ]
+        self.assertTrue(water_branches, "water event branch must iterate water_event_candidates(profile, detections)")
 
     def test_api_is_additive_and_camera_isolated(self) -> None:
         # Issue #396 wave 1: read the API sources (main + kernel modules) so

@@ -14,6 +14,15 @@ API = ROOT / "api" / "app" / "main.py"
 STORE_FILE = ROOT / "api" / "app" / "store.py"
 PROFILES = ROOT / "worker" / "analytics_profiles.py"
 
+try:
+    from tests.support import worker_source
+except ModuleNotFoundError:  # direct file execution: put the repo root on sys.path
+    import sys
+
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    from tests.support import worker_source
+
 
 def _load_api_store():
     spec = importlib.util.spec_from_file_location("api_store_road_hygiene_test", STORE_FILE)
@@ -34,51 +43,66 @@ class RoadProfilePersonTests(unittest.TestCase):
 
 
 def load_worker_main() -> dict[str, Any]:
-    """Extract the main() function body and locate the publication gate."""
-    tree = ast.parse(WORKER.read_text(encoding="utf-8-sig"), filename=str(WORKER))
-    for node in tree.body:
-        if isinstance(node, ast.FunctionDef) and node.name == "main":
-            return {"node": node}
-    raise AssertionError("main() not found in worker")
+    """Locate the main() function node via the shared worker-source loader."""
+    # 398-wave-a: shared harness (was a private AST scan fixed to one path) —
+    # the loader resolves the worker source so #397 file moves keep working.
+    return {"node": worker_source.function_node("main")}
 
 
 class WorkerEventGateTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.main_node = load_worker_main()["node"]
-        cls.source_lines = WORKER.read_text(encoding="utf-8").splitlines()
 
     def test_gate_requires_track_and_blocks_person(self) -> None:
-        text = "\n".join(self.source_lines)
-        self.assertIn(
-            'publishable = track_id is not None and best.get("object_type") != "person"',
-            text,
+        # 398-wave-a: converted from source-text pin (was L51-64) — the
+        # publication gate must hold structurally inside the live main() flow:
+        # events need a tracked, non-person best detection, and the two
+        # should_post_event branches must gate on publishable plus the
+        # profiled-speed path (speed lines on) or the legacy path (off).
+        # The publishable-exactly-once assertion subsumes the former
+        # test_gate_sits_inside_main_flow AST twin (merged, -1 method).
+        # Old text-pin behavior on a dead-code fixture (pin text inside an
+        # uncalled function, live gate absent): assertIn false-passed — the
+        # in-repo AST twin at the former L66-72 was the conversion recipe.
+        main_node = self.main_node
+        publishable = worker_source.find_assignments(main_node, "publishable")
+        self.assertEqual(len(publishable), 1, "publication gate must exist exactly once in main()")
+        self.assertEqual(
+            worker_source.dump(publishable[0].value),
+            worker_source.expr_dump('track_id is not None and best.get("object_type") != "person"'),
+            "publishable must require a track and block person detections",
         )
-        self.assertIn(
-            "should_post_event = publishable and speed_ready and not event_already_posted",
-            text,
+        should_post = worker_source.find_assignments(main_node, "should_post_event")
+        self.assertEqual(len(should_post), 2, "both speed-line branches must compute should_post_event")
+        expected_gates = (
+            "publishable and speed_ready and not event_already_posted",
+            "publishable and not event_already_posted and legacy_event_ready",
         )
-        self.assertIn(
-            "should_post_event = publishable and not event_already_posted and legacy_event_ready",
-            text,
-        )
-
-    def test_gate_sits_inside_main_flow(self) -> None:
-        gate = [
-            node for node in ast.walk(self.main_node)
-            if isinstance(node, ast.Assign)
-            and any(isinstance(t, ast.Name) and t.id == "publishable" for t in node.targets)
-        ]
-        self.assertEqual(len(gate), 1, "publication gate must exist exactly once in main()")
+        for expected in expected_gates:
+            self.assertEqual(
+                sum(1 for node in should_post if worker_source.dump(node.value) == worker_source.expr_dump(expected)),
+                1,
+                f"missing publication branch: {expected}",
+            )
 
     def test_speed_formulas_untouched(self) -> None:
-        text = "\n".join(self.source_lines)
-        for marker in (
-            "def update_speed_estimate(det):",
-            "kmh_per_px_s",
-            "MIN_EVENT_SPEED_PX_PER_SEC",
-        ):
-            self.assertIn(marker, text)
+        # 398-wave-a: converted from source-text pin (was L74-81) — the speed
+        # formula entry points must exist structurally: update_speed_estimate
+        # keeps its single det parameter and the kmh factor / minimum-speed
+        # constants stay referenced by the worker module.
+        update_node = worker_source.function_node("update_speed_estimate")
+        self.assertEqual(
+            [arg.arg for arg in update_node.args.args],
+            ["det"],
+            "update_speed_estimate(det) signature must stay",
+        )
+        trees = worker_source.module_trees()
+        self.assertTrue(worker_source.references_name(trees, "kmh_per_px_s"), "kmh_per_px_s factor must stay referenced")
+        self.assertTrue(
+            worker_source.references_name(trees, "MIN_EVENT_SPEED_PX_PER_SEC"),
+            "MIN_EVENT_SPEED_PX_PER_SEC must stay referenced",
+        )
 
 
 class ApiPersonGuardTests(unittest.TestCase):

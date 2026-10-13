@@ -5,6 +5,7 @@ import copy
 import json
 import re
 import sqlite3
+import sys
 import tempfile
 import unittest
 from contextlib import contextmanager
@@ -22,7 +23,12 @@ WATER_PASSAGES_SOURCE = ROOT / "api" / "app" / "water_passages.py"
 FRONTEND_SOURCE = ROOT / "frontend" / "sea-speed" / "index.html"
 ARTIFACT_SOURCE = ROOT / "scripts" / "quality" / "build_exact_artifacts.py"
 
-import sys
+try:
+    from tests.support import worker_source
+except ModuleNotFoundError:  # direct file execution: put the repo root on sys.path
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    from tests.support import worker_source
 sys.path.insert(0, str(ROOT / "worker"))
 from water_passage import (
     MeasurementResult,
@@ -550,17 +556,69 @@ class PassageApiRetentionTests(unittest.TestCase):
 
 class IntegrationContractTests(unittest.TestCase):
     def test_worker_uses_passage_engine_but_preserves_road_event_path(self) -> None:
-        source = WORKER_SOURCE.read_text(encoding="utf-8")
-        for marker in (
-            "from water_passage import PassageEngine, build_two_gate_estimator",
-            "passage_engine = PassageEngine(",
-            "passage_engine.update(detections, now)",
-            "def post_passage(",
-            'profile.domain == "water":\n                for vessel in water_event_candidates',
-            "elif detections:",
-            "legacy_event_ready",
-        ):
-            self.assertIn(marker, source)
+        # 398-wave-a: converted from source-text pin (was L552-563) — the
+        # worker must keep wiring the passage engine into main() while the
+        # legacy road event path stays intact, checked structurally so the
+        # #397 decomposition can move the code between files:
+        # (1) water_passage imports stay, (2) main() constructs and updates
+        # the passage engine, (3) post_passage stays defined, (4) the water
+        # event branch feeds water_event_candidates, (5) the legacy road
+        # branch keys on detections, and (6) the legacy cooldown gate stays.
+        trees = worker_source.module_trees()
+        passage_imports = [
+            node
+            for tree in trees
+            for node in tree.body
+            if isinstance(node, ast.ImportFrom)
+            and node.module == "water_passage"
+            and {alias.name for alias in node.names} >= {"PassageEngine", "build_two_gate_estimator"}
+        ]
+        self.assertTrue(passage_imports, "worker must import PassageEngine and build_two_gate_estimator from water_passage")
+        main_node = worker_source.function_node("main")
+        engine_assigns = [
+            a for a in worker_source.find_assignments(main_node, "passage_engine")
+            if isinstance(a.value, ast.Call)
+            and isinstance(a.value.func, ast.Name)
+            and a.value.func.id == "PassageEngine"
+        ]
+        self.assertTrue(engine_assigns, "main() must construct the PassageEngine")
+        self.assertTrue(
+            worker_source.contains_expr(main_node, "passage_engine.update(detections, now)"),
+            "main() must feed detections through passage_engine.update(detections, now)",
+        )
+        worker_source.function_nodes({"post_passage"})  # raises if the legacy poster disappears
+        # The 2-line pin (was L559, byte-identical duplicate of the pin at
+        # test_analytics_profiles.py:94) as a structural check: the water
+        # branch selects water_event_candidates(profile, detections) for
+        # vessels.
+        water_branches = [
+            node
+            for node in ast.walk(main_node)
+            if isinstance(node, ast.If)
+            and worker_source.contains_expr(node.test, 'profile.domain == "water"')
+            and any(
+                isinstance(loop, ast.For)
+                and isinstance(loop.target, ast.Name)
+                and loop.target.id == "vessel"
+                and worker_source.dump(loop.iter) == worker_source.expr_dump("water_event_candidates(profile, detections)")
+                for branch_stmt in node.body
+                for loop in ast.walk(branch_stmt)
+            )
+        ]
+        self.assertTrue(water_branches, "water event branch must iterate water_event_candidates(profile, detections)")
+        elif_branches = [
+            node
+            for node in ast.walk(main_node)
+            if isinstance(node, ast.If)
+            and node.orelse
+            and isinstance(node.orelse[0], ast.If)
+            and worker_source.dump(node.orelse[0].test) == worker_source.expr_dump("detections")
+        ]
+        self.assertTrue(elif_branches, "legacy road event branch must key on `elif detections:`")
+        self.assertTrue(
+            worker_source.find_assignments(main_node, "legacy_event_ready"),
+            "legacy event readiness must still gate the road path",
+        )
 
     def test_frontend_renders_passage_lifecycle(self) -> None:
         source = FRONTEND_SOURCE.read_text(encoding="utf-8")

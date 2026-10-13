@@ -26,6 +26,13 @@ WATER_PASSAGES_SOURCE = ROOT / "api" / "app" / "water_passages.py"
 ANALYTICS_SOURCE = ROOT / "api" / "app" / "analytics.py"
 STORE_FILE = ROOT / "api" / "app" / "store.py"
 
+try:
+    from tests.support import worker_source
+except ModuleNotFoundError:  # direct file execution: put the repo root on sys.path
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    from tests.support import worker_source
+
 
 def _load_api_store():
     spec = importlib.util.spec_from_file_location("api_store_line_crossing_test", STORE_FILE)
@@ -41,18 +48,9 @@ def _purge_crossings(namespace: dict[str, Any], camera_id: str) -> None:
 
 
 def extract_worker_functions(names: set[str]) -> dict[str, Any]:
-    tree = ast.parse(WORKER.read_text(encoding="utf-8-sig"), filename=str(WORKER))
-    selected = []
-    found = set()
-    for node in tree.body:
-        if isinstance(node, ast.FunctionDef) and node.name in names:
-            selected.append(copy.deepcopy(node))
-            found.add(node.name)
-    missing = names - found
-    if missing:
-        raise AssertionError(f"missing worker functions: {sorted(missing)}")
-    module = ast.Module(body=selected, type_ignores=[])
-    ast.fix_missing_locations(module)
+    # 398-wave-a: shared AST-slice+exec harness (was a private duplicate pinned
+    # to one path) — tests/support/worker_source.py resolves the worker source
+    # by path so the #397 decomposition can move functions between files.
     namespace: dict[str, Any] = {
         "time": time,
         "json": json,
@@ -72,8 +70,7 @@ def extract_worker_functions(names: set[str]) -> dict[str, Any]:
         "_crossing_vlz_date": None,
         "VLZ_TIMEZONE": timezone(timedelta(hours=10)),
     }
-    exec(compile(module, str(WORKER), "exec"), namespace)
-    return namespace
+    return worker_source.load_functions(names, namespace)
 
 
 def det(track_id: int, x1: float, y1: float, x2: float, y2: float, object_type: str = "car") -> Dict[str, Any]:
@@ -201,15 +198,47 @@ class CrossingDetectionTests(unittest.TestCase):
 
 class OverlayLayoutTests(unittest.TestCase):
     def test_stats_block_moved_to_bottom_left(self) -> None:
-        text = WORKER.read_text(encoding="utf-8")
-        self.assertIn("y = height - block_height + line_height - 4", text)
-        self.assertNotIn("\n    y = 24\n", text)
+        # 398-wave-a: converted from source-text pin (was L203-206) — the
+        # stats block must anchor to the bottom of the frame (y computed from
+        # block height) and the legacy top-anchored y = 24 must stay removed.
+        draw = worker_source.function_node("draw_overlay")
+        y_assignments = worker_source.find_assignments(draw, "y")
+        self.assertTrue(
+            any(worker_source.dump(a.value) == worker_source.expr_dump("height - block_height + line_height - 4") for a in y_assignments),
+            "stats block must anchor y to height - block_height + line_height - 4",
+        )
+        for assignment in y_assignments:
+            value = assignment.value
+            self.assertFalse(
+                isinstance(value, ast.Constant) and value.value == 24,
+                "stats block must not regress to the top-anchored y = 24",
+            )
 
     def test_counter_block_drawn_bottom_right(self) -> None:
-        text = WORKER.read_text(encoding="utf-8")
-        self.assertIn("crossing_summary=None", text)
-        self.assertIn("(width - 16 - tw, c_y)", text)
-        self.assertIn("CROSSINGS ->", text)
+        # 398-wave-a: converted from source-text pin (was L208-212) — the
+        # crossing counter block keeps its optional crossing_summary parameter
+        # (None default), renders right-aligned at width - 16 - tw, and keeps
+        # the "CROSSINGS ->" label.
+        draw = worker_source.function_node("draw_overlay")
+        summary_params = [
+            (arg, default)
+            for arg, default in zip(
+                reversed(draw.args.args),
+                reversed([*draw.args.defaults]),
+            )
+        ]
+        self.assertTrue(
+            any(arg.arg == "crossing_summary" and isinstance(default, ast.Constant) and default.value is None for arg, default in summary_params),
+            "draw_overlay must keep the optional crossing_summary parameter (None default)",
+        )
+        self.assertTrue(
+            worker_source.contains_expr(draw, "(width - 16 - tw, c_y)"),
+            "counter text must render right-aligned at width - 16 - tw",
+        )
+        self.assertTrue(
+            any(part.startswith("CROSSINGS ->") for part in worker_source.string_constants(draw)),
+            "counter block must keep the CROSSINGS -> label",
+        )
 
 
 class _StubHTTPException(Exception):
@@ -439,10 +468,40 @@ class CrossingUrlTests(unittest.TestCase):
             self.assertEqual(ns["get_crossing_line_url"](), expected)
 
     def test_post_crossing_url_has_no_duplicated_path(self) -> None:
-        text = WORKER.read_text(encoding="utf-8")
-        self.assertIn('url = state_url.rsplit("/", 1)[0] + "/crossings"', text)
-        self.assertNotIn('f"/analytics/{camera_id}/crossings"', text)
-        self.assertNotIn('f"/analytics/{camera_id}/crossing-line"', text)
+        # 398-wave-a: converted from source-text pin (was L441-445) — now
+        # behavioral: post_crossing must derive the crossing ingest URL from
+        # the state URL by trimming its last path segment (never by
+        # interpolating the camera id into an /analytics/ template), proven by
+        # executing the live function against a recording requests stub; an
+        # AST negative keeps the module free of f-string-built crossing URLs.
+        posts: list[str] = []
+
+        class FakeResponse:
+            status_code = 200
+
+        class FakeRequests:
+            @staticmethod
+            def post(url: str, headers: object = None, data: object = None, timeout: object = None):
+                posts.append(url)
+                return FakeResponse()
+
+        ns: dict[str, Any] = {
+            "requests": FakeRequests,
+            "env_str": lambda name, default="": {
+                "SEA_SPEED_API_URL": "http://10.0.0.5:8010/api/cam1/state",
+                "SEA_SPEED_API_TOKEN": "token",
+            }.get(name, default),
+            "json": json,
+        }
+        worker_source.load_functions({"post_crossing"}, ns)
+        self.assertTrue(ns["post_crossing"]({"direction": "left_to_right"}))
+        self.assertEqual(len(posts), 1)
+        self.assertEqual(posts[0], "http://10.0.0.5:8010/api/cam1/crossings")
+        self.assertNotIn("/analytics/", posts[0])
+        for tree in worker_source.module_trees():
+            for part in worker_source.joined_string_constants(tree):
+                self.assertNotIn("/crossings", part)
+                self.assertNotIn("/crossing-line", part)
 
     def test_overlay_summary_includes_line_points(self) -> None:
         ns = extract_worker_functions({"crossing_overlay_summary", "reset_crossing_counts"})
@@ -529,9 +588,27 @@ class RetryQueueTests(unittest.TestCase):
 
 class OverlayLineColorTests(unittest.TestCase):
     def test_counting_line_drawn_yellow_bgr(self) -> None:
-        text = WORKER.read_text(encoding="utf-8")
-        self.assertIn("(0, 255, 255), 2, cv2.LINE_AA", text)
-        self.assertNotIn("(255, 210, 60)", text)
+        # 398-wave-a: converted from source-text pin (was L530-534) — the
+        # counting line must be drawn by a cv2.line call in yellow BGR
+        # (0, 255, 255) at width 2 with anti-aliasing, and the retired
+        # (255, 210, 60) color must stay out of the whole worker module.
+        draw = worker_source.function_node("draw_overlay")
+        yellow_lines = [
+            call
+            for call in worker_source.method_calls(draw, "cv2", "line")
+            if (0, 255, 255) in worker_source.tuple_constants(call)
+            and any(isinstance(arg, ast.Constant) and arg.value == 2 for arg in call.args)
+            and any(
+                isinstance(arg, ast.Attribute)
+                and arg.attr == "LINE_AA"
+                and isinstance(arg.value, ast.Name)
+                and arg.value.id == "cv2"
+                for arg in call.args
+            )
+        ]
+        self.assertTrue(yellow_lines, "counting line must be drawn yellow BGR (0, 255, 255), width 2, cv2.LINE_AA")
+        for tree in worker_source.module_trees():
+            self.assertNotIn((255, 210, 60), worker_source.tuple_constants(tree), "retired line color must stay removed")
 
 
 class CrossingPanelUiTests(unittest.TestCase):
@@ -580,9 +657,21 @@ class CrossingPanelDomGuardTests(unittest.TestCase):
 
 class CrossingConfigRefreshTests(unittest.TestCase):
     def test_config_refresh_default_is_one_second(self) -> None:
-        text = WORKER.read_text(encoding="utf-8")
-        self.assertIn('env_float("CROSSING_LINE_REFRESH_SEC", 1.0)', text)
-        self.assertNotIn('env_float("CROSSING_LINE_REFRESH_SEC", 5.0)', text)
+        # 398-wave-a: converted from source-text pin (was L582-585) — every
+        # CROSSING_LINE_REFRESH_SEC read must default to 1.0 (catches any
+        # re-introduced default, not just the historical 5.0).
+        refresh_calls = [
+            call
+            for tree in worker_source.module_trees()
+            for call in worker_source.calls_with_constant_arg(tree, "env_float", "CROSSING_LINE_REFRESH_SEC")
+        ]
+        self.assertTrue(refresh_calls, "worker must read CROSSING_LINE_REFRESH_SEC")
+        for call in refresh_calls:
+            self.assertEqual(
+                worker_source.dump(call.args[1]),
+                worker_source.expr_dump("1.0"),
+                "CROSSING_LINE_REFRESH_SEC default must stay 1.0s",
+            )
 
 
 class VlzDailyResetTests(unittest.TestCase):
@@ -637,10 +726,32 @@ class SummaryDateRangeTests(unittest.TestCase):
 
 class OverlayAllClassesTests(unittest.TestCase):
     def test_overlay_counter_has_no_class_cap(self) -> None:
-        text = WORKER.read_text(encoding="utf-8")
-        self.assertNotIn(')[:5]:', text)
-        self.assertNotIn('for class_name, counts in sorted(by_class.items()', text)
-        self.assertIn('counter_lines = [f"CROSSINGS', text)
+        # 398-wave-a: converted from source-text pin (was L639-643) — no
+        # sorted(...)[:5] capped iteration may exist anywhere in the worker
+        # module (the historical class cap), and the counter block must keep
+        # building its lines from the full "CROSSINGS" f-string list.
+        for tree in worker_source.module_trees():
+            for node in ast.walk(tree):
+                if (
+                    isinstance(node, ast.Subscript)
+                    and isinstance(node.slice, ast.Slice)
+                    and isinstance(node.slice.upper, ast.Constant)
+                    and node.slice.upper.value == 5
+                    and isinstance(node.value, ast.Call)
+                    and isinstance(node.value.func, ast.Name)
+                    and node.value.func.id == "sorted"
+                ):
+                    self.fail("capped class iteration re-introduced: sorted(...)[:5]")
+        draw = worker_source.function_node("draw_overlay")
+        counter_assignments = worker_source.find_assignments(draw, "counter_lines")
+        self.assertTrue(
+            any(
+                isinstance(a.value, ast.List)
+                and any("CROSSINGS" in part for part in worker_source.joined_string_constants(a.value))
+                for a in counter_assignments
+            ),
+            "overlay counter must be built from the CROSSINGS f-string without a class cap",
+        )
 
 
 class RegistrySpeedRowTests(unittest.TestCase):
