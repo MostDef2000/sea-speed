@@ -165,7 +165,12 @@ def _validate_water_live_envelope(payload: Dict[str, Any]) -> Dict[str, Any]:
                 raise HTTPException(status_code=400, detail="invalid box")
         except Exception:
             raise HTTPException(status_code=400, detail="invalid box")
-    if len(json.dumps(payload, ensure_ascii=False)) > 64 * 1024:
+    # size guard
+    try:
+        raw = json.dumps(payload, ensure_ascii=False)
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid json")
+    if len(raw) > 64 * 1024:
         raise HTTPException(status_code=400, detail="payload too large")
     return payload
 
