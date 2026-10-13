@@ -31,3 +31,27 @@
 
 - Trigger: any existing pin/test failing after the move → fix the MOVE (per constraint 5), never the test. Observed: no test edits were needed; battery green on first run.
 - Trigger: validator failure on artifact lists → fix the list (convergence), never weaken the validator. Observed: all four updated, all validators green.
+
+## Affected contours
+
+- Ubuntu Worker/relay: `worker/worker_kernel.py` (NEW), `worker/hls_motion_yolo_worker_events.py` (moved defs → re-export); shipped by the exact artifacts (`build_exact_artifacts` ubuntu-worker+edge) and installed by `deploy/worker/ubuntu/install-systemd.sh`; runtime verification lands with the next routine worker deploy.
+- Control plane: `scripts/ci/validate_repo.py`, `scripts/quality/build_exact_artifacts.py`, `scripts/quality/validate_exact_artifacts.py` (required-list convergence only — additions).
+- Test harness: `tests/support/worker_source.py` (DEFAULT_WORKER_SOURCES gains the kernel — designed #397 path), NEW `tests/test_worker_kernel_module.py`.
+- SDD trio `specs/397-wave1-worker-kernel/` (+ durable progress file outside the repo tree).
+- No change to: deploy/vps/**, api/**, frontend/**, .github/workflows/**, check_ubuntu_compatibility.py, rollback-exact.sh, any test pin, live worker host state.
+
+## Validation
+
+- AST equivalence: per-function `ast.dump` equality between `git show HEAD:worker/hls_motion_yolo_worker_events.py` and worker_kernel.py for all 24 names → "all 24 AST-identical: True" (observed before the first test run).
+- Integrity: tests/test_worker_kernel_module.py 3/3 OK (isolated stdlib-only import probe via `python3 -I`; exact-list re-export check both directions; def placement).
+- Focused: `python3 -m unittest tests.test_worker_kernel_module tests.test_worker_contract tests.test_line_crossing tests.test_worker_roi_pipeline` → `Ran 61 ... OK`.
+- Full suite: `python3 -m unittest discover -s tests -p 'test_*.py'` → `Ran 923 tests ... OK (skipped=4)` = 920 + 3 new, ZERO test edits (observed by the orchestrator).
+- `python3 -m ruff check . --config scripts/quality/ruff.toml` → clean (exit 0).
+- `python3 scripts/ci/validate_repo.py` → passed; `python3 scripts/ci/validate_sdd.py` → passed (after the orchestrator completed the trio's house sections — spec Runtime feedback, plan Affected contours/Validation/Runtime feedback).
+- `python3 scripts/worker/check_ubuntu_compatibility.py` → `compatible=True`, `forbidden_markers=[]` (untouched gate).
+- Runtime import probe: `python3 -c "import sys; sys.path.insert(0,'worker'); import worker_kernel"` → 25 public exports.
+
+## Runtime feedback
+
+- RF-001: Operator actions expected: 0; this wave changes only the worker source layout (move-only) — runtime verification lands with the next routine Ubuntu-worker deploy (batched with wave 2, owner deploy gate); the orchestrator records runtime acceptance on issue #397.
+- RF-002: Evidence: the next deploy-ubuntu-worker run for a post-#474 SHA shows the kernel shipped in the exact artifacts and both worker services restarting green; AST-equivalence and battery transcripts are recorded in the durable progress file.
