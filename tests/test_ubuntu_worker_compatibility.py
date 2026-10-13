@@ -23,10 +23,15 @@ def load_checker():
 
 class UbuntuWorkerCompatibilityTests(unittest.TestCase):
     def test_current_worker_satisfies_static_contract(self) -> None:
+        # Issue #397 wave 2: the worker is a multi-file module — the default
+        # contract scan covers every MODULE_SOURCES file (worker_media.py owns
+        # the HLS_URL call sites and the subprocess.Popen usage since the
+        # media/reader extraction).
         module = load_checker()
-        result = module.inspect_worker(WORKER)
+        result = module.inspect_worker(list(module.MODULE_SOURCES))
         self.assertTrue(result["compatible"], result)
         self.assertTrue(result["uses_pathlib"])
+        self.assertTrue(result["uses_subprocess"])
         self.assertTrue(result["subprocess_uses_argument_list"])
         self.assertEqual(result["missing_required_environment_names"], [])
         self.assertEqual(result["forbidden_markers"], [])

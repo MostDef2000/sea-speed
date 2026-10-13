@@ -31,9 +31,12 @@ ROOT = Path(__file__).resolve().parents[2]
 # Issue #397 wave 1: the worker split — pure helpers live in worker_kernel.py
 # and the runtime worker re-exports them, so the harness parses BOTH files and
 # resolves each function from whichever file defines it (first definition wins).
+# Issue #397 wave 2: the media/reader layer lives in worker_media.py — the
+# harness now parses all three files with the same first-definition-wins rule.
 DEFAULT_WORKER_SOURCES = (
     "worker/hls_motion_yolo_worker_events.py",
     "worker/worker_kernel.py",
+    "worker/worker_media.py",
 )
 
 FunctionLike = ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef
