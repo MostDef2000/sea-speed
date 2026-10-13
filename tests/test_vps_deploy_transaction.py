@@ -319,6 +319,19 @@ if action == 'reconcile':
         print('WORKER_PRIVATE_ROAD_API_BASE=http://10.123.239.101:18080/api/analytics/road1')
         print('SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS')
         raise SystemExit(0)
+    if mode == 'reconcile-recovery-forged':
+        # Issue #464 review F-3 (forgery direction): the bounded recovery
+        # markers are present and UNIVERSALLY =PASS, but the capability line
+        # claims ROLLBACK_CAPABILITY=VERIFIED instead of the honest MANUAL
+        # that the bounded recovery path prints (cutover runs WITHOUT
+        # --require-protected-baseline). The gate must reject this forgery
+        # closed: the recovery rule admits ROLLBACK_CAPABILITY=MANUAL only.
+        print('SEA_SPEED_AUTH_CUTOVER=PASS')
+        print('WORKER_PRIVATE_ROAD_API_BASE=http://10.123.239.101:18080/api/analytics/road1')
+        print('ROLLBACK_CAPABILITY=VERIFIED')
+        print('SEA_SPEED_AUTH_RECOVERY=PASS')
+        print('SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS')
+        raise SystemExit(0)
     if mode == 'auth-fail':
         print('SEA_SPEED_AUTH_ROLLBACK=PASS')
         print('AUTOMATIC_ROLLBACK=PASS')
@@ -634,6 +647,22 @@ if action == 'reconcile':
         self.assertEqual(self.current(), OLD)
         self.assertIn(OLD, self.api.read_text())
         self.assertNotIn("SEA_SPEED_AUTH_RECOVERY=", result.stdout)
+        self.assertEqual(self.manifest()["state"], "rolled_back")
+
+    def test_post_mutation_reconcile_forged_recovery_capability_is_rejected(self) -> None:
+        # Issue #464 review F-3 (forgery direction): the recovery markers are
+        # present and UNIVERSALLY =PASS, but the capability line claims
+        # ROLLBACK_CAPABILITY=VERIFIED instead of the honest MANUAL the
+        # bounded recovery path prints. The gate must reject this forgery
+        # closed (the recovery rule admits ROLLBACK_CAPABILITY=MANUAL only):
+        # source rolled back, manifest state=rolled_back, non-zero exit.
+        result = self.run_deploy(priv_mode="reconcile-recovery-forged")
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(self.current(), OLD)
+        self.assertIn(OLD, self.api.read_text())
+        self.assertIn("SEA_SPEED_AUTH_RECOVERY=PASS", result.stdout)
+        self.assertIn("ROLLBACK_CAPABILITY=VERIFIED", result.stdout)
+        self.assertNotIn("ROLLBACK_CAPABILITY=MANUAL", result.stdout)
         self.assertEqual(self.manifest()["state"], "rolled_back")
 
     def test_already_deployed_source_fails_closed_when_boundary_is_not_accepted(self) -> None:

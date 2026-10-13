@@ -1,5 +1,6 @@
 # Tasks: run_auth_boundary accepts the bounded recovery outcome (rollback-capability parity)
 
+- Issue: #464
 - Specification: specs/464-rollback-capability-parity/spec.md
 
 ## Delivery tasks
