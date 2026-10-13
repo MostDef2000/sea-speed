@@ -22,11 +22,30 @@ from __future__ import annotations
 
 import copy
 import importlib.util
+import types
 import unittest
 from pathlib import Path
 from typing import Any, Dict
 
-from fastapi import HTTPException
+try:
+    from fastapi import HTTPException  # type: ignore[no-redef]
+except ModuleNotFoundError:
+    # CI behavioral suite is deliberately import-free of app dependencies
+    # (fastapi is not installed there). The validators only use the
+    # HTTPException(status_code=..., detail=...) contract, so a minimal stub
+    # with the same constructor surface is contract-equivalent for these
+    # tests; live_feeds.py resolves its own fastapi import from sys.modules.
+    class HTTPException(Exception):
+        def __init__(self, status_code: int | None = None, detail: str | None = None) -> None:
+            super().__init__(detail)
+            self.status_code = status_code
+            self.detail = detail
+
+    sys_modules_fastapi = types.ModuleType("fastapi")
+    sys_modules_fastapi.HTTPException = HTTPException  # type: ignore[attr-defined]
+    import sys as _sys
+
+    _sys.modules.setdefault("fastapi", sys_modules_fastapi)
 
 ROOT = Path(__file__).resolve().parents[1]
 LIVE_FEEDS = ROOT / "api" / "app" / "live_feeds.py"
