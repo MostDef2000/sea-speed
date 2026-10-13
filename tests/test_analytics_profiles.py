@@ -101,6 +101,9 @@ class AnalyticsProfilesTests(unittest.TestCase):
         # initialize_objects_db into objects_registry.py.
         # Issue #396 wave 3: the water-passages store joined the walk
         # (water_passages DDL now lives in water_passages.py).
+        # Issue #396 wave 5: analytics.py joined the walk — the
+        # analytics_data_file pin ("DATA_DIR / f\"{camera_id}_{kind}.json\"")
+        # moved with the analytics services slice into analytics.py.
         api_dir = ROOT / "api/app"
         source = "\n".join(
             path.read_text(encoding="utf-8")
@@ -109,6 +112,7 @@ class AnalyticsProfilesTests(unittest.TestCase):
                 api_dir / "objects_registry.py",
                 api_dir / "passage_mirrors.py",
                 api_dir / "water_passages.py",
+                api_dir / "analytics.py",
                 api_dir / "identity.py",
                 api_dir / "config.py",
             )

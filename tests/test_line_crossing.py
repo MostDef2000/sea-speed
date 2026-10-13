@@ -21,6 +21,9 @@ OBJECTS_REGISTRY_SOURCE = ROOT / "api" / "app" / "objects_registry.py"
 PASSAGE_MIRRORS_SOURCE = ROOT / "api" / "app" / "passage_mirrors.py"
 # Issue #396 wave 3: the water-passages store moved out of main.py.
 WATER_PASSAGES_SOURCE = ROOT / "api" / "app" / "water_passages.py"
+# Issue #396 wave 5: the analytics services (crossing/passage record services
+# and the ROI/points helpers) moved out of main.py.
+ANALYTICS_SOURCE = ROOT / "api" / "app" / "analytics.py"
 STORE_FILE = ROOT / "api" / "app" / "store.py"
 
 
@@ -280,7 +283,9 @@ class ApiCrossingTests(unittest.TestCase):
         cls.namespace["persist_object_event"] = lambda event: cls.persisted.append(event) or True
         # Issue #396 wave 3: water_passages.py joined the walk (defensive —
         # the crossing slice stays in main.py this wave).
-        tree_candidates = (API, OBJECTS_REGISTRY_SOURCE, PASSAGE_MIRRORS_SOURCE, WATER_PASSAGES_SOURCE)
+        # Issue #396 wave 5: the crossing/passage record services and the
+        # ROI/points helpers moved to analytics.py — the walk follows them.
+        tree_candidates = (API, OBJECTS_REGISTRY_SOURCE, PASSAGE_MIRRORS_SOURCE, WATER_PASSAGES_SOURCE, ANALYTICS_SOURCE)
         selected = []
         found = set()
         for source in tree_candidates:
@@ -413,7 +418,13 @@ class ApiCrossingTests(unittest.TestCase):
 
 class Cam1LegacyKindFallbackTests(unittest.TestCase):
     def test_cam1_unknown_kind_falls_back_to_data_dir(self) -> None:
+        # Issue #396 wave 5: the cam1 legacy-kind fallback moved with the
+        # crossing slice into analytics.py; the pin scans main.py joined
+        # with the analytics module (same multi-source walk as the other
+        # readers). Assertion text is byte-unchanged.
         text = API.read_text(encoding="utf-8")
+        if ANALYTICS_SOURCE.exists():
+            text += "\n" + ANALYTICS_SOURCE.read_text(encoding="utf-8")
         self.assertIn('if camera_id == "cam1" and kind in legacy:', text)
 
 
@@ -607,7 +618,12 @@ class VlzDailyResetTests(unittest.TestCase):
 
 class SummaryDateRangeTests(unittest.TestCase):
     def test_summary_supports_vlz_day_window_params(self) -> None:
+        # Issue #396 wave 5: the crossings summary service moved to
+        # analytics.py; the pins scan main.py joined with the analytics
+        # module (same multi-source walk as the other readers).
         text = API.read_text(encoding="utf-8")
+        if ANALYTICS_SOURCE.exists():
+            text += "\n" + ANALYTICS_SOURCE.read_text(encoding="utf-8")
         self.assertIn("date_from: Optional[str] = None, date_to: Optional[str] = None", text)
         self.assertIn('"mode": "vlz_days"', text)
         self.assertIn("VLZ_TIMEZONE = timezone(timedelta(hours=10))", text)

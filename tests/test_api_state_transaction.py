@@ -40,6 +40,12 @@ from typing import Any, Dict, List, Optional
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 API = REPO_ROOT / "api" / "app" / "main.py"
+# Issue #396 wave 5: the analytics services moved out of main.py — the walk
+# below resolves extracted functions from the analytics module with fallback
+# to main, exactly like the other readers. The retirement teeth are untouched:
+# the exec'd bodies are still the REAL append/persist paths (real store
+# write_json_file/read_json_file fallback, byte-pinned legacy mirrors).
+ANALYTICS_FILE = REPO_ROOT / "api" / "app" / "analytics.py"
 STORE_FILE = REPO_ROOT / "api" / "app" / "store.py"
 
 
@@ -52,22 +58,30 @@ def _load_store():
 
 STORE = _load_store() if STORE_FILE.exists() else None
 
-MAIN_TREE = ast.parse(API.read_text(encoding="utf-8-sig"), filename=str(API))
+_API_TREES = []
+for _source in (API, ANALYTICS_FILE):
+    if _source.exists():
+        _API_TREES.append(
+            ast.parse(_source.read_text(encoding="utf-8-sig"), filename=str(_source))
+        )
 MAIN_FUNCTION_NAMES = {
     node.name
-    for node in MAIN_TREE.body
+    for _tree in _API_TREES
+    for node in _tree.body
     if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
 }
 
 
 def _extract_functions(names):
     found: Dict[str, Any] = {}
-    for node in MAIN_TREE.body:
-        if (
-            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-            and node.name in names
-        ):
-            found[node.name] = node
+    for _tree in _API_TREES:
+        for node in _tree.body:
+            if (
+                isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and node.name in names
+                and node.name not in found
+            ):
+                found[node.name] = node
     missing = set(names) - set(found)
     if missing:
         raise AssertionError(f"missing API functions: {sorted(missing)}")
