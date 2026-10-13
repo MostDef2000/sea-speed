@@ -17,6 +17,7 @@ OBJECTS_REGISTRY_TARGET="$(dirname "$API_TARGET")/objects_registry.py"
 PASSAGE_MIRRORS_TARGET="$(dirname "$API_TARGET")/passage_mirrors.py"
 WATER_PASSAGES_TARGET="$(dirname "$API_TARGET")/water_passages.py"
 CAMERA_PREVIEW_TARGET="$(dirname "$API_TARGET")/camera_preview.py"
+ANALYTICS_TARGET="$(dirname "$API_TARGET")/analytics.py"
 FRONTEND_TARGET="${SEA_SPEED_FRONTEND_TARGET:-/var/www/mostdef.ru/sea-speed/index.html}"
 OBJECTS_FRONTEND_TARGET="${SEA_SPEED_OBJECTS_FRONTEND_TARGET:-/var/www/mostdef.ru/sea-speed/objects/index.html}"
 CAMERAS_FRONTEND_TARGET="${SEA_SPEED_CAMERAS_FRONTEND_TARGET:-/var/www/mostdef.ru/sea-speed/cameras/index.html}"
@@ -216,6 +217,7 @@ release_complete() {
      -f "$root/api/app/passage_mirrors.py" && \
      -f "$root/api/app/water_passages.py" && \
      -f "$root/api/app/camera_preview.py" && \
+     -f "$root/api/app/analytics.py" && \
      -f "$root/frontend/sea-speed/index.html" && \
      -f "$root/frontend/sea-speed/objects/index.html" && \
      -f "$root/frontend/sea-speed/cameras/index.html" && \
@@ -259,6 +261,7 @@ download_release() {
     api/app/passage_mirrors.py \
     api/app/water_passages.py \
     api/app/camera_preview.py \
+    api/app/analytics.py \
     frontend/sea-speed/index.html \
     frontend/sea-speed/objects/index.html \
     frontend/sea-speed/cameras/index.html \
@@ -292,6 +295,7 @@ download_release() {
   install -m 0644 "$extracted/api/app/passage_mirrors.py" "$TARGET_RELEASE/api/app/passage_mirrors.py"
   install -m 0644 "$extracted/api/app/water_passages.py" "$TARGET_RELEASE/api/app/water_passages.py"
   install -m 0644 "$extracted/api/app/camera_preview.py" "$TARGET_RELEASE/api/app/camera_preview.py"
+  install -m 0644 "$extracted/api/app/analytics.py" "$TARGET_RELEASE/api/app/analytics.py"
   install -m 0644 "$extracted/frontend/sea-speed/index.html" "$TARGET_RELEASE/frontend/sea-speed/index.html"
   install -m 0644 "$extracted/frontend/sea-speed/objects/index.html" "$TARGET_RELEASE/frontend/sea-speed/objects/index.html"
   install -m 0644 "$extracted/frontend/sea-speed/cameras/index.html" "$TARGET_RELEASE/frontend/sea-speed/cameras/index.html"
@@ -578,6 +582,11 @@ bootstrap_current_release() {
     # imports it at boot, so the bootstrap baseline must stay bootable.
     install -m 0644 "$CAMERA_PREVIEW_TARGET" "$bootstrap_release/api/app/camera_preview.py"
   fi
+  if [[ -f "$ANALYTICS_TARGET" ]]; then
+    # Same for analytics.py (issue #396 wave 5): the captured main.py
+    # imports it at boot, so the bootstrap baseline must stay bootable.
+    install -m 0644 "$ANALYTICS_TARGET" "$bootstrap_release/api/app/analytics.py"
+  fi
   install -m 0644 "$FRONTEND_TARGET" "$bootstrap_release/frontend/sea-speed/index.html"
   if [[ -f "$OBJECTS_FRONTEND_TARGET" ]]; then
     install -m 0644 "$OBJECTS_FRONTEND_TARGET" "$bootstrap_release/frontend/sea-speed/objects/index.html"
@@ -718,6 +727,9 @@ install_release() {
   if [[ -f "$release_dir/api/app/camera_preview.py" ]]; then
     install -m 0644 "$release_dir/api/app/camera_preview.py" "${CAMERA_PREVIEW_TARGET}.next"
   fi
+  if [[ -f "$release_dir/api/app/analytics.py" ]]; then
+    install -m 0644 "$release_dir/api/app/analytics.py" "${ANALYTICS_TARGET}.next"
+  fi
   install -m 0644 "$release_dir/frontend/sea-speed/index.html" "${FRONTEND_TARGET}.next"
   install -m 0644 "$release_dir/frontend/root/index.html" "${ROOT_FRONTEND_TARGET}.next"
   if [[ -f "$release_dir/frontend/sea-speed/objects/index.html" ]]; then
@@ -796,6 +808,13 @@ install_release() {
     mv -f "${CAMERA_PREVIEW_TARGET}.next" "$CAMERA_PREVIEW_TARGET"
   else
     rm -f "$CAMERA_PREVIEW_TARGET" "${CAMERA_PREVIEW_TARGET}.next"
+  fi
+  if [[ -f "$release_dir/api/app/analytics.py" ]]; then
+    # analytics.py must also land before main.py: the new main imports
+    # it through the wave-5 seam at boot (issue #396 wave 5).
+    mv -f "${ANALYTICS_TARGET}.next" "$ANALYTICS_TARGET"
+  else
+    rm -f "$ANALYTICS_TARGET" "${ANALYTICS_TARGET}.next"
   fi
   mv -f "${API_TARGET}.next" "$API_TARGET"
   mv -f "${FRONTEND_TARGET}.next" "$FRONTEND_TARGET"

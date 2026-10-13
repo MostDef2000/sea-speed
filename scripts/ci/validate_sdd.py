@@ -40,12 +40,13 @@ GRANDFATHERED_PREFIX_COLLISIONS = {
     # planned by the program contract); the wave set shares the 396 prefix
     # by design (delivery-orchestrator decision, 2026-10-12; wave 3 added
     # 2026-10-13 per the wave-3 work order, wave 4 the same day per the
-    # wave-4 work order).
+    # wave-4 work order, wave 5 the same day per the wave-5 work order).
     "396": {
         "396-wave1-shared-kernel",
         "396-wave2-objects-registry",
         "396-wave3-water-passages",
         "396-wave4-camera-preview",
+        "396-wave5-analytics-services",
     },
 }
 
