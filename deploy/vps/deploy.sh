@@ -1004,7 +1004,31 @@ run_auth_boundary() {
   grep -Fq 'ACTION=reconcile' <<<"$output" || return 1
   grep -Fq 'SEA_SPEED_AUTH_CUTOVER=PASS' <<<"$output" || return 1
   grep -Fq 'WORKER_PRIVATE_ROAD_API_BASE=' <<<"$output" || return 1
-  grep -Fq 'ROLLBACK_CAPABILITY=VERIFIED' <<<"$output" || return 1
+  # Two-outcome capability contract (issue #464, F-4): a normal reconcile
+  # prints ROLLBACK_CAPABILITY=VERIFIED (the cutover verified the protected
+  # baseline), while the bounded broken-500 recovery path re-runs the cutover
+  # WITHOUT --require-protected-baseline and therefore honestly prints
+  # ROLLBACK_CAPABILITY=MANUAL plus SEA_SPEED_AUTH_RECOVERY=PASS. The
+  # pre-mutation sites already accept that exact recovery output (universal
+  # =PASS recovery rule); rejecting it here made an identical helper success
+  # abort the deploy after the source mutation and force a rollback. Accept
+  # MANUAL only when recovery markers are present and UNIVERSALLY =PASS; a
+  # stray =PASS line must not rescue a =FAIL occurrence (peer review F-1).
+  # Everything else keeps requiring VERIFIED, so the gate stays fail-closed
+  # both ways: missing or FAIL-shaped recovery output still returns 1, and a
+  # recovery success without the honest MANUAL marker also returns 1. The
+  # matching lines are captured first and re-checked in a single grep pass,
+  # so the verdict stays exact under set -o pipefail (no SIGPIPE-skewed
+  # pipeline status); the [[ -n ]] guard skips the check when no recovery
+  # marker was printed (a herestring of an empty capture is one empty line,
+  # which -v would otherwise select) and keeps set -e from exiting on
+  # no-match.
+  recovery_lines="$(grep -F 'SEA_SPEED_AUTH_RECOVERY=' <<<"$output" || true)"
+  if [[ -n "$recovery_lines" ]] && ! grep -Fqv 'SEA_SPEED_AUTH_RECOVERY=PASS' <<<"$recovery_lines"; then
+    grep -Fq 'ROLLBACK_CAPABILITY=MANUAL' <<<"$output" || return 1
+  else
+    grep -Fq 'ROLLBACK_CAPABILITY=VERIFIED' <<<"$output" || return 1
+  fi
   grep -Fq 'SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS' <<<"$output" || return 1
   AUTH_BOUNDARY_VERIFIED=true
 }
