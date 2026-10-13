@@ -41,7 +41,9 @@ GRANDFATHERED_PREFIX_COLLISIONS = {
     # by design (delivery-orchestrator decision, 2026-10-12; wave 3 added
     # 2026-10-13 per the wave-3 work order, wave 4 the same day per the
     # wave-4 work order, wave 5 the same day per the wave-5 work order,
-    # wave 6 (the final 396 wave) per the wave-6 work order).
+    # wave 6 (the final 396 wave) per the wave-6 work order). D-6
+    # (exact-artifact convergence, #396 program follow-up) joins the same
+    # 396 prefix per the wave-6 D-5 grandfather precedent.
     "396": {
         "396-wave1-shared-kernel",
         "396-wave2-objects-registry",
@@ -49,6 +51,7 @@ GRANDFATHERED_PREFIX_COLLISIONS = {
         "396-wave4-camera-preview",
         "396-wave5-analytics-services",
         "396-wave6-live-feeds-worker-control",
+        "396-d6-artifact-convergence",
     },
 }
 
