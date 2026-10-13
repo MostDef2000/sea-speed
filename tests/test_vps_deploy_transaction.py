@@ -138,6 +138,9 @@ class VpsDeployTransactionTests(unittest.TestCase):
             # Issue #396 wave 5: release_complete requires the analytics
             # services module as well, so synthetic releases carry it too.
             "api/app/analytics.py": f"# analytics services fixture {sha}\n",
+            # Issue #396 wave 6: release_complete requires the live-feeds
+            # module as well, so synthetic releases carry it too.
+            "api/app/live_feeds.py": f"# live feeds fixture {sha}\n",
             "frontend/sea-speed/index.html": f"operator {sha}\n",
             "frontend/sea-speed/objects/index.html": f"objects {sha}\n",
             "frontend/sea-speed/cameras/index.html": f"cameras {sha}\n",
