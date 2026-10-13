@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import sys
 import unittest
 from pathlib import Path
@@ -11,6 +12,13 @@ if str(WORKER) not in sys.path:
 
 import analytics_profiles as profiles
 from water_passage import WaterPassageEngine, build_two_gate_estimator
+
+try:
+    from tests.support import worker_source
+except ModuleNotFoundError:  # direct file execution: put the repo root on sys.path
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    from tests.support import worker_source
 
 
 class FrameQualityTests(unittest.TestCase):
@@ -36,11 +44,30 @@ class FrameQualityTests(unittest.TestCase):
         self.assertIn("FRAME_HEIGHT=1080", text)
 
     def test_hls_worker_uses_profile_frame_size_by_default(self) -> None:
-        text = (ROOT / "worker/hls_motion_yolo_worker_events.py").read_text(encoding="utf-8")
-        self.assertIn("def _resolve_frame_size", text)
-        self.assertIn("crop_sharpness", text)
-        self.assertIn("get_profile", text)
-        self.assertNotIn("env_int(\"FRAME_WIDTH\", 704)", text)
+        # 398-wave-a: converted from source-text pin (was L38-43) — the
+        # worker must resolve its frame size through the analytics profile:
+        # _resolve_frame_size and crop_sharpness stay defined and
+        # _resolve_frame_size consults get_profile; the retired fixed
+        # 704-px default must stay removed (any env_int FRAME_WIDTH 704
+        # read, not just the historical spelling).
+        worker_source.module_trees()  # loads live worker sources (fail-closed on missing file)
+        worker_source.function_nodes({"_resolve_frame_size", "crop_sharpness"})  # raises if either disappears
+        resolve_node = worker_source.function_node("_resolve_frame_size")
+        self.assertTrue(
+            worker_source.calls_named(resolve_node, "get_profile"),
+            "_resolve_frame_size must resolve the profile-driven frame size",
+        )
+        for tree in worker_source.module_trees():
+            for call in worker_source.calls_named(tree, "env_int"):
+                args = call.args
+                if (
+                    len(args) >= 2
+                    and isinstance(args[0], ast.Constant)
+                    and args[0].value == "FRAME_WIDTH"
+                    and isinstance(args[1], ast.Constant)
+                    and args[1].value == 704
+                ):
+                    self.fail("retired fixed 704-px FRAME_WIDTH default re-introduced")
 
     def test_ubuntu_worker_entrypoint_uses_profile_frame_size(self) -> None:
         text = (ROOT / "worker/ubuntu_worker_entrypoint.py").read_text(encoding="utf-8")
@@ -72,9 +99,14 @@ class FrameQualityTests(unittest.TestCase):
         self.assertTrue(upd[0]["snapshot_candidate"])
 
     def test_crop_sharpness_helper_handles_empty(self) -> None:
-        text = (ROOT / "worker/hls_motion_yolo_worker_events.py").read_text(encoding="utf-8")
-        self.assertIn("def crop_sharpness", text)
-        self.assertIn("Laplacian", text)
+        # 398-wave-a: converted from source-text pin (was L74-77) —
+        # crop_sharpness must stay defined and compute Laplacian variance;
+        # the behavioral empty-crop check (import-level) is kept.
+        crop_node = worker_source.function_node("crop_sharpness")
+        self.assertTrue(
+            worker_source.method_calls(crop_node, "cv2", "Laplacian"),
+            "crop_sharpness must measure Laplacian variance",
+        )
         # Functional check via import when cv2 available; skip in env without cv2
         try:
             import sys
