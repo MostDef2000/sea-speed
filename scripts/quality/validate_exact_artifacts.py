@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Validate exact-artifact inventory, digest, extraction safety and syntax."""
 from __future__ import annotations
-import argparse,json,py_compile,subprocess,sys,tarfile,tempfile
+import argparse,json,py_compile,re,subprocess,sys,tarfile,tempfile
 from pathlib import Path,PurePosixPath
 if __package__ in (None,""): sys.path.insert(0,str(Path(__file__).resolve().parents[2]))
+from scripts.quality.build_exact_artifacts import COMPONENT_FILES
 from scripts.quality.common import load_json,repository_root,sha256_file
 REQUIRED_BY_COMPONENT={
 "vps":{"api/app/main.py","frontend/sea-speed/index.html","frontend/sea-speed/objects/index.html","frontend/sea-speed/cameras/index.html","frontend/sea-speed/road/index.html","frontend/root/index.html","deploy/vps/deploy.sh","deploy/vps/sea-speed-auth-cutover.sh","deploy/vps/install-auth-privilege-boundary.sh","deploy/vps/sea-speed-auth-privileged-helper.py","deploy/vps/sea-speed-nginx-zerotier-wait.sh","deploy/vps/sea-speed-nginx-zerotier.conf","scripts/operations/nginx_cam1_direct_h264.py","scripts/operations/nginx_sea_speed_auth.py"},
@@ -11,6 +12,28 @@ REQUIRED_BY_COMPONENT={
 "edge":{"worker/analytics_profiles.py","worker/hls_motion_yolo_worker_events.py","worker/hls_motion_yolo_runtime.py"}}
 QUALITY_EVIDENCE_COMPONENTS={"vps","edge"}; RELEASE_ONLY_COMPONENTS={"ubuntu-worker"}
 WINDOWS_ARCHIVAL_SUFFIXES={".cmd",".ps1"}
+DEPLOY_SCRIPT=Path("deploy/vps/deploy.sh")
+TARGET_ASSIGNMENT_RE=re.compile(r'^([A-Z][A-Z0-9_]*_TARGET)="(.*)"\s*$',re.M)
+def deploy_app_module_targets(deploy_sh_text):
+    # D-6 (#396 follow-up): the api/app modules deploy.sh mirrors through its
+    # <NAME>_TARGET variables — env-default idiom (".../app/<m>.py") or the
+    # dirname idiom ('$(dirname "$API_TARGET")/<m>.py'). Non-python targets
+    # (frontend html/js) carry no .py path and are ignored.
+    modules=set()
+    for _name,value in TARGET_ASSIGNMENT_RE.findall(deploy_sh_text):
+        for m in re.findall(r'app/([A-Za-z0-9_]+)\.py',value)+re.findall(r'\$\(dirname "\$API_TARGET"\)/([A-Za-z0-9_]+)\.py',value): modules.add("api/app/"+m+".py")
+    return modules
+def validate_vps_module_convergence(required_modules,deploy_sh_text):
+    # D-6 (#396 follow-up): convergence is bidirectional — fail closed when
+    # EITHER side drifts: an api/app module in the build required list without
+    # a deploy.sh TARGET mirror, or a deploy.sh TARGET module missing from the
+    # build required list. Previously only the artifact-inventory side was
+    # validated and mirror drift surfaced at deploy time (or never).
+    mirrored=deploy_app_module_targets(deploy_sh_text)
+    unmirrored=sorted(required_modules-mirrored)
+    if unmirrored: raise SystemExit(f"vps required api/app modules not mirrored by {DEPLOY_SCRIPT} TARGET sites: {', '.join(unmirrored)}")
+    unshipped=sorted(mirrored-required_modules)
+    if unshipped: raise SystemExit(f"{DEPLOY_SCRIPT} TARGET api/app modules missing from vps required list: {', '.join(unshipped)}")
 def safe_members(archive):
     members=archive.getmembers()
     for m in members:
@@ -51,6 +74,7 @@ def validate_artifact(root,manifest_path,artifact,seen):
 def main():
     p=argparse.ArgumentParser(); p.add_argument("--manifest",required=True); a=p.parse_args(); root=repository_root(); mp=Path(a.manifest); mp=mp if mp.is_absolute() else root/mp; m=load_json(mp)
     if m.get("schema")!="sea_speed_exact_artifacts_v1": raise SystemExit("unexpected exact-artifact manifest schema")
+    validate_vps_module_convergence({p for p in COMPONENT_FILES["vps"]["required"] if p.startswith("api/app/")},(root/DEPLOY_SCRIPT).read_text(encoding="utf-8"))
     qa=m.get("artifacts",[]); ra=m.get("release_artifacts",[])
     if {i.get("component") for i in qa if isinstance(i,dict)}!=QUALITY_EVIDENCE_COMPONENTS or {i.get("component") for i in ra if isinstance(i,dict)}!=RELEASE_ONLY_COMPONENTS: raise SystemExit("exact artifact component set mismatch")
     if len(qa)!=2 or len(ra)!=1: raise SystemExit("exact-artifact manifest must contain two quality artifacts and one Ubuntu release artifact")
