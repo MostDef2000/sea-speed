@@ -53,6 +53,7 @@ control_agent="$source_root/deploy/worker/ubuntu/worker-control-agent.py"
 
 for required in \
   "$source_root/worker/hls_motion_yolo_worker_events.py" \
+  "$source_root/worker/worker_kernel.py" \
   "$provenance" \
   "$runtime_id_file" \
   "$template" \

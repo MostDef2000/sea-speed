@@ -28,7 +28,13 @@ from pathlib import Path
 from typing import Any, Iterable, cast
 
 ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_WORKER_SOURCES = ("worker/hls_motion_yolo_worker_events.py",)
+# Issue #397 wave 1: the worker split — pure helpers live in worker_kernel.py
+# and the runtime worker re-exports them, so the harness parses BOTH files and
+# resolves each function from whichever file defines it (first definition wins).
+DEFAULT_WORKER_SOURCES = (
+    "worker/hls_motion_yolo_worker_events.py",
+    "worker/worker_kernel.py",
+)
 
 FunctionLike = ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef
 FunctionDefLike = ast.FunctionDef | ast.AsyncFunctionDef
