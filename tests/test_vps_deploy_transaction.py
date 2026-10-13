@@ -282,9 +282,41 @@ if action == 'reconcile':
             raise SystemExit(35)
         Path(os.environ['FAKE_RECOVERY_API_OBSERVED']).write_text(Path(os.environ['SEA_SPEED_API_TARGET']).read_text())
         recovery_marker.write_text('recovered')
+        # Contract fidelity with the real helper's bounded recovery path
+        # (issue #464): run_cutover re-invokes prepare+activate WITHOUT
+        # --require-protected-baseline, so the cutover honestly prints
+        # ROLLBACK_CAPABILITY=MANUAL (prepare :598 / activate :665, with
+        # AUTOMATIC_ROLLBACK=NO) and the helper appends
+        # SEA_SPEED_AUTH_RECOVERY=PASS (:487). The fake must carry the same
+        # capability marker so deploy-side capability gating is exercised
+        # against the real output shape.
         print('SEA_SPEED_AUTH_CUTOVER=PASS')
         print('WORKER_PRIVATE_ROAD_API_BASE=http://10.123.239.101:18080/api/analytics/road1')
+        print('ROLLBACK_CAPABILITY=MANUAL')
         print('SEA_SPEED_AUTH_RECOVERY=PASS')
+        print('SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS')
+        raise SystemExit(0)
+    if mode == 'reconcile-recovery':
+        # Issue #464 (F-4): emulate the real helper's bounded broken-500
+        # recovery SUCCESS output shape on the post-mutation reconcile
+        # (run_cutover recovery branch): CUTOVER+WORKER_PRIVATE from the
+        # recovery-common activate, the honest ROLLBACK_CAPABILITY=MANUAL
+        # printed by the cutover without --require-protected-baseline
+        # (prepare :598 / activate :665), the =PASS recovery marker appended
+        # by the helper (:487), and the reconcile marker.
+        print('SEA_SPEED_AUTH_CUTOVER=PASS')
+        print('WORKER_PRIVATE_ROAD_API_BASE=http://10.123.239.101:18080/api/analytics/road1')
+        print('ROLLBACK_CAPABILITY=MANUAL')
+        print('SEA_SPEED_AUTH_RECOVERY=PASS')
+        print('SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS')
+        raise SystemExit(0)
+    if mode == 'capability-missing':
+        # Issue #464 (b): normal reconcile success shape WITHOUT any
+        # ROLLBACK_CAPABILITY line and without a recovery marker — the
+        # post-mutation gate must keep failing closed (rollback) exactly
+        # as before.
+        print('SEA_SPEED_AUTH_CUTOVER=PASS')
+        print('WORKER_PRIVATE_ROAD_API_BASE=http://10.123.239.101:18080/api/analytics/road1')
         print('SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS')
         raise SystemExit(0)
     if mode == 'auth-fail':
@@ -571,6 +603,37 @@ if action == 'reconcile':
         self.assertIn("SEA_SPEED_AUTH_ROLLBACK=PASS", result.stdout)
         self.assertIn(OLD, self.api.read_text())
         self.assertEqual(self.current(), OLD)
+        self.assertEqual(self.manifest()["state"], "rolled_back")
+
+    def test_post_mutation_reconcile_bounded_recovery_accepts_manual_capability(self) -> None:
+        # Issue #464 (F-4): the privileged helper's bounded broken-500
+        # recovery SUCCESS output ends with the honest
+        # ROLLBACK_CAPABILITY=MANUAL (cutover ran without
+        # --require-protected-baseline) plus SEA_SPEED_AUTH_RECOVERY=PASS.
+        # The pre-mutation sites already accept that exact output (universal
+        # =PASS recovery rule); the post-mutation run_auth_boundary gate must
+        # accept it too, or an identical helper success aborts the deploy
+        # after the source mutation and forces a rollback (workflow red).
+        result = self.run_deploy(priv_mode="reconcile-recovery")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(self.current(), CANDIDATE)
+        self.assertIn("SEA_SPEED_AUTH_CUTOVER=PASS", result.stdout)
+        self.assertIn("SEA_SPEED_AUTH_RECOVERY=PASS", result.stdout)
+        self.assertIn("ROLLBACK_CAPABILITY=MANUAL", result.stdout)
+        self.assertIn("SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS", result.stdout)
+        checks = {item["name"]: item["status"] for item in self.manifest()["checks"]}
+        self.assertEqual(checks["auth_v1_road_private_m2m"], "passed")
+
+    def test_normal_reconcile_without_capability_marker_rolls_back(self) -> None:
+        # Issue #464 (b): without ROLLBACK_CAPABILITY=VERIFIED AND without a
+        # valid =PASS recovery marker, the post-mutation gate must keep
+        # failing closed exactly as today: source rolled back, manifest
+        # state=rolled_back, non-zero exit.
+        result = self.run_deploy(priv_mode="capability-missing")
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertEqual(self.current(), OLD)
+        self.assertIn(OLD, self.api.read_text())
+        self.assertNotIn("SEA_SPEED_AUTH_RECOVERY=", result.stdout)
         self.assertEqual(self.manifest()["state"], "rolled_back")
 
     def test_already_deployed_source_fails_closed_when_boundary_is_not_accepted(self) -> None:

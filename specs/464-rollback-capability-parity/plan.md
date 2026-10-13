@@ -1,0 +1,92 @@
+# Plan: run_auth_boundary accepts the bounded recovery outcome (rollback-capability parity)
+
+- Issue: #464
+- Specification: specs/464-rollback-capability-parity/spec.md
+
+## Implementation approach
+
+1. RECON-established facts: the real privileged helper's `run_cutover` detects the broken-500 prepare failure (rc=22 + BROKEN_PUBLIC_500_MARKER, helper.py:448) and re-runs prepare+activate WITHOUT `--require-protected-baseline` (:452-473), so the recovery success output honestly ends with `ROLLBACK_CAPABILITY=MANUAL` (cutover prepare :598 / activate :665-666) plus `SEA_SPEED_AUTH_RECOVERY=PASS` (helper.py:487); the normal path enforces `ROLLBACK_CAPABILITY=VERIFIED` (helper.py:500-506). The pre-mutation deploy.sh sites accept both outcomes via the universal =PASS recovery rule (:422-425, :519-522) and never grep the capability; the post-mutation `run_auth_boundary` unconditionally required `ROLLBACK_CAPABILITY=VERIFIED` (:1007) — the F-4 asymmetry. The fake helper's recovery branch omitted the MANUAL marker (same masking class as #462). Known traps (progress-462 F-1): pipefail/SIGPIPE on grep pipelines and the empty-herestring `-v` false positive — reuse the :422-425 capture-then-single-grep pattern verbatim.
+2. Tests-first RED: restore fake-helper fidelity (recovery branch prints `ROLLBACK_CAPABILITY=MANUAL`), add the `reconcile-recovery` (post-mutation bounded-recovery success shape) and `capability-missing` (no capability line, no recovery marker) fake modes, and write the two regression tests BEFORE touching deploy.sh. Observed RED: `Ran 25 tests ... FAILED (failures=1)` — exactly test_post_mutation_reconcile_bounded_recovery_accepts_manual_capability with `AssertionError: 1 != 0` (helper rc=0 with all-PASS markers + honest MANUAL + RECOVERY=PASS; deploy aborted and rolled back); test (b) passed pre-fix, documenting the preserved fail-closed behavior.
+3. Implementation: replace the unconditional `ROLLBACK_CAPABILITY=VERIFIED` grep in `run_auth_boundary` with the two-outcome capability contract — recovery lines captured with the :422-425 pattern; if present AND universally `=PASS`, require `ROLLBACK_CAPABILITY=MANUAL` (the honest bounded-recovery marker); otherwise require `ROLLBACK_CAPABILITY=VERIFIED` exactly as today. Fail-closed both ways: missing/FAIL-shaped recovery output still returns 1, and a recovery success without MANUAL returns 1. The rc gate (:1002), the five fixed marker greps and `SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS` are byte-unchanged; `run_auth_boundary()` itself is kept (pinned by tests/test_sea_speed_auth_v1.py:467).
+4. Regression coverage: new fake modes `reconcile-recovery` + `capability-missing`; tests (a) test_post_mutation_reconcile_bounded_recovery_accepts_manual_capability and (b) test_normal_reconcile_without_capability_marker_rolls_back; fidelity fix + comment on the existing broken-500 recovery branch. No existing assertion weakened.
+5. Verification battery: file battery 25/25 OK (RED→GREEN); full discover suite; bash -n; validate_repo; validate_sdd; ruff.
+
+## Architecture
+
+- Discriminator derived from the real helper's output grammar: `SEA_SPEED_AUTH_RECOVERY=PASS` (universally over occurrences) iff the bounded recovery ran, and in that case the cutover's honest capability is `ROLLBACK_CAPABILITY=MANUAL`; the normal reconcile ends with `ROLLBACK_CAPABILITY=VERIFIED` and no recovery token. The gate is therefore a total two-outcome check: (no recovery) → VERIFIED required; (all-PASS recovery) → MANUAL required; (non-PASS recovery occurrence) → VERIFIED required (fail-closed; practically always absent in such output); (all-PASS recovery but MANUAL missing) → return 1 (fail-closed).
+- The capture-then-single-grep composition is reused verbatim from :422-425/:519-522 (`recovery_lines="$(grep -F 'SEA_SPEED_AUTH_RECOVERY=' <<<"$output" || true)"` + `[[ -n ]]` guard + negated `grep -Fqv` in an if-condition): exact under `set -o pipefail` (no pipeline to SIGPIPE-skew), no empty-herestring `-v` false positive, and `set -e` cannot exit on no-match inside the condition.
+- `grep -Fq 'SEA_SPEED_AUTH_RECOVERY='` cannot false-positive on `SEA_SPEED_AUTH_RECOVERY_ROLLBACK=PASS` diagnostics (fixed string requires `=` directly after `RECOVERY`), matching the established #462 reasoning.
+- `deploy/vps/sea-speed-auth-cutover.sh` is byte-frozen by `tests/test_sea_speed_auth_v1.py:438` and needs no change: the MANUAL wording is already what the recovery path prints; the fix is purely deploy-side acceptance parity.
+- The degraded-503 fallback branch (`run_auth_boundary` :982-990) is intentionally untouched: it returns success with NO capability marker at all — recorded as residual D-note (D-7) and to be flagged on issue #464.
+
+## Decisions
+
+- D-1: Accept MANUAL only under the universal =PASS recovery rule instead of relaxing the gate unconditionally (e.g. accepting VERIFIED-or-MANUAL always): the recovery output's MANUAL is honest precisely because the bounded recovery ran; a blanket relaxation would let a corrupted or fabricated MANUAL output through. Fail-closed preserved in both directions (AC-3/AC-4).
+- D-2: RED-first before touching deploy.sh: the fidelity-fixed fake alone produced exactly the predicted single failure (1 != 0) against the base script, proving the battery exercises the real F-4 defect and not a harness artifact.
+- D-3: Dedicated negative regression test (`capability-missing` fake mode) pins the preserved fail-closed direction: no capability marker + no recovery marker → rolled_back — guarding the fix against a future "drop the check" regression.
+- D-4: Reuse the :422-425 capture-then-single-grep pattern verbatim instead of a new composition: it is the peer-reviewed F-1 answer to the pipefail/SIGPIPE and empty-herestring traps, and keeping one house pattern keeps the two gate families locally comparable.
+- D-5: Fake-helper fidelity is executably pinned: the existing broken-500 recovery branch now prints `ROLLBACK_CAPABILITY=MANUAL` (real helper recovery shape) with an in-file comment binding the fake to helper.py run_cutover, and the `reconcile-recovery` mode reproduces the same shape for the post-mutation gate; if the fake drifts again, the recovery tests fail CI instead of masking deploy-side gating.
+- D-6: No changes to `sea-speed-auth-cutover.sh` (byte-pinned by test_sea_speed_auth_v1.py:438) or `sea-speed-auth-privileged-helper.py`: both already produce the two-outcome contract; the defect is deploy-side acceptance only.
+- D-7 (residual D-note): the degraded-503 fallback branch in `run_auth_boundary` (deploy.sh:982-990) returns success (`SEA_SPEED_AUTH_CUTOVER=PASS` + `DEGRADED_FALLBACK_VERIFIED=PASS`) with NO `ROLLBACK_CAPABILITY=` marker at all — a separate acceptance path outside this issue's scope. Recorded here and to be flagged on issue #464 as residual scope so it is not lost.
+
+## Affected contours
+
+- VPS: `deploy/vps/deploy.sh` (`run_auth_boundary` capability check only).
+- Test harness: `tests/test_vps_deploy_transaction.py` (fake fidelity + `reconcile-recovery`/`capability-missing` modes + 2 new tests).
+- SDD trio `specs/464-rollback-capability-parity/` (+ durable progress file outside the repo tree).
+- No change to: `deploy/vps/sea-speed-auth-cutover.sh` (byte-pinned), `deploy/vps/sea-speed-auth-privileged-helper.py`, `deploy/vps/install-auth-privilege-boundary.sh`, `.github/workflows/**`, `api/**`, `worker/**`, `frontend/**`, live VPS state.
+
+## Validation
+
+- RED (fake fidelity restored, deploy.sh @ base 595e4cc): `python3 -m unittest tests.test_vps_deploy_transaction` → `Ran 25 tests ... FAILED (failures=1)`: test_post_mutation_reconcile_bounded_recovery_accepts_manual_capability, `AssertionError: 1 != 0` (post-mutation reconcile rc=0 with CUTOVER=PASS, WORKER_PRIVATE_ROAD_API_BASE=..., ROLLBACK_CAPABILITY=MANUAL, SEA_SPEED_AUTH_RECOVERY=PASS, RECONCILE=PASS; run_auth_boundary :1007 rejected the honest MANUAL; deploy rolled back to OLD). test (b) green pre-fix.
+- GREEN: the same file after the deploy.sh fix → `Ran 25 tests ... OK` (23 pre-existing + 2 new).
+- Full suite: `python3 -m unittest discover -s tests` → `Ran 917 tests ... OK (skipped=4)`.
+- `bash -n deploy/vps/deploy.sh` → rc 0.
+- `python3 scripts/ci/validate_repo.py` → "Sea Speed repository validation passed" (682 files tracked after the trio landed).
+- `python3 scripts/ci/validate_sdd.py` → passed (this trio).
+- `python3 -m ruff check . --config scripts/quality/ruff.toml` → clean (one transient F841 in the new test fixed during development, final run clean).
+
+## Runtime feedback
+
+- RF-001: Operator actions expected: 0; runtime verification is the next routine band-A VPS deploy; the orchestrator records runtime acceptance on issue #464.
+- RF-002: Evidence: the next deploy log showing a post-mutation bounded recovery completing into a green deploy; RED/GREEN unit transcripts recorded in the durable progress file.
+
+## Risk profile
+
+- Risk profile: REQUIRED
+- Risk-profile rationale: deploy/** change gating the protected-boundary verification of the VPS deploy transaction (deployment transaction audit required); Security impact declared LOW in the PR body (acceptance-only widening derived from the real helper's output grammar; the five fixed markers and the rc gate are untouched and the gate stays fail-closed in both directions).
+- RISK-001 | Category: TECH | Probability: 1 | Impact: 2 | Score: 2 | Mitigation: MANUAL is accepted ONLY when recovery markers are present and UNIVERSALLY =PASS — any non-PASS recovery occurrence (FAIL-shaped or corrupted output, even alongside a stray =PASS line) falls through to the VERIFIED requirement, and a recovery success without the honest MANUAL marker returns 1; the five fixed markers and the rc gate are byte-unchanged | Validation: test_post_mutation_reconcile_bounded_recovery_accepts_manual_capability (recovery success → rc 0) + test_normal_reconcile_without_capability_marker_rolls_back (no capability, no recovery → rc 1, rolled_back) + pre-existing recovery-marker-fail / recovery-marker-mixed abort tests still green + diff inspection of the capability block | Residual risk: NONE | Owner: Delivery Orchestrator | Status: MITIGATED
+- RISK-002 | Category: OPS | Probability: 1 | Impact: 2 | Score: 2 | Mitigation: regression tests pin the exact F-4 production direction (post-mutation reconcile-recovery → rc 0 and candidate active) and the preserved failure directions (no capability → rolled_back); RED authenticity proven against base deploy.sh with the fidelity-fixed fake | Validation: post-mutation recovery test RED 1 != 0 at base → GREEN after the fix; capability-missing test green in both runs (behavior preserved) | Residual risk: LOW — the live end-to-end proof arrives with the next routine band-A deploy | Owner: Delivery Orchestrator | Status: MITIGATED
+- RISK-003 | Category: TECH | Probability: 1 | Impact: 2 | Score: 2 | Mitigation: fake-helper contract drift is pinned executably (recovery branch prints ROLLBACK_CAPABILITY=MANUAL with in-file fidelity comment binding the fake to helper.py run_cutover; reconcile-recovery mode reproduces the post-mutation recovery shape) | Validation: the recovery tests fail CI if the fake regresses to the truncated output shape again; PrivilegedAuthRecoveryTests (3 methods) pin the real helper run_cutover contract | Residual risk: LOW — a future real-helper contract change could drift again; fake-side drift is now loud, real-side drift surfaces at the next live deploy | Owner: Delivery Orchestrator | Status: MITIGATED
+- RISK-004 | Category: TECH | Probability: 1 | Impact: 2 | Score: 2 | Mitigation: the real post-mutation recovery window is narrow (the boundary must break between verify_frontends and the privileged reconcile, e.g. an upstream flap), so the harness exercises the contract directly through the `reconcile-recovery` output shape (mirroring the existing recovery-marker-fail/mixed modes) rather than trying to stage the race; code path is the same one the helper's real recovery success takes | Validation: behavioral test (a) + diff review (single gated block change) + bash -n + full battery | Residual risk: LOW — a deploy-time behavioral divergence between the fake's forced shape and the real race window would surface only at the next live deploy; the contract (accept =PASS recovery + honest MANUAL) is identical | Owner: Delivery Orchestrator | Status: ACCEPTED
+
+## Test design
+
+- TEST-001 | Covers: RISK-001,RISK-002 | Level: unit | Priority: P0 | Evidence: test_post_mutation_reconcile_bounded_recovery_accepts_manual_capability (reconcile-recovery fake mode → rc 0, current=CANDIDATE, SEA_SPEED_AUTH_RECOVERY=PASS + ROLLBACK_CAPABILITY=MANUAL + RECONCILE=PASS in output, manifest auth check passed; RED 1 != 0 at base deploy.sh)
+- TEST-002 | Covers: RISK-001,RISK-003 | Level: unit | Priority: P0 | Evidence: capability-missing fake mode + test_normal_reconcile_without_capability_marker_rolls_back (no capability marker, no recovery marker → rc 1, current=OLD, api restored to OLD, manifest state=rolled_back; green pre- and post-fix — behavior preserved)
+- TEST-003 | Covers: RISK-001 | Level: unit | Priority: P0 | Evidence: pre-existing fail-closed matrix still green: test_privilege_boundary_reconcile_recovery_fail_marker_stops_before_live_source_mutation + test_privilege_boundary_reconcile_recovery_fail_with_stray_pass_stops_before_live_source_mutation (non-PASS recovery occurrences abort pre-mutation, so they can never reach the post-mutation gate) + test_auth_boundary_failure_rolls_source_back_after_boundary_self_rollback (non-zero rc rolls back)
+- TEST-004 | Covers: RISK-003 | Level: unit | Priority: P0 | Evidence: fake broken-500 recovery branch now prints ROLLBACK_CAPABILITY=MANUAL (fidelity fix) and test_public_500_is_recovered_before_live_source_mutation + test_privilege_boundary_mismatch_broken_500_recovery_keeps_recovery_marker_required stay green (pre-mutation sites accept the full real shape); PrivilegedAuthRecoveryTests (3 methods) pin the real helper run_cutover contract
+- TEST-005 | Covers: RISK-002 | Level: unit | Priority: P1 | Evidence: pinned contracts intact: test_sea_speed_auth_v1.py cutover byte-pins (:438) and run_auth_boundary presence pin (:467) green — cutover.sh untouched, function kept
+- TEST-006 | Covers: RISK-001,RISK-002,RISK-004 | Level: unit | Priority: P1 | Evidence: full-file battery 25/25 OK (23 pre-existing + 2 new) + full discover suite 917 OK (skipped=4) + bash -n rc 0 + validate_repo (682 files) + validate_sdd + ruff clean
+- TEST-007 | Covers: RISK-002,RISK-004 | Level: runtime-manual | Priority: P1 | Evidence: the next routine band-A VPS deploy whose post-mutation reconcile hits the bounded broken-500 recovery completes green instead of aborting after the source mutation | Reason: requires the production VPS; pre-merge proof is the unit battery
+
+## Correct-course check
+
+- Trigger: NONE
+- Issue impact: NONE
+- Specification impact: NONE
+- Plan impact: NONE
+- Tasks impact: NONE
+- Authorization impact: NONE
+- Follow-up: NONE
+
+## Deployment transaction audit
+
+- TX-001 | Stage: ADMISSION | Mutation: NO | Failure disposition: FATAL | State after failure: unchanged | Retry: NO | Rollback: NONE | Evidence: issue #464 (peer review finding F-4: identical helper success accepted pre-mutation, rejected post-mutation → abort → rollback → workflow red) with the work-order scope enforced before the first write: deploy/vps/deploy.sh (run_auth_boundary capability check only), tests/test_vps_deploy_transaction.py, this SDD trio
+- TX-002 | Stage: PRE-MUTATION | Mutation: NO | Failure disposition: FATAL | State after failure: unchanged repository state | Retry: NO | Rollback: NONE | Evidence: RED-first sequence — the fake-helper fidelity fix + new modes/tests alone produced exactly the predicted single failure (1 != 0) against base deploy.sh before any deploy.sh edit; no deploy-side gate was reordered or weakened before the RED capture
+- TX-003 | Stage: MUTATION | Mutation: YES | Failure disposition: FATAL | State after failure: prior repository state — the bounded source edits land whole or not at all; the on-VPS deploy transaction itself is unchanged (the fix removes a false abort after its mutation stage) | Retry: NO | Rollback: git restore of the two changed files returns the base behavior (unconditional VERIFIED requirement — the F-4 abort); changes are uncommitted on sdd/464-rollback-capability-parity, commit/PR is orchestrator-owned | Evidence: working-tree diff on sdd/464-rollback-capability-parity limited to deploy/vps/deploy.sh (run_auth_boundary capability block), tests/test_vps_deploy_transaction.py (fidelity + 2 modes + 2 tests) and this SDD trio
+- TX-004 | Stage: VERIFICATION | Mutation: NO | Failure disposition: FATAL | State after failure: previous release still active | Retry: NO | Rollback: NONE | Evidence: file battery 25/25 OK (RED 1 != 0 → GREEN), full discover 917 OK (skipped=4), bash -n rc 0, validate_repo 682 files passed, validate_sdd passed, ruff clean
+- TX-005 | Stage: STATE-COMMIT | Mutation: NO | Failure disposition: FATAL | State after failure: unchanged | Retry: NO | Rollback: NONE | Evidence: exact-green-head merge after required CI on the exact head (orchestrator-owned; no commit made at worker level per work order); release identity bound by the PR Change Contract (issue #464)
+- TX-006 | Stage: HOUSEKEEPING | Mutation: NO | Failure disposition: BEST-EFFORT | State after failure: none beyond existing temporaries | Retry: NO | Rollback: NONE | Evidence: the fix adds no temporaries and no cleanup; test fixtures live in per-test TemporaryDirectory cleanup; verification scratch stays outside the repository tree
+- TX-007 | Stage: EVIDENCE | Mutation: NO | Failure disposition: BEST-EFFORT | State after failure: evidence partial | Retry: NO | Rollback: NONE | Evidence: issue #464 + PR (orchestrator-owned) + this SDD trio + RED/GREEN transcripts in the durable progress file; the next routine deploy log carries the live completion evidence
+- TX-008 | Stage: ROLLBACK | Mutation: NO | Failure disposition: FATAL | State after failure: NONE | Retry: NO | Rollback: revert/restore of this change returns the pre-fix verification (unconditional ROLLBACK_CAPABILITY=VERIFIED — the F-4 abort-after-mutation behavior); no runtime state needs cleanup | Evidence: Rollback target in the PR Change Contract; automatic rollback is not authorized beyond the unchanged deploy fault paths
