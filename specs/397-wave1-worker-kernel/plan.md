@@ -27,10 +27,39 @@
 - D-4: `# noqa: F401` on the re-export import: the import IS the contract (re-export surface), and three moved names (is_yolo_half_enabled, is_yolo_classes_filter_enabled, crossed_line) were already defined-but-uncalled inside the worker at HEAD — the re-export preserves them for tests/monkeypatch/runtime API exactly as before.
 - D-5: mypy strict adoption of worker_kernel deferred (mypy.ini invites it for new pure modules, but the CI mypy invocation lists explicit files; widening it is a #399-owner decision, not wave-1 scope).
 
-## Correct-course
+## Risk profile
 
-- Trigger: any existing pin/test failing after the move → fix the MOVE (per constraint 5), never the test. Observed: no test edits were needed; battery green on first run.
-- Trigger: validator failure on artifact lists → fix the list (convergence), never weaken the validator. Observed: all four updated, all validators green.
+- Risk profile: REQUIRED
+- RISK-001 | Category: TECH | Probability: 2 | Impact: 5 | Score: 10 | Mitigation: a missed re-export would break runtime main() call resolution or the test monkeypatch surface; integrity test (b) checks the re-export surface as an exact list in BOTH directions (missing re-export and extra re-export both fail), and the full battery runs every worker test unedited | Validation: tests/test_worker_kernel_module.py 3/3 OK; full discover battery green with ZERO test/pin edits | Residual risk: LOW | Owner: Worker | Status: MITIGATED
+- RISK-002 | Category: TECH | Probability: 2 | Impact: 4 | Score: 8 | Mitigation: a hidden non-stdlib dependency inside a moved function would break the stdlib-only contract on the worker host; every candidate body was audited for imports/globals before the cut (write_passage_snapshot excluded for cv2, road_roi_enabled/parse_road_roi_polygon excluded for requests), and the isolated `python3 -I` import probe fails on any future heavy import | Validation: test (a) isolated-subprocess import probe OK; manual body audit recorded in the progress file | Residual risk: LOW | Owner: Worker | Status: MITIGATED
+- RISK-003 | Category: OPS | Probability: 2 | Impact: 5 | Score: 10 | Mitigation: a pinned required-list miss (exact-artifact build/validate, validate_repo top-level required-files allowlist, install-systemd prepared-release check) would ship a payload without worker_kernel.py — failure surfaces at deploy boot instead of CI; all five convergence sites updated in the same diff (build_exact_artifacts ubuntu-worker+edge, validate_exact_artifacts matching sets, validate_repo REQUIRED_FILES, install-systemd.sh required loop), all validators run locally, install-systemd.sh fails closed at prepare-check, and the CI exact-artifact gate re-verifies at merge | Validation: validate_repo + validate_sdd (plain and --event) green at final head; artifact required lists verified to contain worker/worker_kernel.py in both build and validate | Residual risk: LOW | Owner: Delivery Orchestrator | Status: MITIGATED
+- RISK-004 | Category: TECH | Probability: 1 | Impact: 4 | Score: 4 | Mitigation: the #398 AST harness would lose sight of moved functions (function_node/extract_nodes raise "missing worker functions"); DEFAULT_WORKER_SOURCES now lists both worker files — the harness's designed #397 evolution path — so moved names resolve from the kernel and staying names from the worker | Validation: focused runs of every harness consumer (worker_contract, line_crossing, roi_pipeline, tracking_overlay, water_detection_pipeline, water_passage, analytics_profiles, frame_quality, rtsp_media_security) green | Residual risk: LOW | Owner: Worker | Status: MITIGATED
+- RISK-005 | Category: OPS | Probability: 1 | Impact: 2 | Score: 2 | Mitigation: the referenced decomposition line map (progress file) did not exist at wave start; the cut was re-derived from live source per the work order, and the durable progress file is (re)created at the workspace root with the verified line map for waves 2-3 | Validation: progress-397-worker-decomposition.md present OUTSIDE the git tree; git ls-files shows no progress file | Residual risk: LOW | Owner: Worker | Status: MITIGATED
+
+## Test design
+
+- TEST-001 | Covers: AC-001, AC-003 | Level: unit | Priority: P1 | Evidence: tests/test_worker_kernel_module.py 3/3 OK (a: `python3 -I` stdlib-only probe; b: exact-list re-export check; c: moved/staying def placement)
+- TEST-002 | Covers: AC-002 | Level: unit | Priority: P1 | Evidence: per-function ast.dump equality HEAD vs worker_kernel.py for all 24 names ("all 24 AST-identical: True")
+- TEST-003 | Covers: AC-003, AC-006 | Level: unit | Priority: P1 | Evidence: focused `python3 -m unittest tests.test_worker_kernel_module tests.test_worker_contract tests.test_line_crossing tests.test_worker_roi_pipeline` → Ran 61, OK
+- TEST-004 | Covers: AC-006 | Level: integration | Priority: P1 | Evidence: full `python3 -m unittest discover -s tests -p 'test_*.py'` → Ran 923, OK (skipped=4), zero test edits
+- TEST-005 | Covers: AC-004 | Level: integration | Priority: P1 | Evidence: validate_repo green; build/validate exact-artifact required lists contain worker/worker_kernel.py; validate_sdd plain and --event green at final head
+- TEST-006 | Covers: AC-005 | Level: unit | Priority: P2 | Evidence: `python3 scripts/worker/check_ubuntu_compatibility.py` → compatible=True, forbidden_markers=[] (gate untouched)
+- TEST-007 | Covers: AC-001 | Level: integration | Priority: P2 | Evidence: runtime import probe `python3 -c "import sys; sys.path.insert(0,'worker'); import worker_kernel"` → 25 public exports
+
+## Correct-course check
+
+- Trigger: NONE
+- Issue impact: NONE
+- Specification impact: NONE
+- Plan impact: NONE
+- Tasks impact: NONE
+- Authorization impact: NONE
+- Follow-up: NONE
+
+Standing correction policy (pre-declared triggers, no event occurred during wave 1):
+any existing pin/test failing after the move → fix the MOVE (constraint 5), never the test
+(observed: no test edits were needed); validator failure on artifact lists → fix the list
+(convergence), never weaken the validator (observed: all five sites updated, validators green).
 
 ## Affected contours
 
@@ -47,7 +76,7 @@
 - Focused: `python3 -m unittest tests.test_worker_kernel_module tests.test_worker_contract tests.test_line_crossing tests.test_worker_roi_pipeline` → `Ran 61 ... OK`.
 - Full suite: `python3 -m unittest discover -s tests -p 'test_*.py'` → `Ran 923 tests ... OK (skipped=4)` = 920 + 3 new, ZERO test edits (observed by the orchestrator).
 - `python3 -m ruff check . --config scripts/quality/ruff.toml` → clean (exit 0).
-- `python3 scripts/ci/validate_repo.py` → passed; `python3 scripts/ci/validate_sdd.py` → passed (after the orchestrator completed the trio's house sections — spec Runtime feedback, plan Affected contours/Validation/Runtime feedback).
+- `python3 scripts/ci/validate_repo.py` → passed at final head; `python3 scripts/ci/validate_sdd.py` → passed (plain mode) AND `python3 scripts/ci/validate_sdd.py --event <synthetic PR event>` → passed ("PR specification linkage and delivery quality layer valid") — the event carries the wave-1 changed-file set against base f83a1ce4 and exercises the REQUIRED risk-profile quality layer (Risk profile/Test design/Correct-course check/Deployment transaction audit/traceability/DoD).
 - `python3 scripts/worker/check_ubuntu_compatibility.py` → `compatible=True`, `forbidden_markers=[]` (untouched gate).
 - Runtime import probe: `python3 -c "import sys; sys.path.insert(0,'worker'); import worker_kernel"` → 25 public exports.
 
@@ -55,3 +84,14 @@
 
 - RF-001: Operator actions expected: 0; this wave changes only the worker source layout (move-only) — runtime verification lands with the next routine Ubuntu-worker deploy (batched with wave 2, owner deploy gate); the orchestrator records runtime acceptance on issue #397.
 - RF-002: Evidence: the next deploy-ubuntu-worker run for a post-#474 SHA shows the kernel shipped in the exact artifacts and both worker services restarting green; AST-equivalence and battery transcripts are recorded in the durable progress file.
+
+## Deployment transaction audit
+
+- TX-001 | Stage: ADMISSION | Mutation: NO | Failure disposition: FATAL | State after failure: unchanged | Retry: NO | Rollback: NONE | Evidence: work order W-A1 for #397 wave 1 (move-only extraction scope); branch sdd/397-wave1-worker-kernel from origin/main f83a1ce4; install-systemd.sh is the only deploy/** change (prepared-release required check)
+- TX-002 | Stage: PRE-MUTATION | Mutation: NO | Failure disposition: FATAL | State after failure: unchanged worker host state | Retry: NO | Rollback: NONE | Evidence: install-systemd.sh required loop now also demands worker/worker_kernel.py in the prepared release before any install step — a payload missing the kernel exits 4 before the live tree is touched (deploy/worker/ubuntu/install-systemd.sh required-loop check)
+- TX-003 | Stage: MUTATION | Mutation: POSSIBLE | Failure disposition: FATAL | State after failure: staged release discarded; currently-running worker services unchanged | Retry: NO | Rollback: the installer stages the release before service restart exactly as before; the kernel ships as one additional source file in the same staged tree, so the mutation pattern is unchanged — no new staging or promotion step | Evidence: install-systemd.sh install flow untouched apart from the required check; runtime verification lands with the next routine worker deploy (owner deploy gate)
+- TX-004 | Stage: VERIFICATION | Mutation: NO | Failure disposition: FATAL | State after failure: previous release still active | Retry: NO | Rollback: NONE | Evidence: the next worker deploy's health gate (deploy-authorized.sh → verify-runtime-progression/check-worker-health) applies unchanged; this wave ships no runtime mutation itself
+- TX-005 | Stage: STATE-COMMIT | Mutation: NO | Failure disposition: FATAL | State after failure: unchanged | Retry: NO | Rollback: NONE | Evidence: the worker's output/state contour (output/, state JSON) is untouched by the source-layout move; no state schema or write path changes
+- TX-006 | Stage: HOUSEKEEPING | Mutation: NO | Failure disposition: BEST-EFFORT | State after failure: staging dirs may remain on abrupt kill only | Retry: NO | Rollback: NONE | Evidence: installer staging layout semantics unchanged
+- TX-007 | Stage: EVIDENCE | Mutation: NO | Failure disposition: BEST-EFFORT | State after failure: evidence partial | Retry: NO | Rollback: NONE | Evidence: deployment/acceptance evidence for the next worker deploy is orchestrator-owned (DEPLOY-TRIGGER lane); this wave's repo-level evidence is the validator + battery transcripts in the durable progress file
+- TX-008 | Stage: ROLLBACK | Mutation: NO | Failure disposition: FATAL | State after failure: NONE | Retry: NO | Rollback: rollback-exact.sh contour DELIBERATELY UNCHANGED: it targets PREVIOUS complete releases which may predate the kernel (adding a kernel requirement there would break rollback to pre-#397 releases); a rollback target is self-consistent by construction — its own release tree contains its own worker sources | Evidence: deploy/worker/ubuntu/rollback-exact.sh:144 target_worker check unchanged; releases are self-contained exact artifacts

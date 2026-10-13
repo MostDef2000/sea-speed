@@ -31,21 +31,21 @@ This wave creates `worker/worker_kernel.py` containing 24 functions moved byte-f
 
 ## Requirements
 
-- R-1 (AC-1): `worker/worker_kernel.py` is stdlib-only — `python3 -I -c "import worker_kernel"` with only worker/ on sys.path exits 0.
-- R-2 (AC-2): all 24 moved function bodies are AST-identical to HEAD (verified programmatically before the first write); no renames, no signature changes, no logic edits.
-- R-3 (AC-3): the runtime worker re-exports exactly the 24 moved names via one flat sibling ImportFrom; the exact-list check fails on drift in either direction; moved defs exist ONLY in the kernel; `main()` and all staying functions are untouched in the worker.
-- R-4 (AC-4): all four convergence lists include `worker/worker_kernel.py`; validators stay green; no validator weakened.
-- R-5 (AC-5): `check_ubuntu_compatibility.py` stays green with zero changes (its env-name call-site scan still finds HLS_URL/SEA_SPEED_API_URL/SEA_SPEED_API_TOKEN/MODEL_NAME calls in the worker file — only definitions moved).
-- R-6 (AC-6): full unittest battery passes with NO test edits beyond the new integrity test; expected 923 tests (920 + 3 new), skipped=4; any delta must be justified.
+- R-1 (AC-001): `worker/worker_kernel.py` is stdlib-only — `python3 -I -c "import worker_kernel"` with only worker/ on sys.path exits 0.
+- R-2 (AC-002): all 24 moved function bodies are AST-identical to HEAD (verified programmatically before the first write); no renames, no signature changes, no logic edits.
+- R-3 (AC-003): the runtime worker re-exports exactly the 24 moved names via one flat sibling ImportFrom; the exact-list check fails on drift in either direction; moved defs exist ONLY in the kernel; `main()` and all staying functions are untouched in the worker.
+- R-4 (AC-004): all five convergence lists include `worker/worker_kernel.py`; validators stay green; no validator weakened.
+- R-5 (AC-005): `check_ubuntu_compatibility.py` stays green with zero changes (its env-name call-site scan still finds HLS_URL/SEA_SPEED_API_URL/SEA_SPEED_API_TOKEN/MODEL_NAME calls in the worker file — only definitions moved).
+- R-6 (AC-006): full unittest battery passes with NO test edits beyond the new integrity test; expected 923 tests (920 + 3 new), skipped=4; any delta must be justified.
 
 ## Acceptance criteria
 
-- AC-1: import probe exit code 0 in isolated subprocess (observed).
-- AC-2: per-function `ast.dump` equality between HEAD worker source and worker_kernel.py for all 24 names (observed: "all 24 AST-identical: True").
-- AC-3: `tests/test_worker_kernel_module.py` 3/3 OK; re-export set equals MOVED_NAMES exactly.
-- AC-4: validate_repo, build_exact_artifacts (via validate_quality_contracts path), validate_exact_artifacts, install-systemd list all reference worker/worker_kernel.py; validators exit 0.
-- AC-5: `python3 scripts/worker/check_ubuntu_compatibility.py` (default worker) exits 0 with `compatible=True`.
-- AC-6: full discover battery: 923 tests, OK (skipped=4); focused: tests.test_worker_contract + tests.test_line_crossing + tests.test_worker_roi_pipeline + tests.test_worker_kernel_module OK; ruff `--config scripts/quality/ruff.toml .` passes; validate_repo + validate_sdd pass.
+- AC-001: import probe exit code 0 in isolated subprocess (observed).
+- AC-002: per-function `ast.dump` equality between HEAD worker source and worker_kernel.py for all 24 names (observed: "all 24 AST-identical: True").
+- AC-003: `tests/test_worker_kernel_module.py` 3/3 OK; re-export set equals MOVED_NAMES exactly.
+- AC-004: validate_repo (top-level required-files list), build_exact_artifacts + validate_exact_artifacts (ubuntu-worker AND edge required lists), and the install-systemd prepared-release loop all reference worker/worker_kernel.py; validators exit 0.
+- AC-005: `python3 scripts/worker/check_ubuntu_compatibility.py` (default worker) exits 0 with `compatible=True`.
+- AC-006: full discover battery: 923 tests, OK (skipped=4); focused: tests.test_worker_contract + tests.test_line_crossing + tests.test_worker_roi_pipeline + tests.test_worker_kernel_module OK; ruff `--config scripts/quality/ruff.toml .` passes; validate_repo + validate_sdd (plain and --event) pass.
 
 ## Runtime feedback
 
@@ -57,7 +57,7 @@ This wave creates `worker/worker_kernel.py` containing 24 functions moved byte-f
 - NFR-001 | Area: reliability/operations | Target: move-only equivalence — runtime behavior byte-identical: same helper bodies (AST-identical), same global-name resolution via re-export, no call-site edits, monkeypatch surface preserved | Validation: AST-dump equality check vs HEAD for all 24 names; full battery green with zero test edits; import probe | Evidence: battery transcripts in progress file | Status: PASS
 - NFR-002 | Area: maintainability | Target: the kernel is a genuinely standalone stdlib module usable by future waves and tests without heavy deps | Validation: isolated-subprocess import probe (python3 -I, only worker/ on path) | Evidence: test (a) OK | Status: PASS
 - NFR-003 | Area: security | Target: no new exposure — the kernel reads env and parses URLs exactly as before (same bodies); no secrets introduced; artifact lists only ADD a source file | Validation: diff inspection (no string literals added beyond docstring); validators green | Evidence: git diff reviewed | Status: PASS
-- NFR-004 | Area: compatibility | Target: existing #398 AST harness, ubuntu compatibility gate, exact artifacts and installer all keep working without semantic changes | Validation: full battery + all validators + compatibility checker observed green | Evidence: transcripts in progress file | Status: PASS
+- NFR-004 | Area: compatibility | Target: existing #398 AST harness, ubuntu compatibility gate, exact artifacts, installer and the SDD delivery layer all keep working without semantic changes — validators green at final head in BOTH modes (plain and --event with the synthetic PR event carrying the wave-1 changed-file set) | Validation: full battery + validate_repo + validate_sdd (plain and --event) + compatibility checker observed green at final head | Evidence: transcripts in the durable progress file | Status: PASS
 
 ## Risks
 
@@ -65,6 +65,6 @@ This wave creates `worker/worker_kernel.py` containing 24 functions moved byte-f
 |---|---|---|---|
 | RISK-1 | A missed re-export breaks runtime `main()` call resolution or the test monkeypatch surface | 2×5=10 | Integrity test (b): exact-list re-export check in both directions + full battery (all worker tests green untouched) |
 | RISK-2 | A hidden non-stdlib dependency inside a moved function breaks the stdlib-only contract on the worker host | 2×4=8 | Isolated-subprocess import probe (python3 -I, worker/ only); each candidate body manually audited for imports/globals before the cut; write_passage_snapshot excluded (cv2) |
-| RISK-3 | A pinned required-list miss (artifact build/validate, validate_repo, installer) ships a payload without worker_kernel.py — failure surfaces at deploy boot instead of CI | 2×5=10 | All four convergence sites updated in the same diff; all validators run locally; install-systemd.sh fails closed at prepare-check; CI exact-artifact gate re-verifies at merge |
+| RISK-3 | A pinned required-list miss (artifact build/validate, validate_repo top-level required-files allowlist, installer) ships a payload without worker_kernel.py — failure surfaces at deploy boot instead of CI | 2×5=10 | All five convergence sites updated in the same diff (build_exact_artifacts ubuntu-worker+edge, validate_exact_artifacts matching sets, validate_repo REQUIRED_FILES, install-systemd.sh required loop); all validators run locally; install-systemd.sh fails closed at prepare-check; CI exact-artifact gate re-verifies at merge |
 | RISK-4 | The #398 AST harness loses sight of moved functions (function_node/extract_nodes would raise "missing worker functions") | 1×4=4 | DEFAULT_WORKER_SOURCES now lists both files (the harness's designed #397 evolution path); focused runs of every harness consumer observed green |
 | RISK-5 | Drift between this repo copy and the missing progress-file line map (the decomposition map file did not exist at wave start) | 1×2=2 | The cut was re-derived from live source (order's own instruction); progress-397-worker-decomposition.md is (re)created this wave with the verified line map for waves 2-3 |

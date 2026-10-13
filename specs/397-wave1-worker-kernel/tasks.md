@@ -27,5 +27,27 @@
 - [x] T-397-W1-008
 - [x] T-397-W1-009
 - [x] Issue/spec/plan/tasks current
-- [x] Exact changed-file scope verified (worker/**, tests/support/worker_source.py, tests/test_worker_kernel_module.py, 3 validators, install-systemd.sh, SDD trio)
-- [x] Required tests and evidence complete (transcripts in progress-397-worker-decomposition.md; worker-recorded; commit/PR/merge orchestrator-owned)
+- [x] Exact changed-file scope verified (worker/**, tests/support/worker_source.py, tests/test_worker_kernel_module.py, 3 validators, install-systemd.sh, SDD trio; durable progress file OUTSIDE the git tree per FIX-1)
+- [x] Required tests and evidence complete (transcripts in /home/mostdef/vibe/projects/ai-playground/progress-397-worker-decomposition.md; worker-recorded; commit/PR/merge orchestrator-owned)
+
+## Requirements traceability
+
+- AC-001 | Task: T-397-W1-003, T-397-W1-006 | Evidence: TEST-001, TEST-007 | Coverage: COVERED
+- AC-002 | Task: T-397-W1-002 | Evidence: TEST-002 | Coverage: COVERED
+- AC-003 | Task: T-397-W1-003, T-397-W1-004 | Evidence: TEST-001, TEST-003 | Coverage: COVERED
+- AC-004 | Task: T-397-W1-005 | Evidence: TEST-005 | Coverage: COVERED
+- AC-005 | Task: T-397-W1-001, T-397-W1-003 | Evidence: TEST-006 | Coverage: COVERED
+- AC-006 | Task: T-397-W1-008 | Evidence: TEST-003, TEST-004, TEST-005 | Coverage: COVERED
+
+## Definition of Done
+
+- [x] Issue/spec/plan/tasks current
+- [x] Exact changed-file scope verified
+- [x] Required tests and evidence complete
+- [ ] Required CI green — orchestrator-owned (PR creation and exact-head CI) — auto-synced on merge to main
+- [ ] Exact-green-head merge complete — orchestrator-owned — auto-synced on merge to main
+- [ ] Deployment state resolved — rides the next routine Ubuntu-worker deploy (DEPLOY-TRIGGER, полоса A) — orchestrator-owned
+- [ ] Runtime acceptance resolved — health gate probe on the next worker deploy — orchestrator-owned
+- [x] Deferred work recorded — write_passage_snapshot → wave 3 (cv2); mypy strict adoption of worker_kernel deferred to #399 owner
+- [x] Risks resolved or explicitly accepted — RISK-001..RISK-005 mitigated in plan.md
+- [x] Waivers resolved or current — none
