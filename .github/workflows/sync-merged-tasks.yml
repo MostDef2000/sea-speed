@@ -114,10 +114,12 @@ jobs:
             gh pr edit "${number}" --title "chore(sdd): auto-sync tasks.md completion (${SOURCE_SHA:0:8})" \
               --body-file "${PR_BODY_FILE}"
           else
-            number="$(gh pr create --head "${BRANCH}" --base main \
+            # gh pr create has no --json flag (any version); it prints the PR URL.
+            url="$(gh pr create --head "${BRANCH}" --base main \
               --title "chore(sdd): auto-sync tasks.md completion (${SOURCE_SHA:0:8})" \
-              --body-file "${PR_BODY_FILE}" --json number --jq '.number')"
-            echo "created auto-sync PR #${number}"
+              --body-file "${PR_BODY_FILE}")"
+            number="${url##*/}"
+            echo "created auto-sync PR #${number} (${url})"
           fi
           echo "PR_NUMBER=${number}" >> "${GITHUB_ENV}"
 
