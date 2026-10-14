@@ -104,6 +104,7 @@ triggered).
 
 - RF-001: Operator actions expected: 0; this wave changes only the worker source layout (move-only) plus gate/validator coverage — runtime verification lands with the next routine Ubuntu-worker deploy (batched with wave 5+, owner deploy gate); the orchestrator records runtime acceptance on issue #397.
 - RF-002: Evidence: the next deploy-ubuntu-worker run for a post-wave-4 SHA shows the transport module shipped in the exact artifacts, the four-file gate union green in the deployment checks, and both worker services restarting green (posting works end-to-end); AST-equivalence, symtable and battery transcripts are recorded in the durable progress file.
+- RF-003 (live, 2026-10-14): PR #480 head 6361536 passed CI 8/8 (Gitleaks, Repository validation, exact-artifact-e2e, pip-audit worker runtime requirements, property-fuzz-reliability, quality-integration, release-deployment-evidence, static-contract-security — all success on the exact head) and was squash-merged as a8916b6. The DoD CI markers below are therefore factually satisfied; the unchecked boxes were left pending because the early auto-sync cycles superseded their flips (flow defect fixes #477). This merge re-examines the dir so the flow flips them.
 
 ## Deployment transaction audit
 
