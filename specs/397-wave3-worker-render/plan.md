@@ -97,6 +97,7 @@ MECHANICS, re-verify AST identity before proceeding (observed: final state verif
 
 - RF-001: Operator actions expected: 0; this wave changes only the worker source layout (move-only) plus gate/validator coverage — runtime verification lands with the next routine Ubuntu-worker deploy (batched with wave 4+, owner deploy gate); the orchestrator records runtime acceptance on issue #397.
 - RF-002: Evidence: the next deploy-ubuntu-worker run for a post-wave-3 SHA shows the render module shipped in the exact artifacts and both worker services restarting green; AST-equivalence, symtable and battery transcripts are recorded in the durable progress file.
+- RF-003 (live, 2026-10-14): PR #479 head 113a673 passed CI 8/8 (zero non-success check runs on the exact head) and was squash-merged as b640730. The DoD CI markers below are therefore factually satisfied; the unchecked boxes were left pending because the early #477 auto-sync cycles superseded their flips. This merge re-examines the dir so the flow flips them — the first COMPLETING autonomous cycle (sync-flow tests decoupled from live spec state by RF-013, 7bfa48d).
 
 ## Deployment transaction audit
 
