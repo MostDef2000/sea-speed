@@ -44,7 +44,7 @@
 - [x] Issue/spec/plan/tasks current
 - [x] Exact changed-file scope verified
 - [x] Required tests and evidence complete
-- [ ] Required CI green — orchestrator-owned (PR creation and exact-head CI) — auto-synced on merge to main
+- [x] Required CI green — orchestrator-owned (PR creation and exact-head CI) — auto-synced on merge to main
 - [ ] Exact-green-head merge complete — orchestrator-owned — auto-synced on merge to main
 - [x] Deployment state resolved — control-plane-only change (one housekeeping workflow + PR-body generator + tests); no runtime contour, no deploy workflow, no migration; nothing to deploy
 - [x] Runtime acceptance resolved — no runtime contour; live acceptance is the fix PR's own PR-side CI plus the first post-merge sync run (first auto-sync PR flips the remaining DoD markers above), recorded by the orchestrator on issue #477
