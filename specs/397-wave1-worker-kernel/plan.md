@@ -84,6 +84,7 @@ any existing pin/test failing after the move → fix the MOVE (constraint 5), ne
 
 - RF-001: Operator actions expected: 0; this wave changes only the worker source layout (move-only) — runtime verification lands with the next routine Ubuntu-worker deploy (batched with wave 2, owner deploy gate); the orchestrator records runtime acceptance on issue #397.
 - RF-002: Evidence: the next deploy-ubuntu-worker run for a post-#474 SHA shows the kernel shipped in the exact artifacts and both worker services restarting green; AST-equivalence and battery transcripts are recorded in the durable progress file.
+- RF-003 (live, 2026-10-14): PR #475 head 4e8d7f0 passed CI 8/8 (zero non-success check runs on the exact head) and was squash-merged as 62524ee. The DoD CI markers below are therefore factually satisfied; the unchecked boxes were left pending because the early #477 auto-sync cycles superseded their flips. This merge re-examines the dir so the flow flips them — expected to be the first fully COMPLETING autonomous cycle (RF-013 synthetic fixtures, RF-014 REST reuse-refresh, RF-015 REST ref-push + polled final gate are all on main).
 
 ## Deployment transaction audit
 
