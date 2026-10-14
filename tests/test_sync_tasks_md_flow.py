@@ -38,9 +38,24 @@ SYNC_SCRIPT = ROOT / "scripts" / "ci" / "sync_tasks_md.py"
 BODY_SCRIPT = ROOT / "scripts" / "ci" / "build_sync_pr_body.py"
 CONTRACT_VALIDATOR = ROOT / "scripts" / "ci" / "validate_change_contract.py"
 
-# A real tasks.md with pending completion markers (wave-4 transport trio —
-# its Definition of Done carries unchecked Required-CI/merge markers on main).
-PENDING_TASKS = ROOT / "specs" / "397-wave4-worker-transport" / "tasks.md"
+# Synthetic fixture carrying pending completion markers. Deliberately NOT
+# read from any live spec file (#477 RF-013): the loop-safety proof must be
+# independent of repository state. Reading a real spec file here made every
+# successful autonomous flip redden these tests — the flip lands on main,
+# the fixture stops matching COMPLETION_RE, and the next sync PR fails CI.
+PENDING_TASKS_TEXT = """\
+# Tasks — synthetic sync trio
+
+## Definition of Done
+
+- [x] Issue/spec/plan/tasks current
+- [x] Exact changed-file scope verified
+- [x] Required tests and evidence complete
+- [ ] Required CI green — orchestrator-owned (PR creation and exact-head CI)
+- [ ] Exact-green-head merge complete — orchestrator-owned
+- [ ] Deployment state resolved — rides the next routine Ubuntu-worker deploy — orchestrator-owned
+- [ ] Runtime acceptance resolved — health gate probe on the next worker deploy — orchestrator-owned
+"""
 
 SYNC_BRANCH = "chore/tasks-md-auto-sync"
 
@@ -58,7 +73,7 @@ class SyncMarkerRoundTripTests(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="477-sync-"))
         self.tasks = self.tmp / "tasks.md"
-        self.tasks.write_text(PENDING_TASKS.read_text(encoding="utf-8"), encoding="utf-8")
+        self.tasks.write_text(PENDING_TASKS_TEXT, encoding="utf-8")
         self.sync = _load("sync_tasks_md_scratch", SYNC_SCRIPT)
 
     def tearDown(self):
@@ -151,7 +166,7 @@ class SyncPrBodyContractTests(unittest.TestCase):
             repo = Path(tmp)
             (repo / "specs" / "999-flip-only-dir").mkdir(parents=True)
             tasks = repo / "specs" / "999-flip-only-dir" / "tasks.md"
-            tasks.write_text(PENDING_TASKS.read_text(encoding="utf-8"), encoding="utf-8")
+            tasks.write_text(PENDING_TASKS_TEXT, encoding="utf-8")
             ident = ["-c", "user.name=t", "-c", "user.email=t@t.invalid"]
             subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
             subprocess.run(["git", "-C", str(repo), *ident, "add", "-A"], check=True)
@@ -179,7 +194,7 @@ class SyncPrBodyContractTests(unittest.TestCase):
             spec = repo / "specs" / "999-flip-only-dir"
             spec.mkdir(parents=True)
             tasks = spec / "tasks.md"
-            tasks.write_text(PENDING_TASKS.read_text(encoding="utf-8"), encoding="utf-8")
+            tasks.write_text(PENDING_TASKS_TEXT, encoding="utf-8")
             (spec / "plan.md").write_text("# plan\n", encoding="utf-8")
             ident = ["-c", "user.name=t", "-c", "user.email=t@t.invalid"]
             subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
@@ -241,7 +256,7 @@ class SyncScriptCliTests(unittest.TestCase):
     def test_cli_round_trip_via_subprocess(self):
         with tempfile.TemporaryDirectory(prefix="477-cli-") as tmp:
             tasks = Path(tmp) / "tasks.md"
-            tasks.write_text(PENDING_TASKS.read_text(encoding="utf-8"), encoding="utf-8")
+            tasks.write_text(PENDING_TASKS_TEXT, encoding="utf-8")
             first = subprocess.run(
                 [sys.executable, str(SYNC_SCRIPT), "--specs", tmp, "--sha", "deadbeef1234567890"],
                 capture_output=True,
