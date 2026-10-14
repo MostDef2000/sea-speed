@@ -383,9 +383,12 @@ class NoPhotoGuardTests(unittest.TestCase):
         self.assertIn("def prune_snapshotless_objects", source)
         self.assertIn('if not snapshot_url or not str(snapshot_url).strip().startswith("/sea-speed/media/")', source)
         # Issue #397 wave 4: post_event's body moved verbatim to
-        # worker_transport.py and write_passage_snapshot's to worker_render.py
-        # (wave 3) — scan the joined worker sources (the worker-side analogue
-        # of api_sources() above); the asserted invariants are unchanged.
+        # worker_transport.py; the second pinned string ("wrote = cv2.imwrite")
+        # lives in the runtime worker's own snapshot path (worker file, ~1274),
+        # NOT in worker_render.py whose write_passage_snapshot returns
+        # bool(cv2.imwrite(...)) — scan the joined worker sources (the
+        # worker-side analogue of api_sources() above); the asserted
+        # invariants are unchanged.
         worker = "\n".join(
             path.read_text(encoding="utf-8")
             for path in (
