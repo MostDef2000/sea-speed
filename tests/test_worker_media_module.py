@@ -51,13 +51,14 @@ MOVED_MEDIA_NAMES = (
 
 # Media-layer runtime helpers that stay in the worker (not in the kernel,
 # not in the media module): the remaining this-wave placement contract.
+# Wave 3 transferred draw_overlay/write_passage_snapshot/crop_sharpness to
+# the worker_render guard (contract transfer, not a pin fix).
 STAYING_IN_WORKER = (
-    "crop_sharpness",
     "detect_vehicles",
-    "draw_overlay",
+    "draw_roi_polygon",
+    "draw_speed_lines_overlay",
     "fetch_remote_roi",
     "main",
-    "write_passage_snapshot",
 )
 
 # Top-level import allowlist for worker_media: the media stack + repo-pure

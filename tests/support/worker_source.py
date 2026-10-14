@@ -37,6 +37,7 @@ DEFAULT_WORKER_SOURCES = (
     "worker/hls_motion_yolo_worker_events.py",
     "worker/worker_kernel.py",
     "worker/worker_media.py",
+    "worker/worker_render.py",
 )
 
 FunctionLike = ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef

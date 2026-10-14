@@ -26,6 +26,7 @@ DEFAULT_WORKER = ROOT / "worker" / "hls_motion_yolo_worker_events.py"
 MODULE_SOURCES = (
     ROOT / "worker" / "hls_motion_yolo_worker_events.py",
     ROOT / "worker" / "worker_media.py",
+    ROOT / "worker" / "worker_render.py",
 )
 
 REQUIRED_ENV_NAMES = {
