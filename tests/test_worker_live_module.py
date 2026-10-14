@@ -49,10 +49,10 @@ hls_motion_yolo_worker_events.py into worker/worker_live.py):
     so losing the re-export would turn every road/water live publish into
     a NameError at runtime; the vars() membership pins (wave-6
     globals-guard pattern) make exactly that failure loud in CI.
-(f) Compatibility gate: MODULE_SOURCES is the six-file union (worker +
-    media + render + transport + crossings + live), worker_live.py present,
-    union-compatible with every required env name still resolved across
-    the union.
+(f) Compatibility gate: MODULE_SOURCES is the seven-file union (worker +
+    media + render + transport + crossings + live + tracking), worker_live
+    present, union-compatible with every required env name still resolved
+    across the union.
 """
 
 from __future__ import annotations
@@ -260,7 +260,7 @@ class WorkerLivePlacementTests(unittest.TestCase):
 class WorkerLiveNoRebindingTests(unittest.TestCase):
     def test_no_rebinding_of_state_names_anywhere(self) -> None:
         # (c) AST guard across ALL worker/*.py sources (cheap: the worker dir
-        # is seven files): the ONLY Store access to a non-rebinding state
+        # is eight files): the ONLY Store access to a non-rebinding state
         # name is its defining literal at module level of worker_live.py. Any
         # other assignment would fork the publish queue/lock seen by the
         # publisher loop and the staying callers (the same discipline as the
@@ -519,10 +519,10 @@ class WorkerLiveIdentityTests(unittest.TestCase):
 
 class CompatibilityGateModuleSourcesTests(unittest.TestCase):
     def test_gate_scans_module_sources(self) -> None:
-        # (f) wave-7 contract: the gate's MODULE_SOURCES union is the
-        # six-file set (worker + media + render + transport + crossings +
-        # live) with worker_live.py present, and stays compatible with every
-        # required env name resolved across it.
+        # (f) wave-7 contract, extended by wave 8: the gate's MODULE_SOURCES
+        # union is the seven-file set (worker + media + render + transport +
+        # crossings + live + tracking) with worker_live.py present, and
+        # stays compatible with every required env name resolved across it.
         import importlib.util
 
         spec = importlib.util.spec_from_file_location(
@@ -532,7 +532,7 @@ class CompatibilityGateModuleSourcesTests(unittest.TestCase):
         self.assertIsNotNone(spec)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
-        self.assertEqual(len(module.MODULE_SOURCES), 6)
+        self.assertEqual(len(module.MODULE_SOURCES), 7)
         self.assertIn(ROOT / "worker" / "worker_live.py", module.MODULE_SOURCES)
         self.assertTrue(all(path.is_file() for path in module.MODULE_SOURCES))
         findings = module.inspect_worker(list(module.MODULE_SOURCES))

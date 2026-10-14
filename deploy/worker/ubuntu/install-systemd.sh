@@ -59,6 +59,7 @@ for required in \
   "$source_root/worker/worker_transport.py" \
   "$source_root/worker/worker_crossings.py" \
   "$source_root/worker/worker_live.py" \
+  "$source_root/worker/worker_tracking.py" \
   "$provenance" \
   "$runtime_id_file" \
   "$template" \

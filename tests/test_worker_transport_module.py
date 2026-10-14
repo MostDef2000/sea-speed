@@ -369,14 +369,14 @@ class CompatibilityGateModuleSourcesTests(unittest.TestCase):
         spec.loader.exec_module(module)
         self.assertEqual(
             len(module.MODULE_SOURCES),
-            6,
-            "wave-7: the live module joins the gate's worker-source union",
+            7,
+            "wave-8: the tracking module joins the gate's worker-source union",
         )
         self.assertTrue(all(path.is_file() for path in module.MODULE_SOURCES))
         findings = module.inspect_worker(list(module.MODULE_SOURCES))
         self.assertTrue(findings["compatible"], findings)
         self.assertEqual(findings["missing_required_environment_names"], [])
-        # The six-file union must still surface every required env read,
+        # The seven-file union must still surface every required env read,
         # including the SEA_SPEED_API_URL/SEA_SPEED_API_TOKEN reads that
         # moved into worker_transport with the post_* functions.
         self.assertEqual(

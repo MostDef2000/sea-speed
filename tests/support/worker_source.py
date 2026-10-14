@@ -41,6 +41,9 @@ ROOT = Path(__file__).resolve().parents[2]
 # Issue #397 wave 7: the live-publisher family lives in worker_live.py
 # (3 publish-thread state objects + 3 publisher defs) — harness parses all
 # seven, same first-definition-wins rule.
+# Issue #397 wave 8: the tracking cluster lives in worker_tracking.py
+# (3 per-track speed state objects + 8 tracking defs) — harness parses all
+# eight, same first-definition-wins rule.
 DEFAULT_WORKER_SOURCES = (
     "worker/hls_motion_yolo_worker_events.py",
     "worker/worker_kernel.py",
@@ -49,6 +52,7 @@ DEFAULT_WORKER_SOURCES = (
     "worker/worker_transport.py",
     "worker/worker_crossings.py",
     "worker/worker_live.py",
+    "worker/worker_tracking.py",
 )
 
 FunctionLike = ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef
