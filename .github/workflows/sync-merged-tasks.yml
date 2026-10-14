@@ -96,7 +96,13 @@ jobs:
       - name: Push sync branch and create or reuse the auto-sync PR
         if: env.HAS_DELTA == 'true'
         env:
-          GH_TOKEN: ${{ github.token }}
+          # RF-011: the PR author's identity decides the CI parking. PRs authored
+          # by github-actions[bot] get their pull_request workflow runs
+          # approval-parked; PRs authored by a collaborator (the owner's
+          # fine-grained PAT stored as the SYNC_PR_TOKEN repo secret) run CI
+          # immediately. Falls back to the workflow token when the secret is
+          # absent (approval-dependent mode, see RF-010).
+          GH_TOKEN: ${{ secrets.SYNC_PR_TOKEN || github.token }}
           GH_REPO: ${{ github.repository }}
           SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
