@@ -43,7 +43,10 @@ class AutonomousExecutionPolicyTests(unittest.TestCase):
         self.assertIn("git add -- ':(glob)specs/*/tasks.md'", source)
         self.assertNotIn("git add -A", source)
         self.assertIn("sync_tasks_md.py", source)
-        self.assertIn("chore(sdd): auto-sync tasks.md completion on merge to main", source)
+        # #477 contract transfer: the sync rides a PR flow now; the bot commit
+        # and the squash-merge subject are both the deterministic sha-suffixed
+        # "chore(sdd): auto-sync tasks.md completion (<source-sha8>)".
+        self.assertIn("chore(sdd): auto-sync tasks.md completion (${SOURCE_SHA:0:8})", source)
         self.assertIn("github.event.workflow_run.event == 'push'", source)
 
     def test_protected_deploy_workflows_re_evaluate_policy_and_source_protection(self):

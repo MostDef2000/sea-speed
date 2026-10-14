@@ -136,7 +136,7 @@ def main() -> int:
             "github.event.workflow_run.event == 'push'", "github.event.workflow_run.head_branch == 'main'",
             "github.event.workflow_run.conclusion == 'success'", "sync_tasks_md.py",
             "validate_sdd.py --freshness", "git add -- ':(glob)specs/*/tasks.md'",
-            "chore(sdd): auto-sync tasks.md completion on merge to main",
+            "chore(sdd): auto-sync tasks.md completion (${SOURCE_SHA:0:8})",
         ),
     )
     if "git add -A" in sync_tasks:
