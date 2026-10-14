@@ -35,6 +35,12 @@ hls_motion_yolo_worker_events.py into worker/worker_live.py):
     that same def, and both the def and the literal are top-level in
     worker_live.py (global + rebinder in the SAME module). The pair must
     never be split (a rebinding name cannot move away from its rebinder).
+    Coupled no-Load guard: NO Load-context Name read of
+    _LIVE_PUBLISH_THREAD exists outside worker_live.py across the worker
+    sources — the rebinding name has no worker-namespace reader (the
+    worker-ns re-export copy is a frozen import-time snapshot, so a
+    reader would silently observe the stale snapshot; an ops probe
+    reading worker._LIVE_PUBLISH_THREAD must fail CI instead).
 (e) Identity + re-export regression: a pristine subprocess import pins
     worker.<name> IS worker_live.<name> for all 6 moved names and
     "_LIVE_PUBLISH_QUEUE"/"_LIVE_PUBLISH_THREAD" in vars(worker) — the
@@ -336,10 +342,16 @@ class WorkerLiveRebinderCouplingTests(unittest.TestCase):
         #   - the ONLY ast.Global naming it sits in that same def;
         #   - _ensure_live_publisher and the defining literal are both
         #     top-level in worker_live.py (global + rebinder in the SAME
-        #     module — the pair is never split).
+        #     module — the pair is never split);
+        #   - NO Load-context Name read of _LIVE_PUBLISH_THREAD exists
+        #     outside worker_live.py (no worker-namespace reader: the
+        #     re-export copy is a frozen import-time snapshot, so a reader
+        #     would silently see the stale snapshot — e.g. the None taken
+        #     before the first publish — instead of the live thread).
         sources = sorted((ROOT / "worker").glob("*.py"))
         assigns: list[tuple[Path, ast.Assign, str | None]] = []
         globals_stmts: list[tuple[Path, ast.Global, str | None]] = []
+        worker_ns_reads: list[tuple[Path, ast.Name]] = []
 
         def enclosing_function(node: ast.AST, tree: ast.Module) -> str | None:
             for top in tree.body:
@@ -361,6 +373,13 @@ class WorkerLiveRebinderCouplingTests(unittest.TestCase):
                     assigns.append((path, node, enclosing_function(node, tree)))
                 elif isinstance(node, ast.Global) and "_LIVE_PUBLISH_THREAD" in node.names:
                     globals_stmts.append((path, node, enclosing_function(node, tree)))
+                elif (
+                    isinstance(node, ast.Name)
+                    and isinstance(node.ctx, ast.Load)
+                    and node.id == "_LIVE_PUBLISH_THREAD"
+                    and path != LIVE
+                ):
+                    worker_ns_reads.append((path, node))
 
         self.assertEqual(
             len(assigns),
@@ -393,6 +412,18 @@ class WorkerLiveRebinderCouplingTests(unittest.TestCase):
             if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name)
         }
         self.assertIn("_LIVE_PUBLISH_THREAD", top_assign_names)
+        # No-Load guard: the rebinding name is scoped to worker_live's
+        # namespace — any Load-context read outside worker_live.py would
+        # silently observe the stale frozen snapshot (the worker-ns
+        # re-export copy never rebinds), so no reader may exist. An ops
+        # probe reading worker._LIVE_PUBLISH_THREAD fails CI here.
+        self.assertEqual(
+            [(path.name, node.lineno) for path, node in worker_ns_reads],
+            [],
+            "Load-context reads of _LIVE_PUBLISH_THREAD outside worker_live.py "
+            "(the rebinding name has no worker-namespace reader: a reader would "
+            "silently see the stale frozen snapshot)",
+        )
 
 
 class WorkerLiveIdentityTests(unittest.TestCase):

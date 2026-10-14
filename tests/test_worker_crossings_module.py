@@ -454,12 +454,14 @@ class WorkerCrossingsIdentityTests(unittest.TestCase):
         )
 
 
-class CompatibilityGateFiveFileTests(unittest.TestCase):
-    def test_gate_scans_five_worker_sources(self) -> None:
+class CompatibilityGateModuleSourcesTests(unittest.TestCase):
+    def test_gate_scans_module_sources(self) -> None:
         # (f) wave-6 contract, extended by wave 7: the gate's MODULE_SOURCES
         # union is the six-file set (worker + media + render + transport +
         # crossings + live) and stays compatible with every required env
-        # name resolved across it.
+        # name resolved across it. (Renamed from the stale wave-4/6
+        # five-file name — wave-agnostic, mirrors the transport-side
+        # wave-7 rename; no logic change.)
         import importlib.util
 
         spec = importlib.util.spec_from_file_location(

@@ -15,6 +15,16 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 ROOT = Path(__file__).resolve().parents[1]
+
+try:
+    from tests.support import worker_source
+except ModuleNotFoundError:  # direct file execution: put the repo root on sys.path
+    import sys
+
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    from tests.support import worker_source
+
 SOURCE = ROOT / "api" / "app" / "main.py"
 # Issue #396 wave 1: the shared kernel lives in its own modules; the harness
 # resolves moved functions from identity/config with fallback to main so the
@@ -388,17 +398,13 @@ class NoPhotoGuardTests(unittest.TestCase):
         # NOT in worker_render.py whose write_passage_snapshot returns
         # bool(cv2.imwrite(...)) — scan the joined worker sources (the
         # worker-side analogue of api_sources() above); the asserted
-        # invariants are unchanged.
+        # invariants are unchanged. The join is harness-driven
+        # (tests/support/worker_source.worker_source_paths(), the same source
+        # set the #398/#397 harnesses parse) instead of a hardcoded file
+        # tuple — the assertIn pins below are monotone under file addition,
+        # so the join tracking DEFAULT_WORKER_SOURCES cannot go stale.
         worker = "\n".join(
-            path.read_text(encoding="utf-8")
-            for path in (
-                ROOT / "worker" / "hls_motion_yolo_worker_events.py",
-                ROOT / "worker" / "worker_kernel.py",
-                ROOT / "worker" / "worker_media.py",
-                ROOT / "worker" / "worker_render.py",
-                ROOT / "worker" / "worker_transport.py",
-            )
-            if path.exists()
+            path.read_text(encoding="utf-8") for path in worker_source.worker_source_paths()
         )
         self.assertIn("POST event skipped: snapshot missing", worker)
         self.assertIn("wrote = cv2.imwrite", worker)
