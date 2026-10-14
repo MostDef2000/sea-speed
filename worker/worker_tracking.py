@@ -1,4 +1,4 @@
-﻿"""Sea Speed worker tracking module (issue #397, wave 8).
+"""Sea Speed worker tracking module (issue #397, wave 8).
 
 The tracking cluster moved VERBATIM (move-only refactor, byte-identical
 bodies) from hls_motion_yolo_worker_events.py: the per-track speed state
