@@ -54,7 +54,8 @@ jobs:
           current="$(git rev-parse HEAD)"
           if [[ "${current}" != "${HEAD_SHA}" ]]; then
             echo "main advanced past the triggering head (${current} != ${HEAD_SHA});"
-            echo "the quality run for the newer merge will re-trigger this sync."
+            echo "the newer merge's sync run covers its own delta; this superseded"
+            echo "merge's pending markers are re-examined only when that spec dir changes again."
             echo "HAS_DELTA=false" >> "${GITHUB_ENV}"
             exit 0
           fi
@@ -68,8 +69,13 @@ jobs:
           set -euo pipefail
           python scripts/ci/sync_tasks_md.py --base "${HEAD_SHA}^" --head "${HEAD_SHA}" --sha "${HEAD_SHA}"
           python scripts/ci/validate_sdd.py --freshness --base "${HEAD_SHA}^" --head "${HEAD_SHA}"
-          mapfile -t changed < <(git diff --name-only "${HEAD_SHA}^" "${HEAD_SHA}" -- ':(glob)specs/*/tasks.md')
-          if [[ "${#changed[@]}" -eq 0 || -z "$(git status --porcelain)" ]]; then
+          # Delta = the ACTUAL working-tree result of the sync (git status,
+          # filtered to the sync's own pathspec), not the merge's changed-dir
+          # report: a flip inside a spec dir the merge touched only in
+          # non-tasks.md files must still produce a PR, while a tasks.md the
+          # merge touched with zero pending markers must produce none.
+          mapfile -t changed < <(git status --porcelain -- ':(glob)specs/*/tasks.md' | cut -c4-)
+          if [[ "${#changed[@]}" -eq 0 ]]; then
             echo "tasks.md already current (or no recognizable markers to flip); nothing to sync"
             echo "HAS_DELTA=false" >> "${GITHUB_ENV}"
             exit 0
@@ -105,6 +111,8 @@ jobs:
           number="$(gh pr list --head "${BRANCH}" --base main --state open --json number --jq '.[0].number // empty')"
           if [[ -n "${number}" ]]; then
             echo "reusing open auto-sync PR #${number}"
+            gh pr edit "${number}" --title "chore(sdd): auto-sync tasks.md completion (${SOURCE_SHA:0:8})" \
+              --body-file "${PR_BODY_FILE}"
           else
             number="$(gh pr create --head "${BRANCH}" --base main \
               --title "chore(sdd): auto-sync tasks.md completion (${SOURCE_SHA:0:8})" \
@@ -120,8 +128,10 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          # gh pr checks exit codes: 0 all green, 1 failure,
-          # 4 checks not registered yet, 8 checks pending.
+          # gh pr checks exit codes (local probe: 0=all-green, 1=failure):
+          # 8 checks pending (gh >= 2.24), 4 checks not registered yet,
+          # 2 pending under older gh semantics — all three are transient
+          # "not green yet" readings, never a merge signal.
           green=0
           for attempt in 1 2 3 4 5; do
             set +e
@@ -130,13 +140,13 @@ jobs:
             set -e
             case "${code}" in
               0) green=1; break ;;
-              4|8) echo "checks not green yet (exit ${code}, attempt ${attempt}/5)"; sleep 30 ;;
+              2|4|8) echo "checks not green yet (exit ${code}, attempt ${attempt}/5)"; sleep 30 ;;
               *) echo "::error::auto-sync PR #${PR_NUMBER} checks failed (exit ${code})"; exit 1 ;;
             esac
           done
           if [[ "${green}" != "1" ]]; then
             echo "checks still pending after bounded retries; watching (hard timeout 1800s)"
-            if ! timeout 1800 gh pr checks "${PR_NUMBER}" --watch --fail-fast; then
+            if ! timeout 1800 gh pr checks "${PR_NUMBER}" --watch --fail-fast --required; then
               echo "::error::auto-sync PR #${PR_NUMBER} checks not green (failed or 1800s watch timeout)"
               exit 1
             fi
