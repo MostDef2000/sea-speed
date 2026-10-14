@@ -323,6 +323,7 @@ class WorkflowStructuralPinTests(unittest.TestCase):
         # gate must poll ("no checks reported" = pending registration, not a
         # failure).
         self.assertIn('gh api -X PATCH "repos/${GH_REPO}/git/refs/heads/${BRANCH}"', runs)
+        self.assertIn('-F "force=true"', runs)  # typed boolean, not -f string (RF-016)
         self.assertNotIn("git push", runs)
         self.assertIn("*\"no checks reported\"*)", runs)
         # RF-008 (live): parked approval-gated pull_request runs carry HIGHER

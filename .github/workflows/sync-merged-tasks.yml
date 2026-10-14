@@ -124,7 +124,7 @@ jobs:
           commit_sha="$(git rev-parse HEAD)"
           if gh api "repos/${GH_REPO}/git/ref/heads/${BRANCH}" >/dev/null 2>&1; then
             gh api -X PATCH "repos/${GH_REPO}/git/refs/heads/${BRANCH}" \
-              -f "sha=${commit_sha}" -f "force=true" >/dev/null
+              -f "sha=${commit_sha}" -F "force=true" >/dev/null  # -F: typed boolean; -f sends the STRING "true" and the API rejects it (RF-016, run 38562706585)
           else
             gh api -X POST "repos/${GH_REPO}/git/refs" \
               -f "ref=refs/heads/${BRANCH}" -f "sha=${commit_sha}" >/dev/null
