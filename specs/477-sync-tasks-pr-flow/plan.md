@@ -1,0 +1,92 @@
+# Plan: #477 sync-merged-tasks PR flow
+
+- Issue: #477
+- Specification: specs/477-sync-tasks-pr-flow/spec.md
+
+## Implementation approach
+
+1. RECON-established defect: the old workflow committed the marker sync directly to main and `git push`ed with `github.token`; rulesets require PR checks, which a direct push can never carry, so the sync always failed at push. The trigger surface (workflow_run on "Quality integration gate" completed, push-to-main filter) is correct and is kept verbatim.
+2. D-2 surface mapped before any edit: every PR runs `pr-validation.yml` job `validate` AND `quality-integration.yml` job `static-contract-security`; both run `validate_change_contract.py --event` (full Change Contract in the PR body — six sections, ~26 required non-placeholder fields, `Changed files:` must exactly equal `git_changed_files(base.sha, head.sha)`) and `validate_sdd.py --event` (`SIGNIFICANT_PREFIXES` includes `.github/workflows/` and `scripts/ci/` → the fix PR is significant and needs `- Specification:` + `- Risk profile:` matching this trio).
+3. Flow design: keep the sync+freshness step; add a stale-trigger guard (fetched main tip must equal `workflow_run.head_sha`, else log + `HAS_DELTA=false` + exit green — the newer merge's quality run re-triggers); gate all later steps on `HAS_DELTA` via `GITHUB_ENV`.
+4. Delta + body: after the sync, require BOTH `git status --porcelain` and the merge's `:(glob)specs/*/tasks.md` diff to be non-empty; generate the PR body with the NEW `scripts/ci/build_sync_pr_body.py` into `$RUNNER_TEMP` (deterministic; changed files = only the merge's tasks.md set → derived impact NONE).
+5. Branch/PR: `git fetch origin chore/tasks-md-auto-sync || true`, `git checkout -B`, bot identity, commit (only `':(glob)specs/*/tasks.md'`), `git push --force-with-lease` (the fetched remote-tracking ref is the lease expectation; a failed fetch means the branch is new and the push creates it), then `gh pr list --head … --state open` → reuse (force-push alone updates it) or `gh pr create --body-file`.
+6. Checks wait: `gh pr checks N --required` read-retry ≤5 attempts 30 s apart tolerating exit codes 4 (not registered) and 8 (pending); if still not green, `timeout 1800 gh pr checks N --watch --fail-fast`; any failure or the 124 timeout exits non-zero loudly. The merge step runs only after green and is never retried.
+7. Self-merge: `gh pr merge N --squash --delete-branch --subject "chore(sdd): auto-sync tasks.md completion (<source-sha8>)"` with env `GH_TOKEN`/`GH_REPO`; loop safety rides COMPLETION_RE structural idempotency (verified by round-trip tests and a scratch run: sync #1 flips 4 markers, syncs #2/#3 report "all changed tasks.md already current").
+8. Tests: NEW `tests/test_sync_tasks_md_flow.py` — the only locally testable logic: sync round-trip idempotency on the real wave-4 tasks.md fixture, marker discipline (recognized-only flips, never unchecks, suffix ≤ once), freshness-clean result, and the generated body against the REAL `validate_contract` (impact NONE), plus sha/files/sections/branch/no-placeholder assertions, empty-delta refusal and a CLI subprocess round-trip.
+
+## Architecture
+
+- Trigger layer: `workflow_run` on "Quality integration gate" completed (unchanged) — the gate runs on push to main, so every squash merge eventually triggers one sync run; the concurrency group serializes overlapping syncs.
+- Freshness model: checkout pins `ref: main, fetch-depth: 2`; comparing `git rev-parse HEAD` with `workflow_run.head_sha` guarantees the sync acts on the exact merged head; depth 2 resolves `HEAD^` for the squash-merge diff (`--base HEAD^ --head HEAD`).
+- Idempotency model: COMPLETION_RE matches only unchecked `- [ ]` recognized markers → a flipped `[x]` line can never re-match (structural, not incidental); the "— auto-synced on merge to main (<sha8>)" suffix is appended once with a substring guard (markers whose static text already contains the phrase skip the sha annotation — cosmetic only). The auto-sync PR's own squash merge re-triggers the workflow → sync finds no delta → exit green. No new PR, no loop.
+- PR-side CI surface: the auto-sync PR carries ONLY `specs/*/tasks.md` changes → not significant (no `specs/**` pattern in the policy), impact NONE → deterministic minimal body; the fix PR itself is significant (`.github/workflows/` + `scripts/ci/`) and links this trio.
+- Self-merge authority: `github.token` + `pull-requests: write` merges ONLY the flow's own deterministic housekeeping PR whose delta is tasks.md marker flips — no human-authored content rides it; ruleset required checks still gate the merge (that is the point of the flow).
+
+## Decisions
+
+- D-1: PR-based self-merge flow instead of direct push — the only validator-compatible way to keep the sync fully automatic: rulesets require PR checks; the PR is created, watched and squash-merged by the same workflow run with `gh` under `github.token` (`pull-requests: write` added; `contents: write` kept for branch push/delete).
+- D-2: PR-side CI surface (the fix PR and every auto-sync PR run BOTH `pr-validation.yml` `validate` AND `quality-integration.yml` `static-contract-security`): `validate_change_contract` requires the six sections + ~26 non-placeholder fields and `Changed files:` equal to `git_changed_files(base, head)`; impact classes from `data/contracts/change-control-policy-v1.json` (`.github/workflows/**` → CONTROL_PLANE; `specs/**` matches no pattern → NONE; the AUTO-SYNC PR's only changed files are `specs/*/tasks.md` → impact NONE, all deployment fields NOT REQUIRED, capabilities NOT APPLICABLE, `Risk profile: NOT REQUIRED`, verdict PASS + finding NONE, waiver fields NONE). The auto-sync body carries `- Source authorization: OUTCOME APPROVED` and `Issue: #477` as the deterministic template text standing for the #477-established standing housekeeping delegation (the validator's hard requirement); recorded as a decision, not a per-run authorization claim.
+- D-3: Loop safety is structural — flipped `[x]` lines can never match COMPLETION_RE; the suffix is appended at most once; proven by the round-trip scratch run (sync #1 flips 4 markers, syncs #2/#3 no-ops) and pinned by tests. The quality gate's push trigger re-runs the sync after every merge, including the auto-sync PR's own merge → no-delta exit.
+- D-4: The body generator is a NEW `scripts/ci/build_sync_pr_body.py` rather than an inline heredoc: the contract surface becomes unit-testable (the 7-test suite validates it against the real `validate_contract`), deterministic (arg-driven, no timestamps) and reviewable.
+- D-5: Bounded checks wait: ≤5 read retries 30 s apart for exit codes 4/8, then `timeout 1800 gh pr checks N --watch --fail-fast`; on failure/timeout the job exits non-zero with `::error::` naming the PR. The merge is NEVER inside the retry window — a read retry can only end in green → merge, or loud failure → human/orchestrator.
+- D-6: NO Deployment transaction audit section in this plan — `requires_deployment_transaction_audit` fires only for `deploy/**`, `scripts/release/**`, `.github/workflows/deploy*.yml` or REQUIRED PR deployment fields; `sync-merged-tasks.yml` matches none of these and touches no runtime contour (VPS / Ubuntu worker/relay unaffected; the workflow only manages PRs and marker text). The omission is this decision, made explicitly per the work order.
+- D-7: Stale-trigger guard exits GREEN (not failure): a later merge's own quality run re-triggers the sync for the newer head, so a stale run must not fail the pipeline nor sync a delta it cannot attribute (work-order instruction, consistent with the loop-safety model).
+- D-8: Branch/PR model: one deterministic branch `chore/tasks-md-auto-sync`, `git push --force-with-lease` after fetching it (remote-tracking ref = lease expectation; missing branch → create), and PR reuse-or-create via `gh pr list --head … --state open`; a concurrent open PR is force-pushed (synchronize event re-runs its checks) instead of duplicated.
+- D-9: Scope discipline: `sync_tasks_md.py` logic untouched (its idempotency is the loop-safety core; the sha-suffix-suppression quirk for markers whose static text already contains "auto-synced on merge" is cosmetic and recorded only); rulesets, deploy workflows and the quality gate are out of scope.
+- D-10: Contract transfer (work-order-sanctioned, recorded per the wave-4 D-7 pattern): `tests/test_autonomous_execution_policy.py::test_sync_merged_tasks_bot_stages_only_its_tasks_md_pathspec` pinned the OLD direct-push commit subject "chore(sdd): auto-sync tasks.md completion on merge to main"; the pin is updated to the new deterministic sha-suffixed subject "chore(sdd): auto-sync tasks.md completion (${SOURCE_SHA:0:8})" (the same string the branch commit and the squash-merge subject carry). The test's real invariant — the bot stages ONLY the `:(glob)specs/*/tasks.md` pathspec, never `git add -A`, and the trigger filter stays push-to-main — is preserved unchanged.
+
+## Risk profile
+
+- Risk profile: REQUIRED
+- RISK-001 | Category: SEC | Probability: 2 | Impact: 4 | Score: 8 | Mitigation: the workflow gains self-merge authority (github.token + pull-requests: write) — bounded by scope: it can merge ONLY the deterministic PR it created from marker flips (head `chore/tasks-md-auto-sync`, base main, no other branch/PR is touched), the merged content is only `specs/*/tasks.md` checked-marker flips (verified by the freshness gate in the same run), and the Security impact is declared non-NONE in the fix PR body so the risk profile stays derivable/REQUIRED | Validation: yaml parse (permissions both keys); fix-PR body derivation consistent with this plan; PR body template reviewed in tests | Residual risk: LOW | Owner: Delivery Orchestrator | Status: MITIGATED
+- RISK-002 | Category: TECH | Probability: 2 | Impact: 3 | Score: 6 | Mitigation: race with the next merge (stale trigger, forced-push of an open PR, double-merge attempt): the stale-trigger guard exits green; the concurrency group serializes sync runs (cancel-in-progress: false); reuse force-pushes the existing PR (synchronize re-runs checks); a post-watch main movement can make one merge attempt fail loudly without repo damage (no partial state — squash merge is atomic) and the NEXT sync run self-heals | Validation: guard + concurrency + reuse steps present in the workflow; scenario review recorded here | Residual risk: LOW | Owner: Worker | Status: MITIGATED
+- RISK-003 | Category: TECH | Probability: 1 | Impact: 5 | Score: 5 | Mitigation: marker idempotency regression would create an infinite sync-PR loop; the loop-safety argument is structural (COMPLETION_RE matches only unchecked markers) and empirically proven — scratch round-trip: sync #1 flips 4 markers, syncs #2/#3 "all changed tasks.md already current"; the suffix guard appends at most once; tests pin all three properties | Validation: tests/test_sync_tasks_md_flow.py SyncMarkerRoundTripTests + SyncScriptCliTests OK | Residual risk: LOW | Owner: Worker | Status: MITIGATED
+- RISK-004 | Category: TECH | Probability: 2 | Impact: 4 | Score: 8 | Mitigation: PR-side CI surface unknowns (D-2) — body template drift would turn every auto-sync PR red AFTER merge; the generated body is validated against the REAL `validate_contract` in tests (changed-files delta → impact NONE), and placeholder-free/section-complete assertions pin the template shape | Validation: tests/test_sync_tasks_md_flow.py SyncPrBodyContractTests OK (impact NONE) | Residual risk: LOW | Owner: Worker | Status: MITIGATED
+- RISK-005 | Category: OPS | Probability: 2 | Impact: 3 | Score: 6 | Mitigation: false negatives in the checks wait (not-registered 4 / pending 8, runner jitter, >30 min queue) could kill a healthy sync; the read window is retried ≤5×30 s before the 1800 s `--watch --fail-fast` window, and every failure is loud (`::error::` + PR URL) so the orchestrator can finish the sync manually — the merge itself is never retried blindly | Validation: bounded-wait step design reviewed; failure paths exit non-zero with `::error::` | Residual risk: LOW | Owner: Delivery Orchestrator | Status: MITIGATED
+
+## Test design
+
+- TEST-001 | Covers: AC-003 | Level: unit | Priority: P1 | Evidence: SyncMarkerRoundTripTests — round-trip no-op on 2nd/3rd sync, only recognized markers flip, no unchecks, suffix ≤ once, freshness-clean
+- TEST-002 | Covers: AC-002 | Level: unit | Priority: P1 | Evidence: SyncPrBodyContractTests — generated body passes the REAL `validate_contract` (derived impact NONE); sha/changed-file/six-sections/branch assertions; no placeholders; empty-delta refused
+- TEST-003 | Covers: AC-003 | Level: integration | Priority: P1 | Evidence: SyncScriptCliTests — subprocess CLI round-trip ("1 tasks.md file(s) synced" → "all changed tasks.md already current")
+- TEST-004 | Covers: AC-001 | Level: unit | Priority: P1 | Evidence: yaml.safe_load structural assertions (permissions contents+pull-requests, concurrency group, no bare `git push` to main, PR/merge steps present) — recorded in the verification sweep
+- TEST-005 | Covers: AC-006 | Level: integration | Priority: P1 | Evidence: full discover battery → expected Ran 951 OK (skipped=4) = 944 + 7 new, zero pin edits
+- TEST-006 | Covers: AC-006 | Level: integration | Priority: P1 | Evidence: ruff clean; validate_repo green; validate_sdd green (trio linked by the fix PR body)
+- TEST-007 | Covers: AC-004, AC-005 | Level: review | Priority: P2 | Evidence: workflow design review — stale-trigger guard, concurrency group, bounded wait, loud failure paths (cannot execute locally; live acceptance = the fix PR's own PR-side CI + the first post-merge sync run, recorded by the orchestrator)
+
+## Correct-course check
+
+- Trigger: NONE
+- Issue impact: NONE
+- Specification impact: NONE
+- Plan impact: NONE
+- Tasks impact: NONE
+- Authorization impact: NONE
+- Follow-up: NONE
+
+Standing correction policy (pre-declared triggers): first live sync run failing at the PR step → fix the WORKFLOW mechanics, never weaken validators; checks failing on the auto-sync PR → fix the body template + its test together (template drift is a test failure first); a discovered marker that must NOT be auto-flipped → tighten the recognition in `sync_tasks_md.py` via a separate authorized task (out of scope here); the workflow's first live run failing for GH-API-shape reasons (e.g. `gh pr checks` flags) → repair in-scope under this task's CI-remediation authority; any runtime-contour creep → stop, record, re-authorize.
+
+## Affected contours
+
+- Control plane: `.github/workflows/sync-merged-tasks.yml` (rewritten in place — PR-based flow), NEW `scripts/ci/build_sync_pr_body.py`.
+- Test harness: NEW `tests/test_sync_tasks_md_flow.py` (7 tests).
+- SDD trio `specs/477-sync-tasks-pr-flow/`.
+- No change to: runtime contours (VPS, Ubuntu worker/relay), deploy-*.yml, quality/pr-validation workflows, `sync_tasks_md.py`, repository rulesets, `api/**`, `frontend/**`, `worker/**`.
+
+## Validation
+
+- Round-trip scratch (pre-edit evidence): sync #1 → "1 tasks.md file(s) synced" (4 markers flipped); syncs #2/#3 → "all changed tasks.md already current" (no-op).
+- tests/test_sync_tasks_md_flow.py → `Ran 7 tests ... OK`.
+- yaml parse + structural assertions on the rewritten workflow (permissions both keys, concurrency group, PR-flow steps present, no direct push).
+- Full battery → expected `Ran 951 tests ... OK (skipped=4)` = 944 + 7 new.
+- `ruff check . --config scripts/quality/ruff.toml` clean; `validate_repo.py` green; `validate_sdd.py` green.
+- Live acceptance (orchestrator-owned, post-merge): the fix PR's own PR-side CI green; the sync run triggered by this fix PR's merge creates and squash-merges the first auto-sync PR (flipping the remaining DoD markers of this trio), and the follow-up sync run reports no delta.
+
+## Runtime feedback
+
+- RF-001: Operator actions expected: 0. Control-plane-only change; no deploy workflow, migration, secret or runtime contour is touched.
+- RF-002: Evidence: the workflow's live behavior is observed on GitHub (first post-merge sync run + auto-sync PR merge); the orchestrator records the run URL and outcome on issue #477.
+
+## Deployment transaction audit
+
+- NOT REQUIRED (recorded decision D-6): `requires_deployment_transaction_audit` fires only for `deploy/**`, `scripts/release/**`, `.github/workflows/deploy*.yml` or PR deployment fields REQUIRED — none apply to this change (sync-merged-tasks.yml is a PR/marker housekeeping workflow; no runtime contour, no deploy path, no mutation outside git).
