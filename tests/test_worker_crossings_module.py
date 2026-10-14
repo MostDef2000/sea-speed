@@ -34,9 +34,11 @@ hls_motion_yolo_worker_events.py into worker/worker_crossings.py):
     site in build_road_live_envelope (worker) depends on that membership, so
     losing the re-export would silently drop crossings from the road live
     envelope instead of failing loudly.
-(f) Compatibility gate: MODULE_SOURCES is the five-file union (worker +
-    media + render + transport + crossings), union-compatible with every
-    required env name still resolved across the union.
+(f) Compatibility gate: MODULE_SOURCES is the six-file union (worker +
+    media + render + transport + crossings + live), union-compatible with
+    every required env name still resolved across the union (wave-7
+    transfer: the gate grows by worker_live.py, this file's pin tracks the
+    count).
 """
 
 from __future__ import annotations
@@ -454,9 +456,10 @@ class WorkerCrossingsIdentityTests(unittest.TestCase):
 
 class CompatibilityGateFiveFileTests(unittest.TestCase):
     def test_gate_scans_five_worker_sources(self) -> None:
-        # (f) wave-6 contract: the gate's MODULE_SOURCES union is the
-        # five-file set (worker + media + render + transport + crossings) and
-        # stays compatible with every required env name resolved across it.
+        # (f) wave-6 contract, extended by wave 7: the gate's MODULE_SOURCES
+        # union is the six-file set (worker + media + render + transport +
+        # crossings + live) and stays compatible with every required env
+        # name resolved across it.
         import importlib.util
 
         spec = importlib.util.spec_from_file_location(
@@ -466,7 +469,7 @@ class CompatibilityGateFiveFileTests(unittest.TestCase):
         self.assertIsNotNone(spec)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
-        self.assertEqual(len(module.MODULE_SOURCES), 5)
+        self.assertEqual(len(module.MODULE_SOURCES), 6)
         self.assertTrue(all(path.is_file() for path in module.MODULE_SOURCES))
         findings = module.inspect_worker(list(module.MODULE_SOURCES))
         self.assertTrue(findings["compatible"], findings)

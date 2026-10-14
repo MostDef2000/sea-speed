@@ -85,8 +85,9 @@ MOVED_TRANSPORT_NAMES = MOVED_TRANSPORT_DEFS + MOVED_TRANSPORT_CACHES
 # _post_live_envelope_sync to the moved set above (contract transfer).
 # Wave 6 transferred update_crossing_counts/reset_crossing_counts/
 # crossing_overlay_summary to the worker_crossings guard (contract transfer).
+# Wave 7 transferred the whole live-publisher family (incl.
+# _ensure_live_publisher) to the worker_live guard (contract transfer).
 STAYING_IN_WORKER = (
-    "_ensure_live_publisher",
     "road_roi_enabled",
     "detect_vehicles",
     "main",
@@ -355,8 +356,8 @@ class WorkerTransportNoCacheRebindingTests(unittest.TestCase):
                         )
 
 
-class CompatibilityGateFourFileTests(unittest.TestCase):
-    def test_gate_scans_four_worker_sources(self) -> None:
+class CompatibilityGateModuleSourcesTests(unittest.TestCase):
+    def test_gate_scans_module_sources(self) -> None:
         import importlib.util
 
         spec = importlib.util.spec_from_file_location(
@@ -368,14 +369,14 @@ class CompatibilityGateFourFileTests(unittest.TestCase):
         spec.loader.exec_module(module)
         self.assertEqual(
             len(module.MODULE_SOURCES),
-            5,
-            "wave-6: the crossings module joins the gate's worker-source union",
+            6,
+            "wave-7: the live module joins the gate's worker-source union",
         )
         self.assertTrue(all(path.is_file() for path in module.MODULE_SOURCES))
         findings = module.inspect_worker(list(module.MODULE_SOURCES))
         self.assertTrue(findings["compatible"], findings)
         self.assertEqual(findings["missing_required_environment_names"], [])
-        # The five-file union must still surface every required env read,
+        # The six-file union must still surface every required env read,
         # including the SEA_SPEED_API_URL/SEA_SPEED_API_TOKEN reads that
         # moved into worker_transport with the post_* functions.
         self.assertEqual(
