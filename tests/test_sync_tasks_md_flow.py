@@ -298,7 +298,12 @@ class WorkflowStructuralPinTests(unittest.TestCase):
         # branch itself; both dispatched names are pinned (no arbitrary dispatch).
         self.assertIn('gh workflow run pr-validation.yml --ref "${BRANCH}"', runs)
         self.assertIn('gh workflow run quality-integration.yml --ref "${BRANCH}"', runs)
-        # The merge is gated on the ruleset's required set (exit 0 = green).
+        # RF-008 (live): parked approval-gated pull_request runs carry HIGHER
+        # run_numbers than the dispatched ones — the poll must exclude them
+        # or it can never observe success.
+        self.assertIn('and .conclusion != "action_required"', runs)
+        # Final gate consistent with the ruleset: required contexts green on
+        # the head SHA.
         self.assertIn('gh pr checks "${PR_NUMBER}" --required', runs)
 
 

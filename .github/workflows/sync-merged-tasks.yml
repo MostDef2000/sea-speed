@@ -144,7 +144,7 @@ jobs:
           poll() {
             wf="$1"
             gh api "repos/${GH_REPO}/actions/runs?branch=${BRANCH}&per_page=30" \
-              --jq "[.workflow_runs[] | select(.name == \"${wf}\")] | max_by(.run_number) | .conclusion // \"pending\""
+              --jq "[.workflow_runs[] | select(.name == \"${wf}\" and .conclusion != \"action_required\")] | max_by(.run_number) | .conclusion // \"pending\""
           }
           deadline=$(( $(date +%s) + 1800 ))
           pr_concl="pending"; qi_concl="pending"
