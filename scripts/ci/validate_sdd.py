@@ -63,6 +63,7 @@ GRANDFATHERED_PREFIX_COLLISIONS = {
         "397-wave3-worker-render",
         "397-wave4-worker-transport",
         "397-wave5-worker-posting",
+        "397-wave6-worker-crossings",
     },
 }
 

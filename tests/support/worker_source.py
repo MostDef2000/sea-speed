@@ -35,12 +35,16 @@ ROOT = Path(__file__).resolve().parents[2]
 # harness now parses all three files with the same first-definition-wins rule.
 # Issue #397 wave 4: the requests transport/posting layer lives in
 # worker_transport.py (defs + their TTL caches) — harness parses all five.
+# Issue #397 wave 6: the crossing-domain cluster lives in worker_crossings.py
+# (6 defs + 5 state literals) — harness parses all six, same
+# first-definition-wins rule.
 DEFAULT_WORKER_SOURCES = (
     "worker/hls_motion_yolo_worker_events.py",
     "worker/worker_kernel.py",
     "worker/worker_media.py",
     "worker/worker_render.py",
     "worker/worker_transport.py",
+    "worker/worker_crossings.py",
 )
 
 FunctionLike = ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef
