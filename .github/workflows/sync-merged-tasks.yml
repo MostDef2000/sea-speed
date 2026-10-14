@@ -114,7 +114,21 @@ jobs:
           git config user.email "bot@sea-speed.invalid"
           git add -- ':(glob)specs/*/tasks.md'
           git commit -m "chore(sdd): auto-sync tasks.md completion (${SOURCE_SHA:0:8})"
-          git push --force-with-lease origin "HEAD:refs/heads/${BRANCH}"
+          # RF-015 (live, run 38560517415): a plain git-level push here uses
+          # the checkout's GITHUB_TOKEN credentials, so the synchronize actor is
+          # github-actions[bot] and GitHub parks the PR's pull_request runs in
+          # `action_required` — the ruleset's statusCheckRollup never fills and
+          # the final gate can never pass. Updating the ref via the REST API
+          # under the SAME token as PR creation (the PAT fallback) makes the
+          # synchronize actor a human collaborator, so PR-side CI runs unpaused.
+          commit_sha="$(git rev-parse HEAD)"
+          if gh api "repos/${GH_REPO}/git/ref/heads/${BRANCH}" >/dev/null 2>&1; then
+            gh api -X PATCH "repos/${GH_REPO}/git/refs/heads/${BRANCH}" \
+              -f "sha=${commit_sha}" -f "force=true" >/dev/null
+          else
+            gh api -X POST "repos/${GH_REPO}/git/refs" \
+              -f "ref=refs/heads/${BRANCH}" -f "sha=${commit_sha}" >/dev/null
+          fi
           number="$(gh pr list --head "${BRANCH}" --base main --state open --json number --jq '.[0].number // empty')"
           if [[ -n "${number}" ]]; then
             echo "reusing open auto-sync PR #${number}"
@@ -177,8 +191,29 @@ jobs:
             exit 1
           fi
           # Final gate consistent with the ruleset: required contexts green
-          # on the PR head SHA (exit 0 = green, anything else = merge blocked).
-          gh pr checks "${PR_NUMBER}" --required
+          # on the PR head SHA. RF-015 (live): this gate is POLLED, not
+          # one-shot — pull_request runs (which fill the statusCheckRollup)
+          # complete later than the dispatched ones, and a one-shot call ~100 s
+          # after the ref update saw "no checks reported" and failed a healthy
+          # sync. "no checks reported" means pending registration (keep
+          # waiting); any other failure exits loudly.
+          gate_deadline=$(( $(date +%s) + 900 ))
+          gate_green=0
+          while [[ "$(date +%s)" -lt "${gate_deadline}" ]]; do
+            gate_out="$(gh pr checks "${PR_NUMBER}" --required 2>&1)" && { gate_green=1; break; }
+            case "${gate_out}" in
+              *"no checks reported"*) : ;;
+              *)
+                printf '%s\n' "${gate_out}"
+                echo "::error::auto-sync PR #${PR_NUMBER} final required-checks gate failed"
+                exit 1 ;;
+            esac
+            sleep 30
+          done
+          if [[ "${gate_green}" != "1" ]]; then
+            echo "::error::auto-sync PR #${PR_NUMBER} final required-checks gate not green within 900s"
+            exit 1
+          fi
 
       - name: Squash-merge the auto-sync PR
         if: env.HAS_DELTA == 'true'
