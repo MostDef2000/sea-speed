@@ -317,14 +317,17 @@ class WorkflowStructuralPinTests(unittest.TestCase):
         # branch itself; both dispatched names are pinned (no arbitrary dispatch).
         self.assertIn('gh workflow run pr-validation.yml --ref "${BRANCH}"', runs)
         self.assertIn('gh workflow run quality-integration.yml --ref "${BRANCH}"', runs)
-        # RF-015 (live): the ref update must go through the REST API (same
-        # PAT as PR creation, so the synchronize actor is a human collaborator
-        # and pull_request runs are not parked), and the final required-checks
-        # gate must poll ("no checks reported" = pending registration, not a
-        # failure).
-        self.assertIn('gh api -X PATCH "repos/${GH_REPO}/git/refs/heads/${BRANCH}"', runs)
-        self.assertIn('-F "force=true"', runs)  # typed boolean, not -f string (RF-016)
-        self.assertNotIn("git push", runs)
+        # RF-018 (live, run 38576674559): the ref update must be a git push
+        # carrying the PAT credential in the URL — a REST ref PATCH/POST
+        # cannot upload the locally created commit (422 "Object does not
+        # exist"), and a plain `git push` uses the checkout's GITHUB_TOKEN,
+        # whose bot actor parks the PR's pull_request runs (RF-015). The
+        # PAT-URL push uploads the objects AND keeps the synchronize actor
+        # a human collaborator.
+        self.assertIn('git push --force "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git"', runs)
+        self.assertIn('"HEAD:refs/heads/${BRANCH}"', runs)
+        self.assertNotIn("git/refs/heads/", runs)  # REST ref update cannot transfer objects (RF-018)
+        self.assertNotIn("git push origin", runs)  # checkout-credential push = bot actor (RF-015)
         self.assertIn("*\"no checks reported\"*)", runs)
         # RF-008 (live): parked approval-gated pull_request runs carry HIGHER
         # run_numbers than the dispatched ones — the poll must exclude them
