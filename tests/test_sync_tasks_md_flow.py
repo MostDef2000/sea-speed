@@ -307,7 +307,11 @@ class WorkflowStructuralPinTests(unittest.TestCase):
         # F-3: the delta source is the working tree (git status), not the merge diff.
         self.assertIn("git status --porcelain -- ':(glob)specs/*/tasks.md'", runs)
         # F-2: a reused open PR gets its title/body refreshed before waiting.
-        self.assertIn("gh pr edit", runs)
+        # RF-014 (live): the refresh must be REST (gh api PATCH) — `gh pr edit`
+        # is GraphQL and demands read:org, which the SYNC_PR_TOKEN classic PAT
+        # (public_repo) lacks.
+        self.assertIn('gh api -X PATCH "repos/${GH_REPO}/pulls/${number}"', runs)
+        self.assertNotIn("gh pr edit", runs)
         # RF-006 (live): GITHUB_TOKEN-created PRs emit no pull_request events, so
         # the flow must dispatch the two required-check workflows on the sync
         # branch itself; both dispatched names are pinned (no arbitrary dispatch).
