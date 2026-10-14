@@ -317,6 +317,14 @@ class WorkflowStructuralPinTests(unittest.TestCase):
         # branch itself; both dispatched names are pinned (no arbitrary dispatch).
         self.assertIn('gh workflow run pr-validation.yml --ref "${BRANCH}"', runs)
         self.assertIn('gh workflow run quality-integration.yml --ref "${BRANCH}"', runs)
+        # RF-015 (live): the ref update must go through the REST API (same
+        # PAT as PR creation, so the synchronize actor is a human collaborator
+        # and pull_request runs are not parked), and the final required-checks
+        # gate must poll ("no checks reported" = pending registration, not a
+        # failure).
+        self.assertIn('gh api -X PATCH "repos/${GH_REPO}/git/refs/heads/${BRANCH}"', runs)
+        self.assertNotIn("git push", runs)
+        self.assertIn("*\"no checks reported\"*)", runs)
         # RF-008 (live): parked approval-gated pull_request runs carry HIGHER
         # run_numbers than the dispatched ones — the poll must exclude them
         # or it can never observe success. (The workflow stores the jq filter
