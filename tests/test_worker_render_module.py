@@ -49,16 +49,17 @@ MOVED_RENDER_NAMES = (
 # each calls a staying requests-entangled worker function, or reads
 # crossing-domain mutable state — outside the render module's import
 # allowlist by construction.
+# Render-domain helpers that STAY in the worker this wave (recorded STAYS):
+# each calls a staying requests-entangled worker function, or reads
+# crossing-domain mutable state — outside the render module's import
+# allowlist by construction. Wave 4 transferred fetch_remote_roi/post_state/
+# post_event/post_passage to the worker_transport guard (contract transfer).
 STAYING_IN_WORKER = (
     "crossing_overlay_summary",
     "draw_roi_polygon",
     "draw_speed_lines_overlay",
     "detect_vehicles",
-    "fetch_remote_roi",
     "main",
-    "post_state",
-    "post_event",
-    "post_passage",
 )
 
 # Top-level import allowlist for worker_render: the render stack + repo-pure
@@ -182,7 +183,11 @@ class WorkerRenderReExportSurfaceTests(unittest.TestCase):
 
 
 class CompatibilityGateThreeFileTests(unittest.TestCase):
-    def test_gate_scans_three_worker_sources(self) -> None:
+    def test_gate_scans_all_worker_sources(self) -> None:
+        # Wave-3 contract, extended by the wave-4 transport module: the gate
+        # must scan at least the three-file wave-3 union (worker + media +
+        # render) and stay compatible. The exact four-file count is pinned by
+        # tests/test_worker_transport_module.py (wave-4 contract transfer).
         import importlib.util
 
         spec = importlib.util.spec_from_file_location(
@@ -192,7 +197,7 @@ class CompatibilityGateThreeFileTests(unittest.TestCase):
         self.assertIsNotNone(spec)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
-        self.assertEqual(len(module.MODULE_SOURCES), 3)
+        self.assertGreaterEqual(len(module.MODULE_SOURCES), 3)
         self.assertTrue(all(path.is_file() for path in module.MODULE_SOURCES))
         findings = module.inspect_worker(list(module.MODULE_SOURCES))
         self.assertTrue(findings["compatible"], findings)

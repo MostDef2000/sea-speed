@@ -33,11 +33,14 @@ ROOT = Path(__file__).resolve().parents[2]
 # resolves each function from whichever file defines it (first definition wins).
 # Issue #397 wave 2: the media/reader layer lives in worker_media.py — the
 # harness now parses all three files with the same first-definition-wins rule.
+# Issue #397 wave 4: the requests transport/posting layer lives in
+# worker_transport.py (defs + their TTL caches) — harness parses all five.
 DEFAULT_WORKER_SOURCES = (
     "worker/hls_motion_yolo_worker_events.py",
     "worker/worker_kernel.py",
     "worker/worker_media.py",
     "worker/worker_render.py",
+    "worker/worker_transport.py",
 )
 
 FunctionLike = ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef

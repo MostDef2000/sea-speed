@@ -27,6 +27,7 @@ MODULE_SOURCES = (
     ROOT / "worker" / "hls_motion_yolo_worker_events.py",
     ROOT / "worker" / "worker_media.py",
     ROOT / "worker" / "worker_render.py",
+    ROOT / "worker" / "worker_transport.py",
 )
 
 REQUIRED_ENV_NAMES = {
