@@ -300,8 +300,9 @@ class WorkflowStructuralPinTests(unittest.TestCase):
         self.assertIn('gh workflow run quality-integration.yml --ref "${BRANCH}"', runs)
         # RF-008 (live): parked approval-gated pull_request runs carry HIGHER
         # run_numbers than the dispatched ones — the poll must exclude them
-        # or it can never observe success.
-        self.assertIn('and .conclusion != "action_required"', runs)
+        # or it can never observe success. (The workflow stores the jq filter
+        # with shell-escaped quotes, hence the literal backslashes below.)
+        self.assertIn('and .conclusion != \\"action_required\\"', runs)
         # Final gate consistent with the ruleset: required contexts green on
         # the head SHA.
         self.assertIn('gh pr checks "${PR_NUMBER}" --required', runs)
