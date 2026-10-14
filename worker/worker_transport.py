@@ -21,6 +21,13 @@ assignment / dict.update / .get) - verified by the wave-4 rebinding audit
 ImportFrom re-export keeps ONE object visible under both module namespaces;
 staying readers (e.g. crossing_overlay_summary reading _crossing_line_cache)
 observe mover mutations and vice versa. Nothing may rebind these names.
+
+Wave 5 extends this module verbatim with the crossing/speed-config posting
+surface: fetch_speed_config (+_speed_config_cache), post_crossing +
+flush_crossing_posts (+_crossing_pending_posts) and _post_live_envelope_sync -
+under the SAME object-identity contract for the two moved state objects
+(every access is an in-place mutation - .append/.pop(0)/.clear and item
+assignment only - nothing may rebind them).
 """
 
 import json
@@ -34,6 +41,7 @@ from worker_kernel import (
     env_str,
     get_crossing_line_url,
     get_roi_url,
+    get_speed_config_url,
     get_speed_lines_url,
     roi_basic_auth,
     _maybe_scale_legacy_absolute,
@@ -193,6 +201,66 @@ def post_passage(passage, snapshot_path=None):
         return False
 
 
+def _post_live_envelope_sync(envelope):
+    live_url = env_str("SEA_SPEED_LIVE_API_URL")
+    if not live_url:
+        base = env_str("SEA_SPEED_API_URL")
+        if base:
+            live_url = base.rsplit("/", 1)[0] + "/live"
+    token = env_str("SEA_SPEED_API_TOKEN")
+    if not live_url or not token:
+        return False
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    try:
+        r = requests.post(live_url, headers=headers, data=json.dumps(envelope, ensure_ascii=False), timeout=5)
+        if r.status_code >= 300:
+            print(f"POST live failed: HTTP {r.status_code} {r.text[:300]}")
+            return False
+        return True
+    except Exception as e:
+        print(f"POST live error: {e}")
+        return False
+
+
+_crossing_pending_posts = []
+
+
+def post_crossing(crossing):
+    state_url = env_str("SEA_SPEED_API_URL")
+    token = env_str("SEA_SPEED_API_TOKEN")
+    if not state_url or not token:
+        return False
+    camera_id = env_str("CAMERA_ID", "cam1").strip() or "cam1"
+    url = state_url.rsplit("/", 1)[0] + "/crossings"
+    payload = dict(crossing)
+    payload.setdefault("camera_id", camera_id)
+    payload.setdefault(
+        "analytics_profile",
+        env_str("ANALYTICS_PROFILE", "water-v1" if camera_id == "cam1" else "road-v1"),
+    )
+    payload.setdefault("domain", "water" if camera_id == "cam1" else "road")
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        r = requests.post(url, headers=headers, data={"metadata": json.dumps(payload, ensure_ascii=False)}, timeout=10)
+        if r.status_code >= 300:
+            print(f"POST crossing failed: HTTP {r.status_code} {r.text[:200]}")
+            return False
+        return True
+    except Exception as e:
+        print(f"POST crossing error: {e}")
+        return False
+
+
+def flush_crossing_posts(max_per_frame=4):
+    posted = 0
+    while _crossing_pending_posts and posted < max_per_frame:
+        crossing = _crossing_pending_posts[0]
+        if not post_crossing(crossing):
+            break
+        _crossing_pending_posts.pop(0)
+        posted += 1
+
+
 _speed_lines_cache = {"ts": 0.0, "enabled": False, "distance_m": 57.0, "line_a": [], "line_b": [], "signature": ""}
 
 
@@ -310,3 +378,33 @@ def fetch_crossing_line_config():
     except Exception as e:
         print(f"Crossing line fetch error: {e}")
         return _crossing_line_cache
+
+
+_speed_config_cache = {"ts": 0.0, "enabled": False, "kmh_per_px_s": 0.0}
+
+
+def fetch_speed_config():
+    refresh_sec = env_float("SPEED_CONFIG_REFRESH_SEC", 10.0)
+    now = time.time()
+    if now - _speed_config_cache["ts"] < refresh_sec:
+        return _speed_config_cache
+    _speed_config_cache["ts"] = now
+    url = get_speed_config_url()
+    if not url:
+        return _speed_config_cache
+    headers = {}
+    basic_auth = env_str("HLS_BASIC_AUTH_BASE64", "").strip()
+    if basic_auth:
+        headers["Authorization"] = f"Basic {basic_auth}"
+    try:
+        r = requests.get(url, headers=headers, timeout=5)
+        if r.status_code >= 300:
+            print(f"Speed config fetch failed: HTTP {r.status_code} {r.text[:160]}")
+            return _speed_config_cache
+        data = r.json()
+        _speed_config_cache["enabled"] = bool(data.get("enabled"))
+        _speed_config_cache["kmh_per_px_s"] = float(data.get("kmh_per_px_s") or 0.0)
+        return _speed_config_cache
+    except Exception as e:
+        print(f"Speed config fetch error: {e}")
+        return _speed_config_cache

@@ -9,7 +9,6 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-import requests
 from ultralytics import YOLO
 
 from analytics_profiles import get_profile, normalize_model_class
@@ -79,13 +78,25 @@ from worker_render import (  # noqa: F401
 # resolution: internal calls bind to the defining module). The three TTL
 # caches are re-exported as OBJECTS (identity, not copies): every access is
 # an in-place mutation, so mover/staying reads stay coherent (wave-4 trio).
+# Issue #397 wave 5: the crossing/speed-config posting surface joined the
+# same transport module verbatim (fetch_speed_config + _speed_config_cache,
+# post_crossing/flush_crossing_posts + _crossing_pending_posts,
+# _post_live_envelope_sync). Same object-identity contract: the two moved
+# state objects are re-exported as OBJECTS; staying mutators
+# (update_crossing_counts/reset_crossing_counts) act through the SAME list.
 from worker_transport import (  # noqa: F401
     _crossing_line_cache,
+    _crossing_pending_posts,
+    _post_live_envelope_sync,
     _roi_cache,
+    _speed_config_cache,
     _speed_lines_cache,
     fetch_crossing_line_config,
     fetch_remote_roi,
+    fetch_speed_config,
     fetch_speed_lines_config,
+    flush_crossing_posts,
+    post_crossing,
     post_event,
     post_passage,
     post_state,
@@ -435,27 +446,6 @@ def draw_roi_polygon(frame):
     cv2.polylines(frame, [polygon], True, (255, 0, 0), 2)
 
 
-def _post_live_envelope_sync(envelope):
-    live_url = env_str("SEA_SPEED_LIVE_API_URL")
-    if not live_url:
-        base = env_str("SEA_SPEED_API_URL")
-        if base:
-            live_url = base.rsplit("/", 1)[0] + "/live"
-    token = env_str("SEA_SPEED_API_TOKEN")
-    if not live_url or not token:
-        return False
-    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-    try:
-        r = requests.post(live_url, headers=headers, data=json.dumps(envelope, ensure_ascii=False), timeout=5)
-        if r.status_code >= 300:
-            print(f"POST live failed: HTTP {r.status_code} {r.text[:300]}")
-            return False
-        return True
-    except Exception as e:
-        print(f"POST live error: {e}")
-        return False
-
-
 def _live_publisher_loop():
     while True:
         envelope = _LIVE_PUBLISH_QUEUE.get()
@@ -536,36 +526,6 @@ def update_speed_estimate(det):
     return info
 
 
-_speed_config_cache = {"ts": 0.0, "enabled": False, "kmh_per_px_s": 0.0}
-
-
-def fetch_speed_config():
-    refresh_sec = env_float("SPEED_CONFIG_REFRESH_SEC", 10.0)
-    now = time.time()
-    if now - _speed_config_cache["ts"] < refresh_sec:
-        return _speed_config_cache
-    _speed_config_cache["ts"] = now
-    url = get_speed_config_url()
-    if not url:
-        return _speed_config_cache
-    headers = {}
-    basic_auth = env_str("HLS_BASIC_AUTH_BASE64", "").strip()
-    if basic_auth:
-        headers["Authorization"] = f"Basic {basic_auth}"
-    try:
-        r = requests.get(url, headers=headers, timeout=5)
-        if r.status_code >= 300:
-            print(f"Speed config fetch failed: HTTP {r.status_code} {r.text[:160]}")
-            return _speed_config_cache
-        data = r.json()
-        _speed_config_cache["enabled"] = bool(data.get("enabled"))
-        _speed_config_cache["kmh_per_px_s"] = float(data.get("kmh_per_px_s") or 0.0)
-        return _speed_config_cache
-    except Exception as e:
-        print(f"Speed config fetch error: {e}")
-        return _speed_config_cache
-
-
 def convert_px_s_to_kmh(speed_px_s):
     if speed_px_s is None:
         return None
@@ -584,7 +544,6 @@ _line_speed_state = {"prev_center": None, "prev_ts": None, "prev_side_a": None, 
 _crossing_track_sides = {}
 _crossing_counts = {"left_to_right": 0, "right_to_left": 0}
 _crossings_by_class = {}
-_crossing_pending_posts = []
 VLZ_TIMEZONE = timezone(timedelta(hours=10))
 _crossing_vlz_date = None
 
@@ -701,42 +660,6 @@ def crossing_overlay_summary():
         "line_enabled": bool(_crossing_line_cache.get("enabled")),
         "line": [list(point) for point in line],
     }
-
-
-def post_crossing(crossing):
-    state_url = env_str("SEA_SPEED_API_URL")
-    token = env_str("SEA_SPEED_API_TOKEN")
-    if not state_url or not token:
-        return False
-    camera_id = env_str("CAMERA_ID", "cam1").strip() or "cam1"
-    url = state_url.rsplit("/", 1)[0] + "/crossings"
-    payload = dict(crossing)
-    payload.setdefault("camera_id", camera_id)
-    payload.setdefault(
-        "analytics_profile",
-        env_str("ANALYTICS_PROFILE", "water-v1" if camera_id == "cam1" else "road-v1"),
-    )
-    payload.setdefault("domain", "water" if camera_id == "cam1" else "road")
-    headers = {"Authorization": f"Bearer {token}"}
-    try:
-        r = requests.post(url, headers=headers, data={"metadata": json.dumps(payload, ensure_ascii=False)}, timeout=10)
-        if r.status_code >= 300:
-            print(f"POST crossing failed: HTTP {r.status_code} {r.text[:200]}")
-            return False
-        return True
-    except Exception as e:
-        print(f"POST crossing error: {e}")
-        return False
-
-
-def flush_crossing_posts(max_per_frame=4):
-    posted = 0
-    while _crossing_pending_posts and posted < max_per_frame:
-        crossing = _crossing_pending_posts[0]
-        if not post_crossing(crossing):
-            break
-        _crossing_pending_posts.pop(0)
-        posted += 1
 
 
 def update_speed_lines_estimate(det):
