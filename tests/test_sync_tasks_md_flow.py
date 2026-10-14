@@ -26,6 +26,7 @@ fix PR merge):
 from __future__ import annotations
 
 import importlib.util
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -59,6 +60,9 @@ class SyncMarkerRoundTripTests(unittest.TestCase):
         self.tasks = self.tmp / "tasks.md"
         self.tasks.write_text(PENDING_TASKS.read_text(encoding="utf-8"), encoding="utf-8")
         self.sync = _load("sync_tasks_md_scratch", SYNC_SCRIPT)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_round_trip_second_run_is_noop(self):
         pending_markers = sum(

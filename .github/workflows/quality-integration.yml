@@ -66,6 +66,8 @@ jobs:
           set -euo pipefail
           pip install mypy==1.18.2
           mypy --config-file scripts/quality/mypy.ini scripts/quality/common.py worker/analytics_profiles.py worker/detection_performance.py scripts/release/production_policy.py scripts/ci/validate_delivery_checkpoint.py
+      - name: Install test-only YAML parser
+        run: pip install pyyaml==6.0.3
       - name: Run repository behavioral tests
         run: python -W error::ResourceWarning -m unittest discover -s tests -p 'test_*.py' -v
 

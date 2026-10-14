@@ -64,5 +64,8 @@ jobs:
       - name: Validate runtime evidence tooling
         run: python -m py_compile scripts/ci/validate_telemetry.py scripts/operations/verify_runtime.py
 
+      - name: Install test-only YAML parser
+        run: pip install pyyaml==6.0.3
+
       - name: Run behavioral contract tests
         run: python -m unittest discover -s tests -p "test_*.py" -v
