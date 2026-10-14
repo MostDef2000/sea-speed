@@ -25,6 +25,7 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  actions: write
 
 concurrency:
   group: sync-merged-tasks
@@ -123,36 +124,51 @@ jobs:
           fi
           echo "PR_NUMBER=${number}" >> "${GITHUB_ENV}"
 
-      - name: Wait for the auto-sync PR required checks
+      - name: Trigger and wait for the auto-sync PR required checks
         if: env.HAS_DELTA == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          BRANCH: chore/tasks-md-auto-sync
         run: |
           set -euo pipefail
-          # gh pr checks exit codes (local probe: 0=all-green, 1=failure):
-          # 8 checks pending (gh >= 2.24), 4 checks not registered yet,
-          # 2 pending under older gh semantics — all three are transient
-          # "not green yet" readings, never a merge signal.
-          green=0
-          for attempt in 1 2 3 4 5; do
-            set +e
-            gh pr checks "${PR_NUMBER}" --required >/dev/null 2>&1
-            code=$?
-            set -e
-            case "${code}" in
-              0) green=1; break ;;
-              2|4|8) echo "checks not green yet (exit ${code}, attempt ${attempt}/5)"; sleep 30 ;;
-              *) echo "::error::auto-sync PR #${PR_NUMBER} checks failed (exit ${code})"; exit 1 ;;
-            esac
-          done
-          if [[ "${green}" != "1" ]]; then
-            echo "checks still pending after bounded retries; watching (hard timeout 1800s)"
-            if ! timeout 1800 gh pr checks "${PR_NUMBER}" --watch --fail-fast --required; then
-              echo "::error::auto-sync PR #${PR_NUMBER} checks not green (failed or 1800s watch timeout)"
-              exit 1
+          # Live finding (sync run on 9b3b873, PR #486): a PR created with
+          # GITHUB_TOKEN emits no pull_request events, so PR-side CI never
+          # starts on its own and `gh pr checks` exits 1 with "no checks
+          # reported" — transient bookkeeping, not a failed check (D-11
+          # extension). The flow therefore dispatches the two required-check
+          # workflows on the sync-branch ref itself; their check runs attach
+          # to the PR head SHA and satisfy the ruleset's required contexts.
+          gh workflow run pr-validation.yml --ref "${BRANCH}"
+          gh workflow run quality-integration.yml --ref "${BRANCH}"
+          poll() {
+            wf="$1"
+            gh api "repos/${GH_REPO}/actions/runs?branch=${BRANCH}&per_page=30" \
+              --jq "[.workflow_runs[] | select(.name == \"${wf}\")] | max_by(.run_number) | .conclusion // \"pending\""
+          }
+          deadline=$(( $(date +%s) + 1800 ))
+          pr_concl="pending"; qi_concl="pending"
+          while [[ "$(date +%s)" -lt "${deadline}" ]]; do
+            pr_concl="$(poll "PR Validation")"
+            qi_concl="$(poll "Quality integration gate")"
+            echo "PR Validation=${pr_concl}; Quality integration gate=${qi_concl}"
+            if [[ "${pr_concl}" == "success" && "${qi_concl}" == "success" ]]; then
+              break
             fi
+            case "${pr_concl}${qi_concl}" in
+              *failure*|*cancelled*|*timed_out*|*startup_failure*)
+                echo "::error::auto-sync PR #${PR_NUMBER} required checks failed (PR Validation=${pr_concl}, Quality integration gate=${qi_concl})"
+                exit 1 ;;
+            esac
+            sleep 30
+          done
+          if [[ "${pr_concl}" != "success" || "${qi_concl}" != "success" ]]; then
+            echo "::error::auto-sync PR #${PR_NUMBER} checks not green within 1800s (PR Validation=${pr_concl}, Quality integration gate=${qi_concl})"
+            exit 1
           fi
+          # Final gate consistent with the ruleset: required contexts green
+          # on the PR head SHA (exit 0 = green, anything else = merge blocked).
+          gh pr checks "${PR_NUMBER}" --required
 
       - name: Squash-merge the auto-sync PR
         if: env.HAS_DELTA == 'true'
