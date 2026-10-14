@@ -39,8 +39,8 @@
 - [x] Issue/spec/plan/tasks current
 - [x] Exact changed-file scope verified
 - [x] Required tests and evidence complete
-- [ ] Required CI green — orchestrator-owned (PR creation and exact-head CI)
-- [ ] Exact-green-head merge complete — orchestrator-owned
+- [x] Required CI green — orchestrator-owned (PR creation and exact-head CI) — auto-synced on merge to main (98b3e91d)
+- [x] Exact-green-head merge complete — orchestrator-owned — auto-synced on merge to main (98b3e91d)
 - [ ] Deployment state resolved — rides the next routine Ubuntu-worker deploy (DEPLOY-TRIGGER, полоса A) — orchestrator-owned
 - [ ] Runtime acceptance resolved — health gate probe on the next worker deploy — orchestrator-owned
 - [x] Deferred work recorded — crossing-domain state/mutators (datetime off-allowlist; _crossing_vlz_date rebinds), live-publisher loop (threading/queue off-allowlist; _LIVE_PUBLISH_THREAD rebinds), ROI cluster (_roi_processing_points rebinds + cv2/numpy), _line_speed_state (sole consumer stays) remain in the worker, recorded in spec/plan; remaining analytics/ROI + MotionDetector/main consolidation → later waves
