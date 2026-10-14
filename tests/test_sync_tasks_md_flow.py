@@ -328,6 +328,13 @@ class WorkflowStructuralPinTests(unittest.TestCase):
         self.assertIn('"HEAD:refs/heads/${BRANCH}"', runs)
         self.assertNotIn("git/refs/heads/", runs)  # REST ref update cannot transfer objects (RF-018)
         self.assertNotIn("git push origin", runs)  # checkout-credential push = bot actor (RF-015)
+        # RF-019 (live, run 38590991898): a transient GitHub 5xx rejected the
+        # PAT-URL push ("remote rejected ... Internal Server Error") and killed
+        # the whole sync run — the push is retried with bounded backoff (3
+        # attempts, 10s-multiples) before the run fails.
+        self.assertIn('for attempt in 1 2 3', runs)
+        self.assertIn('if git push --force "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git" "HEAD:refs/heads/${BRANCH}"; then', runs)
+        self.assertIn('exit 1', runs)
         self.assertIn("*\"no checks reported\"*)", runs)
         # RF-008 (live): parked approval-gated pull_request runs carry HIGHER
         # run_numbers than the dispatched ones — the poll must exclude them
