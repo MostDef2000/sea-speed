@@ -56,6 +56,7 @@ for required in \
   "$source_root/worker/worker_kernel.py" \
   "$source_root/worker/worker_media.py" \
   "$source_root/worker/worker_render.py" \
+  "$source_root/worker/worker_transport.py" \
   "$provenance" \
   "$runtime_id_file" \
   "$template" \

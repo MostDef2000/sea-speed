@@ -382,7 +382,21 @@ class NoPhotoGuardTests(unittest.TestCase):
         self.assertIn('raise HTTPException(status_code=422, detail="passage snapshot is required")', source)
         self.assertIn("def prune_snapshotless_objects", source)
         self.assertIn('if not snapshot_url or not str(snapshot_url).strip().startswith("/sea-speed/media/")', source)
-        worker = (ROOT / "worker" / "hls_motion_yolo_worker_events.py").read_text(encoding="utf-8")
+        # Issue #397 wave 4: post_event's body moved verbatim to
+        # worker_transport.py and write_passage_snapshot's to worker_render.py
+        # (wave 3) — scan the joined worker sources (the worker-side analogue
+        # of api_sources() above); the asserted invariants are unchanged.
+        worker = "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in (
+                ROOT / "worker" / "hls_motion_yolo_worker_events.py",
+                ROOT / "worker" / "worker_kernel.py",
+                ROOT / "worker" / "worker_media.py",
+                ROOT / "worker" / "worker_render.py",
+                ROOT / "worker" / "worker_transport.py",
+            )
+            if path.exists()
+        )
         self.assertIn("POST event skipped: snapshot missing", worker)
         self.assertIn("wrote = cv2.imwrite", worker)
 

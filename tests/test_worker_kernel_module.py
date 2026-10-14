@@ -56,13 +56,13 @@ MOVED_NAMES = (
 # Names the kernel must NOT gain: heavy-dependency runtime helpers stay in the
 # worker or the media module (wave 2 moved start_ffmpeg/start_media_reader/
 # _resolve_frame_size to worker_media.py; wave 3 moved draw_overlay/
-# write_passage_snapshot/crop_sharpness to worker_render.py — their placement
-# is guarded by the wave-2/3 module tests).
+# write_passage_snapshot/crop_sharpness to worker_render.py; wave 4 moved
+# fetch_remote_roi (requests transport) to worker_transport.py — their
+# placement is guarded by the wave-2/3/4 module tests.
 STAYING_NAMES = (
     "detect_vehicles",
     "main",
     "build_event",
-    "fetch_remote_roi",
 )
 
 

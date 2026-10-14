@@ -61,6 +61,7 @@ GRANDFATHERED_PREFIX_COLLISIONS = {
         "397-wave1-worker-kernel",
         "397-wave2-worker-media",
         "397-wave3-worker-render",
+        "397-wave4-worker-transport",
     },
 }
 
