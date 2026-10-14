@@ -268,8 +268,13 @@ class WorkflowStructuralPinTests(unittest.TestCase):
 
         path = ROOT / ".github" / "workflows" / "sync-merged-tasks.yml"
         wf = yaml.safe_load(path.read_text(encoding="utf-8"))
-        # Token scope: exactly the two writes the flow needs.
-        self.assertEqual(wf["permissions"], {"contents": "write", "pull-requests": "write"})
+        # Token scope: exactly the writes the flow needs (actions: write is
+        # required by gh workflow run — the only way to produce the ruleset's
+        # required check runs on a GITHUB_TOKEN-created PR, see RF-006).
+        self.assertEqual(
+            wf["permissions"],
+            {"contents": "write", "pull-requests": "write", "actions": "write"},
+        )
         # Serialized sync runs (no overlapping auto-sync PRs).
         self.assertEqual(wf["concurrency"]["group"], "sync-merged-tasks")
         self.assertIs(wf["concurrency"]["cancel-in-progress"], False)
@@ -288,8 +293,13 @@ class WorkflowStructuralPinTests(unittest.TestCase):
         self.assertIn("git status --porcelain -- ':(glob)specs/*/tasks.md'", runs)
         # F-2: a reused open PR gets its title/body refreshed before waiting.
         self.assertIn("gh pr edit", runs)
-        # F-5: both check phases gate on the same required set.
-        self.assertIn("--watch --fail-fast --required", runs)
+        # RF-006 (live): GITHUB_TOKEN-created PRs emit no pull_request events, so
+        # the flow must dispatch the two required-check workflows on the sync
+        # branch itself; both dispatched names are pinned (no arbitrary dispatch).
+        self.assertIn('gh workflow run pr-validation.yml --ref "${BRANCH}"', runs)
+        self.assertIn('gh workflow run quality-integration.yml --ref "${BRANCH}"', runs)
+        # The merge is gated on the ruleset's required set (exit 0 = green).
+        self.assertIn('gh pr checks "${PR_NUMBER}" --required', runs)
 
 
 if __name__ == "__main__":
