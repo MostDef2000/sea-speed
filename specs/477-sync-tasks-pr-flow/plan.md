@@ -88,6 +88,9 @@ Standing correction policy (pre-declared triggers): first live sync run failing 
 
 - RF-001: Operator actions expected: 0. Control-plane-only change; no deploy workflow, migration, secret or runtime contour is touched.
 - RF-002: Evidence: the workflow's live behavior is observed on GitHub (first post-merge sync run + auto-sync PR merge); the orchestrator records the run URL and outcome on issue #477.
+- RF-003 (live, 2026-10-14): first sync run 38514584656 (head 6e72416) proved stale guard, delta detection, chore-branch push and PR-body generation; failed at `gh pr create --json number` — the flag does not exist in any gh version. Fixed in #482 (number parsed from the printed URL).
+- RF-004 (live, 2026-10-14): sync run 38515157968 (head ab65dfc, merge diff without specs/) green no-op — the no-delta/loop-closure half is live-proven.
+- RF-005 (live, 2026-10-14): sync run 38516285049 (head 062b7cb) flipped the remaining marker (commit 996a7e3 on chore/tasks-md-auto-sync) and failed at PR creation with "GitHub Actions is not permitted to create or approve pull requests" — the repo setting "Allow GitHub Actions to create and approve pull requests" was off (owner-facing, settings out of repo scope). Owner enabled the setting 2026-10-14; the chain (create → checks → squash merge → no-delta follow-up) completes on this PR's merge.
 
 ## Deployment transaction audit
 
