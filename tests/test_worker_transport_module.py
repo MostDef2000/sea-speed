@@ -28,6 +28,13 @@ Guards the invariants of the wave-4 move-only refactor:
     ``monkeypatch.setattr``-style rebinding at runtime) would fork mover and
     worker state — forbidden by the wave-4 contract; runtime tests must stub
     requests, not the cache objects.
+
+Wave 5 extends the moved sets verbatim with the crossing/speed-config
+posting surface (fetch_speed_config, post_crossing, flush_crossing_posts,
+_post_live_envelope_sync) plus the two state objects that move under the
+same identity contract (_speed_config_cache, _crossing_pending_posts —
+staying mutators update_crossing_counts/reset_crossing_counts act through
+the re-exported SAME list object).
 """
 
 from __future__ import annotations
@@ -45,9 +52,10 @@ MEDIA = ROOT / "worker" / "worker_media.py"
 RENDER = ROOT / "worker" / "worker_render.py"
 TRANSPORT = ROOT / "worker" / "worker_transport.py"
 
-# Exact moved-name set for wave 4 (keep in sync with the
+# Exact moved-name set (keep in sync with the
 # `from worker_transport import (...)` block — the tests below enforce BOTH
-# directions of that sync).
+# directions of that sync). Wave 5 transferred the crossing/speed-config
+# posting surface into this guard (contract transfer, work-order-sanctioned).
 MOVED_TRANSPORT_DEFS = (
     "fetch_remote_roi",
     "post_state",
@@ -55,22 +63,26 @@ MOVED_TRANSPORT_DEFS = (
     "post_passage",
     "fetch_speed_lines_config",
     "fetch_crossing_line_config",
+    "fetch_speed_config",
+    "post_crossing",
+    "flush_crossing_posts",
+    "_post_live_envelope_sync",
 )
 MOVED_TRANSPORT_CACHES = (
     "_roi_cache",
     "_speed_lines_cache",
     "_crossing_line_cache",
+    "_speed_config_cache",
+    "_crossing_pending_posts",
 )
 MOVED_TRANSPORT_NAMES = MOVED_TRANSPORT_DEFS + MOVED_TRANSPORT_CACHES
 
-# Requests-adjacent runtime helpers that STAY in the worker this wave
+# Requests-adjacent runtime helpers that STAY in the worker
 # (recorded STAYS): each is entangled with staying domain state, staying
-# callers, or the live-publisher loop — outside this wave's cut.
+# callers, or the live-publisher loop — outside the transport cut. Wave 5
+# transferred fetch_speed_config/post_crossing/flush_crossing_posts/
+# _post_live_envelope_sync to the moved set above (contract transfer).
 STAYING_IN_WORKER = (
-    "fetch_speed_config",
-    "post_crossing",
-    "flush_crossing_posts",
-    "_post_live_envelope_sync",
     "_ensure_live_publisher",
     "update_crossing_counts",
     "reset_crossing_counts",
