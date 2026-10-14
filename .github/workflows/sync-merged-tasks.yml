@@ -124,7 +124,26 @@ jobs:
           # --force: the branch may have diverged from its previous remote
           # head. One physical line: the sync-flow structural test requires
           # every git push line to target refs/heads/${BRANCH}.
-          git push --force "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git" "HEAD:refs/heads/${BRANCH}"
+          # RF-019 (live, run 38590991898): a transient GitHub 5xx ("remote
+          # rejected ... Internal Server Error") must not kill the whole sync
+          # run with the flip commit sitting unpushed. Retry the push with
+          # bounded backoff — same PAT-URL push as RF-018 (objects uploaded,
+          # push actor = token owner, runs unparked). The push sits in an `if`
+          # condition on purpose: errexit must not fire mid-loop; the loop
+          # exits 1 itself after all three attempts fail.
+          pushed=false
+          for attempt in 1 2 3; do
+            if git push --force "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git" "HEAD:refs/heads/${BRANCH}"; then
+              pushed=true
+              break
+            fi
+            echo "push attempt ${attempt} failed; backing off"
+            sleep $(( attempt * 10 ))
+          done
+          if [[ "${pushed}" != "true" ]]; then
+            echo "push failed after 3 attempts" >&2
+            exit 1
+          fi
           number="$(gh pr list --head "${BRANCH}" --base main --state open --json number --jq '.[0].number // empty')"
           if [[ -n "${number}" ]]; then
             echo "reusing open auto-sync PR #${number}"
