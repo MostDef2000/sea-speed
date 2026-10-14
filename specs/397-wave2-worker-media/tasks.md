@@ -44,8 +44,8 @@
 - [x] Issue/spec/plan/tasks current
 - [x] Exact changed-file scope verified
 - [x] Required tests and evidence complete
-- [ ] Required CI green — orchestrator-owned (PR creation and exact-head CI) — auto-synced on merge to main
-- [ ] Exact-green-head merge complete — orchestrator-owned — auto-synced on merge to main
+- [x] Required CI green — orchestrator-owned (PR creation and exact-head CI) — auto-synced on merge to main
+- [x] Exact-green-head merge complete — orchestrator-owned — auto-synced on merge to main
 - [ ] Deployment state resolved — rides the next routine Ubuntu-worker deploy (DEPLOY-TRIGGER, полоса A) — orchestrator-owned
 - [ ] Runtime acceptance resolved — health gate probe on the next worker deploy — orchestrator-owned
 - [x] Deferred work recorded — draw_overlay/write_passage_snapshot/crop_sharpness → wave 3 (cv2 render/snapshot family); mypy strict adoption of worker_media deferred to #399 owner
