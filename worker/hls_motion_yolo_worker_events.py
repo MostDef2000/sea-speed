@@ -1,7 +1,5 @@
 import json
 import os
-import queue
-import threading
 import time
 import uuid
 from pathlib import Path
@@ -119,14 +117,29 @@ from worker_crossings import (  # noqa: F401
     vlz_date,
 )
 
+# Issue #397 wave 7: the live-publisher family moved verbatim to
+# worker_live.py (the publish queue/lock/thread state + the publisher loop,
+# its starter and the post entry point). The re-export keeps main()/
+# staying-caller global-name resolution and the ns-injection/monkeypatch
+# surface intact. Object-identity coupling: _LIVE_PUBLISH_QUEUE and
+# _LIVE_PUBLISH_LOCK are defined ONCE in worker_live and re-exported BY
+# IDENTITY (the worker never rebinds them); _LIVE_PUBLISH_THREAD is the one
+# rebinding name - it is rebound ONLY inside _ensure_live_publisher, which
+# moved WITH the state (never split).
+from worker_live import (  # noqa: F401
+    _LIVE_PUBLISH_LOCK,
+    _LIVE_PUBLISH_QUEUE,
+    _LIVE_PUBLISH_THREAD,
+    _ensure_live_publisher,
+    _live_publisher_loop,
+    post_live_envelope,
+)
+
 ROAD_LIVE_SCHEMA = "sea_speed_road_live_v2"
 ROAD_LIVE_GENERATION = int(time.time() * 1000)
 WATER_LIVE_SCHEMA = "sea_speed_water_live_v2"
 WATER_LIVE_GENERATION = int(time.time() * 1000)
 _LAST_FRAME_CAPTURE_MS: int | None = None
-_LIVE_PUBLISH_QUEUE = queue.Queue(maxsize=1)
-_LIVE_PUBLISH_LOCK = threading.Lock()
-_LIVE_PUBLISH_THREAD = None
 _WATER_RECALL_DIAGNOSTIC_STATE = {"last_emit_mono": 0.0}
 
 def build_road_live_envelope(frame_no: int, generation: int, observed_mono: float, detections, frame_w: int, frame_h: int, worker_commit: str, capture_time_unix_ms: int | None = None, processed_time_unix_ms: int | None = None):
@@ -461,45 +474,6 @@ def draw_roi_polygon(frame):
         return
     polygon = np.array(points, dtype=np.int32)
     cv2.polylines(frame, [polygon], True, (255, 0, 0), 2)
-
-
-def _live_publisher_loop():
-    while True:
-        envelope = _LIVE_PUBLISH_QUEUE.get()
-        try:
-            _post_live_envelope_sync(envelope)
-        finally:
-            _LIVE_PUBLISH_QUEUE.task_done()
-
-
-def _ensure_live_publisher():
-    global _LIVE_PUBLISH_THREAD
-    with _LIVE_PUBLISH_LOCK:
-        if _LIVE_PUBLISH_THREAD is None or not _LIVE_PUBLISH_THREAD.is_alive():
-            _LIVE_PUBLISH_THREAD = threading.Thread(
-                target=_live_publisher_loop,
-                name="road-live-publisher",
-                daemon=True,
-            )
-            _LIVE_PUBLISH_THREAD.start()
-
-
-def post_live_envelope(envelope):
-    if not env_str("SEA_SPEED_LIVE_API_URL") and not env_str("SEA_SPEED_API_URL"):
-        return False
-    if not env_str("SEA_SPEED_API_TOKEN"):
-        return False
-    _ensure_live_publisher()
-    try:
-        _LIVE_PUBLISH_QUEUE.put_nowait(envelope)
-    except queue.Full:
-        try:
-            _LIVE_PUBLISH_QUEUE.get_nowait()
-            _LIVE_PUBLISH_QUEUE.task_done()
-        except queue.Empty:
-            pass
-        _LIVE_PUBLISH_QUEUE.put_nowait(envelope)
-    return True
 
 
 _speed_track = {"center": None, "ts": None, "class_name": None}

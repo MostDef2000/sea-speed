@@ -34,6 +34,7 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKER = ROOT / "worker" / "hls_motion_yolo_worker_events.py"
 KERNEL = ROOT / "worker" / "worker_kernel.py"
 MEDIA = ROOT / "worker" / "worker_media.py"
+WORKER_LIVE = ROOT / "worker" / "worker_live.py"
 CHECKER = ROOT / "scripts" / "worker" / "check_ubuntu_compatibility.py"
 
 # Exact moved-name set for wave 2 (keep in sync with the
@@ -204,12 +205,34 @@ class CompatibilityGateMultiFileTests(unittest.TestCase):
         self.assertFalse(single["compatible"], single)
 
     def test_union_across_both_files_satisfies_contract(self) -> None:
+        # Contract transfer (mirrors the transport/crossings transfers, not a
+        # pin fix): wave 7 moved the live-publisher env reads
+        # (SEA_SPEED_API_URL / SEA_SPEED_API_TOKEN) out of the worker into
+        # worker_live.py, so the satisfying union grew from the wave-2 pair
+        # to [WORKER, MEDIA, WORKER_LIVE] — a required env-name call site is
+        # satisfied from whichever module of the family it lives in.
         module = _load_checker()
-        findings = module.inspect_worker([WORKER, MEDIA])
+        findings = module.inspect_worker([WORKER, MEDIA, WORKER_LIVE])
         self.assertTrue(findings["compatible"], findings)
         self.assertEqual(findings["missing_required_environment_names"], [])
         self.assertTrue(findings["uses_subprocess"])
         self.assertTrue(findings["subprocess_uses_argument_list"])
+
+    def test_two_file_union_is_no_longer_sufficient(self) -> None:
+        # Wave-7 negative pin (idiom of
+        # test_single_worker_scan_is_no_longer_sufficient): the pre-wave-7
+        # [WORKER, MEDIA] union alone now MISSES exactly the live-publisher
+        # pair, which lives ONLY in worker_live.py. This proves the transfer
+        # is real and the extended scan does cross-file work instead of
+        # duplicating the old two-file scan.
+        module = _load_checker()
+        two_file = module.inspect_worker([WORKER, MEDIA])
+        self.assertEqual(
+            two_file["missing_required_environment_names"],
+            ["SEA_SPEED_API_TOKEN", "SEA_SPEED_API_URL"],
+            two_file,
+        )
+        self.assertFalse(two_file["compatible"], two_file)
 
     def test_gate_fails_when_required_env_call_site_removed_from_both_files(self) -> None:
         module = _load_checker()
