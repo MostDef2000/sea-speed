@@ -118,8 +118,12 @@ jobs:
           number="$(gh pr list --head "${BRANCH}" --base main --state open --json number --jq '.[0].number // empty')"
           if [[ -n "${number}" ]]; then
             echo "reusing open auto-sync PR #${number}"
-            gh pr edit "${number}" --title "chore(sdd): auto-sync tasks.md completion (${SOURCE_SHA:0:8})" \
-              --body-file "${PR_BODY_FILE}"
+            # RF-014 (live): the gh edit command runs a GraphQL lookup that
+            # demands read:org even for public repos — the owner's classic
+            # PAT (public_repo) cannot run it. REST PATCH needs no extra scopes.
+            gh api -X PATCH "repos/${GH_REPO}/pulls/${number}" \
+              -f "title=chore(sdd): auto-sync tasks.md completion (${SOURCE_SHA:0:8})" \
+              -F "body=@${PR_BODY_FILE}"
           else
             # gh pr create has no --json flag (any version); it prints the PR URL.
             url="$(gh pr create --head "${BRANCH}" --base main \
