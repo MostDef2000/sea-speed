@@ -21,7 +21,11 @@ Guards the invariants of the wave-3 move-only refactor:
     _crossing_counts/_crossings_by_class/_crossing_line_cache, no cv2, and
     dynamically referenced via the `globals()` guard in
     build_road_live_envelope — moving it would change that call site's
-    semantics space rather than preserve it).
+    semantics space rather than preserve it). Wave 6 transferred
+    crossing_overlay_summary to the worker_crossings guard (contract
+    transfer) — its `globals()`-guard call site in build_road_live_envelope
+    still resolves through the worker re-export (pinned by
+    tests/test_worker_crossings_module.py).
 """
 
 from __future__ import annotations
@@ -54,8 +58,9 @@ MOVED_RENDER_NAMES = (
 # crossing-domain mutable state — outside the render module's import
 # allowlist by construction. Wave 4 transferred fetch_remote_roi/post_state/
 # post_event/post_passage to the worker_transport guard (contract transfer).
+# Wave 6 transferred crossing_overlay_summary to the worker_crossings guard
+# (contract transfer).
 STAYING_IN_WORKER = (
-    "crossing_overlay_summary",
     "draw_roi_polygon",
     "draw_speed_lines_overlay",
     "detect_vehicles",

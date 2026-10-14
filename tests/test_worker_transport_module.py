@@ -51,6 +51,7 @@ KERNEL = ROOT / "worker" / "worker_kernel.py"
 MEDIA = ROOT / "worker" / "worker_media.py"
 RENDER = ROOT / "worker" / "worker_render.py"
 TRANSPORT = ROOT / "worker" / "worker_transport.py"
+CROSSINGS = ROOT / "worker" / "worker_crossings.py"
 
 # Exact moved-name set (keep in sync with the
 # `from worker_transport import (...)` block — the tests below enforce BOTH
@@ -82,11 +83,10 @@ MOVED_TRANSPORT_NAMES = MOVED_TRANSPORT_DEFS + MOVED_TRANSPORT_CACHES
 # callers, or the live-publisher loop — outside the transport cut. Wave 5
 # transferred fetch_speed_config/post_crossing/flush_crossing_posts/
 # _post_live_envelope_sync to the moved set above (contract transfer).
+# Wave 6 transferred update_crossing_counts/reset_crossing_counts/
+# crossing_overlay_summary to the worker_crossings guard (contract transfer).
 STAYING_IN_WORKER = (
     "_ensure_live_publisher",
-    "update_crossing_counts",
-    "reset_crossing_counts",
-    "crossing_overlay_summary",
     "road_roi_enabled",
     "detect_vehicles",
     "main",
@@ -309,10 +309,14 @@ class WorkerTransportCacheIdentityTests(unittest.TestCase):
 class WorkerTransportNoCacheRebindingTests(unittest.TestCase):
     def test_no_rebinding_of_moved_caches_anywhere(self) -> None:
         # (e) AST guard for the cache-identity contract: the ONLY Store access
-        # to a moved cache name in worker+transport is its defining literal at
-        # module level of worker_transport.py. Any other assignment (rebinding)
-        # would fork the mover/worker views of the cache and break coherence.
-        for path in (WORKER, TRANSPORT):
+        # to a moved cache name in worker+transport+crossings is its defining
+        # literal at module level of worker_transport.py. Any other assignment
+        # (rebinding) would fork the mover/worker views of the cache and break
+        # coherence. Wave 6: the crossings module now hosts the former staying
+        # mutators (.append/.clear on _crossing_pending_posts), so the scan
+        # includes worker_crossings.py — it is a file where moved-cache names
+        # appear (in-place use) and a future rebinding there must fail CI.
+        for path in (WORKER, TRANSPORT, CROSSINGS):
             tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
             defining_literals = {
                 node.targets[0].id: node.lineno
@@ -362,12 +366,16 @@ class CompatibilityGateFourFileTests(unittest.TestCase):
         self.assertIsNotNone(spec)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
-        self.assertEqual(len(module.MODULE_SOURCES), 4)
+        self.assertEqual(
+            len(module.MODULE_SOURCES),
+            5,
+            "wave-6: the crossings module joins the gate's worker-source union",
+        )
         self.assertTrue(all(path.is_file() for path in module.MODULE_SOURCES))
         findings = module.inspect_worker(list(module.MODULE_SOURCES))
         self.assertTrue(findings["compatible"], findings)
         self.assertEqual(findings["missing_required_environment_names"], [])
-        # The four-file union must still surface every required env read,
+        # The five-file union must still surface every required env read,
         # including the SEA_SPEED_API_URL/SEA_SPEED_API_TOKEN reads that
         # moved into worker_transport with the post_* functions.
         self.assertEqual(

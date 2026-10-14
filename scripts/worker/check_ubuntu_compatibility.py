@@ -28,6 +28,7 @@ MODULE_SOURCES = (
     ROOT / "worker" / "worker_media.py",
     ROOT / "worker" / "worker_render.py",
     ROOT / "worker" / "worker_transport.py",
+    ROOT / "worker" / "worker_crossings.py",
 )
 
 REQUIRED_ENV_NAMES = {
