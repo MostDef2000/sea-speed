@@ -39,8 +39,8 @@
 - [x] Issue/spec/plan/tasks current
 - [x] Exact changed-file scope verified
 - [x] Required tests and evidence complete
-- [ ] Required CI green — orchestrator-owned (PR creation and exact-head CI)
-- [ ] Exact-green-head merge complete — orchestrator-owned
+- [x] Required CI green — orchestrator-owned (PR creation and exact-head CI) — auto-synced on merge to main (12e50389)
+- [x] Exact-green-head merge complete — orchestrator-owned — auto-synced on merge to main (12e50389)
 - [ ] Deployment state resolved — rides the next routine Ubuntu-worker deploy (DEPLOY-TRIGGER, полоса A) — orchestrator-owned
 - [ ] Runtime acceptance resolved — health gate probe on the next worker deploy — orchestrator-owned
 - [x] Deferred work recorded — ROI family (_roi_processing_points rebinds + cv2/numpy callees), live-publisher family (threading/queue + _LIVE_PUBLISH_THREAD rebinds), _line_speed_state + update_speed_lines_estimate (sole consumer stays), detect_vehicles/track/event/main loop remain in the worker, recorded in spec/plan; remaining analytics/ROI + MotionDetector/main consolidation → later waves
