@@ -93,6 +93,7 @@ green); gate findings drift → fix the SOURCE or the SCAN per the no-weakening 
 
 - RF-001: Operator actions expected: 0; this wave changes only the worker source layout (move-only) plus gate/validator coverage — runtime verification lands with the next routine Ubuntu-worker deploy (batched with wave 3, owner deploy gate); the orchestrator records runtime acceptance on issue #397.
 - RF-002: Evidence: the next deploy-ubuntu-worker run for a post-wave-2 SHA shows the media module shipped in the exact artifacts and both worker services restarting green; AST-equivalence, symtable and battery transcripts are recorded in the durable progress file.
+- RF-003 (live, 2026-10-14): PR #476 head fb6a465 passed CI 8/8 (zero non-success check runs on the exact head) and was squash-merged as ea0b41e. The DoD CI markers below are therefore factually satisfied; the unchecked boxes were left pending because the early #477 auto-sync cycles superseded their flips. This merge re-examines the dir so the flow flips them — expected to be the first fully COMPLETING autonomous cycle: the reused open auto-sync PR is refreshed via REST PATCH (RF-014, a3bb213) and the fixtures no longer read live spec state (RF-013, 7bfa48d).
 
 ## Deployment transaction audit
 
