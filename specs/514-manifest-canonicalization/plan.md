@@ -24,25 +24,32 @@ The canonicalization lives in exactly one place (the shell-level snippet) and is
 ## Risk profile
 
 - Risk profile: REQUIRED
+- RISK-001 | Category: TECH | Probability: 2 | Impact: 5 | Score: 10 | Mitigation: ONE canonicalization definition structurally pinned (exactly one `def _pypi_canon(`, exactly two exec-injections feeding both blocks, no `.lower()` in the verify block) — a divergent second normalization fails the pin in CI | Validation: test_manifest_names_share_one_pypi_canonicalization (RED on base) | Residual risk: a future edit could rewrite the pin — mitigated by the structural test failing loudly | Owner: delivery orchestrator | Status: MITIGATED
+- RISK-002 | Category: SEC | Probability: 1 | Impact: 5 | Score: 5 | Mitigation: the injected canonicalization source is script-owned — unconditional shell assignment+export overwrites any caller-supplied value; shell-single-quoted (no expansion hazards); missing var fails closed (KeyError → non-zero exit → quarantine path) | Validation: reviewer analysis of the injection pattern; negative-control test keeps absence detectable | Residual risk: none identified beyond the fail-closed path | Owner: delivery orchestrator | Status: MITIGATED
+- RISK-003 | Category: TECH | Probability: 1 | Impact: 5 | Score: 5 | Mitigation: verify tolerance is spelling-only — the negative control (empty installed map) fails identically with or without the fix; version compare unchanged | Validation: test_issue_514_genuinely_missing_manifest_package_still_fails | Residual risk: none — absence still yields graph drift + rebuild | Owner: delivery orchestrator | Status: MITIGATED
+- RISK-004 | Category: DATA | Probability: 1 | Impact: 3 | Score: 3 | Mitigation: duplicate canonical keys cannot occur in a pip-managed venv (one dist per canonical name) and pre-fix manifests carry one spelling per name; the last-wins map is deterministic and fails safe on version conflict (verify fails → rebuild) | Validation: reviewer analysis; write path already used the same last-wins pattern pre-fix | Residual risk: pathological hand-crafted duplicate distinfo — fails closed | Owner: delivery orchestrator | Status: ACCEPTED
+- RISK-005 | Category: OPS | Probability: 2 | Impact: 3 | Score: 6 | Mitigation: validate_runtime_lock keeps `.lower()` deliberately — committed lock inputs are all PEP 503 canonical (57 names enumerated); a future non-canonical lock spelling fails closed at validation (exit 3) before any mutation | Validation: reviewer enumeration of lock/requirements/runtime-lock.json names | Residual risk: future lock regeneration with non-canonical names is rejected, not healed — acceptable fail-closed behavior | Owner: delivery orchestrator | Status: ACCEPTED
+- RISK-006 | Category: TECH | Probability: 1 | Impact: 3 | Score: 3 | Mitigation: repo-wide grep shows prepare-runtime.sh and the test are the ONLY readers of installed_packages; read-time tolerance covers old underscore keys, so no consumer breaks | Validation: reviewer grep; gate/validators green | Residual risk: an out-of-repo consumer would be unknown — none is deployed | Owner: delivery orchestrator | Status: MITIGATED
+- RISK-007 | Category: OPS | Probability: 2 | Impact: 1 | Score: 2 | Mitigation: the executed tests prefer typing_extensions (near-universal) and fall back to any non-canonical metadata Name; a truly bare interpreter raises a clear RuntimeError instead of silently skipping | Validation: focused rebuild module 17 passed in the CI-like sandbox env | Residual risk: exotic CI envs without typing_extensions error visibly — remediable by fixture generation if ever observed | Owner: delivery orchestrator | Status: ACCEPTED
+- RISK-008 | Category: TECH | Probability: 2 | Impact: 4 | Score: 8 | Mitigation: on-box behavior (0444 manifest reuse across real deploys) is covered by harness inference executing the real script; the issue closure bar demands TWO consecutive clean deploy observations before #514 closes | Validation: deploy run logs (RUNTIME_* lines) on the merge SHA + the next deploy, recorded on #514 | Residual risk: a box-specific deviation would reopen #514 with run logs as evidence; rollback target is the previous worker release | Owner: delivery orchestrator | Status: OPEN
 
-| # | Risk | Severity | Likelihood | Mitigation |
-|---|------|----------|------------|------------|
-| RISK-001 | Canonicalization diverges between write and verify (a second normalization sneaks in) | HIGH | LOW | Structural pin: exactly one definition, exactly two injections feeding both blocks; no `.lower()` in the verify block |
-| RISK-002 | Injection pattern lets a caller's env value win (tampered canonicalization) | HIGH | VERY LOW | Unconditional assignment+export in the script; reviewer-verified; fail-closed KeyError if absent |
-| RISK-003 | Verify becomes too tolerant (missing packages pass) | HIGH | VERY LOW | Negative control test (empty installed map still fails+rebuilds); version compare unchanged |
-| RISK-004 | Duplicate canonical keys in `installed_canonical` change semantics | MEDIUM | VERY LOW | Pip-managed venvs cannot hold two dists with one canonical name; pre-fix manifests only carry one spelling; last-wins is deterministic and fails safe on version conflict |
-| RISK-005 | Lock input with non-canonical spelling diverges from requirements | MEDIUM | LOW | `validate_runtime_lock` unchanged → fails closed (exit 3) before any mutation; committed inputs verified canonical |
-| RISK-006 | Manifest key spelling change breaks an unseen consumer | MEDIUM | VERY LOW | Repo-wide grep: only prepare-runtime.sh and the test read installed_packages; read-time tolerance covers old keys |
-| RISK-007 | Test environment lacks a non-canonical metadata-Name dist | LOW | LOW | Prefers typing_extensions (near-universal); clear RuntimeError otherwise, not a silent skip |
-| RISK-008 | On-box behavior differs from harness (0444 reuse across real deploys) | LOW | LOW | Harness executes the real script; runtime acceptance rides the next two deploy observations (issue #514 closure bar: two clean deploys) |
+## Test design
 
-Test design: TEST-001 structural pin (RED on base); TEST-002 executed verify-with-manifest on a metadata-Name-keyed manifest (RED on base, exact incident signature); TEST-003 negative control (independent of fix); TEST-004 re-bake + re-verify recurrence closure (RED on base).
+- TEST-001 | Covers: AC-001 | Level: unit | Priority: P1 | Evidence: test_manifest_names_share_one_pypi_canonicalization — structural pin (one definition, two injections, exact write-side key expression, exact read-time map, no .lower() in the verify block); RED on base (3 failed / 14 passed, orchestrator re-observed)
+- TEST-002 | Covers: AC-002 | Level: integration | Priority: P0 | Evidence: test_issue_514_metadata_name_manifest_key_verifies_without_rebuild — executes the REAL script through the harness (PATH-stubbed venv python); metadata-Name-keyed manifest verifies WITHOUT rebuild; RED on base with the exact incident signature (RUNTIME_VERIFY_FAILED check=manifest_python, actual=None, RUNTIME_QUARANTINED)
+- TEST-003 | Covers: AC-004 | Level: integration | Priority: P0 | Evidence: test_issue_514_genuinely_missing_manifest_package_still_fails — empty installed map fails identically with or without the fix (graph drift actual=None → quarantine → rebuild); negative control independent of the fix
+- TEST-004 | Covers: AC-003 | Level: integration | Priority: P1 | Evidence: test_issue_514_rebaked_manifest_keys_are_canonical_and_reverify — first run RUNTIME_CREATED with canonical keys; second run RUNTIME_REUSED with no verify failure (closes the 3/3 recurrence loop); RED on base
+- TEST-005 | Covers: AC-006 | Level: integration | Priority: P1 | Evidence: full battery 1035 passed / 4 skipped; focused rebuild module 17 passed, 4 subtests; sibling prepare-runtime suites 32 passed; bash -n OK; validate_repo (736 files) green; validate_sdd green; gate compatible=True; ruff zero new findings
 
 ## Correct-course check
 
-- C-1: If a pre-fix manifest key canonicalizes to a name absent from the lock → still fails (tolerance is spelling-only). Verified by TEST-003.
-- C-2: If the deploy still logs VERIFY_FAILED after merge → read-time tolerance failed on-box; rollback target is the previous worker release; issue #514 stays open with the run logs.
-- C-3: The 3/3 recurrence is closed only by evidence: two consecutive deploys with NO RUNTIME_VERIFY_FAILED+RUNTIME_REBUILT pair — the issue stays open until then (orchestrator-owned).
+- Trigger: NONE
+- Issue impact: NONE
+- Specification impact: NONE
+- Plan impact: NONE
+- Tasks impact: NONE
+- Authorization impact: NONE
+- Follow-up: the deploy observations on #514 are the recorded runtime acceptance path; no course correction is active at merge time
 
 ## Affected contours
 
