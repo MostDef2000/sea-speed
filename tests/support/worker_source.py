@@ -44,6 +44,9 @@ ROOT = Path(__file__).resolve().parents[2]
 # Issue #397 wave 8: the tracking cluster lives in worker_tracking.py
 # (3 per-track speed state objects + 8 tracking defs) — harness parses all
 # eight, same first-definition-wins rule.
+# Issue #397 wave 9: the ROI/analytics family lives in worker_roi.py
+# (water-recall diagnostic state + 9 ROI defs) — harness parses all nine,
+# same first-definition-wins rule.
 DEFAULT_WORKER_SOURCES = (
     "worker/hls_motion_yolo_worker_events.py",
     "worker/worker_kernel.py",
@@ -53,6 +56,7 @@ DEFAULT_WORKER_SOURCES = (
     "worker/worker_crossings.py",
     "worker/worker_live.py",
     "worker/worker_tracking.py",
+    "worker/worker_roi.py",
 )
 
 FunctionLike = ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef

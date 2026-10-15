@@ -34,11 +34,12 @@ hls_motion_yolo_worker_events.py into worker/worker_crossings.py):
     site in build_road_live_envelope (worker) depends on that membership, so
     losing the re-export would silently drop crossings from the road live
     envelope instead of failing loudly.
-(f) Compatibility gate: MODULE_SOURCES is the seven-file union (worker +
-    media + render + transport + crossings + live + tracking), union-
+(f) Compatibility gate: MODULE_SOURCES is the eight-file union (worker +
+    media + render + transport + crossings + live + tracking + roi), union-
     compatible with every required env name still resolved across the union
-    (wave-7 transfer: the gate grew by worker_live.py; wave-8 transfer: it
-    grows by worker_tracking.py, this file's pin tracks the count).
+    (wave-7 transfer: the gate grew by worker_live.py; wave-8 transfer: by
+    worker_tracking.py; wave-9 transfer: by worker_roi.py — this file's pin
+    tracks the count).
 """
 
 from __future__ import annotations
@@ -456,9 +457,9 @@ class WorkerCrossingsIdentityTests(unittest.TestCase):
 
 class CompatibilityGateModuleSourcesTests(unittest.TestCase):
     def test_gate_scans_module_sources(self) -> None:
-        # (f) wave-6 contract, extended by waves 7-8: the gate's MODULE_SOURCES
-        # union is the seven-file set (worker + media + render + transport +
-        # crossings + live + tracking) and stays compatible with every
+        # (f) wave-6 contract, extended by waves 7-9: the gate's MODULE_SOURCES
+        # union is the eight-file set (worker + media + render + transport +
+        # crossings + live + tracking + roi) and stays compatible with every
         # required env name resolved across it. (Renamed from the stale
         # wave-4/6 five-file name — wave-agnostic, mirrors the transport-side
         # wave-7 rename; no logic change.)
@@ -471,7 +472,8 @@ class CompatibilityGateModuleSourcesTests(unittest.TestCase):
         self.assertIsNotNone(spec)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
-        self.assertEqual(len(module.MODULE_SOURCES), 7)
+        # wave-9 contract transfer: the gate grew by worker_roi.py (8 files).
+        self.assertEqual(len(module.MODULE_SOURCES), 8)
         self.assertTrue(all(path.is_file() for path in module.MODULE_SOURCES))
         findings = module.inspect_worker(list(module.MODULE_SOURCES))
         self.assertTrue(findings["compatible"], findings)

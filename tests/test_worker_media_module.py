@@ -35,6 +35,7 @@ WORKER = ROOT / "worker" / "hls_motion_yolo_worker_events.py"
 KERNEL = ROOT / "worker" / "worker_kernel.py"
 MEDIA = ROOT / "worker" / "worker_media.py"
 WORKER_LIVE = ROOT / "worker" / "worker_live.py"
+WORKER_ROI = ROOT / "worker" / "worker_roi.py"
 CHECKER = ROOT / "scripts" / "worker" / "check_ubuntu_compatibility.py"
 
 # Exact moved-name set for wave 2 (keep in sync with the
@@ -54,10 +55,11 @@ MOVED_MEDIA_NAMES = (
 # not in the media module): the remaining this-wave placement contract.
 # Wave 3 transferred draw_overlay/write_passage_snapshot/crop_sharpness to
 # the worker_render guard; wave 4 transferred fetch_remote_roi to the
-# worker_transport guard (contract transfers, not pin fixes).
+# worker_transport guard (contract transfers, not pin fixes). Wave 9
+# transferred draw_roi_polygon to the worker_roi guard (contract transfer —
+# the road-ROI family moved verbatim to worker/worker_roi.py).
 STAYING_IN_WORKER = (
     "detect_vehicles",
-    "draw_roi_polygon",
     "draw_speed_lines_overlay",
     "main",
 )
@@ -210,9 +212,12 @@ class CompatibilityGateMultiFileTests(unittest.TestCase):
         # (SEA_SPEED_API_URL / SEA_SPEED_API_TOKEN) out of the worker into
         # worker_live.py, so the satisfying union grew from the wave-2 pair
         # to [WORKER, MEDIA, WORKER_LIVE] — a required env-name call site is
-        # satisfied from whichever module of the family it lives in.
+        # satisfied from whichever module of the family it lives in. Wave 9
+        # moved maybe_emit_water_recall_diagnostics (which reads MODEL_NAME)
+        # into worker_roi.py; the union grows again to
+        # [WORKER, MEDIA, WORKER_LIVE, WORKER_ROI].
         module = _load_checker()
-        findings = module.inspect_worker([WORKER, MEDIA, WORKER_LIVE])
+        findings = module.inspect_worker([WORKER, MEDIA, WORKER_LIVE, WORKER_ROI])
         self.assertTrue(findings["compatible"], findings)
         self.assertEqual(findings["missing_required_environment_names"], [])
         self.assertTrue(findings["uses_subprocess"])
@@ -225,6 +230,13 @@ class CompatibilityGateMultiFileTests(unittest.TestCase):
         # pair, which lives ONLY in worker_live.py. This proves the transfer
         # is real and the extended scan does cross-file work instead of
         # duplicating the old two-file scan.
+        #
+        # Wave-9 note (unchanged by design): NO required env name became
+        # roi-exclusive — the moved MODEL_NAME read in
+        # maybe_emit_water_recall_diagnostics has staying worker-namespace
+        # readers (build_event, main), so this negative pin still holds
+        # exactly as written (owner rule, JOURNAL:11978: pre-emptive
+        # contract transfers only, never forced by a red battery).
         module = _load_checker()
         two_file = module.inspect_worker([WORKER, MEDIA])
         self.assertEqual(

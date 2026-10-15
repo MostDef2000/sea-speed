@@ -87,8 +87,9 @@ MOVED_TRANSPORT_NAMES = MOVED_TRANSPORT_DEFS + MOVED_TRANSPORT_CACHES
 # crossing_overlay_summary to the worker_crossings guard (contract transfer).
 # Wave 7 transferred the whole live-publisher family (incl.
 # _ensure_live_publisher) to the worker_live guard (contract transfer).
+# Wave 9 transferred road_roi_enabled to the worker_roi guard (contract
+# transfer — the road-ROI family moved verbatim to worker/worker_roi.py).
 STAYING_IN_WORKER = (
-    "road_roi_enabled",
     "detect_vehicles",
     "main",
 )
@@ -369,14 +370,14 @@ class CompatibilityGateModuleSourcesTests(unittest.TestCase):
         spec.loader.exec_module(module)
         self.assertEqual(
             len(module.MODULE_SOURCES),
-            7,
-            "wave-8: the tracking module joins the gate's worker-source union",
+            8,
+            "wave-9: the ROI module joins the gate's worker-source union",
         )
         self.assertTrue(all(path.is_file() for path in module.MODULE_SOURCES))
         findings = module.inspect_worker(list(module.MODULE_SOURCES))
         self.assertTrue(findings["compatible"], findings)
         self.assertEqual(findings["missing_required_environment_names"], [])
-        # The seven-file union must still surface every required env read,
+        # The eight-file union must still surface every required env read,
         # including the SEA_SPEED_API_URL/SEA_SPEED_API_TOKEN reads that
         # moved into worker_transport with the post_* functions.
         self.assertEqual(
