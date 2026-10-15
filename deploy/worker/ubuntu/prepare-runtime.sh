@@ -47,6 +47,23 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# ONE PEP 503 canonicalization for runtime package names, shared by the
+# embedded python blocks below (issue #514). The manifest write path bakes
+# keys from the dist metadata "Name" (e.g. "typing_extensions") while the
+# manifest verify path looks keys up by the lock pin spelling
+# ("typing-extensions"); with two different normalizations the lookup misses,
+# verify fails with actual=None, and every deploy rebuilds an immutable
+# 0444 runtime. Defined once here and injected into each block through the
+# environment; the unconditional assignment means this script, never the
+# caller's environment, controls the bytes.
+SEA_SPEED_PYPI_CANON_SRC='import re
+
+
+def _pypi_canon(name):
+    """PEP 503 canonical project name: lowercase, runs of -_. are one -."""
+    return re.sub(r"[-_.]+", "-", name).lower()'
+export SEA_SPEED_PYPI_CANON_SRC
+
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 lock_path="$script_dir/runtime-lock.json"
 requirements_path="$script_dir/requirements-runtime.txt"
@@ -225,6 +242,12 @@ import sys
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
+import os
+
+# Shared PEP 503 canonicalization (issue #514): the verify side must compare
+# lock pins and manifest keys in the same canonical form the write path bakes.
+exec(os.environ["SEA_SPEED_PYPI_CANON_SRC"])
+
 lock = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
 requirements = Path(sys.argv[2]).read_text(encoding="utf-8")
 lock_file_path = Path(sys.argv[3])
@@ -265,7 +288,7 @@ for text in joined:
     hashes = [token for token in tokens[1:] if token.startswith("--hash=sha256:")]
     if pinned is None or not hashes:
         raise SystemExit(f"runtime lock line is not sha256-hash-pinned: {text}")
-    graph[pinned.group(1).lower()] = pinned.group(2)
+    graph[_pypi_canon(pinned.group(1))] = pinned.group(2)
 if not graph:
     raise SystemExit("runtime lock graph is empty")
 expected: dict[str, str] = dict(graph)
@@ -276,7 +299,7 @@ for raw in requirements.splitlines():
     if "==" not in line:
         raise SystemExit(f"runtime requirement is not exact: {line}")
     name, expected_version = line.split("==", 1)
-    if graph.get(name.strip().lower()) != expected_version.strip():
+    if graph.get(_pypi_canon(name.strip())) != expected_version.strip():
         raise SystemExit(f"runtime requirement absent from hash-locked graph: {line}")
 
 for name, expected_version in sorted(expected.items()):
@@ -297,8 +320,15 @@ if manifest_path:
     if manifest.get("requirements_lock_sha256") != expected_lock_hash:
         raise SystemExit("runtime manifest requirements_lock_sha256 mismatch")
     installed = manifest.get("installed_packages", {})
+    # Verifier-side tolerance (issue #514): manifests on target boxes are
+    # chmod 0444 immutable, so keys baked by the pre-fix writer (lowercased
+    # dist metadata "Name", e.g. "typing_extensions") can never be rewritten
+    # in place — the keys must be canonicalized at read time before lookup.
+    installed_canonical = {
+        _pypi_canon(key): value for key, value in installed.items()
+    }
     for name, expected_version in sorted(expected.items()):
-        actual = installed.get(name)
+        actual = installed_canonical.get(_pypi_canon(name))
         if actual != expected_version:
             raise SystemExit(
                 f"runtime manifest graph drift: {name} expected={expected_version} actual={actual}"
@@ -325,13 +355,19 @@ import sys
 from importlib.metadata import distributions
 from pathlib import Path
 
+import os
+
+# Shared PEP 503 canonicalization (issue #514): manifest keys are baked in
+# canonical form so they match the verify-side lock pin spelling.
+exec(os.environ["SEA_SPEED_PYPI_CANON_SRC"])
+
 runtime_id, lock_name, requirements_name, lock_file_name, manifest_name, origin = sys.argv[1:]
 lock_path = Path(lock_name)
 requirements_path = Path(requirements_name)
 lock_file_path = Path(lock_file_name)
 packages = {}
 for dist in distributions():
-    name = (dist.metadata.get("Name") or "").strip().lower()
+    name = _pypi_canon((dist.metadata.get("Name") or "").strip())
     if name:
         packages[name] = dist.version
 manifest = {
