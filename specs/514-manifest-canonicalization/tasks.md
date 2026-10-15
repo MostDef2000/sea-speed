@@ -34,8 +34,8 @@
 - [ ] Issue/spec/plan/tasks current
 - [ ] Exact changed-file scope verified
 - [ ] Required tests and evidence complete
-- [ ] Required CI green — orchestrator-owned (PR creation and exact-head CI) — auto-synced on merge to main
-- [ ] Exact-green-head merge complete — orchestrator-owned — auto-synced on merge to main
+- [x] Required CI green — orchestrator-owned (PR creation and exact-head CI) — auto-synced on merge to main
+- [x] Exact-green-head merge complete — orchestrator-owned — auto-synced on merge to main
 - [ ] Deployment state resolved — rides the next routine Ubuntu-worker deploy (DEPLOY-TRIGGER, полоса A) — orchestrator-owned; #514 closes after two consecutive clean deploy observations (no RUNTIME_VERIFY_FAILED+RUNTIME_REBUILT pair)
 - [ ] Runtime acceptance resolved — health gate probe on the next worker deploy — orchestrator-owned
 - [ ] Deferred work recorded — validate_runtime_lock keeps `.lower()` (deliberate; committed lock inputs are canonical; non-canonical future lock spelling fails closed); export-line structural pin candidate for a future hygiene commit (review nit N2)
