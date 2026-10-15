@@ -25,7 +25,10 @@ Guards the invariants of the wave-3 move-only refactor:
     crossing_overlay_summary to the worker_crossings guard (contract
     transfer) — its `globals()`-guard call site in build_road_live_envelope
     still resolves through the worker re-export (pinned by
-    tests/test_worker_crossings_module.py).
+    tests/test_worker_crossings_module.py). Wave 9 transferred
+    draw_roi_polygon to the worker_roi guard (contract transfer — the
+    road-ROI family moved verbatim to worker/worker_roi.py, pinned by
+    tests/test_worker_roi_module.py).
 """
 
 from __future__ import annotations
@@ -59,9 +62,10 @@ MOVED_RENDER_NAMES = (
 # allowlist by construction. Wave 4 transferred fetch_remote_roi/post_state/
 # post_event/post_passage to the worker_transport guard (contract transfer).
 # Wave 6 transferred crossing_overlay_summary to the worker_crossings guard
-# (contract transfer).
+# (contract transfer). Wave 9 transferred draw_roi_polygon to the
+# worker_roi guard (contract transfer — the road-ROI family moved verbatim
+# to worker/worker_roi.py).
 STAYING_IN_WORKER = (
-    "draw_roi_polygon",
     "draw_speed_lines_overlay",
     "detect_vehicles",
     "main",

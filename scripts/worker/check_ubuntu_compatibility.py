@@ -31,6 +31,7 @@ MODULE_SOURCES = (
     ROOT / "worker" / "worker_crossings.py",
     ROOT / "worker" / "worker_live.py",
     ROOT / "worker" / "worker_tracking.py",
+    ROOT / "worker" / "worker_roi.py",
 )
 
 REQUIRED_ENV_NAMES = {

@@ -66,6 +66,7 @@ GRANDFATHERED_PREFIX_COLLISIONS = {
         "397-wave6-worker-crossings",
         "397-wave7-worker-live",
         "397-wave8-worker-tracking",
+        "397-wave9-worker-roi",
     },
 }
 
