@@ -78,13 +78,52 @@ def fixture_package() -> tuple[str, str]:
     raise RuntimeError("no installed distribution available for the fixture lock")
 
 
+_SYNTHETIC_DIST_PARENT: Path | None = None
+
+
+def _synthesize_noncanonical_dist() -> tuple[str, str, str]:
+    """Deterministically build the #514 incident shape.
+
+    A CI runner may have NO installed distribution with a non-canonical
+    metadata Name (pip/setuptools/pytest are all canonical), so the fixture
+    cannot depend on the interpreter's installed set. A minimal
+    ``typing_extensions-4.16.0.dist-info`` tree is created in a temp dir and
+    the parent dir is exposed via :func:`canonicalization_dist_path` so the
+    executed tests can put it on the subprocess PYTHONPATH —
+    importlib.metadata discovers it there exactly like a real install.
+    """
+    global _SYNTHETIC_DIST_PARENT
+    name, version = "typing_extensions", "4.16.0"
+    if _SYNTHETIC_DIST_PARENT is None:
+        _SYNTHETIC_DIST_PARENT = Path(tempfile.mkdtemp(prefix="sea-speed-514-dist"))
+        dist_info = _SYNTHETIC_DIST_PARENT / f"{name}-{version}.dist-info"
+        dist_info.mkdir()
+        (dist_info / "METADATA").write_text(
+            "Metadata-Version: 2.1\n"
+            f"Name: {name}\n"
+            f"Version: {version}\n"
+            "Summary: synthetic fixture dist for the #514 canonicalization tests\n",
+            encoding="utf-8",
+        )
+        (dist_info / "top_level.txt").write_text(f"{name}\n", encoding="utf-8")
+    return name, "typing-extensions", version
+
+
+def canonicalization_dist_path() -> Path | None:
+    """Parent dir of the synthetic non-canonical dist, when one was
+    synthesized (None when a natural installed dist satisfied the fixture)."""
+    return _SYNTHETIC_DIST_PARENT
+
+
 def fixture_canonicalization_package() -> tuple[str, str, str]:
     """(metadata Name, canonical name, version) of an installed dist whose
     metadata Name is not PEP 503-canonical.
 
     Prefers ``typing_extensions`` so the fixture reproduces the #514 incident
     exactly (lock pin ``typing-extensions`` vs manifest key
-    ``typing_extensions``).
+    ``typing_extensions``). When no natural candidate is installed (bare CI
+    runners), the incident shape is synthesized deterministically instead of
+    erroring — the behavioral assertions are identical either way.
     """
     fallback: tuple[str, str, str] | None = None
     for dist in importlib.metadata.distributions():
@@ -100,10 +139,7 @@ def fixture_canonicalization_package() -> tuple[str, str, str]:
             fallback = (name, canonical, dist.version)
     if fallback is not None:
         return fallback
-    raise RuntimeError(
-        "no installed distribution with a non-canonical metadata Name "
-        "(need e.g. typing_extensions) for the #514 fixture"
-    )
+    return _synthesize_noncanonical_dist()
 
 
 def write_definition_files(work: Path) -> str:
@@ -453,6 +489,12 @@ class PrepareRuntimeRebuildExecutedTests(unittest.TestCase):
             "PIP_STUB_LOG": str(self.work / "pip.log"),
             "CHOWN_LOG": str(self.work / "chown.log"),
         }
+        dist_path = getattr(self, "_514_dist_path", None)
+        if dist_path is not None:
+            existing = env.get("PYTHONPATH")
+            env["PYTHONPATH"] = (
+                f"{dist_path}{os.pathsep}{existing}" if existing else str(dist_path)
+            )
         if env_extra:
             env.update(env_extra)
         return subprocess.run(
@@ -602,6 +644,10 @@ class PrepareRuntimeRebuildExecutedTests(unittest.TestCase):
         """
         metadata_name, canonical_name, version = fixture_canonicalization_package()
         self.assertNotEqual(metadata_name, canonical_name)
+        # When the incident shape was synthesized (bare CI runner), the
+        # executed script's python (the real interpreter) must see the
+        # synthetic dist for write_manifest/verify distributions() scans.
+        self._514_dist_path = canonicalization_dist_path()
         self.runtime_id = write_definition_files_pinned(self.work, canonical_name, version)
         self.runtime_root = self.runtime_parent / self.runtime_id
         return metadata_name, version
