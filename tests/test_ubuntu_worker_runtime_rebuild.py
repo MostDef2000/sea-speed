@@ -30,6 +30,13 @@ network, no real pip, no systemd):
   atomic same-filesystem renames.
 - SEA_SPEED_426_PREPARE_RUNTIME_PATH selects the script under test (same
   override pattern as SEA_SPEED_392/406/412) for RED-vs-base runs.
+
+Issue #514 extends this harness: the manifest write path baked keys from the
+lowercased dist metadata ``Name`` (``typing_extensions``) while the verify
+path looked them up by the lock pin spelling (``typing-extensions``), so the
+manifest lookup missed with ``actual=None`` and every deploy rebuilt the
+immutable 0444 runtime. The tests below reproduce that exact shape
+against an interpreter-installed non-canonical dist.
 """
 from __future__ import annotations
 
@@ -38,6 +45,7 @@ import importlib.metadata
 import json
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -70,9 +78,78 @@ def fixture_package() -> tuple[str, str]:
     raise RuntimeError("no installed distribution available for the fixture lock")
 
 
+_SYNTHETIC_DIST_PARENT: Path | None = None
+
+
+def _synthesize_noncanonical_dist() -> tuple[str, str, str]:
+    """Deterministically build the #514 incident shape.
+
+    A CI runner may have NO installed distribution with a non-canonical
+    metadata Name (pip/setuptools/pytest are all canonical), so the fixture
+    cannot depend on the interpreter's installed set. A minimal
+    ``typing_extensions-4.16.0.dist-info`` tree is created in a temp dir and
+    the parent dir is exposed via :func:`canonicalization_dist_path` so the
+    executed tests can put it on the subprocess PYTHONPATH —
+    importlib.metadata discovers it there exactly like a real install.
+    """
+    global _SYNTHETIC_DIST_PARENT
+    name, version = "typing_extensions", "4.16.0"
+    if _SYNTHETIC_DIST_PARENT is None:
+        _SYNTHETIC_DIST_PARENT = Path(tempfile.mkdtemp(prefix="sea-speed-514-dist"))
+        dist_info = _SYNTHETIC_DIST_PARENT / f"{name}-{version}.dist-info"
+        dist_info.mkdir()
+        (dist_info / "METADATA").write_text(
+            "Metadata-Version: 2.1\n"
+            f"Name: {name}\n"
+            f"Version: {version}\n"
+            "Summary: synthetic fixture dist for the #514 canonicalization tests\n",
+            encoding="utf-8",
+        )
+        (dist_info / "top_level.txt").write_text(f"{name}\n", encoding="utf-8")
+    return name, "typing-extensions", version
+
+
+def canonicalization_dist_path() -> Path | None:
+    """Parent dir of the synthetic non-canonical dist, when one was
+    synthesized (None when a natural installed dist satisfied the fixture)."""
+    return _SYNTHETIC_DIST_PARENT
+
+
+def fixture_canonicalization_package() -> tuple[str, str, str]:
+    """(metadata Name, canonical name, version) of an installed dist whose
+    metadata Name is not PEP 503-canonical.
+
+    Prefers ``typing_extensions`` so the fixture reproduces the #514 incident
+    exactly (lock pin ``typing-extensions`` vs manifest key
+    ``typing_extensions``). When no natural candidate is installed (bare CI
+    runners), the incident shape is synthesized deterministically instead of
+    erroring — the behavioral assertions are identical either way.
+    """
+    fallback: tuple[str, str, str] | None = None
+    for dist in importlib.metadata.distributions():
+        name = (dist.metadata.get("Name") or "").strip()
+        if not name:
+            continue
+        canonical = re.sub(r"[-_.]+", "-", name).lower()
+        if canonical == name.lower():
+            continue
+        if name.lower() == "typing_extensions":
+            return name, canonical, dist.version
+        if fallback is None:
+            fallback = (name, canonical, dist.version)
+    if fallback is not None:
+        return fallback
+    return _synthesize_noncanonical_dist()
+
+
 def write_definition_files(work: Path) -> str:
     """Fixture runtime definition files; returns the derived runtime_id."""
     package, version = fixture_package()
+    return write_definition_files_pinned(work, package, version)
+
+
+def write_definition_files_pinned(work: Path, package: str, version: str) -> str:
+    """Fixture runtime definition files pinned to an explicit name/version."""
     lock_file_bytes = (
         "# sea-speed-runtime-lock-v1\n"
         f"{package}=={version} --hash=sha256:{'a5' * 32}\n"
@@ -264,6 +341,31 @@ class PrepareRuntimeRebuildContractTests(unittest.TestCase):
         # RUNTIME_CREATED survives as the healthy fresh-install emission.
         self.assertLess(rebuild_branch, created)
 
+    def test_manifest_names_share_one_pypi_canonicalization(self) -> None:
+        # Issue #514 structural pin: exactly ONE textual PEP 503 definition,
+        # injected into BOTH the manifest write path and the manifest verify
+        # path, so the two normalizations cannot drift apart again.
+        self.assertEqual(self.source.count("def _pypi_canon("), 1)
+        self.assertIn('re.sub(r"[-_.]+", "-", name).lower()', self.source)
+        self.assertEqual(
+            self.source.count('exec(os.environ["SEA_SPEED_PYPI_CANON_SRC"])'),
+            2,
+            "the shared canonicalization must be wired into exactly the "
+            "write_manifest and verify_python python blocks",
+        )
+        # Write side: manifest keys baked canonically from dist metadata.
+        self.assertIn(
+            'name = _pypi_canon((dist.metadata.get("Name") or "").strip())',
+            self.source,
+        )
+        # Verify side: manifest keys canonicalized at read time (0444
+        # manifests on target boxes are immutable, so tolerance lives here).
+        self.assertIn("_pypi_canon(key): value for key, value in installed.items()", self.source)
+        # No legacy lowercase-only name normalization survives in the
+        # verify_python block.
+        verify_block = self.source[self.source.index("verify_python() {") : self.source.index("write_manifest() {")]
+        self.assertNotIn(".lower()", verify_block)
+
 
 class PrepareRuntimeRebuildExecutedTests(unittest.TestCase):
     """Executed end-to-end scenarios (a)-(d) against the real script."""
@@ -284,7 +386,11 @@ class PrepareRuntimeRebuildExecutedTests(unittest.TestCase):
         python_bin.chmod(0o755)
         return python_bin
 
-    def _manifest_bytes(self, requirements_lock_sha256: str) -> bytes:
+    def _manifest_bytes(
+        self,
+        requirements_lock_sha256: str,
+        installed_packages: dict | None = None,
+    ) -> bytes:
         package, version = fixture_package()
         manifest = {
             "schema_version": 1,
@@ -301,11 +407,17 @@ class PrepareRuntimeRebuildExecutedTests(unittest.TestCase):
                 (self.work / "requirements-runtime.txt").read_bytes()
             ).hexdigest(),
             "requirements_lock_sha256": requirements_lock_sha256,
-            "installed_packages": {package: version},
+            "installed_packages": (
+                installed_packages
+                if installed_packages is not None
+                else {package: version}
+            ),
         }
         return (json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode("utf-8")
 
-    def _existing_runtime(self, kind: str) -> Path:
+    def _existing_runtime(
+        self, kind: str, *, manifest_installed_packages: dict | None = None
+    ) -> Path:
         """Build a pre-existing runtime dir that fails exactly `kind`."""
         runtime_root = self.runtime_root
         (runtime_root / "venv" / "bin").mkdir(parents=True)
@@ -327,7 +439,7 @@ class PrepareRuntimeRebuildExecutedTests(unittest.TestCase):
             )
         else:
             (runtime_root / "runtime-manifest.json").write_bytes(
-                self._manifest_bytes(lock_sha)
+                self._manifest_bytes(lock_sha, manifest_installed_packages)
             )
         if kind != "ready_file":
             content = f"runtime_id={self.runtime_id}\n"
@@ -377,6 +489,12 @@ class PrepareRuntimeRebuildExecutedTests(unittest.TestCase):
             "PIP_STUB_LOG": str(self.work / "pip.log"),
             "CHOWN_LOG": str(self.work / "chown.log"),
         }
+        dist_path = getattr(self, "_514_dist_path", None)
+        if dist_path is not None:
+            existing = env.get("PYTHONPATH")
+            env["PYTHONPATH"] = (
+                f"{dist_path}{os.pathsep}{existing}" if existing else str(dist_path)
+            )
         if env_extra:
             env.update(env_extra)
         return subprocess.run(
@@ -512,6 +630,90 @@ class PrepareRuntimeRebuildExecutedTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("chown -R root:root", (self.work / "chown.log").read_text(encoding="utf-8"))
         self.assertEqual(oct(self.runtime_root.stat().st_mode & 0o7777), "0o555")
+
+    # -- issue #514: manifest key canonicalization --------------------------
+
+    def _use_issue_514_fixture(self) -> tuple[str, str]:
+        """Rebuild the definition files around the #514 incident shape.
+
+        The lock pins the canonical spelling (e.g. ``typing-extensions``)
+        while the installed dist's metadata Name is the non-canonical spelling
+        (``typing_extensions``) — exactly how the pre-fix write_manifest keyed
+        the manifest. Returns (metadata Name, pinned version) and refreshes
+        the runtime-id-derived paths.
+        """
+        metadata_name, canonical_name, version = fixture_canonicalization_package()
+        self.assertNotEqual(metadata_name, canonical_name)
+        # When the incident shape was synthesized (bare CI runner), the
+        # executed script's python (the real interpreter) must see the
+        # synthetic dist for write_manifest/verify distributions() scans.
+        self._514_dist_path = canonicalization_dist_path()
+        self.runtime_id = write_definition_files_pinned(self.work, canonical_name, version)
+        self.runtime_root = self.runtime_parent / self.runtime_id
+        return metadata_name, version
+
+    def test_issue_514_metadata_name_manifest_key_verifies_without_rebuild(self) -> None:
+        # RED-then-GREEN: an on-box manifest baked by the pre-fix write path
+        # keys the installed package by the lowercased metadata Name
+        # (typing_extensions) while the lock graph spells it canonically
+        # (typing-extensions). Manifests are chmod 0444 immutable on target
+        # boxes, so the verifier must canonicalize keys at read time: this
+        # must REUSE the runtime on the first run — no verify failure, no
+        # quarantine, no rebuild (on base this fails with actual=None).
+        metadata_name, version = self._use_issue_514_fixture()
+        self._existing_runtime(
+            "healthy", manifest_installed_packages={metadata_name: version}
+        )
+        result = self._run_prepare()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("RUNTIME_VERIFY_FAILED", result.stderr)
+        self.assertNotIn("RUNTIME_REBUILT", result.stdout)
+        self.assertEqual(self._quarantine_dirs(), [])
+        self.assertIn(f"RUNTIME_REUSED runtime_id={self.runtime_id}", result.stdout)
+
+    def test_issue_514_genuinely_missing_manifest_package_still_fails(self) -> None:
+        # Negative control: read-time canonicalization must not invent
+        # entries. A manifest without the pinned package under ANY spelling
+        # still fails verification with the exact graph-drift evidence and
+        # rebuilds (unchanged from base by design).
+        self._use_issue_514_fixture()
+        self._existing_runtime("healthy", manifest_installed_packages={})
+        result = self._run_prepare()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(
+            f"RUNTIME_VERIFY_FAILED runtime_id={self.runtime_id} check=manifest_python",
+            result.stderr,
+        )
+        self.assertIn("RUNTIME_VERIFY_DETAIL", result.stderr)
+        self.assertIn("runtime manifest graph drift", result.stderr)
+        self.assertIn("actual=None", result.stderr)
+        self.assertIn(
+            f"RUNTIME_REBUILT runtime_id={self.runtime_id} reason=manifest_python",
+            result.stdout,
+        )
+        self.assertEqual(len(self._quarantine_dirs()), 1)
+
+    def test_issue_514_rebaked_manifest_keys_are_canonical_and_reverify(self) -> None:
+        # Closes the #514 recurrence loop (3/3 deploys on base): the fresh
+        # staging finalize path re-bakes the manifest through the fixed
+        # write_manifest, so its keys are now canonical; the NEXT deploy
+        # verifies WITH the manifest and reuses. On base the re-baked key
+        # stayed non-canonical and every subsequent deploy re-failed.
+        metadata_name, version = self._use_issue_514_fixture()
+        canonical_name = re.sub(r"[-_.]+", "-", metadata_name).lower()
+        first = self._run_prepare()
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.assertIn(f"RUNTIME_CREATED runtime_id={self.runtime_id}", first.stdout)
+        manifest = json.loads(
+            (self.runtime_root / "runtime-manifest.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(manifest["installed_packages"].get(canonical_name), version)
+        self.assertNotIn(metadata_name, manifest["installed_packages"])
+        second = self._run_prepare()
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertIn(f"RUNTIME_REUSED runtime_id={self.runtime_id}", second.stdout)
+        self.assertNotIn("RUNTIME_VERIFY_FAILED", second.stderr)
+        self.assertNotIn("RUNTIME_REBUILT", second.stdout)
 
 
 if __name__ == "__main__":
