@@ -93,11 +93,12 @@ consumes `preview_road1` live) — schedule accordingly.
 
 ## Open on-box questions (resolve at runtime acceptance)
 
-1. Live preview relay bind address/port is not in the repo (fixtures use
-   10.0.0.8:8555; the KB mentions 8892) — confirm on-box before the
-   re-render transaction.
-2. `sea_speed_camera_preview_inventory_v1` has no repo producer — the
-   inventory is a runtime artifact; confirm its live location/producer.
+1. RESOLVED 2026-10-16 (#454): the `:8892` listener is the preview
+   relay's mediamtx built-in HTTP server (unit recreated by tx #442,
+   which is why the earlier fd-based scan missed it); live RTSP preview
+   bind unchanged.
+2. RESOLVED 2026-10-16 (#454): inventory producer/procedure documented
+   in `docs/operations/CAMERA_PREVIEW_INVENTORY.md`.
 3. Top-level vs path-level transport pinning policy is unresolved — the
    renderer keeps the legacy shape (both global `rtspTransports: [tcp]` and
    per-path `rtspTransport: tcp`).
