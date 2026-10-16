@@ -59,9 +59,15 @@ consumes `preview_road1` live) — schedule accordingly.
   canonical marker
   `# Sea Speed least-privilege reader for canonical preview-contour (path-pattern ~^preview_[a-z0-9._-]+$)`
   (one line, inserted after `authInternalUsers:`); (2) the catalog no longer
-  carries the non-deterministic `generated_at` field (no consumer reads it).
-  Everything else is byte-identical to the legacy render for the same
-  inputs.
+  carries the non-deterministic `generated_at` field (no consumer reads it);
+  (3) issue #522: the server skeleton pins every unused default server off —
+  `api: false`, `metrics: false`, `pprof: false`, `playback: false`,
+  `moq: false` beside the existing `rtmp/hls/webrtc/srt: false` — the
+  canonical disable vocabulary already proven by the mediamtx
+  compatibility-remediation canary (cam1 contour), so the
+  renderer output no longer depends on the installed mediamtx version's
+  defaults. Everything else is byte-identical to the legacy render for the
+  same inputs.
 - The marked preview rule is verifiable by repo tooling:
   `python3 scripts/operations/mediamtx_path_config.py verify-preview-auth
   --config <live-or-candidate-config> --reader-ip <IP>...` — closes the
@@ -96,7 +102,9 @@ consumes `preview_road1` live) — schedule accordingly.
 1. RESOLVED 2026-10-16 (#454): the `:8892` listener is the preview
    relay's mediamtx built-in HTTP server (unit recreated by tx #442,
    which is why the earlier fd-based scan missed it); live RTSP preview
-   bind unchanged.
+   bind unchanged. Fixed by #522: the rendered config now pins all
+   unused servers off (`api/metrics/pprof/playback/moq: false`),
+   to be applied on-box by the #522 prepare→activate tx.
 2. RESOLVED 2026-10-16 (#454): inventory producer/procedure documented
    in `docs/operations/CAMERA_PREVIEW_INVENTORY.md`.
 3. Top-level vs path-level transport pinning policy is unresolved — the

@@ -14,7 +14,11 @@ Contract (from the issue):
   `generated_at` equals the legacy catalog contract); (c) the 7 legacy renderer
   modes stay byte-identical (harness). The marker line and the dropped
   `generated_at` are documented one-time drifts, not contract violations.
-- the preview profile stays API-LESS (no api/apiAddress block).
+  Issue #522 adds a third documented one-time drift: the server skeleton
+  pins every unused default server off (`api/metrics/pprof/playback/moq:
+  false` next to the existing `rtmp/hls/webrtc/srt: false`) — the parity
+  oracle below freezes the bumped bytes.
+- the preview profile stays API-LESS (`api: false`, no `apiAddress` block).
 """
 from __future__ import annotations
 
@@ -47,8 +51,10 @@ PREVIEW_MARKER = (
     "(path-pattern ~^preview_[a-z0-9._-]+$)"
 )
 
-# The legacy inline heredoc output for the SAME fixed single-camera input
-# (frozen from camera-preview-relay.sh at c2bd3b9): the legacy-parity oracle.
+# Parity oracle for the fixed single-camera input: the legacy inline heredoc
+# output (frozen from camera-preview-relay.sh at c2bd3b9) PLUS the documented
+# #522 skeleton bump — every unused default server explicitly pinned off
+# (D-3 one-time synchronized drift; renderer + tests + runbook in one change).
 LEGACY_SINGLE_CAMERA_CONFIG = """logLevel: error
 logDestinations: [stdout]
 authMethod: internal
@@ -66,6 +72,11 @@ rtmp: false
 hls: false
 webrtc: false
 srt: false
+api: false
+metrics: false
+pprof: false
+playback: false
+moq: false
 paths:
   "preview_road1":
     source: "rtsp://preview_user:preview_key@10.0.0.31:554/road-stream"
@@ -157,6 +168,11 @@ class PreviewRendererGoldenTests(PreviewRendererCliBase):
             'hls: false\n'
             'webrtc: false\n'
             'srt: false\n'
+            'api: false\n'
+            'metrics: false\n'
+            'pprof: false\n'
+            'playback: false\n'
+            'moq: false\n'
             'paths:\n'
             '  "preview_road1":\n'
             f'    source: {json.dumps(SOURCE_ROAD, ensure_ascii=False)}\n'
@@ -202,6 +218,9 @@ class PreviewRendererGoldenTests(PreviewRendererCliBase):
 
 class PreviewLegacyParityTests(PreviewRendererCliBase):
     def test_canonical_config_minus_marker_equals_legacy_heredoc_output(self) -> None:
+        # #522 (D-3): the parity oracle carries the documented one-time
+        # skeleton bump (five explicit server-off toggles); the #442 parity
+        # shape (canonical render minus the marker) is otherwise unchanged.
         result, config, _, _ = self.render(cameras=STANDARD_CAMERAS[:1])
         self.assertEqual(result.returncode, 0, result.stderr)
         marker_line = f"  {PREVIEW_MARKER}\n"
@@ -320,11 +339,24 @@ class PreviewProfileContractTests(PreviewRendererCliBase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn("api: yes", config)
         self.assertNotIn("apiAddress", config)
+        # #522: the API server is not merely absent — it is explicitly pinned
+        # off in the rendered skeleton (stronger than absence).
+        self.assertIn("api: false\n", config)
         # The renderer-level marker ownership contract holds: the marker keeps
         # the "# Sea Speed " prefix so the bounded sanitize scanner marks the
         # rule as renderer-owned.
         marker_line = f"  {PREVIEW_MARKER}\n"
         self.assertIn(marker_line, config)
+
+    def test_preview_profile_pins_all_unused_servers_off(self) -> None:
+        # #522 (R-1/R-2): every unused default server is explicitly pinned off
+        # in the rendered skeleton — no reliance on mediamtx version defaults —
+        # while the RTSP endpoint stays enabled (R-4).
+        result, config, _, _ = self.render()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for key in ("api", "metrics", "pprof", "playback", "moq"):
+            self.assertIn(f"{key}: false\n", config)
+        self.assertIn("rtsp: true\n", config)
 
     def test_preview_rule_verifies_through_the_shared_rule_parser(self) -> None:
         result, config, _, _ = self.render()

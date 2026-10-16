@@ -1168,6 +1168,11 @@ def _preview_render_texts(
         "hls: false\n",
         "webrtc: false\n",
         "srt: false\n",
+        "api: false\n",
+        "metrics: false\n",
+        "pprof: false\n",
+        "playback: false\n",
+        "moq: false\n",
         "paths:\n",
     ]
     catalog_cameras: list[dict[str, str]] = []
