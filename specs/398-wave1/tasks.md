@@ -39,8 +39,8 @@
 - [x] Issue/spec/plan/tasks current
 - [ ] Exact changed-file scope verified — orchestrator acceptance
 - [ ] Required tests and evidence complete — orchestrator acceptance (battery/validators on final tree)
-- [ ] Required CI green — orchestrator-owned (PR creation and exact-head CI)
-- [ ] Exact-green-head merge complete — orchestrator-owned — auto-synced on merge to main
+- [x] Required CI green — orchestrator-owned (PR creation and exact-head CI) — auto-synced on merge to main (567a885c)
+- [x] Exact-green-head merge complete — orchestrator-owned — auto-synced on merge to main
 - [ ] No deploy required (tests-only; no production artifact change) — recorded
 - [ ] Runtime acceptance = exact-head CI green (RF-001) — orchestrator-owned
 - [ ] Independent peer review APPROVE — orchestrator-owned
