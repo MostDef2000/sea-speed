@@ -33,8 +33,8 @@
 - [ ] Issue/spec/plan/tasks current
 - [ ] Exact changed-file scope verified
 - [ ] Required tests and evidence complete
-- [ ] Required CI green
-- [ ] Exact-green-head merge complete
+- [x] Required CI green — auto-synced on merge to main (c1440190)
+- [x] Exact-green-head merge complete — auto-synced on merge to main (c1440190)
 - [ ] Deployment state resolved (deferred to phase-2/3 sysadmin lanes, полоса C — Reason: on-box edge include provisioning and rendered-candidate application are VPS mutations outside repo scope; TX audit in plan.md pins the transaction)
 - [ ] Runtime acceptance resolved (AC-007, runtime-manual — Reason: VPS vhosts and the edge include are reachable only through the sysadmin session, полоса C)
 - [ ] Deferred work recorded (forward-auth migration of the basic-auth contour is an owner decision; phase-3 API env + deploy is PR-1 scope; transitional-mode cleanup per PR-1)
