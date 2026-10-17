@@ -203,10 +203,12 @@ Rolling either side back to the previous release restores the single-token model
 
 ## Issue #520 - edge-secret injection and client X-Authentik-* stripping
 
-The nginx renderer (`scripts/operations/nginx_sea_speed_auth.py`) now codifies both live vhost contours:
+The nginx renderer (`scripts/operations/nginx_sea_speed_auth.py`) now codifies two vhost contours:
 
 - canonical `mostdef.ru` Authentik Forward Auth contour — renderer mode `authentik` (default), all previously pinned directives retained;
-- live browser front `3d.mostdef.ru` basic-auth contour — renderer mode `basic-auth`: `auth_basic "Valery Manager";` plus `auth_basic_user_file /etc/nginx/.htpasswd_3d;` in every `/sea-speed/**` location, no `auth_request`, no embedded outpost/global/fallback blocks, server-level directives (HSTS and alike) left untouched by the renderer. The exact-peer worker-private listener (allow `10.123.239.102` only, `limit_except` per endpoint, Authorization passthrough, loopback API origin) is parameterized as before and is codified for both contours.
+- recorded single-vhost basic-auth reference shape — renderer mode `basic-auth` (a generic renderer capability, not a description of any live vhost): `auth_basic "Valery Manager";` plus `auth_basic_user_file /etc/nginx/.htpasswd_3d;` in every `/sea-speed/**` location, no `auth_request`, no embedded outpost/global/fallback blocks, server-level directives (HSTS and alike) left untouched by the renderer. The exact-peer worker-private listener (allow `10.123.239.102` only, `limit_except` per endpoint, Authorization passthrough, loopback API origin) is parameterized as before and is codified for both contours. This shape is the canonical reference contour, built from recorded field facts — the recorded facts describe its shape; they are not a claim that it matches a live vhost.
+
+**Live-state note (2026-10-18, #520 comments 6235122283/6235163257):** the live `3d.mostdef.ru` vhost is a separate, active project — basic-auth in front of a worker-host FastAPI on port 8000, with no `/sea-speed/**` locations (FastAPI returns 404 on those paths). It is OUT of renderer scope and MUST NOT be codified or re-rendered by the sea-speed renderer; during #520 phase 2 the renderer refused it by design (inject-never-create, fail-closed). The `basic-auth` renderer mode above remains a generic capability and the shape above remains the canonical reference recorded for sea-speed contours.
 
 ### Edge-secret injection (both modes)
 
@@ -240,7 +242,7 @@ In `basic-auth` mode a re-render without `--worker-private-listen/--peer` retain
 
 ### Phase-2 ordering
 
-The edge include and the API env secret are operator-provisioned on the VPS. The rendered edge config must be applied (phase 2) BEFORE the API strict-mode env value is set and deployed (phase 3), per the #520 rollout order; setting the API secret first fails browser operator routes closed (403). The `3d.mostdef.ru` basic-auth codification is applied through the sysadmin lane (полоса C, ИБ-этап), not by the normal code deploy.
+The edge include and the API env secret are operator-provisioned on the VPS. The rendered edge config must be applied (phase 2) BEFORE the API strict-mode env value is set and deployed (phase 3), per the #520 rollout order: the `mostdef.ru` rendered locations went in first, and the edge secret was deployed before the env/strict cutover (phases 2→3); setting the API secret first fails browser operator routes closed (403). Any application of the basic-auth reference shape goes through the sysadmin lane (полоса C, ИБ-этап), not by the normal code deploy; the live `3d.mostdef.ru` vhost itself is a separate, active project and is not a renderer target (see the live-state note above).
 
 ## Issue #140 - production split nginx layout
 
