@@ -5,7 +5,8 @@ Runtime topology revision: #122
 Split nginx cutover remediation: #140  
 Browser auth routing remediation: #146  
 Session retention revision: #231  
-Worker control token separation: #393
+Worker control token separation: #393  
+Edge vhost codification and edge-secret injection: #520
 
 Sea Speed Auth v1 replaces the legacy browser Basic Auth/public camera contour with self-hosted Authentik Forward Auth. Issue #122 relocated Authentik and PostgreSQL from the undersized public VPS to the commissioned Ubuntu worker. Issue #140 makes the final cutover compatible with the production `mostdef.ru` split nginx layout. Issue #146 corrects the canonical-host and Forward Auth callback routing discovered during authenticated browser acceptance. Issue #231 extends the managed Sea Speed browser session to 30 days without changing roles, Owner TOTP, Forward Auth routing or analytics behavior. Runtime execution follows the current standing-production-delegation policy; this runbook does not itself grant runtime authority.
 
@@ -199,6 +200,45 @@ After both deploy jobs complete:
 ### Rollback semantics
 
 Rolling either side back to the previous release restores the single-token model that authenticates control with `SEA_SPEED_API_TOKEN`; because the ingestion token is unchanged, the previous code keeps working without any secret rotation. Leftover `SEA_SPEED_WORKER_CONTROL_TOKEN` environment entries and `control.env` are inert for the previous code and may be cleaned up afterwards. The new code never falls back to the ingestion token, so a partially provisioned state remains fail-closed instead of silently reverting to shared-token control.
+
+## Issue #520 - edge-secret injection and client X-Authentik-* stripping
+
+The nginx renderer (`scripts/operations/nginx_sea_speed_auth.py`) now codifies both live vhost contours:
+
+- canonical `mostdef.ru` Authentik Forward Auth contour — renderer mode `authentik` (default), all previously pinned directives retained;
+- live browser front `3d.mostdef.ru` basic-auth contour — renderer mode `basic-auth`: `auth_basic "Valery Manager";` plus `auth_basic_user_file /etc/nginx/.htpasswd_3d;` in every `/sea-speed/**` location, no `auth_request`, no embedded outpost/global/fallback blocks, server-level directives (HSTS and alike) left untouched by the renderer. The exact-peer worker-private listener (allow `10.123.239.102` only, `limit_except` per endpoint, Authorization passthrough, loopback API origin) is parameterized as before and is codified for both contours.
+
+### Edge-secret injection (both modes)
+
+Every `/sea-speed/**` location receives, inside the renderer-managed marker block:
+
+```nginx
+include /etc/nginx/snippets/sea-speed-edge-auth.conf;
+proxy_set_header X-Sea-Speed-Edge-Auth $edge_auth;
+```
+
+The include path is a renderer parameter (`--edge-auth-include`); the default is shown above. The renderer never contains, emits or reads a secret value. The variable is defined on-box by the operator-managed include file:
+
+```nginx
+set $edge_auth "<secret>";
+```
+
+Delivery pattern:
+
+- the include file lives OUTSIDE the repository, root-owned, mode `0600`;
+- it must be provisioned BEFORE the rendered candidate is applied: nginx `include` hard-fails (`nginx -t` and reload) when the referenced file is missing, so a missing secret fails closed instead of silently dropping the edge header;
+- the API-side contour (`SEA_SPEED_EDGE_AUTH_SECRET`, #520 PR-1) must hold the same secret value; the value itself never enters chat, Git, Issue evidence or renderer output.
+
+### Client identity stripping
+
+- `basic-auth` mode: every `/sea-speed/**` location blanks the full client header set (`X-authentik-username`, `X-authentik-groups`, `X-authentik-entitlements`, `X-authentik-email`, `X-authentik-name`, `X-authentik-uid` set to `""`), so a basic-auth holder cannot impersonate an Authentik identity to the API.
+- `authentik` mode: the existing `auth_request_set` plus `proxy_set_header X-authentik-* $authentik_*` overwrites already neutralize client-supplied values; the renderer does not duplicate blank strips there.
+
+The renderer's snippet materialization never expands or reads include directives inside renderer-managed marker blocks, so re-running the cutover against an already-rendered site cannot flatten the edge-secret file — and its value — into a candidate.
+
+### Phase-2 ordering
+
+The edge include and the API env secret are operator-provisioned on the VPS. The rendered edge config must be applied (phase 2) BEFORE the API strict-mode env value is set and deployed (phase 3), per the #520 rollout order; setting the API secret first fails browser operator routes closed (403). The `3d.mostdef.ru` basic-auth codification is applied through the sysadmin lane (полоса C, ИБ-этап), not by the normal code deploy.
 
 ## Issue #140 - production split nginx layout
 
