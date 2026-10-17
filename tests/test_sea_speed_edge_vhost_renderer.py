@@ -434,6 +434,37 @@ class SeaSpeedEdgeVhostRendererTests(unittest.TestCase):
         with self.assertRaises(nginxauth.ConfigError):
             self._verify_authentik(authentik_broken)
 
+    def test_verify_fail_matrix_missing_edge_injection_single_location_both_modes(self) -> None:
+        # Exactly one Sea Speed location loses the edge header while every
+        # other location keeps it: a whole-server containment check would
+        # still find the line elsewhere and stay silent, so this variant
+        # pins the per-location verify() walk.
+        broken = BASIC_AUTH_GOLDEN.replace("proxy_set_header X-Sea-Speed-Edge-Auth $edge_auth;\n", "", 1)
+        with self.assertRaises(nginxauth.ConfigError):
+            self._verify_basic_auth(broken)
+        authentik_broken = AUTHENTIK_GOLDEN.replace("proxy_set_header X-Sea-Speed-Edge-Auth $edge_auth;\n", "", 1)
+        with self.assertRaises(nginxauth.ConfigError):
+            self._verify_authentik(authentik_broken)
+
+    def test_verify_fail_matrix_missing_edge_include_single_location_both_modes(self) -> None:
+        broken = BASIC_AUTH_GOLDEN.replace(f"include {DEFAULT_EDGE_AUTH_INCLUDE};\n", "", 1)
+        with self.assertRaises(nginxauth.ConfigError):
+            self._verify_basic_auth(broken)
+        authentik_broken = AUTHENTIK_GOLDEN.replace(f"include {DEFAULT_EDGE_AUTH_INCLUDE};\n", "", 1)
+        with self.assertRaises(nginxauth.ConfigError):
+            self._verify_authentik(authentik_broken)
+
+    def test_verify_fail_matrix_wrong_edge_include_path_in_single_location_both_modes(self) -> None:
+        # A drifted include path in one location must also be rejected: the
+        # required include line is missing from that location's body even
+        # though every other location still carries the correct one.
+        broken = BASIC_AUTH_GOLDEN.replace(f"include {DEFAULT_EDGE_AUTH_INCLUDE};", f"include {CUSTOM_EDGE_AUTH_INCLUDE};", 1)
+        with self.assertRaises(nginxauth.ConfigError):
+            self._verify_basic_auth(broken)
+        authentik_broken = AUTHENTIK_GOLDEN.replace(f"include {DEFAULT_EDGE_AUTH_INCLUDE};", f"include {CUSTOM_EDGE_AUTH_INCLUDE};", 1)
+        with self.assertRaises(nginxauth.ConfigError):
+            self._verify_authentik(authentik_broken)
+
     def test_verify_fail_matrix_missing_strip_in_basic_auth_mode(self) -> None:
         broken = BASIC_AUTH_GOLDEN.replace('proxy_set_header X-authentik-entitlements "";\n', "")
         with self.assertRaises(nginxauth.ConfigError):

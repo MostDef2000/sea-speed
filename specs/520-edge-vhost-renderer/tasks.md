@@ -18,7 +18,7 @@
   deploy/vps/README.md provisioning note (include before candidate,
   fail-closed) (R-8)
 - [ ] T-004: SDD trio specs/520-edge-vhost-renderer/ + PR body with exact
-  seven-file Change Contract (impact VPS, Risk profile REQUIRED, no
+  eight-file Change Contract (impact VPS, Risk profile REQUIRED, no
   issue-closing reference) (R-8)
 - [ ] T-005: validators and CI — validate_sdd (event mode), validate_repo,
   validate_change_contract, focused suites + full battery green on the exact

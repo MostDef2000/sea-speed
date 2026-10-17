@@ -70,6 +70,10 @@ In scope (PR-2 renderer admission):
 - `deploy/vps/README.md`: edge-secret pair provisioning note (include file
   provisioned BEFORE any rendered candidate is applied; nginx fails closed
   when the include is missing).
+- `scripts/ci/validate_sdd.py`: the `"520"` entry in
+  `GRANDFATHERED_PREFIX_COLLISIONS` grandfathers the staged PR-1/PR-2 spec
+  dirs sharing the #520 issue prefix (orchestrator-owned change, mirrors the
+  396/397 staged-wave precedent).
 - `specs/520-edge-vhost-renderer/{spec,plan,tasks}.md`: this trio.
 
 Out of scope: basic-auth → Authentik forward-auth migration (owner model
@@ -127,7 +131,7 @@ block shape.
 - AC-003: verify fail matrix — verify rejects, in both modes, a missing edge include and a missing edge header per Sea Speed location; in basic-auth mode additionally a missing blank strip, a missing/drifted basic-auth pair and any `auth_request` usage; `verify` rejects cross-mode configs (basic-auth config verified as authentik and vice versa).
 - AC-004: worker-private pin — the rendered block matches the recorded live facts (listen/peer/loopback origin), exposes only the pinned endpoint list with per-endpoint `limit_except`, never exposes browser worker-control endpoints, and is verifiable in both modes.
 - AC-005: edge-secret discipline — the include path is a validated parameter (custom path renders and verifies; relative or space-bearing paths fail), renderer source and goldens contain no secret literal, no `set $edge_auth` and no `set $` assignment, and materialize over a tree containing a planted edge-secret snippet returns the config unchanged without reading the snippet.
-- AC-006: delivery hygiene — docs runbook gains the #520 edge-injection/stripping/phase-ordering section, deploy/vps/README.md gains the provisioning note, the CLI round-trip passes for both modes, existing regression suites (camera1 cutover, line-crossing endpoint pin) stay green, and the PR Change Contract matches the exact seven-file set with no issue-closing reference and no on-box action in repo scope.
+- AC-006: delivery hygiene — docs runbook gains the #520 edge-injection/stripping/phase-ordering section, deploy/vps/README.md gains the provisioning note, the CLI round-trip passes for both modes, existing regression suites (camera1 cutover, line-crossing endpoint pin) stay green, and the PR Change Contract matches the exact eight-file set with no issue-closing reference and no on-box action in repo scope.
 - AC-007: runtime-manual acceptance — after the phase-2 sysadmin transaction provisions the edge include and applies the rendered candidates on the VPS: `nginx -t` passes; browser basic-auth flow through `3d.mostdef.ru` works; authentik flow through `mostdef.ru` works; the API receives `X-Sea-Speed-Edge-Auth` on Sea Speed routes; a forged client `X-authentik-*` header is blanked at the edge; the worker-private listener behavior is unchanged. Evidence on #520 via the sysadmin session.
 
 ## NFR assessment

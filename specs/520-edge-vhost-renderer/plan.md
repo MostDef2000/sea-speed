@@ -88,7 +88,7 @@ edge-injection primitive instead of forking the renderer:
   `python3 scripts/ci/validate_change_contract.py --event <event.json>`.
 - Cross-check: every AC in tasks.md traceability maps to at least one TEST
   row and every TEST row is referenced by at least one AC.
-- PR Change Contract: exact seven-file match; impact VPS; Risk profile
+- PR Change Contract: exact eight-file match; impact VPS; Risk profile
   REQUIRED (security, HARDENING); no issue-closing reference in the PR; CI
   green on the exact head before merge.
 

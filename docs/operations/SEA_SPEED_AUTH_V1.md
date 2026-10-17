@@ -234,7 +234,9 @@ Delivery pattern:
 - `basic-auth` mode: every `/sea-speed/**` location blanks the full client header set (`X-authentik-username`, `X-authentik-groups`, `X-authentik-entitlements`, `X-authentik-email`, `X-authentik-name`, `X-authentik-uid` set to `""`), so a basic-auth holder cannot impersonate an Authentik identity to the API.
 - `authentik` mode: the existing `auth_request_set` plus `proxy_set_header X-authentik-* $authentik_*` overwrites already neutralize client-supplied values; the renderer does not duplicate blank strips there.
 
-The renderer's snippet materialization never expands or reads include directives inside renderer-managed marker blocks, so re-running the cutover against an already-rendered site cannot flatten the edge-secret file — and its value — into a candidate.
+The renderer's snippet materialization never expands or reads include directives inside renderer-managed marker blocks, so re-running the cutover against an already-rendered site cannot flatten the edge-secret file — and its value — into a candidate. Unlike the pre-#520 marker-agnostic behavior, `materialize` now fails closed (`incomplete managed marker pair`) on unbalanced renderer `SEA-SPEED-AUTH-V1-LOCATION` marker pairs instead of expanding includes across a broken marker span.
+
+In `basic-auth` mode a re-render without `--worker-private-listen/--peer` retains a pre-existing worker-private block (marker stripping is scoped to the target vhost server, so the standalone worker server survives; `authentik` mode strips it) — a rotated worker peer IP therefore requires an explicit re-render WITH the worker arguments.
 
 ### Phase-2 ordering
 
