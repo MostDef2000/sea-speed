@@ -3,7 +3,7 @@
 - Issue: #520
 
 Design + phase plan: issue comment 6217745201. This spec is the PR-2
-admission of #520 — the edge half (live vhost codification in the nginx
+admission of #520 — the edge half (vhost contour codification in the nginx
 renderer), per design comment item 2. The app-layer half (operator identity
 edge-secret enforcement at the API) already shipped as PR-1
 (`specs/520-operator-edge-auth/`, merged as `0a5d755`). Rollout phases 2-3
@@ -14,21 +14,33 @@ follows runtime acceptance after those phases, so this PR leaves #520 open.
 ## Product outcome
 
 The nginx renderer (`scripts/operations/nginx_sea_speed_auth.py`) codifies
-only the canonical Authentik Forward Auth contour (`mostdef.ru`). The live
-browser front `3d.mostdef.ru` (auth_basic "Valery Manager" +
-`/etc/nginx/.htpasswd_3d`, no `auth_request`) and its exact-peer
-worker-private listener exist only as hand-maintained VPS config, and the
-#520 edge-secret pair — an operator-managed include defining `$edge_auth`
-plus the `X-Sea-Speed-Edge-Auth` header injection the PR-1 API strict mode
-depends on — is codified nowhere. After this change the renderer codifies
-BOTH live vhost contours with the edge injection built in: mode `authentik`
-(default; previous output preserved byte-wise with two additive edge lines
-per `/sea-speed/**` location) and mode `basic-auth` (the live `3d.mostdef.ru`
-contour: canonical basic-auth pair, full client `X-authentik-*` blanking, no
+only the canonical Authentik Forward Auth contour (`mostdef.ru`). The
+single-vhost basic-auth browser-front reference shape (auth_basic
+"Valery Manager" + `/etc/nginx/.htpasswd_3d`, no `auth_request`) and its
+exact-peer worker-private listener existed only as hand-maintained VPS
+config built from recorded facts, and the #520 edge-secret pair — an
+operator-managed include defining `$edge_auth` plus the
+`X-Sea-Speed-Edge-Auth` header injection the PR-1 API strict mode depends
+on — is codified nowhere. After this change the renderer codifies BOTH
+contours with the edge injection built in: mode `authentik` (default;
+previous output preserved byte-wise with two additive edge lines
+per `/sea-speed/**` location) and mode `basic-auth` (the canonical
+single-vhost basic-auth reference contour built from recorded facts:
+canonical basic-auth pair, full client `X-authentik-*` blanking, no
 `auth_request`, no embedded outpost/global/fallback blocks, server-level
 directives untouched). The renderer still never contains, emits or reads a
 secret value: the edge include stays an operator-managed VPS file referenced
 by path only.
+
+Live-state note (2026-10-18, owner confirmation, #520 comments
+6235122283/6235163257): the live `3d.mostdef.ru` vhost is a separate, active
+project — basic-auth in front of a worker-host FastAPI on port 8000, with no
+`/sea-speed/**` locations (FastAPI returns 404 on those paths). It is OUT of
+renderer scope and MUST NOT be codified or re-rendered; during #520 phase 2
+the drift was discovered and the renderer refused it by design
+(inject-never-create, fail-closed), which was correct. The `basic-auth`
+renderer mode is a generic capability; the golden pins the canonical
+reference shape built from recorded facts, not a live-vhost claim.
 
 ## User scenarios
 
@@ -37,8 +49,9 @@ by path only.
   location additionally carries `include /etc/nginx/snippets/sea-speed-edge-auth.conf;`
   and `proxy_set_header X-Sea-Speed-Edge-Auth $edge_auth;` inside the
   renderer-managed marker block. Existing suites stay green unmodified.
-- Cutover operator, basic-auth contour: `--mode basic-auth` codifies the live
-  `3d.mostdef.ru` vhost — canonical `auth_basic "Valery Manager";` +
+- Cutover operator, basic-auth contour: `--mode basic-auth` renders the
+  canonical single-vhost basic-auth reference shape (built from recorded
+  facts) — canonical `auth_basic "Valery Manager";` +
   `auth_basic_user_file /etc/nginx/.htpasswd_3d;` in every `/sea-speed/**`
   location, client `X-authentik-*` blanked to `""`, the same edge injection,
   no `auth_request` machinery, HSTS and other server-level directives and
@@ -86,7 +99,9 @@ block shape.
 
 ## Requirements
 
-- R-1: basic-auth mode renders the live `3d.mostdef.ru` contour: every
+- R-1: basic-auth mode renders the canonical single-vhost basic-auth
+  reference contour (built from recorded facts; not a claim about any live
+  vhost): every
   `/sea-speed/**` location gets the canonical `auth_basic "Valery Manager";`
   + `auth_basic_user_file /etc/nginx/.htpasswd_3d;` pair inside a
   renderer-managed marker block, plus the edge injection; no `auth_request`,
@@ -126,7 +141,7 @@ block shape.
 
 ## Acceptance criteria
 
-- AC-001: basic-auth mode golden — `render(mode="basic-auth")` over the live `3d.mostdef.ru` source shape produces the pinned byte-exact config (canonical pair + edge injection + six blank `X-authentik-*` strips per location, worker-private block per recorded live facts), is idempotent, and leaves server-level directives (HSTS) and sibling servers' renderer blocks untouched.
+- AC-001: basic-auth mode golden — `render(mode="basic-auth")` over the recorded basic-auth reference source shape produces the pinned byte-exact config (canonical pair + edge injection + six blank `X-authentik-*` strips per location, worker-private block per recorded live facts), is idempotent, and leaves server-level directives (HSTS) and sibling servers' renderer blocks untouched. The golden pins the canonical reference contour built from recorded facts; the live `3d.mostdef.ru` vhost is a separate, active project, out of renderer scope (drift discovered during #520 phase 2, fail-closed refusal was correct).
 - AC-002: authentik golden — default-mode render produces the pinned byte-exact config with the two additive edge lines inside each `/sea-speed/**` marker block; the camera1 direct-h264 cutover suite passes unmodified.
 - AC-003: verify fail matrix — verify rejects, in both modes, a missing edge include and a missing edge header per Sea Speed location; in basic-auth mode additionally a missing blank strip, a missing/drifted basic-auth pair and any `auth_request` usage; `verify` rejects cross-mode configs (basic-auth config verified as authentik and vice versa).
 - AC-004: worker-private pin — the rendered block matches the recorded live facts (listen/peer/loopback origin), exposes only the pinned endpoint list with per-endpoint `limit_except`, never exposes browser worker-control endpoints, and is verifiable in both modes.
@@ -151,8 +166,11 @@ block shape.
   candidate is applied — phase 2 (edge) before phase 3 (API env + deploy),
   per the #520 rollout order; setting the API secret first fails browser
   operator routes closed (403) until the order is corrected.
-- The `3d.mostdef.ru` basic-auth codification is applied through the
-  sysadmin lane (полоса C, ИБ-этап), not the normal code deploy. Rollback on
+- Any application of the basic-auth reference-shape render is done through
+  the sysadmin lane (полоса C, ИБ-этап), not the normal code deploy; the
+  live `3d.mostdef.ru` vhost is a separate, active project, out of renderer
+  scope, and is never a render target (see the live-state note under Product
+  outcome). Rollback on
   the VPS: restore the pre-transaction vhost backup and reload (plan.md
   TX-008); the repo rollback target is reverting this PR's commit.
 - The renderer never learns the secret value; rotating the secret is an

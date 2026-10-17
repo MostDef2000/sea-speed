@@ -81,7 +81,7 @@ The deploy script deliberately separates these concerns:
 
 ```text
 API health proof:
-  http://127.0.0.1:8000/api/health
+  http://127.0.0.1:8010/api/health
   expected: successful FastAPI response
 
 Public private-surface smoke:
@@ -186,7 +186,7 @@ test -w /opt/sea-speed-api/app
 test -w /var/www/mostdef.ru
 test -w /var/www/mostdef.ru/sea-speed
 test -w /opt/sea-speed-deploy
-curl --fail --silent --show-error http://127.0.0.1:8000/api/health >/dev/null
+curl --fail --silent --show-error http://127.0.0.1:8010/api/health >/dev/null
 ```
 
 Verify that unrelated privileged commands are denied:
@@ -295,7 +295,7 @@ If the installer fails after mutation, its EXIT trap restores the previous helpe
 For a normal code deployment, verify at minimum:
 
 ```bash
-curl --fail --silent --show-error http://127.0.0.1:8000/api/health >/dev/null
+curl --fail --silent --show-error http://127.0.0.1:8010/api/health >/dev/null
 curl --fail --silent --show-error https://mostdef.ru/ >/dev/null
 systemctl status sea-speed-api --no-pager
 cat /opt/sea-speed-deploy/state/current-release
@@ -318,7 +318,7 @@ The deployment script supports these environment overrides when executed directl
 - `SEA_SPEED_CAMERAS_FRONTEND_TARGET`;
 - `SEA_SPEED_ROOT_FRONTEND_TARGET`;
 - `SEA_SPEED_SYSTEMCTL_BIN`;
-- `SEA_SPEED_ORIGIN_HEALTH_URL` — local FastAPI health proof, default `http://127.0.0.1:8000/api/health`;
+- `SEA_SPEED_ORIGIN_HEALTH_URL` — local FastAPI health proof, default `http://127.0.0.1:8010/api/health` (matches the deploy script default);
 - `SEA_SPEED_HEALTH_URL` — public `/sea-speed/api/health` security smoke URL;
 - `SEA_SPEED_FRONTEND_URL`;
 - `SEA_SPEED_OBJECTS_FRONTEND_URL`;
