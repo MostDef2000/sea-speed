@@ -27,8 +27,8 @@
 - [ ] Issue/spec/plan/tasks current
 - [ ] Exact changed-file scope verified
 - [ ] Required tests and evidence complete
-- [ ] Required CI green
-- [ ] Exact-green-head merge complete
+- [x] Required CI green — auto-synced on merge to main (0a5d7553)
+- [x] Exact-green-head merge complete — auto-synced on merge to main (0a5d7553)
 - [ ] Deployment state resolved (phases 2-3, runtime-manual)
 - [ ] Runtime acceptance resolved (AC-005)
 - [ ] Deferred work recorded (transitional-mode removal after phase 3;
