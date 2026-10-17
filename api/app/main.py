@@ -1010,58 +1010,77 @@ def delete_object(object_id: str) -> Dict[str, Any]:
 
 
 @app.get("/api/worker/control")
-def get_worker_control(x_authentik_username: Optional[str] = Header(None)) -> Dict[str, Any]:
-    username = require_operator_identity(x_authentik_username)
+def get_worker_control(
+    x_authentik_username: Optional[str] = Header(None),
+    x_sea_speed_edge_auth: Optional[str] = Header(None),
+) -> Dict[str, Any]:
+    username = require_operator_identity(x_authentik_username, x_sea_speed_edge_auth)
     payload = call_worker_control("GET", "/v1/status")
     payload["requested_by"] = username
     return payload
 
 
 @app.post("/api/worker/control/start")
-def start_worker_control(x_authentik_username: Optional[str] = Header(None)) -> Dict[str, Any]:
-    username = require_operator_identity(x_authentik_username)
+def start_worker_control(
+    x_authentik_username: Optional[str] = Header(None),
+    x_sea_speed_edge_auth: Optional[str] = Header(None),
+) -> Dict[str, Any]:
+    username = require_operator_identity(x_authentik_username, x_sea_speed_edge_auth)
     payload = call_worker_control("POST", "/v1/start")
     payload["requested_by"] = username
     return payload
 
 
 @app.post("/api/worker/control/stop")
-def stop_worker_control(x_authentik_username: Optional[str] = Header(None)) -> Dict[str, Any]:
-    username = require_operator_identity(x_authentik_username)
+def stop_worker_control(
+    x_authentik_username: Optional[str] = Header(None),
+    x_sea_speed_edge_auth: Optional[str] = Header(None),
+) -> Dict[str, Any]:
+    username = require_operator_identity(x_authentik_username, x_sea_speed_edge_auth)
     payload = call_worker_control("POST", "/v1/stop")
     payload["requested_by"] = username
     return payload
 
 
 @app.get("/api/worker/control/road1")
-def get_road_worker_control(x_authentik_username: Optional[str] = Header(None)) -> Dict[str, Any]:
-    username = require_operator_identity(x_authentik_username)
+def get_road_worker_control(
+    x_authentik_username: Optional[str] = Header(None),
+    x_sea_speed_edge_auth: Optional[str] = Header(None),
+) -> Dict[str, Any]:
+    username = require_operator_identity(x_authentik_username, x_sea_speed_edge_auth)
     payload = call_worker_control("GET", "/v1/road1/status")
     payload["requested_by"] = username
     return payload
 
 
 @app.post("/api/worker/control/road1/start")
-def start_road_worker_control(x_authentik_username: Optional[str] = Header(None)) -> Dict[str, Any]:
-    username = require_operator_identity(x_authentik_username)
+def start_road_worker_control(
+    x_authentik_username: Optional[str] = Header(None),
+    x_sea_speed_edge_auth: Optional[str] = Header(None),
+) -> Dict[str, Any]:
+    username = require_operator_identity(x_authentik_username, x_sea_speed_edge_auth)
     payload = call_worker_control("POST", "/v1/road1/start")
     payload["requested_by"] = username
     return payload
 
 
 @app.post("/api/worker/control/road1/stop")
-def stop_road_worker_control(x_authentik_username: Optional[str] = Header(None)) -> Dict[str, Any]:
-    username = require_operator_identity(x_authentik_username)
+def stop_road_worker_control(
+    x_authentik_username: Optional[str] = Header(None),
+    x_sea_speed_edge_auth: Optional[str] = Header(None),
+) -> Dict[str, Any]:
+    username = require_operator_identity(x_authentik_username, x_sea_speed_edge_auth)
     payload = call_worker_control("POST", "/v1/road1/stop")
     payload["requested_by"] = username
     return payload
 
 
 @app.get("/api/session")
-def get_session_identity(x_authentik_username: Optional[str] = Header(None)) -> Dict[str, Any]:
-    username = (x_authentik_username or "").strip()
-    if not username:
-        raise HTTPException(status_code=503, detail="Trusted Authentik identity is unavailable")
+def get_session_identity(
+    x_authentik_username: Optional[str] = Header(None),
+    x_sea_speed_edge_auth: Optional[str] = Header(None),
+) -> Dict[str, Any]:
+    username = require_operator_identity(x_authentik_username, x_sea_speed_edge_auth)
     return {"ok": True, "username": username}
 
 

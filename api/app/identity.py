@@ -13,9 +13,11 @@ direct-file loads), so ``main`` and ``identity`` always share one config
 module instance per process — no split-brain globals.
 """
 
+import hmac
 import http.client
 import ipaddress
 import json
+import logging
 import os
 import sys
 from datetime import datetime, timezone
@@ -31,6 +33,7 @@ try:  # package context (api.app.identity) and direct-file load both supported
         API_TOKEN,
         CAMERA_PREVIEW_RFC1918,
         DEPLOYED_COMMIT_FILE,
+        EDGE_AUTH_SECRET,
         SHA_RE,
         WORKER_CONTROL_PROTOCOL,
         WORKER_CONTROL_TIMEOUT_SEC,
@@ -45,6 +48,7 @@ except ImportError:  # direct uvicorn app-dir / spec_from_file_location executio
         API_TOKEN,
         CAMERA_PREVIEW_RFC1918,
         DEPLOYED_COMMIT_FILE,
+        EDGE_AUTH_SECRET,
         SHA_RE,
         WORKER_CONTROL_PROTOCOL,
         WORKER_CONTROL_TIMEOUT_SEC,
@@ -86,7 +90,42 @@ def require_auth(authorization: Optional[str]) -> None:
         raise HTTPException(status_code=403, detail="Forbidden")
 
 
-def require_operator_identity(x_authentik_username: Optional[str]) -> str:
+# Issue #520: module-level latch for the transitional-mode warning (one shot
+# per process) and the module logger. Both are private: never part of __all__.
+_LOGGER = logging.getLogger(__name__)
+_EDGE_AUTH_TRANSITIONAL_WARNING_EMITTED = False
+
+
+def require_operator_identity(
+    x_authentik_username: Optional[str],
+    x_sea_speed_edge_auth: Optional[str] = None,
+) -> str:
+    # Issue #520: strict mode (secret set) requires the edge-injected shared
+    # secret to match BEFORE any username handling, so a forged
+    # X-Authentik-Username reveals nothing. Transitional mode (secret
+    # unset/blank) keeps the legacy semantics byte-identical and warns once
+    # per process. The secret value is never logged or echoed.
+    global _EDGE_AUTH_TRANSITIONAL_WARNING_EMITTED
+    expected = EDGE_AUTH_SECRET.strip()
+    if expected:
+        # Compare UTF-8 bytes: hmac.compare_digest rejects non-ASCII str
+        # operands with TypeError, and the edge header is client-controlled —
+        # a forged value must surface as 403, never as a comparison crash.
+        provided = (x_sea_speed_edge_auth or "").encode("utf-8")
+        if not hmac.compare_digest(expected.encode("utf-8"), provided):
+            raise HTTPException(status_code=403, detail="Forbidden")
+    elif not _EDGE_AUTH_TRANSITIONAL_WARNING_EMITTED:
+        if EDGE_AUTH_SECRET:
+            _LOGGER.warning(
+                "SEA_SPEED_EDGE_AUTH_SECRET is set but blank: operator identity is "
+                "accepted without edge verification (transitional mode)"
+            )
+        else:
+            _LOGGER.warning(
+                "SEA_SPEED_EDGE_AUTH_SECRET is not set: operator identity is "
+                "accepted without edge verification (transitional mode)"
+            )
+        _EDGE_AUTH_TRANSITIONAL_WARNING_EMITTED = True
     username = (x_authentik_username or "").strip()
     if not username:
         raise HTTPException(status_code=503, detail="Trusted Authentik identity is unavailable")
