@@ -13,6 +13,15 @@ LOCATION_BEGIN = "# SEA-SPEED-AUTH-V1-LOCATION-BEGIN"
 LOCATION_END = "# SEA-SPEED-AUTH-V1-LOCATION-END"
 OLD_CAM1_BEGIN = "# SEA-SPEED-CAM1-DIRECT-H264-BEGIN"
 OLD_CAM1_END = "# SEA-SPEED-CAM1-DIRECT-H264-END"
+MODE_AUTHENTIK = "authentik"
+MODE_BASIC_AUTH = "basic-auth"
+RENDERER_MODES = (MODE_AUTHENTIK, MODE_BASIC_AUTH)
+BASIC_AUTH_REALM = "Valery Manager"
+BASIC_AUTH_USER_FILE = "/etc/nginx/.htpasswd_3d"
+DEFAULT_EDGE_AUTH_INCLUDE = "/etc/nginx/snippets/sea-speed-edge-auth.conf"
+EDGE_AUTH_HEADER = "X-Sea-Speed-Edge-Auth"
+EDGE_AUTH_VARIABLE = "edge_auth"
+AUTHENTIK_IDENTITY_FIELDS = ("username", "groups", "entitlements", "email", "name", "uid")
 AUTH_URI = "/outpost.goauthentik.io/auth/nginx"
 OUTPOST_PREFIX = "/outpost.goauthentik.io"
 SEA_SPEED_PREFIX = "/sea-speed"
@@ -148,6 +157,18 @@ def _is_sea_speed_include_path(raw: str) -> bool:
     return name.startswith("sea-speed-") and name.endswith(".conf")
 
 
+def _edge_auth_include(value: str) -> str:
+    raw = value.strip()
+    if not raw.startswith("/"): raise ConfigError("edge auth include path must be absolute")
+    if any(char in raw for char in " \t;'\"{}$*?["): raise ConfigError(f"edge auth include path must be a plain absolute path: {raw}")
+    if any(part == ".." for part in raw.split("/")): raise ConfigError(f"edge auth include path must not traverse: {raw}")
+    return raw
+
+
+def _edge_injection_lines(edge_auth_include: str) -> tuple[str, str]:
+    return (f"include {edge_auth_include};", f"proxy_set_header {EDGE_AUTH_HEADER} ${EDGE_AUTH_VARIABLE};")
+
+
 def verify_source_layout(text: str, host: str = "mostdef.ru") -> None:
     server_start, _, server_close = _server_for_host(text, host)
     server_text = text[server_start : server_close + 1]
@@ -158,6 +179,20 @@ def verify_source_layout(text: str, host: str = "mostdef.ru") -> None:
     raise ConfigError(f"target TLS server for {host} has no /sea-speed locations or direct Sea Speed snippet include")
 
 
+def _marker_spans(text: str, begin: str, end: str) -> list[tuple[int, int]]:
+    if text.count(begin) != text.count(end): raise ConfigError(f"incomplete managed marker pair: {begin}")
+    spans: list[tuple[int, int]] = []
+    index = 0
+    while True:
+        start = text.find(begin, index)
+        if start < 0: return spans
+        finish = text.find(end, start + len(begin))
+        if finish < 0: raise ConfigError(f"incomplete managed marker pair: {begin}")
+        finish += len(end)
+        spans.append((start, finish))
+        index = finish
+
+
 def materialize_sea_speed_includes(text: str, host: str = "mostdef.ru", include_root: str | Path = DEFAULT_SEA_SPEED_INCLUDE_ROOT) -> str:
     verify_source_layout(text, host)
     server_start, _, server_close = _server_for_host(text, host)
@@ -166,7 +201,12 @@ def materialize_sea_speed_includes(text: str, host: str = "mostdef.ru", include_
     except OSError as exc: raise ConfigError(f"Sea Speed include root is unavailable: {include_root}") from exc
     if not root.is_dir(): raise ConfigError(f"Sea Speed include root is not a directory: {root}")
     replacements: list[tuple[int, int, str]] = []
+    # Renderer-managed location blocks (including the operator-managed
+    # edge-auth secret include) are never expanded or read: their content is
+    # re-injected canonically by the auth renderer itself.
+    managed_spans = _marker_spans(server_text, LOCATION_BEGIN, LOCATION_END)
     for match in INCLUDE_DIRECTIVE_RE.finditer(server_text):
+        if any(start <= match.start() < finish for start, finish in managed_spans): continue
         raw = match.group("path")
         if not _is_sea_speed_include_path(raw): continue
         if any(char in raw for char in "*?["): raise ConfigError(f"wildcard Sea Speed include is not allowed: {raw}")
@@ -205,6 +245,19 @@ def _strip_marked_sections(text: str, begin: str, end: str) -> str:
     return text
 
 
+def _strip_marked_sections_in_server(text: str, host: str, begin: str, end: str) -> str:
+    # Marker removal scoped to the target host server only: a basic-auth
+    # vhost codification must never strip renderer blocks belonging to a
+    # different server (for example the canonical mostdef.ru contour) that
+    # lives in the same nginx source file.
+    while True:
+        server_start, _, server_close = _server_for_host(text, host)
+        server_text = text[server_start : server_close + 1]
+        if begin not in server_text and end not in server_text: return text
+        stripped = _strip_marked_sections(server_text, begin, end)
+        text = text[:server_start] + stripped + text[server_close + 1 :]
+
+
 def _indent_at(text: str, index: int) -> str:
     line_start = text.rfind("\n", 0, index) + 1
     match = re.match(r"[ \t]*", text[line_start:index])
@@ -238,9 +291,20 @@ def _strip_basic_auth(body: str) -> str:
     return body.lstrip("\n")
 
 
-def _auth_location_snippet(indent: str) -> str:
+def _auth_location_snippet(indent: str, edge_auth_include: str) -> str:
     inner = indent + "    "
-    lines = [inner + LOCATION_BEGIN, inner + f"auth_request {AUTH_URI};", inner + "error_page 401 = @goauthentik_proxy_signin;", inner + f"error_page 500 =503 {FALLBACK_URI};", inner + "auth_request_set $auth_cookie $upstream_http_set_cookie;", inner + "add_header Set-Cookie $auth_cookie;", inner + "auth_request_set $authentik_username $upstream_http_x_authentik_username;", inner + "auth_request_set $authentik_groups $upstream_http_x_authentik_groups;", inner + "auth_request_set $authentik_entitlements $upstream_http_x_authentik_entitlements;", inner + "auth_request_set $authentik_email $upstream_http_x_authentik_email;", inner + "auth_request_set $authentik_name $upstream_http_x_authentik_name;", inner + "auth_request_set $authentik_uid $upstream_http_x_authentik_uid;", inner + "proxy_set_header X-authentik-username $authentik_username;", inner + "proxy_set_header X-authentik-groups $authentik_groups;", inner + "proxy_set_header X-authentik-entitlements $authentik_entitlements;", inner + "proxy_set_header X-authentik-email $authentik_email;", inner + "proxy_set_header X-authentik-name $authentik_name;", inner + "proxy_set_header X-authentik-uid $authentik_uid;", inner + LOCATION_END]
+    include_line, edge_header_line = _edge_injection_lines(edge_auth_include)
+    lines = [inner + LOCATION_BEGIN, inner + include_line, inner + f"auth_request {AUTH_URI};", inner + "error_page 401 = @goauthentik_proxy_signin;", inner + f"error_page 500 =503 {FALLBACK_URI};", inner + "auth_request_set $auth_cookie $upstream_http_set_cookie;", inner + "add_header Set-Cookie $auth_cookie;", inner + "auth_request_set $authentik_username $upstream_http_x_authentik_username;", inner + "auth_request_set $authentik_groups $upstream_http_x_authentik_groups;", inner + "auth_request_set $authentik_entitlements $upstream_http_x_authentik_entitlements;", inner + "auth_request_set $authentik_email $upstream_http_x_authentik_email;", inner + "auth_request_set $authentik_name $upstream_http_x_authentik_name;", inner + "auth_request_set $authentik_uid $upstream_http_x_authentik_uid;", inner + edge_header_line, inner + "proxy_set_header X-authentik-username $authentik_username;", inner + "proxy_set_header X-authentik-groups $authentik_groups;", inner + "proxy_set_header X-authentik-entitlements $authentik_entitlements;", inner + "proxy_set_header X-authentik-email $authentik_email;", inner + "proxy_set_header X-authentik-name $authentik_name;", inner + "proxy_set_header X-authentik-uid $authentik_uid;", inner + LOCATION_END]
+    return "\n" + "\n".join(lines) + "\n"
+
+
+def _basic_auth_location_snippet(indent: str, edge_auth_include: str) -> str:
+    inner = indent + "    "
+    include_line, edge_header_line = _edge_injection_lines(edge_auth_include)
+    lines = [inner + LOCATION_BEGIN, inner + f'auth_basic "{BASIC_AUTH_REALM}";', inner + f"auth_basic_user_file {BASIC_AUTH_USER_FILE};", inner + include_line, inner + edge_header_line]
+    for field in AUTHENTIK_IDENTITY_FIELDS:
+        lines.append(inner + f'proxy_set_header X-authentik-{field} "";')
+    lines.append(inner + LOCATION_END)
     return "\n" + "\n".join(lines) + "\n"
 
 
@@ -250,7 +314,8 @@ def _fallback_block(indent: str) -> str:
     return "\n".join(lines)
 
 
-def _inject_location_auth(text: str, host: str) -> str:
+def _inject_location_auth(text: str, host: str, mode: str = MODE_AUTHENTIK, edge_auth_include: str = DEFAULT_EDGE_AUTH_INCLUDE) -> str:
+    edge = _edge_auth_include(edge_auth_include)
     server_start, _, server_close = _server_for_host(text, host)
     server_text = text[server_start : server_close + 1]
     targets = []
@@ -263,7 +328,8 @@ def _inject_location_auth(text: str, host: str) -> str:
         global_close = server_start + close_index
         body = _strip_basic_auth(text[global_open + 1 : global_close])
         indent = _indent_at(text, server_start + start)
-        replacement = _auth_location_snippet(indent) + body
+        snippet = _basic_auth_location_snippet(indent, edge) if mode == MODE_BASIC_AUTH else _auth_location_snippet(indent, edge)
+        replacement = snippet + body
         text = text[: global_open + 1] + replacement + text[global_close:]
     return text
 
@@ -333,79 +399,106 @@ def _worker_private_block(listen: str, peer: str, api_origin: str) -> str:
     return "\n".join(lines)
 
 
-def render(text: str, host: str = "mostdef.ru", worker_private_listen: str | None = None, worker_private_peer: str | None = None, authentik_upstream: str = DEFAULT_AUTHENTIK_UPSTREAM) -> str:
+def render(text: str, host: str = "mostdef.ru", worker_private_listen: str | None = None, worker_private_peer: str | None = None, authentik_upstream: str = DEFAULT_AUTHENTIK_UPSTREAM, mode: str = MODE_AUTHENTIK, edge_auth_include: str = DEFAULT_EDGE_AUTH_INCLUDE) -> str:
+    if mode not in RENDERER_MODES: raise ConfigError(f"unknown renderer mode: {mode}")
+    edge = _edge_auth_include(edge_auth_include)
     origin = _authentik_upstream(authentik_upstream)
     if (worker_private_listen is None) != (worker_private_peer is None): raise ConfigError("worker private listen and peer must be supplied together")
     want_worker = worker_private_listen is not None
     has_worker = WORKER_BEGIN in text or WORKER_END in text
-    if GLOBAL_BEGIN in text and GLOBAL_END in text and has_worker == want_worker and FALLBACK_BEGIN in text and FALLBACK_END in text:
+    if mode == MODE_AUTHENTIK:
+        canonical = GLOBAL_BEGIN in text and GLOBAL_END in text and has_worker == want_worker and FALLBACK_BEGIN in text and FALLBACK_END in text
+    else:
+        canonical = LOCATION_BEGIN in text and LOCATION_END in text and has_worker == want_worker
+    if canonical:
         try:
-            verify(text, host, worker_private_listen=worker_private_listen, worker_private_peer=worker_private_peer, authentik_upstream=origin)
+            verify(text, host, worker_private_listen=worker_private_listen, worker_private_peer=worker_private_peer, authentik_upstream=origin, mode=mode, edge_auth_include=edge)
             return text
         except ConfigError: pass
-    text = _strip_marked_sections(text, GLOBAL_BEGIN, GLOBAL_END)
-    text = _strip_marked_sections(text, WORKER_BEGIN, WORKER_END)
-    text = _strip_marked_sections(text, LOCATION_BEGIN, LOCATION_END)
-    text = _strip_marked_sections(text, FALLBACK_BEGIN, FALLBACK_END)
-    if OLD_CAM1_BEGIN in text or OLD_CAM1_END in text: text = _strip_marked_sections(text, OLD_CAM1_BEGIN, OLD_CAM1_END)
-    text = _strip_legacy_locations(text, host)
-    text = _inject_location_auth(text, host)
-    server_start, _, server_close = _server_for_host(text, host)
-    server_text = text[server_start : server_close + 1]
-    sea_locations = [(start, spec) for spec, start, _open_index, _close_index in _location_blocks(server_text) if (_location_uri(spec) == SEA_SPEED_PREFIX or _location_uri(spec).startswith(SEA_SPEED_PREFIX + "/"))]
-    if not sea_locations: raise ConfigError("no /sea-speed location after auth injection")
-    insert_at = server_start + min(start for start, _spec in sea_locations)
-    indent = _indent_at(text, insert_at)
-    text = text[:insert_at] + _global_block(indent, origin, host) + _fallback_block(indent) + text[insert_at:]
+    if mode == MODE_AUTHENTIK:
+        text = _strip_marked_sections(text, GLOBAL_BEGIN, GLOBAL_END)
+        text = _strip_marked_sections(text, WORKER_BEGIN, WORKER_END)
+        text = _strip_marked_sections(text, LOCATION_BEGIN, LOCATION_END)
+        text = _strip_marked_sections(text, FALLBACK_BEGIN, FALLBACK_END)
+        if OLD_CAM1_BEGIN in text or OLD_CAM1_END in text: text = _strip_marked_sections(text, OLD_CAM1_BEGIN, OLD_CAM1_END)
+        text = _strip_legacy_locations(text, host)
+    else:
+        # Basic-auth codification stays inside the target vhost: renderer
+        # markers of any other server in the same source file are untouched.
+        text = _strip_marked_sections_in_server(text, host, GLOBAL_BEGIN, GLOBAL_END)
+        text = _strip_marked_sections_in_server(text, host, WORKER_BEGIN, WORKER_END)
+        text = _strip_marked_sections_in_server(text, host, LOCATION_BEGIN, LOCATION_END)
+        text = _strip_marked_sections_in_server(text, host, FALLBACK_BEGIN, FALLBACK_END)
+        if OLD_CAM1_BEGIN in text or OLD_CAM1_END in text: text = _strip_marked_sections_in_server(text, host, OLD_CAM1_BEGIN, OLD_CAM1_END)
+    text = _inject_location_auth(text, host, mode=mode, edge_auth_include=edge)
+    if mode == MODE_AUTHENTIK:
+        server_start, _, server_close = _server_for_host(text, host)
+        server_text = text[server_start : server_close + 1]
+        sea_locations = [(start, spec) for spec, start, _open_index, _close_index in _location_blocks(server_text) if (_location_uri(spec) == SEA_SPEED_PREFIX or _location_uri(spec).startswith(SEA_SPEED_PREFIX + "/"))]
+        if not sea_locations: raise ConfigError("no /sea-speed location after auth injection")
+        insert_at = server_start + min(start for start, _spec in sea_locations)
+        indent = _indent_at(text, insert_at)
+        text = text[:insert_at] + _global_block(indent, origin, host) + _fallback_block(indent) + text[insert_at:]
     if worker_private_listen and worker_private_peer:
         server_start, _, server_close = _server_for_host(text, host)
         server_text = text[server_start : server_close + 1]
         api_origin = _api_origin(server_text)
         insert_worker_at = server_close + 1
         text = text[:insert_worker_at] + "\n" + _worker_private_block(worker_private_listen, worker_private_peer, api_origin) + text[insert_worker_at:]
-    verify(text, host, worker_private_listen=worker_private_listen, worker_private_peer=worker_private_peer, authentik_upstream=origin)
+    verify(text, host, worker_private_listen=worker_private_listen, worker_private_peer=worker_private_peer, authentik_upstream=origin, mode=mode, edge_auth_include=edge)
     return text
 
 
-def verify(text: str, host: str = "mostdef.ru", worker_private_listen: str | None = None, worker_private_peer: str | None = None, authentik_upstream: str = DEFAULT_AUTHENTIK_UPSTREAM) -> None:
+def verify(text: str, host: str = "mostdef.ru", worker_private_listen: str | None = None, worker_private_peer: str | None = None, authentik_upstream: str = DEFAULT_AUTHENTIK_UPSTREAM, mode: str = MODE_AUTHENTIK, edge_auth_include: str = DEFAULT_EDGE_AUTH_INCLUDE) -> None:
+    if mode not in RENDERER_MODES: raise ConfigError(f"unknown renderer mode: {mode}")
+    edge = _edge_auth_include(edge_auth_include)
+    # The Authentik upstream stays validated in both modes (fail-closed on
+    # malformed parameters) even though basic-auth codification never uses it.
     origin = _authentik_upstream(authentik_upstream)
     server_start, _, server_close = _server_for_host(text, host)
     server_text = text[server_start : server_close + 1]
-    if server_text.count(GLOBAL_BEGIN) != 1 or server_text.count(GLOBAL_END) != 1: raise ConfigError("global Sea Speed Auth v1 block missing or duplicated")
-    if server_text.count(FALLBACK_BEGIN) != 1 or server_text.count(FALLBACK_END) != 1: raise ConfigError("fallback Sea Speed outage page block missing or duplicated")
-    canonical_if = f"if ($host = www.{host}) {{"; canonical_return = f"return 308 https://{host}$request_uri;"
-    if server_text.count(canonical_if) != 1 or server_text.count(canonical_return) != 1: raise ConfigError("canonical www host redirect missing or duplicated")
-    if f"proxy_pass {origin}{OUTPOST_PREFIX};" not in server_text: raise ConfigError("embedded Authentik outpost proxy missing or wrong private origin")
-    if "location @goauthentik_proxy_signin" not in server_text: raise ConfigError("Authentik signin location missing")
-    fallback_expected = f"location = {FALLBACK_URI} {{"
-    if fallback_expected not in server_text: raise ConfigError("fallback Sea Speed outage location missing")
-    if "internal;" not in server_text or f"root {FALLBACK_ROOT};" not in server_text: raise ConfigError("fallback outage location must be internal with VPS-local root")
-    if 'add_header Cache-Control "no-store" always;' not in server_text: raise ConfigError("fallback outage location must use Cache-Control no-store")
-    if 'add_header Retry-After "30" always;' not in server_text: raise ConfigError("fallback outage location must set Retry-After")
+    if mode == MODE_AUTHENTIK:
+        if server_text.count(GLOBAL_BEGIN) != 1 or server_text.count(GLOBAL_END) != 1: raise ConfigError("global Sea Speed Auth v1 block missing or duplicated")
+        if server_text.count(FALLBACK_BEGIN) != 1 or server_text.count(FALLBACK_END) != 1: raise ConfigError("fallback Sea Speed outage page block missing or duplicated")
+        canonical_if = f"if ($host = www.{host}) {{"; canonical_return = f"return 308 https://{host}$request_uri;"
+        if server_text.count(canonical_if) != 1 or server_text.count(canonical_return) != 1: raise ConfigError("canonical www host redirect missing or duplicated")
+        if f"proxy_pass {origin}{OUTPOST_PREFIX};" not in server_text: raise ConfigError("embedded Authentik outpost proxy missing or wrong private origin")
+        if "location @goauthentik_proxy_signin" not in server_text: raise ConfigError("Authentik signin location missing")
+        fallback_expected = f"location = {FALLBACK_URI} {{"
+        if fallback_expected not in server_text: raise ConfigError("fallback Sea Speed outage location missing")
+        if "internal;" not in server_text or f"root {FALLBACK_ROOT};" not in server_text: raise ConfigError("fallback outage location must be internal with VPS-local root")
+        if 'add_header Cache-Control "no-store" always;' not in server_text: raise ConfigError("fallback outage location must use Cache-Control no-store")
+        if 'add_header Retry-After "30" always;' not in server_text: raise ConfigError("fallback outage location must set Retry-After")
     sea_count = cams_count = outpost_count = 0
     for spec, _start, open_index, close_index in _location_blocks(server_text):
         uri = _location_uri(spec); body = server_text[open_index + 1 : close_index]
-        if uri == FALLBACK_URI:
+        if mode == MODE_AUTHENTIK and uri == FALLBACK_URI:
             if "internal;" not in body: raise ConfigError("fallback outage location must be internal")
             continue
-        if uri == OUTPOST_PREFIX:
+        if mode == MODE_AUTHENTIK and uri == OUTPOST_PREFIX:
             outpost_count += 1
             if f"proxy_pass {origin}{OUTPOST_PREFIX};" not in body: raise ConfigError("root Authentik outpost proxy uses wrong private origin")
             if "auth_request " in body or "error_page 401" in body: raise ConfigError("root Authentik outpost must not recursively require auth")
         if uri.startswith(SEA_SPEED_PREFIX + OUTPOST_PREFIX): raise ConfigError("prefixed Authentik outpost location is not allowed")
         if uri == SEA_SPEED_PREFIX or uri.startswith(SEA_SPEED_PREFIX + "/"):
             sea_count += 1
-            required = (f"auth_request {AUTH_URI};", "error_page 401 = @goauthentik_proxy_signin;", f"error_page 500 =503 {FALLBACK_URI};", "proxy_set_header X-authentik-username $authentik_username;", "proxy_set_header X-authentik-groups $authentik_groups;", "proxy_set_header X-authentik-email $authentik_email;", "proxy_set_header X-authentik-uid $authentik_uid;")
+            if mode == MODE_AUTHENTIK:
+                required = (f"auth_request {AUTH_URI};", "error_page 401 = @goauthentik_proxy_signin;", f"error_page 500 =503 {FALLBACK_URI};", "proxy_set_header X-authentik-username $authentik_username;", "proxy_set_header X-authentik-groups $authentik_groups;", "proxy_set_header X-authentik-email $authentik_email;", "proxy_set_header X-authentik-uid $authentik_uid;")
+            else:
+                required = (f'auth_basic "{BASIC_AUTH_REALM}";', f"auth_basic_user_file {BASIC_AUTH_USER_FILE};")
+                required += tuple(f'proxy_set_header X-authentik-{field} "";' for field in AUTHENTIK_IDENTITY_FIELDS)
+                if "auth_request " in body: raise ConfigError(f"basic-auth Sea Speed location {spec} must not use auth_request")
+            required += _edge_injection_lines(edge)
             for marker in required:
                 if marker not in body: raise ConfigError(f"unprotected Sea Speed location {spec}: missing {marker}")
-            if "auth_basic " in body or "auth_basic_user_file " in body: raise ConfigError(f"legacy Basic Auth remains in Sea Speed location {spec}")
-        if uri == LEGACY_CAMS_PREFIX or uri.startswith(LEGACY_CAMS_PREFIX + "/"):
+            if mode == MODE_AUTHENTIK and ("auth_basic " in body or "auth_basic_user_file " in body): raise ConfigError(f"legacy Basic Auth remains in Sea Speed location {spec}")
+        if mode == MODE_AUTHENTIK and (uri == LEGACY_CAMS_PREFIX or uri.startswith(LEGACY_CAMS_PREFIX + "/")):
             cams_count += 1
             if "return 404;" not in body or "proxy_pass" in body: raise ConfigError(f"legacy cams location is not retired: {spec}")
-    if outpost_count != 1: raise ConfigError(f"expected exactly one root Authentik outpost location, found {outpost_count}")
+    if mode == MODE_AUTHENTIK and outpost_count != 1: raise ConfigError(f"expected exactly one root Authentik outpost location, found {outpost_count}")
     if sea_count < 1: raise ConfigError("no protected Sea Speed locations found")
-    if cams_count != 2: raise ConfigError(f"expected exactly two deny-only /cams locations, found {cams_count}")
-    if "/cams/hls/cam1/" in server_text: raise ConfigError("legacy Camera 1 browser path remains in nginx server")
+    if mode == MODE_AUTHENTIK and cams_count != 2: raise ConfigError(f"expected exactly two deny-only /cams locations, found {cams_count}")
+    if mode == MODE_AUTHENTIK and "/cams/hls/cam1/" in server_text: raise ConfigError("legacy Camera 1 browser path remains in nginx server")
     if worker_private_listen or worker_private_peer:
         if not worker_private_listen or not worker_private_peer: raise ConfigError("worker private listen and peer must be supplied together")
         expected = _worker_private_block(worker_private_listen, worker_private_peer, _api_origin(server_text)).strip()
@@ -419,15 +512,16 @@ def main() -> int:
     parser.add_argument("command", choices=("render", "verify", "materialize", "source-check"))
     parser.add_argument("--config", required=True); parser.add_argument("--output"); parser.add_argument("--host", default="mostdef.ru")
     parser.add_argument("--include-root", default=str(DEFAULT_SEA_SPEED_INCLUDE_ROOT)); parser.add_argument("--worker-private-listen"); parser.add_argument("--worker-private-peer"); parser.add_argument("--authentik-upstream", default=DEFAULT_AUTHENTIK_UPSTREAM)
+    parser.add_argument("--mode", choices=RENDERER_MODES, default=MODE_AUTHENTIK); parser.add_argument("--edge-auth-include", default=DEFAULT_EDGE_AUTH_INCLUDE)
     args = parser.parse_args(); source = Path(args.config); text = source.read_text(encoding="utf-8")
     if args.command == "source-check": verify_source_layout(text, args.host); print("SEA_SPEED_AUTH_SOURCE_LAYOUT=PASS"); return 0
     if args.command == "materialize":
         if not args.output: parser.error("materialize requires --output")
         materialized = materialize_sea_speed_includes(text, args.host, include_root=args.include_root); Path(args.output).write_text(materialized, encoding="utf-8"); print("SEA_SPEED_AUTH_INCLUDE_MATERIALIZE=PASS"); return 0
     if args.command == "verify":
-        verify(text, args.host, worker_private_listen=args.worker_private_listen, worker_private_peer=args.worker_private_peer, authentik_upstream=args.authentik_upstream); print("SEA_SPEED_AUTH_CONFIG=PASS"); return 0
+        verify(text, args.host, worker_private_listen=args.worker_private_listen, worker_private_peer=args.worker_private_peer, authentik_upstream=args.authentik_upstream, mode=args.mode, edge_auth_include=args.edge_auth_include); print("SEA_SPEED_AUTH_CONFIG=PASS"); return 0
     if not args.output: parser.error("render requires --output")
-    rendered = render(text, args.host, worker_private_listen=args.worker_private_listen, worker_private_peer=args.worker_private_peer, authentik_upstream=args.authentik_upstream)
+    rendered = render(text, args.host, worker_private_listen=args.worker_private_listen, worker_private_peer=args.worker_private_peer, authentik_upstream=args.authentik_upstream, mode=args.mode, edge_auth_include=args.edge_auth_include)
     Path(args.output).write_text(rendered, encoding="utf-8"); print("SEA_SPEED_AUTH_RENDER=PASS"); return 0
 
 

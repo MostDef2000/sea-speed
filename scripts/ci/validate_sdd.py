@@ -68,6 +68,14 @@ GRANDFATHERED_PREFIX_COLLISIONS = {
         "397-wave8-worker-tracking",
         "397-wave9-worker-roi",
     },
+    # Issue #520 ships as staged PRs under one issue number (PR-1 app-layer
+    # edge enforcement, PR-2 edge vhost renderer codification per the design
+    # comment 6217745201); the PR set shares the 520 prefix by design — same
+    # staged-wave precedent as 396/397.
+    "520": {
+        "520-operator-edge-auth",
+        "520-edge-vhost-renderer",
+    },
 }
 
 SIGNIFICANT_PREFIXES = (

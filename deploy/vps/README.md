@@ -55,6 +55,8 @@ The API reads its secrets from the operator-managed service environment, never f
 
 Deployments never overwrite operator-managed `.env` files or environment configuration: a code deploy replaces application files only and any existing operator-set values remain in force. Provision `SEA_SPEED_WORKER_CONTROL_TOKEN` before deploying the issue #393 code, keep it a distinct value (never a copy of `SEA_SPEED_API_TOKEN`), store it root-owned with mode 0600, and never commit it. The worker-side counterpart (`/opt/sea-speed-worker/control.env`) and the cutover/rollback semantics are documented in `docs/operations/SEA_SPEED_AUTH_V1.md`.
 
+Issue #520 adds the edge-secret pair for operator-identity enforcement: the API environment value `SEA_SPEED_EDGE_AUTH_SECRET` and the nginx-side edge injection include (default `/etc/nginx/snippets/sea-speed-edge-auth.conf`, rendered as `include <path>;` with `proxy_set_header X-Sea-Speed-Edge-Auth $edge_auth;`). The include file is operator-managed — root-owned, mode 0600, outside this repository — and must be provisioned BEFORE any rendered nginx candidate is applied, because the rendered configuration references the path and nginx fails closed when an include file is missing. The delivery pattern and phase ordering are documented in `docs/operations/SEA_SPEED_AUTH_V1.md` (issue #520 section).
+
 Issue #115 adds a separate, explicitly production-gated nginx/Auth deployment helper: `deploy/vps/sea-speed-auth-cutover.sh`. It is not invoked by the normal code deployment workflow. See `docs/operations/SEA_SPEED_AUTH_V1.md`.
 
 Data backups remain a separate operation required only before schema migrations, destructive data changes or explicitly risky infrastructure work.
