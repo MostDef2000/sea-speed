@@ -69,7 +69,54 @@ def load_require_operator_identity():
     return namespace
 
 
-def load_session_identity_function(require_operator_identity=None):
+def load_identity_role_policy(admin_users=None, operator_users=None):
+    """AST-extract the #530 role resolver from identity.py (issue #530).
+
+    Same import-free contract as ``load_require_operator_identity``: the
+    session route now calls ``resolve_role`` after identity, so the pin
+    harness binds the REAL resolver with env overrides injected as
+    frozensets (config's import-time lists; importing config would create
+    /opt state absent here).
+    """
+    tree = ast.parse(IDENTITY_SOURCE.read_text(encoding="utf-8-sig"), filename=str(IDENTITY_SOURCE))
+    functions = {"resolve_role"}
+    assigns = {
+        "AUTHENTIK_GROUP_OWNER",
+        "AUTHENTIK_GROUP_ADMIN",
+        "AUTHENTIK_GROUP_OPERATOR",
+        "AUTHENTIK_GROUP_VIEWER",
+        "_GROUP_ROLES",
+        "_ROLE_RANK",
+    }
+    body = []
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef) and node.name in functions:
+            body.append(copy.deepcopy(node))
+        elif (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and node.targets[0].id in assigns
+        ):
+            body.append(copy.deepcopy(node))
+    if len(body) < len(functions) + len(assigns):
+        raise AssertionError(f"missing role policy symbols in identity.py: {len(body)} nodes")
+    module = ast.Module(body=body, type_ignores=[])
+    ast.fix_missing_locations(module)
+    namespace: dict[str, Any] = {
+        "Any": Any,
+        "Dict": Dict,
+        "Optional": Optional,
+        "ADMIN_USERS": frozenset(admin_users or ()),
+        "OPERATOR_USERS": frozenset(operator_users or ()),
+    }
+    exec(compile(module, str(IDENTITY_SOURCE), "exec"), namespace)
+    return namespace
+
+
+def load_session_identity_function(
+    require_operator_identity=None, admin_users=None, operator_users=None
+):
     tree = ast.parse(SOURCE.read_text(encoding="utf-8-sig"), filename=str(SOURCE))
     selected = None
     for node in tree.body:
@@ -88,6 +135,7 @@ def load_session_identity_function(require_operator_identity=None):
         require_operator_identity = load_require_operator_identity()[
             "require_operator_identity"
         ]
+    role_policy = load_identity_role_policy(admin_users, operator_users)
     namespace: dict[str, Any] = {
         "Any": Any,
         "Dict": Dict,
@@ -95,6 +143,7 @@ def load_session_identity_function(require_operator_identity=None):
         "HTTPException": HTTPExceptionStub,
         "Header": lambda default=None: default,
         "require_operator_identity": require_operator_identity,
+        "resolve_role": role_policy["resolve_role"],
     }
     exec(compile(module, str(SOURCE), "exec"), namespace)
     return namespace["get_session_identity"]
@@ -129,9 +178,37 @@ class AuthSessionIdentityTests(EdgeSecretEnvMixin, unittest.TestCase):
     def test_returns_only_trimmed_trusted_username(self) -> None:
         self._set_edge_secret_env(None)  # transitional mode regardless of shell exports
         get_session_identity = load_session_identity_function()
+        # Issue #530: exact shape is additive — role joins; no groups/override
+        # claims are exposed (spec Session contract).
         self.assertEqual(
             get_session_identity("  owner@example.test  "),
-            {"ok": True, "username": "owner@example.test"},
+            {"ok": True, "username": "owner@example.test", "role": "viewer"},
+        )
+
+    def test_session_reports_resolved_role_without_privilege_minimum(self) -> None:
+        # Issue #530: session adds exactly the role field; no operator/admin
+        # minimum is enforced on the read (spec: worker-status/session keep
+        # identity checks only).
+        self._set_edge_secret_env(None)
+        for groups, expected_role in (
+            ("Sea Speed Admin", "admin"),
+            ("Sea Speed Owner", "admin"),
+            ("Sea Speed Operator", "operator"),
+            ("Sea Speed Viewer", "viewer"),
+            ("Unknown Group", "viewer"),
+            (None, "viewer"),
+        ):
+            with self.subTest(groups=groups):
+                get_session_identity = load_session_identity_function()
+                self.assertEqual(
+                    get_session_identity("user@example.test", None, groups),
+                    {"ok": True, "username": "user@example.test", "role": expected_role},
+                )
+        # Env override is honored by the session too (same resolver).
+        get_session_identity = load_session_identity_function(admin_users=["boss@example.test"])
+        self.assertEqual(
+            get_session_identity("boss@example.test", None, None),
+            {"ok": True, "username": "boss@example.test", "role": "admin"},
         )
 
     def test_missing_or_blank_trusted_username_fails_closed(self) -> None:
@@ -289,7 +366,7 @@ class OperatorEdgeAuthTests(EdgeSecretEnvMixin):
         get_session_identity = load_session_identity_function(require_operator_identity)
         self.assertEqual(
             get_session_identity("  owner@example.test  ", STRICT_EDGE_FIXTURE),
-            {"ok": True, "username": "owner@example.test"},
+            {"ok": True, "username": "owner@example.test", "role": "viewer"},
         )
         self.assertEqual(
             require_operator_identity("  owner@example.test  ", STRICT_EDGE_FIXTURE),
@@ -312,15 +389,16 @@ class OperatorEdgeAuthTests(EdgeSecretEnvMixin):
                 )
 
     def test_operator_routes_pass_edge_header_to_identity(self) -> None:
+        # Issue #530 split: of the seven #520 identity call sites, three are
+        # identity-only READS (two worker-status GETs + session) that keep
+        # calling require_operator_identity directly with the edge header.
+        # The four worker-control POSTs moved to the role guard (separate
+        # test below). The read semantics pinned here are unchanged.
         tree = ast.parse(SOURCE.read_text(encoding="utf-8-sig"), filename=str(SOURCE))
         expected_handlers = {
             "get_session_identity",
             "get_worker_control",
-            "start_worker_control",
-            "stop_worker_control",
             "get_road_worker_control",
-            "start_road_worker_control",
-            "stop_road_worker_control",
         }
         seen = set()
         for node in tree.body:
@@ -341,6 +419,91 @@ class OperatorEdgeAuthTests(EdgeSecretEnvMixin):
                         passed.extend(keyword.arg for keyword in child.keywords if keyword.arg)
                 self.assertIn("x_sea_speed_edge_auth", passed)
         self.assertEqual(seen, expected_handlers)
+
+    @staticmethod
+    def _require_role_call(node):
+        for child in ast.walk(node):
+            if (
+                isinstance(child, ast.Call)
+                and isinstance(child.func, ast.Name)
+                and child.func.id == "require_role"
+            ):
+                return child
+        return None
+
+    def test_worker_control_mutuations_are_admin_role_gated(self) -> None:
+        # Four worker-control POSTs: require_role(minimum="admin") with all
+        # three identity/group headers forwarded (issue #530).
+        tree = ast.parse(SOURCE.read_text(encoding="utf-8-sig"), filename=str(SOURCE))
+        expected_handlers = {
+            "start_worker_control",
+            "stop_worker_control",
+            "start_road_worker_control",
+            "stop_road_worker_control",
+        }
+        seen = set()
+        for node in tree.body:
+            if not (isinstance(node, ast.FunctionDef) and node.name in expected_handlers):
+                continue
+            seen.add(node.name)
+            with self.subTest(handler=node.name):
+                guard = self._require_role_call(node)
+                self.assertIsNotNone(guard)
+                assert guard is not None
+                forwarded = [arg.id for arg in guard.args if isinstance(arg, ast.Name)]
+                self.assertEqual(
+                    forwarded,
+                    ["x_authentik_username", "x_sea_speed_edge_auth", "x_authentik_groups"],
+                )
+                keywords = {keyword.arg: keyword.value for keyword in guard.keywords}
+                self.assertEqual(keywords["minimum"].value, "admin")
+                self.assertEqual(keywords["action"].value, node.name)
+        self.assertEqual(seen, expected_handlers)
+
+    def test_browser_mutuations_are_role_gated_with_spec_minima(self) -> None:
+        # Issue #530 route table: all 19 browser mutations call require_role
+        # first with the exact spec minimum and all three headers forwarded.
+        # 15 of them are NEWLY guarded (the four worker POSTs are pinned in
+        # the test above); both lists are asserted together for completeness.
+        expected = {
+            "patch_cam1_object": "operator",
+            "patch_object": "operator",
+            "delete_cam1_object": "admin",
+            "delete_object": "admin",
+            "commit_camera_snapshot": "operator",
+            "start_camera_preview": "operator",
+            "stop_camera_preview": "operator",
+            "post_cam1_roi": "admin",
+            "post_cam1_speed_config": "admin",
+            "post_cam1_speed_lines": "admin",
+            "post_cam1_crossing_line": "admin",
+            "post_analytics_roi": "admin",
+            "post_analytics_speed_config": "admin",
+            "post_analytics_speed_lines": "admin",
+            "api_post_crossing_line": "admin",
+            "start_worker_control": "admin",
+            "stop_worker_control": "admin",
+            "start_road_worker_control": "admin",
+            "stop_road_worker_control": "admin",
+        }
+        tree = ast.parse(SOURCE.read_text(encoding="utf-8-sig"), filename=str(SOURCE))
+        seen = {}
+        for node in tree.body:
+            if isinstance(node, ast.FunctionDef) and node.name in expected:
+                guard = self._require_role_call(node)
+                self.assertIsNotNone(guard, f"{node.name} must call require_role")
+                assert guard is not None
+                forwarded = [arg.id for arg in guard.args if isinstance(arg, ast.Name)]
+                self.assertEqual(
+                    forwarded,
+                    ["x_authentik_username", "x_sea_speed_edge_auth", "x_authentik_groups"],
+                    f"{node.name} header forwarding",
+                )
+                keywords = {keyword.arg: keyword.value for keyword in guard.keywords}
+                self.assertEqual(keywords["minimum"].value, expected[node.name], node.name)
+                self.assertEqual(keywords["action"].value, node.name, node.name)
+                seen[node.name] = expected[node.name]
+        self.assertEqual(set(seen), set(expected))
 
 
 if __name__ == "__main__":

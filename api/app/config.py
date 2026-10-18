@@ -50,6 +50,8 @@ __all__ = [
     "CAMERA_PREVIEW_FFMPEG_BIN",
     "API_TOKEN",
     "EDGE_AUTH_SECRET",
+    "ADMIN_USERS",
+    "OPERATOR_USERS",
     "WORKER_CONTROL_TOKEN",
     "WORKER_CONTROL_URL",
     "WORKER_CONTROL_PROTOCOL",
@@ -111,6 +113,22 @@ CAMERA_PREVIEW_CATALOG_FILE = Path(
 )
 CAMERA_PREVIEW_STATE_FILE = DATA_DIR / "camera-preview-state.json"
 CAMERA_PREVIEW_FFMPEG_BIN = os.environ.get("SEA_SPEED_CAMERA_PREVIEW_FFMPEG", "/usr/bin/ffmpeg")
+
+
+def _parse_user_set(env_name: str) -> frozenset:
+    """Parse a whitespace/comma-separated username list (issue #530).
+
+    Tokens are compared exactly and case-sensitively by consumers; empty
+    tokens are discarded so unset, blank or only-separator values yield an
+    empty set. Any whitespace run or comma is a separator, so a username
+    containing whitespace cannot be represented in a list.
+    """
+    raw = os.environ.get(env_name, "")
+    return frozenset(token for token in re.split(r"[,\s]+", raw) if token)
+
+
+ADMIN_USERS = _parse_user_set("SEA_SPEED_ADMIN_USERS")
+OPERATOR_USERS = _parse_user_set("SEA_SPEED_OPERATOR_USERS")
 
 API_TOKEN = os.environ.get("SEA_SPEED_API_TOKEN", "")
 EDGE_AUTH_SECRET = os.environ.get("SEA_SPEED_EDGE_AUTH_SECRET", "")

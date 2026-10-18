@@ -145,7 +145,10 @@ class CameraPreviewGalleryTests(unittest.TestCase):
         self.assertNotIn('payload.get("rtsp_url")', API)
 
     def test_snapshot_commit_is_catalog_and_active_session_bound(self) -> None:
-        start = API.index('def commit_camera_snapshot(camera_id: str, session_id: str)')
+        # Issue #530 (TEST-006): locate the handler by its stable function
+        # name, not the literal old single-line signature — the #530 header
+        # parameters reflowed the def across lines without changing intent.
+        start = API.index("def commit_camera_snapshot(")
         end = API.index('@app.get("/api/cameras/preview")', start)
         source = API[start:end]
         for marker in (

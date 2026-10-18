@@ -19,6 +19,7 @@ import ipaddress
 import json
 import logging
 import os
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -29,11 +30,13 @@ from fastapi import HTTPException
 
 try:  # package context (api.app.identity) and direct-file load both supported
     from .config import (
+        ADMIN_USERS,
         ANALYTICS_IDENTITIES,
         API_TOKEN,
         CAMERA_PREVIEW_RFC1918,
         DEPLOYED_COMMIT_FILE,
         EDGE_AUTH_SECRET,
+        OPERATOR_USERS,
         SHA_RE,
         WORKER_CONTROL_PROTOCOL,
         WORKER_CONTROL_TIMEOUT_SEC,
@@ -44,11 +47,13 @@ except ImportError:  # direct uvicorn app-dir / spec_from_file_location executio
     if str(Path(__file__).resolve().parent) not in sys.path:
         sys.path.insert(0, str(Path(__file__).resolve().parent))
     from config import (
+        ADMIN_USERS,
         ANALYTICS_IDENTITIES,
         API_TOKEN,
         CAMERA_PREVIEW_RFC1918,
         DEPLOYED_COMMIT_FILE,
         EDGE_AUTH_SECRET,
+        OPERATOR_USERS,
         SHA_RE,
         WORKER_CONTROL_PROTOCOL,
         WORKER_CONTROL_TIMEOUT_SEC,
@@ -61,6 +66,8 @@ __all__ = [
     "deployed_source_commit",
     "require_auth",
     "require_operator_identity",
+    "require_role",
+    "resolve_role",
     "worker_control_origin",
     "call_worker_control",
     "analytics_identity",
@@ -94,6 +101,35 @@ def require_auth(authorization: Optional[str]) -> None:
 # per process) and the module logger. Both are private: never part of __all__.
 _LOGGER = logging.getLogger(__name__)
 _EDGE_AUTH_TRANSITIONAL_WARNING_EMITTED = False
+
+# Issue #530: authentik group names are exact, case-sensitive whole-token
+# matches against the groups defined in
+# deploy/vps/authentik/blueprints/sea-speed-auth-v1.yaml. Tokens are split on
+# commas only, trimmed, and never matched by substring, case folding or any
+# other delimiter; unknown tokens grant nothing. Multiple recognized
+# memberships resolve the highest role; none resolves viewer.
+AUTHENTIK_GROUP_OWNER = "Sea Speed Owner"
+AUTHENTIK_GROUP_ADMIN = "Sea Speed Admin"
+AUTHENTIK_GROUP_OPERATOR = "Sea Speed Operator"
+AUTHENTIK_GROUP_VIEWER = "Sea Speed Viewer"
+
+_GROUP_ROLES = {
+    AUTHENTIK_GROUP_OWNER: "admin",
+    AUTHENTIK_GROUP_ADMIN: "admin",
+    AUTHENTIK_GROUP_OPERATOR: "operator",
+    AUTHENTIK_GROUP_VIEWER: "viewer",
+}
+_ROLE_RANK = {"viewer": 0, "operator": 1, "admin": 2}
+
+# Audit rendering escapes C0/C1 control characters (including newline and
+# ANSI escapes) so one record stays one single-line, log-safe entry.
+_AUDIT_CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+
+
+def _escape_audit_text(value: str) -> str:
+    return _AUDIT_CONTROL_CHARS_RE.sub(
+        lambda match: f"\\x{ord(match.group(0)):02x}", value
+    )
 
 
 def require_operator_identity(
@@ -129,6 +165,71 @@ def require_operator_identity(
     username = (x_authentik_username or "").strip()
     if not username:
         raise HTTPException(status_code=503, detail="Trusted Authentik identity is unavailable")
+    return username
+
+
+def resolve_role(username: str, x_authentik_groups: Optional[str]) -> str:
+    """Resolve the application role for a VERIFIED username (issue #530).
+
+    Precondition: ``username`` is the trimmed value returned by
+    ``require_operator_identity`` — never a raw client header; it is used
+    exactly and case-sensitively as-is. Env override tiers are authoritative
+    (not additive): the admin list resolves admin; else the operator list
+    resolves operator — an operator-list match therefore overrides admin
+    group membership, and membership in both lists resolves admin. Without an
+    env match, X-Authentik-Groups is split on commas only, each token is
+    trimmed and matched exactly against the recognized group names, and the
+    highest recognized role wins. Absent, blank or wholly unrecognized groups
+    resolve viewer.
+    """
+    if username in ADMIN_USERS:
+        return "admin"
+    if username in OPERATOR_USERS:
+        return "operator"
+    highest: Optional[str] = None
+    for token in (x_authentik_groups or "").split(","):
+        token = token.strip()
+        role = _GROUP_ROLES.get(token)
+        if role is None:
+            continue
+        if highest is None or _ROLE_RANK[role] > _ROLE_RANK[highest]:
+            highest = role
+    return highest if highest is not None else "viewer"
+
+
+def require_role(
+    x_authentik_username: Optional[str],
+    x_sea_speed_edge_auth: Optional[str],
+    x_authentik_groups: Optional[str],
+    *,
+    minimum: str,
+    action: str,
+) -> str:
+    """Verify identity, resolve the role and enforce the minimum (issue #530).
+
+    Identity verification always runs first via the unchanged
+    ``require_operator_identity`` (strict edge check, existing 403/503
+    ordering, transitional behavior untouched). An unsupported ``minimum``
+    fails closed as a programming/configuration error (HTTP 500) and never
+    authorizes. Insufficient role raises HTTP 403 "Forbidden"; failure paths
+    never log raw headers, groups, edge secrets, payloads or unverified
+    usernames. On success an authorized mutation-ATTEMPT record (not a claim
+    of downstream mutation success) is emitted with the verified username
+    (control characters escaped), the resolved role and the static action
+    name. Returns the verified username for requested_by attribution.
+    """
+    username = require_operator_identity(x_authentik_username, x_sea_speed_edge_auth)
+    role = resolve_role(username, x_authentik_groups)
+    if minimum not in ("operator", "admin"):
+        raise HTTPException(status_code=500, detail="Role minimum is misconfigured")
+    if _ROLE_RANK[role] < _ROLE_RANK[minimum]:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    _LOGGER.info(
+        "authorized mutation attempt: user=%s role=%s action=%s",
+        _escape_audit_text(username),
+        role,
+        action,
+    )
     return username
 
 

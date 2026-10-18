@@ -74,6 +74,8 @@ try:  # package context (api.app.main) and direct-file load both supported
         deployed_source_commit,
         require_auth,
         require_operator_identity,
+        require_role,
+        resolve_role,
         worker_control_origin,
         call_worker_control,
         analytics_identity,
@@ -133,6 +135,8 @@ except ImportError:  # direct uvicorn app-dir / spec_from_file_location executio
         deployed_source_commit,
         require_auth,
         require_operator_identity,
+        require_role,
+        resolve_role,
         worker_control_origin,
         call_worker_control,
         analytics_identity,
@@ -408,7 +412,20 @@ def get_camera_snapshot(camera_id: str):
 
 
 @app.post("/api/cameras/{camera_id}/snapshot/commit")
-def commit_camera_snapshot(camera_id: str, session_id: str) -> Dict[str, Any]:
+def commit_camera_snapshot(
+    camera_id: str,
+    session_id: str,
+    x_authentik_username: Optional[str] = Header(None),
+    x_sea_speed_edge_auth: Optional[str] = Header(None),
+    x_authentik_groups: Optional[str] = Header(None),
+) -> Dict[str, Any]:
+    require_role(
+        x_authentik_username,
+        x_sea_speed_edge_auth,
+        x_authentik_groups,
+        minimum="operator",
+        action="commit_camera_snapshot",
+    )
     cameras = load_camera_preview_catalog()
     if not any(entry["camera_id"] == camera_id for entry in cameras):
         raise HTTPException(status_code=404, detail="Camera is not present in the preview catalog")
@@ -430,7 +447,19 @@ def get_camera_preview() -> Dict[str, Any]:
 
 
 @app.post("/api/cameras/{camera_id}/preview/start")
-def start_camera_preview(camera_id: str) -> Dict[str, Any]:
+def start_camera_preview(
+    camera_id: str,
+    x_authentik_username: Optional[str] = Header(None),
+    x_sea_speed_edge_auth: Optional[str] = Header(None),
+    x_authentik_groups: Optional[str] = Header(None),
+) -> Dict[str, Any]:
+    require_role(
+        x_authentik_username,
+        x_sea_speed_edge_auth,
+        x_authentik_groups,
+        minimum="operator",
+        action="start_camera_preview",
+    )
     cameras = load_camera_preview_catalog()
     camera = next((entry for entry in cameras if entry["camera_id"] == camera_id), None)
     if camera is None:
@@ -441,7 +470,18 @@ def start_camera_preview(camera_id: str) -> Dict[str, Any]:
 
 
 @app.post("/api/cameras/preview/stop")
-def stop_camera_preview() -> Dict[str, Any]:
+def stop_camera_preview(
+    x_authentik_username: Optional[str] = Header(None),
+    x_sea_speed_edge_auth: Optional[str] = Header(None),
+    x_authentik_groups: Optional[str] = Header(None),
+) -> Dict[str, Any]:
+    require_role(
+        x_authentik_username,
+        x_sea_speed_edge_auth,
+        x_authentik_groups,
+        minimum="operator",
+        action="stop_camera_preview",
+    )
     with CAMERA_PREVIEW_LOCK:
         stopped_camera_id = terminate_camera_preview_locked()
     return {"ok": True, "stopped_camera_id": stopped_camera_id, "active": None}
@@ -552,12 +592,37 @@ def get_cam1_object(object_id: str) -> Dict[str, Any]:
 
 
 @app.patch("/api/cam1/objects/{object_id}")
-def patch_cam1_object(object_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+def patch_cam1_object(
+    object_id: str,
+    payload: Dict[str, Any],
+    x_authentik_username: Optional[str] = Header(None),
+    x_sea_speed_edge_auth: Optional[str] = Header(None),
+    x_authentik_groups: Optional[str] = Header(None),
+) -> Dict[str, Any]:
+    require_role(
+        x_authentik_username,
+        x_sea_speed_edge_auth,
+        x_authentik_groups,
+        minimum="operator",
+        action="patch_cam1_object",
+    )
     return patch_object_record(object_id, payload, "cam1")
 
 
 @app.delete("/api/cam1/objects/{object_id}")
-def delete_cam1_object(object_id: str) -> Dict[str, Any]:
+def delete_cam1_object(
+    object_id: str,
+    x_authentik_username: Optional[str] = Header(None),
+    x_sea_speed_edge_auth: Optional[str] = Header(None),
+    x_authentik_groups: Optional[str] = Header(None),
+) -> Dict[str, Any]:
+    require_role(
+        x_authentik_username,
+        x_sea_speed_edge_auth,
+        x_authentik_groups,
+        minimum="admin",
+        action="delete_cam1_object",
+    )
     return delete_object_record(object_id, "cam1")
 
 
@@ -567,8 +632,20 @@ def get_cam1_roi() -> Dict[str, Any]:
 
 
 @app.post("/api/cam1/roi")
-def post_cam1_roi(payload: Dict[str, Any]) -> Dict[str, Any]:
-    return post_analytics_roi("cam1", payload)
+def post_cam1_roi(
+    payload: Dict[str, Any],
+    x_authentik_username: Optional[str] = Header(None),
+    x_sea_speed_edge_auth: Optional[str] = Header(None),
+    x_authentik_groups: Optional[str] = Header(None),
+) -> Dict[str, Any]:
+    require_role(
+        x_authentik_username,
+        x_sea_speed_edge_auth,
+        x_authentik_groups,
+        minimum="admin",
+        action="post_cam1_roi",
+    )
+    return post_analytics_roi("cam1", payload, x_authentik_username, x_sea_speed_edge_auth, x_authentik_groups)
 
 
 @app.get("/api/cam1/speed-config")
@@ -577,8 +654,20 @@ def get_cam1_speed_config() -> Dict[str, Any]:
 
 
 @app.post("/api/cam1/speed-config")
-def post_cam1_speed_config(payload: Dict[str, Any]) -> Dict[str, Any]:
-    return post_analytics_speed_config("cam1", payload)
+def post_cam1_speed_config(
+    payload: Dict[str, Any],
+    x_authentik_username: Optional[str] = Header(None),
+    x_sea_speed_edge_auth: Optional[str] = Header(None),
+    x_authentik_groups: Optional[str] = Header(None),
+) -> Dict[str, Any]:
+    require_role(
+        x_authentik_username,
+        x_sea_speed_edge_auth,
+        x_authentik_groups,
+        minimum="admin",
+        action="post_cam1_speed_config",
+    )
+    return post_analytics_speed_config("cam1", payload, x_authentik_username, x_sea_speed_edge_auth, x_authentik_groups)
 
 
 @app.get("/api/cam1/speed-lines")
@@ -587,8 +676,20 @@ def get_cam1_speed_lines() -> Dict[str, Any]:
 
 
 @app.post("/api/cam1/speed-lines")
-def post_cam1_speed_lines(payload: Dict[str, Any]) -> Dict[str, Any]:
-    return post_analytics_speed_lines("cam1", payload)
+def post_cam1_speed_lines(
+    payload: Dict[str, Any],
+    x_authentik_username: Optional[str] = Header(None),
+    x_sea_speed_edge_auth: Optional[str] = Header(None),
+    x_authentik_groups: Optional[str] = Header(None),
+) -> Dict[str, Any]:
+    require_role(
+        x_authentik_username,
+        x_sea_speed_edge_auth,
+        x_authentik_groups,
+        minimum="admin",
+        action="post_cam1_speed_lines",
+    )
+    return post_analytics_speed_lines("cam1", payload, x_authentik_username, x_sea_speed_edge_auth, x_authentik_groups)
 
 
 @app.get("/api/cam1/crossing-line")
@@ -597,7 +698,19 @@ def get_cam1_crossing_line() -> Dict[str, Any]:
 
 
 @app.post("/api/cam1/crossing-line")
-def post_cam1_crossing_line(payload: Dict[str, Any]) -> Dict[str, Any]:
+def post_cam1_crossing_line(
+    payload: Dict[str, Any],
+    x_authentik_username: Optional[str] = Header(None),
+    x_sea_speed_edge_auth: Optional[str] = Header(None),
+    x_authentik_groups: Optional[str] = Header(None),
+) -> Dict[str, Any]:
+    require_role(
+        x_authentik_username,
+        x_sea_speed_edge_auth,
+        x_authentik_groups,
+        minimum="admin",
+        action="post_cam1_crossing_line",
+    )
     return post_analytics_crossing_line("cam1", payload)
 
 
@@ -767,7 +880,20 @@ def get_analytics_roi(camera_id: str) -> Dict[str, Any]:
 
 
 @app.post("/api/analytics/{camera_id}/roi")
-def post_analytics_roi(camera_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+def post_analytics_roi(
+    camera_id: str,
+    payload: Dict[str, Any],
+    x_authentik_username: Optional[str] = Header(None),
+    x_sea_speed_edge_auth: Optional[str] = Header(None),
+    x_authentik_groups: Optional[str] = Header(None),
+) -> Dict[str, Any]:
+    require_role(
+        x_authentik_username,
+        x_sea_speed_edge_auth,
+        x_authentik_groups,
+        minimum="admin",
+        action="post_analytics_roi",
+    )
     analytics_identity(camera_id)
     enabled = bool(payload.get("enabled", True))
     # accept either normalized or legacy
@@ -811,7 +937,20 @@ def get_analytics_speed_config(camera_id: str) -> Dict[str, Any]:
 
 
 @app.post("/api/analytics/{camera_id}/speed-config")
-def post_analytics_speed_config(camera_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+def post_analytics_speed_config(
+    camera_id: str,
+    payload: Dict[str, Any],
+    x_authentik_username: Optional[str] = Header(None),
+    x_sea_speed_edge_auth: Optional[str] = Header(None),
+    x_authentik_groups: Optional[str] = Header(None),
+) -> Dict[str, Any]:
+    require_role(
+        x_authentik_username,
+        x_sea_speed_edge_auth,
+        x_authentik_groups,
+        minimum="admin",
+        action="post_analytics_speed_config",
+    )
     analytics_identity(camera_id)
     enabled = bool(payload.get("enabled", True))
     try:
@@ -874,7 +1013,20 @@ def get_analytics_speed_lines(camera_id: str) -> Dict[str, Any]:
 
 
 @app.post("/api/analytics/{camera_id}/speed-lines")
-def post_analytics_speed_lines(camera_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+def post_analytics_speed_lines(
+    camera_id: str,
+    payload: Dict[str, Any],
+    x_authentik_username: Optional[str] = Header(None),
+    x_sea_speed_edge_auth: Optional[str] = Header(None),
+    x_authentik_groups: Optional[str] = Header(None),
+) -> Dict[str, Any]:
+    require_role(
+        x_authentik_username,
+        x_sea_speed_edge_auth,
+        x_authentik_groups,
+        minimum="admin",
+        action="post_analytics_speed_lines",
+    )
     analytics_identity(camera_id)
     try:
         distance_m = float(payload.get("distance_m", 57.0))
@@ -918,7 +1070,20 @@ def api_get_crossing_line(camera_id: str) -> Dict[str, Any]:
 
 
 @app.post("/api/analytics/{camera_id}/crossing-line")
-def api_post_crossing_line(camera_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+def api_post_crossing_line(
+    camera_id: str,
+    payload: Dict[str, Any],
+    x_authentik_username: Optional[str] = Header(None),
+    x_sea_speed_edge_auth: Optional[str] = Header(None),
+    x_authentik_groups: Optional[str] = Header(None),
+) -> Dict[str, Any]:
+    require_role(
+        x_authentik_username,
+        x_sea_speed_edge_auth,
+        x_authentik_groups,
+        minimum="admin",
+        action="api_post_crossing_line",
+    )
     return post_analytics_crossing_line(camera_id, payload)
 
 
@@ -1000,12 +1165,37 @@ def get_object(object_id: str) -> Dict[str, Any]:
 
 
 @app.patch("/api/objects/{object_id}")
-def patch_object(object_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+def patch_object(
+    object_id: str,
+    payload: Dict[str, Any],
+    x_authentik_username: Optional[str] = Header(None),
+    x_sea_speed_edge_auth: Optional[str] = Header(None),
+    x_authentik_groups: Optional[str] = Header(None),
+) -> Dict[str, Any]:
+    require_role(
+        x_authentik_username,
+        x_sea_speed_edge_auth,
+        x_authentik_groups,
+        minimum="operator",
+        action="patch_object",
+    )
     return patch_object_record(object_id, payload)
 
 
 @app.delete("/api/objects/{object_id}")
-def delete_object(object_id: str) -> Dict[str, Any]:
+def delete_object(
+    object_id: str,
+    x_authentik_username: Optional[str] = Header(None),
+    x_sea_speed_edge_auth: Optional[str] = Header(None),
+    x_authentik_groups: Optional[str] = Header(None),
+) -> Dict[str, Any]:
+    require_role(
+        x_authentik_username,
+        x_sea_speed_edge_auth,
+        x_authentik_groups,
+        minimum="admin",
+        action="delete_object",
+    )
     return delete_object_record(object_id)
 
 
@@ -1024,8 +1214,15 @@ def get_worker_control(
 def start_worker_control(
     x_authentik_username: Optional[str] = Header(None),
     x_sea_speed_edge_auth: Optional[str] = Header(None),
+    x_authentik_groups: Optional[str] = Header(None),
 ) -> Dict[str, Any]:
-    username = require_operator_identity(x_authentik_username, x_sea_speed_edge_auth)
+    username = require_role(
+        x_authentik_username,
+        x_sea_speed_edge_auth,
+        x_authentik_groups,
+        minimum="admin",
+        action="start_worker_control",
+    )
     payload = call_worker_control("POST", "/v1/start")
     payload["requested_by"] = username
     return payload
@@ -1035,8 +1232,15 @@ def start_worker_control(
 def stop_worker_control(
     x_authentik_username: Optional[str] = Header(None),
     x_sea_speed_edge_auth: Optional[str] = Header(None),
+    x_authentik_groups: Optional[str] = Header(None),
 ) -> Dict[str, Any]:
-    username = require_operator_identity(x_authentik_username, x_sea_speed_edge_auth)
+    username = require_role(
+        x_authentik_username,
+        x_sea_speed_edge_auth,
+        x_authentik_groups,
+        minimum="admin",
+        action="stop_worker_control",
+    )
     payload = call_worker_control("POST", "/v1/stop")
     payload["requested_by"] = username
     return payload
@@ -1057,8 +1261,15 @@ def get_road_worker_control(
 def start_road_worker_control(
     x_authentik_username: Optional[str] = Header(None),
     x_sea_speed_edge_auth: Optional[str] = Header(None),
+    x_authentik_groups: Optional[str] = Header(None),
 ) -> Dict[str, Any]:
-    username = require_operator_identity(x_authentik_username, x_sea_speed_edge_auth)
+    username = require_role(
+        x_authentik_username,
+        x_sea_speed_edge_auth,
+        x_authentik_groups,
+        minimum="admin",
+        action="start_road_worker_control",
+    )
     payload = call_worker_control("POST", "/v1/road1/start")
     payload["requested_by"] = username
     return payload
@@ -1068,8 +1279,15 @@ def start_road_worker_control(
 def stop_road_worker_control(
     x_authentik_username: Optional[str] = Header(None),
     x_sea_speed_edge_auth: Optional[str] = Header(None),
+    x_authentik_groups: Optional[str] = Header(None),
 ) -> Dict[str, Any]:
-    username = require_operator_identity(x_authentik_username, x_sea_speed_edge_auth)
+    username = require_role(
+        x_authentik_username,
+        x_sea_speed_edge_auth,
+        x_authentik_groups,
+        minimum="admin",
+        action="stop_road_worker_control",
+    )
     payload = call_worker_control("POST", "/v1/road1/stop")
     payload["requested_by"] = username
     return payload
@@ -1079,9 +1297,11 @@ def stop_road_worker_control(
 def get_session_identity(
     x_authentik_username: Optional[str] = Header(None),
     x_sea_speed_edge_auth: Optional[str] = Header(None),
+    x_authentik_groups: Optional[str] = Header(None),
 ) -> Dict[str, Any]:
     username = require_operator_identity(x_authentik_username, x_sea_speed_edge_auth)
-    return {"ok": True, "username": username}
+    role = resolve_role(username, x_authentik_groups)
+    return {"ok": True, "username": username, "role": role}
 
 
 ROAD_LIVE_SEQ = 0
