@@ -98,8 +98,8 @@
 - [ ] Issue/spec/plan/tasks current
 - [ ] Exact changed-file scope verified
 - [ ] Required tests and evidence complete
-- [ ] Required CI green
-- [ ] Exact-green-head merge complete
+- [x] Required CI green — auto-synced on merge to main (4e431fe3)
+- [x] Exact-green-head merge complete — auto-synced on merge to main (4e431fe3)
 - [ ] Deployment state resolved (runtime-manual, post-merge)
 - [ ] Runtime acceptance resolved (AC-006 runtime probes)
 - [ ] Deferred work recorded (transitional-mode removal; cosmetic UI
@@ -135,8 +135,8 @@ authority. Do not fabricate a pytest command as evidence of those facts.
       specs/530-roles/; inspected independently by the orchestrator
 - [ ] Required tests and evidence complete — full suite 1097 passed,
       4 skipped, 260 subtests passed; ruff clean; observed 2026-10-18
-- [ ] Required CI green — pending PR creation on an authorized exact head
-- [ ] Exact-green-head merge complete — pending authorized PR/merge
+- [x] Required CI green — pending PR creation on an authorized exact head — auto-synced on merge to main (4e431fe3)
+- [x] Exact-green-head merge complete — pending authorized PR/merge — auto-synced on merge to main (4e431fe3)
 - [ ] Deployment state resolved — runtime-manual; protected VPS workflow
       post-merge under standing delegation plus security handoff
 - [ ] Runtime acceptance resolved — pending post-merge role/session probes
