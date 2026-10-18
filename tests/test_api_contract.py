@@ -116,6 +116,12 @@ def objects_namespace(temp_dir: str) -> dict[str, Any]:
         "OBJECTS_DB_FILE": Path(temp_dir) / "objects.sqlite3",
         "EVENTS_FILE": Path(temp_dir) / "events.json",
         "now_iso": lambda: "2026-08-02T00:00:00+00:00",
+        # Issue #530: the guarded handlers reference Header at def time and
+        # require_role at call time. These are EXPLICIT AUTHORIZED stubs for
+        # the business-contract surface only — real-guard RBAC behavior is
+        # covered by tests/test_sea_speed_rbac.py, never by this stub.
+        "Header": lambda default=None: default,
+        "require_role": lambda *args, **kwargs: "contract-test-admin",
     }
 
 
@@ -246,6 +252,11 @@ class ApiContractTests(unittest.TestCase):
             },
             "DEFAULT_ROI_REF_W": 1920, "DEFAULT_ROI_REF_H": 1080, "LEGACY_ROI_W": 704, "LEGACY_ROI_H": 576,
             "now_iso": lambda: "x", "write_json_file": lambda path, data: writes.append((path, data)),
+            # Issue #530: calibration handlers are role-guarded; explicit
+            # authorized stub for the business-contract surface only (real
+            # guards: tests/test_sea_speed_rbac.py).
+            "Header": lambda default=None: default,
+            "require_role": lambda *args, **kwargs: "contract-test-admin",
         }
         load_functions({
             "clean_points_list", "_clean_norm_points", "_infer_legacy_ref_w_h", "_normalize_from_absolute", "_denormalize_to_absolute", "_normalize_legacy_polygon",
@@ -291,6 +302,10 @@ class ApiContractTests(unittest.TestCase):
             '@app.get("/api/worker/control/road1")',
             '@app.post("/api/worker/control/road1/start")',
             '@app.post("/api/worker/control/road1/stop")',
+            # Issue #530: the four worker-control POSTs now gate on the role
+            # guard (admin minimum) instead of identity alone; the identity
+            # primitive stays for the status GETs and session.
+            'require_role', 'minimum="admin"',
             'require_operator_identity', 'payload["requested_by"] = username',
         ):
             self.assertIn(marker, source)
