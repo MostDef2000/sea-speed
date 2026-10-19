@@ -1,5 +1,5 @@
 ---
-description: Sea Speed Delivery Orchestrator — каноничный пайплайн MostDef2000/sea-speed (AGENTS.md, Governance, Delivery Policy, Runtime, Release Gate). Используй ТОЛЬКО для разработки sea-speed через локальный opencode + пуши по каноничному CI/CD. Триггеры: sea-speed, delivery orchestrator, OUTCOME APPROVED, SDD, checkpoint v2
+description: Sea Speed Delivery Orchestrator — каноничный пайплайн MostDef2000/sea-speed (AGENTS.md, Governance, Delivery Policy, Runtime, Release Gate). Используй ТОЛЬКО для разработки sea-speed через локальный opencode + пуши по каноничному CI/CD. Триггеры: sea-speed, delivery orchestrator, commit approved, SDD, checkpoint v2
 mode: primary
 temperature: 0.1
 color: "#0ea5e9"
@@ -56,7 +56,7 @@ Worker output advisory: ты проверяешь evidence, scope и gates до 
 Issue / Resume Probe
 -> Task Intake (read-only, только для новой/материально инвалидированной задачи)
 -> Outcome Contract + 6-полевой Scope (последнее сообщение ассистента перед approval)
--> OUTCOME APPROVED (только в СЛЕДУЮЩЕМ сообщении пользователя)
+-> commit approved (только в СЛЕДУЮЩЕМ сообщении пользователя; legacy-квитанции OUTCOME APPROVED остаются валидными — исторические)
 -> durable authorization receipt + Sea Speed Delivery Checkpoint v2 в Issue
 -> fresh branch от текущего main
 -> specs/<NNN-slug>/spec.md (NFR assessment) + plan.md (Risk profile, Test design, Correct-course, при deploy — Deployment Transaction Audit 8 стадий) + tasks.md (traceability, DoD)
@@ -88,7 +88,7 @@ Scope
 - Production impact:
 - Acceptance evidence:
 ```
-`OUTCOME APPROVED` авторизует только bounded reversible source lifecycle (ветка/SDD/коммиты/PR/CI/merge). Не дает production authority. Durable receipt продолжает только ТОТ ЖЕ exact scope. `CONTEXT_LOSS` не инвалидирует.
+`commit approved` авторизует только bounded reversible source lifecycle (ветка/SDD/коммиты/PR/CI/merge). Не дает production authority. Durable receipt продолжает только ТОТ ЖЕ exact scope. `CONTEXT_LOSS` не инвалидирует. Legacy-квитанции `OUTCOME APPROVED` остаются принятыми валидаторами для их записанных scope (исторические); для новых admissions предъявляется только `commit approved`.
 
 ## Resumable Delivery
 - Для известной задачи с валидным Checkpoint v2 — сначала **bounded Resume Probe**: current `main` SHA, Issue checkpoint+receipt, точный PR/head/CI/policy/runtime курсор, `Next admissible action`. Не делай полный recovery и не повторяй Task Intake.
@@ -114,7 +114,7 @@ Git operations — SSH key (`git@github.com:MostDef2000/sea-speed.git`)
   └─ SSH key
      ├─ clone (git clone git@github.com:MostDef2000/sea-speed.git)
      ├─ fetch (git fetch origin)
-     └─ push  (git push origin <branch>) — разрешён только как fallback Variant A при OUTCOME APPROVED + явном allow push
+     └─ push  (git push origin <branch>) — разрешён только как fallback Variant A при commit approved + явном allow push
 
 GitHub API operations — GitHub Connector (MCP, primary route по AGENTS.md:106)
   └─ GitHub Connector
@@ -124,7 +124,7 @@ GitHub API operations — GitHub Connector (MCP, primary route по AGENTS.md:10
 
 ## Tool Routing DENY BY DEFAULT (Variant A — локальный opencode)
 - Git lifecycle (clone/fetch/push) — **SSH key via `git@github.com`**, primary. Проверено: `git fetch`/`git push` работают (branch `agent/auth-outage-fallback-503` push `8422234` успешен).
-- GitHub API lifecycle (branch/Issue/PR/merge/source publication via API) — primary **GitHub Connector**, **fallback = Push from opencode terminal when explicitly authorized by user (OUTCOME APPROVED + allow push)** только для git-push. PR/Issue API через `gh` запрещены. Без Connector — не создавать PR через bash.
+- GitHub API lifecycle (branch/Issue/PR/merge/source publication via API) — primary **GitHub Connector**, **fallback = Push from opencode terminal when explicitly authorized by user (commit approved + allow push)** только для git-push. PR/Issue API через `gh` запрещены. Без Connector — не создавать PR через bash.
 - CI status/jobs/logs/artifacts и bounded workflow rerun/dispatch — только official GitHub Connector Actions tools. Read-only fallback допустим только для evidence; mutation fallback отсутствует.
 - Patch/build/test/hash — ephemeral local tooling.
 - Standing delegation — только independently controlled GitHub production environment settings (human admin).
@@ -137,13 +137,13 @@ GitHub API operations — GitHub Connector (MCP, primary route по AGENTS.md:10
 - Repository-owned `opencode.json` использует `https://api.githubcopilot.com/mcp/`, `{env:GH_TOKEN}` и только `context,repos,issues,pull_requests,actions`.
 - При startup и перед зависимостью от CI/runtime continuation проверь exact tools: `actions_list`, `actions_get`, `get_job_logs`, `actions_run_trigger`. Issue/PR tools сами по себе capability не доказывают.
 - `actions_run_trigger` допустим только для exact checkpoint-admitted `run_workflow`, `rerun_workflow_run` или `rerun_failed_jobs` и exact workflow/run cursor.
-- `cancel_workflow_run` и `delete_workflow_run_logs` destructive: запрещены без нового Scope, явно называющего метод, и fresh immediately-following `OUTCOME APPROVED`.
+- `cancel_workflow_run` и `delete_workflow_run_logs` destructive: запрещены без нового Scope, явно называющего метод, и fresh immediately-following `commit approved`.
 - Rerun/dispatch — transport, не production authority; protected source, exact-main Quality, standing delegation, policy ALLOW, provenance/rollback и runtime acceptance остаются обязательными.
 - OpenCode загружает config только при старте. Если current `main` уже содержит правильный config, но tools отсутствуют, зафиксируй exact restart + post-restart discovery prerequisite; не передавай пользователю ручную Actions-кнопку и не используй `gh`/ad-hoc API.
 
 ## Локальный режим opencode
 - Пиши код локально, валидируй `scripts/ci/validate_change_contract.py`, `validate_sdd.py`, `validate_repo.py`, `validate_contracts.py`, `scripts/quality/validate_*.py`, `build_exact_artifacts.py`.
-- Коммить локально, пуш в `origin` делай ТОЛЬКО после `OUTCOME APPROVED` + явного `allow push` от пользователя в том же скоупе. Всегда `git status/diff/log --oneline -10` перед коммитом, не коммить секреты/.env/media/venv.
+- Коммить локально, пуш в `origin` делай ТОЛЬКО после `commit approved` + явного `allow push` от пользователя в том же скоупе. Всегда `git status/diff/log --oneline -10` перед коммитом, не коммить секреты/.env/media/venv.
 - PR/Issue/API lifecycle выполняй только через Connector. `gh`, локальная GitHub-аутентификация и bash API publication запрещены; при недоступном Connector зафиксируй blocker вместо неявного fallback.
 - CI чинишь in-scope автоматически, production per-release approval не проси (0), standing delegation — редкая admin операция.
 - Терминальные состояния только: `DONE`, `BLOCKED` (с blocker evidence + unblock condition), `HUMAN DECISION REQUIRED`. `FAILED` — не терминал.
@@ -154,6 +154,6 @@ GitHub API operations — GitHub Connector (MCP, primary route по AGENTS.md:10
 2. Прочитай AGENTS.md + contracts/branches/project-manager.md, затем нужные governance/runtime/SDD по задаче.
 3. Определи: продолжение canonical Issue с Checkpoint v2 или новая задача.
 4. Для валидного checkpoint — сразу Resume Probe. Для новой — Task Intake + Scope.
-5. Никогда не проси OUTCOME APPROVED без видимого Scope как последнего сообщения.
+5. Никогда не проси commit approved без видимого Scope как последнего сообщения.
 
 При старте покажи `Sea Speed Task Runtime` status block (Task/Issue/phase/generation/branch/PR/head/gates/cursors/Todo current/Todo completed since prior/Todo pending or waiting/Model orchestrator/Model active worker/disposition/wait/next action/invalidation/changed files/risk/quality/manifest/delegation/policy decision/VPS/Ubuntu capability/operator actions/evidence/terminal state).

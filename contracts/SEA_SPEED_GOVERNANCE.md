@@ -12,7 +12,7 @@ Source of truth: GitHub `main`
 - All GitHub repository lifecycle writes use the connected GitHub Connector. Local `gh`, local GitHub authentication, `git push` and direct manual publication are not part of Sea Speed delivery.
 - VPS and Worker hosts are runtime environments, not editable source stores.
 - Task Intake is read-only and is for new/materially invalidated work, not the default resume path for an existing valid checkpoint.
-- Before asking for `OUTCOME APPROVED`, the Delivery Orchestrator presents the complete six-field visible Scope as the last substantive assistant content; approval must be the immediately following user decision.
+- Before asking for `commit approved`, the Delivery Orchestrator presents the complete six-field visible Scope as the last substantive assistant content; approval must be the immediately following user decision. Legacy receipts `OUTCOME APPROVED` remain accepted for their recorded admitted scopes (historical); the repository validators accept both, and `commit approved` is the only phrase presented for new admissions.
 - Source admission is fail closed: before first repository write require `VISIBLE_SCOPE_PRESENTED=YES`, `SCOPE_IMMEDIATELY_PRECEDES_APPROVAL=YES`, `SOURCE_AUTHORIZATION_ADMISSION=OPEN`.
 - After valid admission, persist a durable source-authorization receipt plus machine-readable `Sea Speed Delivery Checkpoint v2` in the canonical Issue.
 - Maintain a structured todo list for significant, multi-step and resumed delivery as a current visible transient projection of the durable Issue checkpoint; todo never creates authority or replaces the checkpoint.
@@ -43,7 +43,7 @@ Scope
 - Acceptance evidence:
 ```
 
-`OUTCOME APPROVED` authorizes only the bounded reversible repository lifecycle: branch/source/SDD writes, commits, integrity verification, PR creation/repair, CI, in-scope remediation and exact-green-head merge. It never by itself grants production execution.
+`commit approved` authorizes only the bounded reversible repository lifecycle: branch/source/SDD writes, commits, integrity verification, PR creation/repair, CI, in-scope remediation and exact-green-head merge. It never by itself grants production execution.
 
 Ordinary implementation defects inside approved scope continue automatically. A material outcome/path/protected-boundary change requires a new Scope and fresh immediately-following approval.
 
@@ -55,11 +55,11 @@ Sea Speed separates three truth classes:
 
 - **Repository/product truth**: current `main`, committed contracts/specs/source and accepted runtime evidence.
 - **Delivery-control truth**: canonical Issue Outcome, source-authorization receipt, `Sea Speed Delivery Checkpoint v2`, exact branch/PR/head, completed gates and evidence cursors.
-- **Transient interaction state**: live conversation used to present a new Scope and receive the immediately-following `OUTCOME APPROVED`, plus the structured todo projection used to expose current synchronous execution.
+- **Transient interaction state**: live conversation used to present a new Scope and receive the immediately-following `commit approved`, plus the structured todo projection used to expose current synchronous execution.
 
 A known task with a valid checkpoint uses a bounded **Resume Probe** before any full project recovery. The probe reads current `main`, the canonical Issue checkpoint, exact referenced PR/head/status or other evidence whose cursor may have changed, and `Next admissible action`.
 
-Full project recovery / repeated Task Intake is allowed only when no checkpoint exists, task identity cannot be resolved, the checkpoint is invalid, or durable evidence materially contradicts it. Context compaction, session restart, response truncation, Connector truncation, or model-memory loss does not by itself invalidate source authorization, return an admitted task to `DISCUSSION`, or require another `OUTCOME APPROVED`.
+Full project recovery / repeated Task Intake is allowed only when no checkpoint exists, task identity cannot be resolved, the checkpoint is invalid, or durable evidence materially contradicts it. Context compaction, session restart, response truncation, Connector truncation, or model-memory loss does not by itself invalidate source authorization, return an admitted task to `DISCUSSION`, or require another `commit approved`.
 
 Lifecycle state is monotonic. Backward/source-reauthorization transitions require a recorded material reason such as `MATERIAL_SCOPE_CHANGE`, `PROTECTED_BOUNDARY_CHANGE`, `USER_CHANGED_OUTCOME`, `MATERIAL_MAIN_DIVERGENCE`, or `EVIDENCE_CONTRADICTION`. `CONTEXT_LOSS` is not an invalidation reason.
 
@@ -77,7 +77,7 @@ A read is admissible only when it advances the task, validates a mandatory gate,
 
 The repository-owned `opencode.json` MUST remain secret-free and configure `https://api.githubcopilot.com/mcp/` with `{env:GH_TOKEN}` plus only the `context`, `repos`, `issues`, `pull_requests`, and `actions` toolsets. The deprecated `@modelcontextprotocol/server-github` package is not an admitted delivery dependency.
 
-Capability preflight requires exact tools `actions_list`, `actions_get`, `get_job_logs`, and `actions_run_trigger`. Allowed read operations cover workflow/run/job/artifact metadata and bounded job-log retrieval. Allowed trigger methods are only `run_workflow`, `rerun_workflow_run`, and `rerun_failed_jobs`, and only when the exact operation is the durable checkpoint's next admissible action. `cancel_workflow_run` and `delete_workflow_run_logs` are destructive and require a new six-field Scope that names the method followed by fresh `OUTCOME APPROVED`.
+Capability preflight requires exact tools `actions_list`, `actions_get`, `get_job_logs`, and `actions_run_trigger`. Allowed read operations cover workflow/run/job/artifact metadata and bounded job-log retrieval. Allowed trigger methods are only `run_workflow`, `rerun_workflow_run`, and `rerun_failed_jobs`, and only when the exact operation is the durable checkpoint's next admissible action. `cancel_workflow_run` and `delete_workflow_run_logs` are destructive and require a new six-field Scope that names the method followed by fresh `commit approved`.
 
 OpenCode configuration is loaded at process startup. Missing Actions tools are a concrete capability gap, not justification for a manual web button or another API client. Repair missing source configuration inside an admitted scope when possible; if current `main` is already correct but the live process is stale, record the restart prerequisite and exact post-restart capability probe.
 
@@ -154,7 +154,7 @@ Standing-delegation administration is a protected settings operation outside Del
 
 Before implementation record current `main`, branch and freshness. After writes and before PR validate complete files, syntax/structure, exact diff/scope, secret/runtime-artifact absence and SDD linkage. Before merge re-read `main`, compare exact base/head, verify required exact-head CI, zero unresolved review threads and expected-head protection when available.
 
-Successful CI does not replace source authorization. A still-current `OUTCOME APPROVED` or its valid same-scope durable receipt is sufficient continuation/merge authority.
+Successful CI does not replace source authorization. A still-current `commit approved` or its valid same-scope durable receipt is sufficient continuation/merge authority. Persisted receipts `OUTCOME APPROVED` remain machine-readable continuation evidence for their recorded admitted scopes (historical); `scripts/ci/validate_delivery_checkpoint.py` and the v2 schema accept both receipt values.
 
 Mandatory fresh reads at explicit merge/release gates are not Connector-loop violations because the evidence identity is intentionally being revalidated.
 

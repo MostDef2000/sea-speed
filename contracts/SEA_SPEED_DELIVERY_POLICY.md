@@ -24,7 +24,7 @@ Windows Worker is retired. The historical name **Windows AI Worker** may still a
 
 ## 3. Source admission and continuation
 
-New tasks use `OUTCOME APPROVED` only after complete visible Scope immediately precedes the approval. Before first repository write require `VISIBLE_SCOPE_PRESENTED=YES`, `SCOPE_IMMEDIATELY_PRECEDES_APPROVAL=YES`, `SOURCE_AUTHORIZATION_ADMISSION=OPEN`.
+New tasks use `commit approved` only after complete visible Scope immediately precedes the approval. Legacy receipts `OUTCOME APPROVED` remain accepted (historical); the PR Change Contract validator accepts both. Before first repository write require `VISIBLE_SCOPE_PRESENTED=YES`, `SCOPE_IMMEDIATELY_PRECEDES_APPROVAL=YES`, `SOURCE_AUTHORIZATION_ADMISSION=OPEN`.
 
 After valid admission, the canonical Issue records a durable source-authorization receipt and machine-readable `Sea Speed Delivery Checkpoint v2`. The receipt is continuation evidence for the **same exact admitted scope** only. It cannot create, widen, or replace source authority and never grants production authority.
 
@@ -32,7 +32,7 @@ PR admission requires exact Change Contract, exact changed-file match, valid SDD
 
 After valid source approval, in-scope defects/tests/CI/metadata remediation continue automatically. Tool capability does not expand source authority.
 
-Context compaction, session restart, response truncation, Connector truncation, or model-memory loss does not itself invalidate an admitted source scope, return a task to `DISCUSSION`, or require another `OUTCOME APPROVED`. Material scope/outcome/security/protected-boundary/destructive changes still require fresh Scope plus immediately-following approval.
+Context compaction, session restart, response truncation, Connector truncation, or model-memory loss does not itself invalidate an admitted source scope, return a task to `DISCUSSION`, or require another `commit approved`. Material scope/outcome/security/protected-boundary/destructive changes still require fresh Scope plus immediately-following approval.
 
 ## 4. Resumable delivery and Connector discipline
 
@@ -162,7 +162,7 @@ Substantive deployment logic must remain in repository-owned target entrypoints 
 Normal successful task after zero-touch activation:
 
 ```text
-OUTCOME APPROVED: 1
+commit approved: 1
 per-release production approval: 0
 standing delegation administration: rare protected settings action, not per release
 manual runtime command: 0

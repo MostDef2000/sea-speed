@@ -19,7 +19,7 @@ def load_module():
 
 def body(
     files: list[str], *, impact="CONTROL_PLANE", vps="NOT REQUIRED", ubuntu="NOT REQUIRED",
-    authorization="OUTCOME APPROVED", approval="YES", boundary_change="NO",
+    authorization="commit approved", approval="YES", boundary_change="NO",
     production_envelope="NOT REQUIRED", security="NONE", schema="NONE", destructive="NO",
     other_high_risk="NO", risk_profile=None, quality_verdict="PASS", quality_finding="NONE",
     waiver_reason="NOT REQUIRED", waiver_approved_by="NOT REQUIRED", waiver_date="NOT REQUIRED",
@@ -106,10 +106,33 @@ class ChangeContractTests(unittest.TestCase):
         files = ["scripts/ci/validate_change_contract.py"]
         self.assertEqual(self.validator.validate_contract(body(files), files, self.policy), "CONTROL_PLANE")
 
-    def test_legacy_source_authorization_is_rejected_for_new_pr(self):
+    def test_unified_phrase_passes_validate_authorization(self):
+        fields = {
+            "Source authorization": "commit approved",
+            "Approval recorded after Implementation Scope Check": "YES",
+            "Material scope/protected-boundary change since authorization": "NO",
+        }
+        self.assertEqual(self.validator.validate_authorization(fields), "commit approved")
+
+    def test_legacy_outcome_approved_remains_accepted(self):
         files = ["scripts/ci/validate_change_contract.py"]
-        with self.assertRaisesRegex(self.validator.ContractError, "OUTCOME APPROVED"):
+        fields = {
+            "Source authorization": "OUTCOME APPROVED",
+            "Approval recorded after Implementation Scope Check": "YES",
+            "Material scope/protected-boundary change since authorization": "NO",
+        }
+        self.assertEqual(self.validator.validate_authorization(fields), "OUTCOME APPROVED")
+        self.assertEqual(
+            self.validator.validate_contract(body(files, authorization="OUTCOME APPROVED"), files, self.policy),
+            "CONTROL_PLANE",
+        )
+
+    def test_garbage_authorization_phrase_is_rejected(self):
+        files = ["scripts/ci/validate_change_contract.py"]
+        with self.assertRaisesRegex(self.validator.ContractError, "commit approved"):
             self.validator.validate_contract(body(files, authorization="LEGACY COMMIT APPROVED"), files, self.policy)
+        with self.assertRaisesRegex(self.validator.ContractError, "commit approved"):
+            self.validator.validate_contract(body(files, authorization="outcome approved"), files, self.policy)
 
     def test_rejects_changed_file_mismatch(self):
         with self.assertRaisesRegex(self.validator.ContractError, "do not match"):
