@@ -17,6 +17,16 @@ harnesses) and assert the properties the legacy implementation violated:
   startup, records accepted via the API append nothing to the legacy
   JSON mirrors, and legacy files are never deleted.
 
+Issue #537 wave 1 (road-event delivery receipts) extends this file with
+store-level fault-injection coverage: the durable receipt semantics of
+``store.deliver_event`` (identical retry → stored success response, content
+or camera conflict → typed conflict, no partial state), duplicate
+protection surviving simulated feed pruning, the additive-at-boot feed
+migration (nullable event_id backfill, unique index creation, duplicate
+historical IDs inventoried without deletion), the 90-day receipt
+retention sweep, the atomic snapshot write (no partial file on failure,
+orphan tmp cleaned) and the safe filename derivation.
+
 The import-path coverage (T-A..T-D, V-A..V-E, W-A..W-E) was retired WITH
 the dual-write window: the contracted retirement act removed the legacy
 import path and its ``ingestion_log`` registry, so those tests were
@@ -30,11 +40,12 @@ import copy
 import importlib.util
 import json
 import os
+import sqlite3
 import sys
 import tempfile
 import threading
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -705,6 +716,412 @@ class RetiredDualWriteTests(unittest.TestCase, _ConfigEndpointMixin):
             self.legacy_files["state"].read_bytes(),
             self.legacy_bytes["state"],
             "legacy state mirror must no longer be written by API accepts",
+        )
+
+
+def _receipt_count(state_db: Path) -> int:
+    with STORE.open_state_db(state_db) as connection:
+        return int(connection.execute("SELECT COUNT(*) FROM event_receipts").fetchone()[0])
+
+
+def _feed_rows(state_db: Path, camera_id: str = "cam1") -> List[Dict[str, Any]]:
+    return STORE.read_events(state_db, camera_id)
+
+
+@unittest.skipUnless(STORE is not None, "api/app/store.py is required")
+class EventReceiptStoreTests(unittest.TestCase):
+    """Issue #537 wave 1: store.deliver_event receipt semantics.
+
+    (a) identical retry → duplicate success with the stored original event,
+    exactly one feed row and one receipt; (b) the receipt still prevents
+    reinsertion after the feed row is pruned; conflict cases raise without
+    committing partial state; a feed row without a receipt (crash between
+    stages / pre-upgrade row) is repaired on retry.
+    """
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.state_db = Path(self.tmp.name) / "state.sqlite3"
+        self.event = {
+            "event_id": "evt-1",
+            "camera_id": "road1",
+            "object_type": "car",
+            "created_at": "2026-10-19T00:00:00+00:00",
+            "snapshot_url": "/sea-speed/media/events/road1-evt-1.jpg",
+        }
+        self.content_hash = STORE.event_content_fingerprint(self.event)
+        self.snapshot_hash = STORE.hash_bytes(b"jpeg-bytes")
+
+    def test_identical_retry_returns_duplicate_and_stored_event(self) -> None:
+        outcome, stored = STORE.deliver_event(
+            self.state_db, "road1", self.event, self.content_hash, self.snapshot_hash, 500
+        )
+        self.assertEqual(outcome, "stored")
+        self.assertIsNone(stored)
+        outcome, stored = STORE.deliver_event(
+            self.state_db, "road1", self.event, self.content_hash, self.snapshot_hash, 500
+        )
+        self.assertEqual(outcome, "duplicate")
+        self.assertEqual(stored, self.event)
+        self.assertEqual(len(_feed_rows(self.state_db, "road1")), 1)
+        self.assertEqual(_receipt_count(self.state_db), 1)
+        receipt = STORE.find_event_receipt(self.state_db, "evt-1")
+        self.assertEqual(receipt["camera_id"], "road1")
+        self.assertEqual(receipt["content_hash"], self.content_hash)
+        self.assertEqual(receipt["snapshot_hash"], self.snapshot_hash)
+        self.assertEqual(json.loads(receipt["response_event_json"]), self.event)
+        self.assertTrue(receipt["completed_at"])
+
+    def test_duplicate_is_still_blocked_after_feed_pruning(self) -> None:
+        STORE.deliver_event(self.state_db, "road1", self.event, self.content_hash, self.snapshot_hash, 500)
+        with STORE.open_state_db(self.state_db) as connection:
+            connection.execute("DELETE FROM event_feed")
+        outcome, stored = STORE.deliver_event(
+            self.state_db, "road1", self.event, self.content_hash, self.snapshot_hash, 500
+        )
+        self.assertEqual(outcome, "duplicate")
+        self.assertEqual(stored, self.event)
+        self.assertEqual(_feed_rows(self.state_db, "road1"), [], "receipt hit must not reinsert the pruned feed row")
+        self.assertEqual(_receipt_count(self.state_db), 1)
+
+    def test_same_id_different_content_conflicts_without_partial_state(self) -> None:
+        STORE.deliver_event(self.state_db, "road1", self.event, self.content_hash, self.snapshot_hash, 500)
+        conflicting = dict(self.event, object_type="truck")
+        with self.assertRaises(STORE.EventDeliveryConflict):
+            STORE.deliver_event(
+                self.state_db, "road1", conflicting,
+                STORE.event_content_fingerprint(conflicting), self.snapshot_hash, 500,
+            )
+        self.assertEqual([event["object_type"] for event in _feed_rows(self.state_db, "road1")], ["car"])
+        self.assertEqual(_receipt_count(self.state_db), 1)
+
+    def test_same_id_different_camera_conflicts(self) -> None:
+        STORE.deliver_event(self.state_db, "road1", self.event, self.content_hash, self.snapshot_hash, 500)
+        with self.assertRaises(STORE.EventDeliveryConflict):
+            STORE.deliver_event(self.state_db, "cam1", self.event, self.content_hash, self.snapshot_hash, 500)
+        self.assertEqual(len(_feed_rows(self.state_db, "cam1")), 0)
+        self.assertEqual(len(_feed_rows(self.state_db, "road1")), 1)
+
+    def test_same_id_different_snapshot_conflicts(self) -> None:
+        STORE.deliver_event(self.state_db, "road1", self.event, self.content_hash, self.snapshot_hash, 500)
+        with self.assertRaises(STORE.EventDeliveryConflict):
+            STORE.deliver_event(self.state_db, "road1", self.event, self.content_hash, STORE.hash_bytes(b"other-jpeg"), 500)
+
+    def test_feed_row_without_receipt_is_repaired_on_retry(self) -> None:
+        # Crash between stages: the feed row was written (pre-receipt), the
+        # receipt was not — the retry completes the missing receipt and
+        # reports the delivery as the first confirmed success.
+        STORE.append_event(self.state_db, "road1", self.event, 500)
+        self.assertEqual(_receipt_count(self.state_db), 0)
+        outcome, stored = STORE.deliver_event(
+            self.state_db, "road1", self.event, self.content_hash, self.snapshot_hash, 500
+        )
+        self.assertEqual(outcome, "duplicate")
+        self.assertEqual(stored, self.event)
+        self.assertEqual(len(_feed_rows(self.state_db, "road1")), 1, "no second feed row")
+        self.assertEqual(_receipt_count(self.state_db), 1)
+
+    def test_feed_unique_index_blocks_blind_duplicate_appends(self) -> None:
+        STORE.initialize_state_db(self.state_db)
+        STORE.append_event(self.state_db, "road1", self.event, 500)
+        with self.assertRaises(sqlite3.IntegrityError):
+            STORE.append_event(self.state_db, "road1", self.event, 500)
+
+
+@unittest.skipUnless(STORE is not None, "api/app/store.py is required")
+class EventFeedMigrationTests(unittest.TestCase):
+    """Issue #537 wave 1: additive-at-boot migration over legacy feed rows.
+
+    A legacy database (event_feed without the event_id column) is migrated
+    at boot: the column is added, existing rows are backfilled from their
+    payloads, the unique event_id index is created when history is clean —
+    and duplicate historical IDs are inventoried and preserved verbatim,
+    never deleted to make the index succeed.
+    """
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.state_db = Path(self.tmp.name) / "state.sqlite3"
+
+    def _legacy_boot(self) -> None:
+        STORE._initialized.discard(str(self.state_db))
+        STORE.initialize_state_db(self.state_db)
+
+    def _seed_legacy_feed(self, rows: List[Dict[str, Any]]) -> None:
+        connection = sqlite3.connect(str(self.state_db))
+        try:
+            connection.execute("PRAGMA journal_mode=WAL")
+            connection.execute(
+                "CREATE TABLE event_feed ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "camera_id TEXT NOT NULL, "
+                "payload_json TEXT NOT NULL, "
+                "created_at TEXT NOT NULL)"
+            )
+            for row in rows:
+                connection.execute(
+                    "INSERT INTO event_feed (camera_id, payload_json, created_at) VALUES (?, ?, ?)",
+                    (row["camera_id"], json.dumps(row["payload"]), row["created_at"]),
+                )
+            connection.commit()
+        finally:
+            connection.close()
+
+    def _event_id_column(self) -> bool:
+        with STORE.open_state_db(self.state_db) as connection:
+            return "event_id" in {row["name"] for row in connection.execute("PRAGMA table_info(event_feed)")}
+
+    def test_fresh_boot_creates_receipt_table_and_unique_index(self) -> None:
+        self._legacy_boot_on_empty_db()
+        tables = _table_names(self.state_db)
+        self.assertIn("event_receipts", tables)
+        with STORE.open_state_db(self.state_db) as connection:
+            indexes = {
+                row["name"]
+                for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'index'")
+            }
+        self.assertIn("idx_event_feed_event_id", indexes)
+
+    def _legacy_boot_on_empty_db(self) -> None:
+        self._legacy_boot()
+
+    def test_legacy_rows_are_backfilled_and_indexed(self) -> None:
+        self._seed_legacy_feed(
+            [
+                {"camera_id": "road1", "payload": {"event_id": "old-1", "object_type": "car"}, "created_at": "t1"},
+                {"camera_id": "road1", "payload": {"event_id": "old-2", "object_type": "car"}, "created_at": "t2"},
+                {"camera_id": "cam1", "payload": {"seq": 1}, "created_at": "t3"},
+            ]
+        )
+        self._legacy_boot()
+        self.assertTrue(self._event_id_column())
+        with STORE.open_state_db(self.state_db) as connection:
+            backfilled = {
+                row["id"]: row["event_id"]
+                for row in connection.execute("SELECT id, event_id FROM event_feed ORDER BY id")
+            }
+        self.assertEqual(list(backfilled.values()), ["old-1", "old-2", None])
+        self.assertEqual(_receipt_count(self.state_db), 0, "backfill must not invent receipts")
+
+    def test_duplicate_history_is_inventoried_and_never_deleted(self) -> None:
+        # Legacy rows were persisted with the fully normalized event payload;
+        # the duplicate pair below is the exact history the inventory must
+        # protect, and the re-delivery uses one row's exact payload.
+        duplicate_payload = {
+            "event_id": "dup-1",
+            "camera_id": "road1",
+            "object_type": "car",
+            "created_at": "2026-01-01T00:00:00+00:00",
+            "snapshot_url": "/sea-speed/media/events/road1-dup-1.jpg",
+        }
+        self._seed_legacy_feed(
+            [
+                {"camera_id": "road1", "payload": duplicate_payload, "created_at": "t1"},
+                {"camera_id": "road1", "payload": duplicate_payload, "created_at": "t2"},
+                {"camera_id": "road1", "payload": {"event_id": "keep-1"}, "created_at": "t3"},
+            ]
+        )
+        self._legacy_boot()
+        with STORE.open_state_db(self.state_db) as connection:
+            rows = connection.execute("SELECT id, event_id FROM event_feed ORDER BY id").fetchall()
+            inventory = connection.execute(
+                "SELECT value_json FROM migration_inventory WHERE key = 'event_feed_duplicate_event_ids'"
+            ).fetchone()
+            index = connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_event_feed_event_id'"
+            ).fetchone()
+        self.assertEqual(
+            [row["event_id"] for row in rows],
+            ["dup-1", "dup-1", "keep-1"],
+            "conflicting historical rows must never be deleted to make the index succeed",
+        )
+        self.assertIsNotNone(inventory)
+        self.assertEqual(
+            json.loads(inventory["value_json"]),
+            [{"event_id": "dup-1", "retained_rows": 2}],
+        )
+        self.assertIsNone(index, "the unique index must be deferred while duplicates exist")
+        # Idempotent: a second boot neither deletes, duplicates the
+        # inventory rows, nor changes the deferred-index disposition.
+        self._legacy_boot()
+        with STORE.open_state_db(self.state_db) as connection:
+            self.assertEqual(int(connection.execute("SELECT COUNT(*) FROM event_feed").fetchone()[0]), 3)
+            self.assertEqual(
+                int(connection.execute("SELECT COUNT(*) FROM migration_inventory").fetchone()[0]), 1
+            )
+        # Degraded DB stays functional: a duplicate re-delivery of an
+        # already-retained identity is receipt/row-gated, not appended again.
+        outcome, stored = STORE.deliver_event(
+            self.state_db, "road1", dict(duplicate_payload),
+            STORE.event_content_fingerprint(duplicate_payload), STORE.hash_bytes(b"jpeg"), 500,
+        )
+        self.assertEqual(outcome, "duplicate")
+        self.assertEqual(stored, duplicate_payload)
+        with STORE.open_state_db(self.state_db) as connection:
+            self.assertEqual(int(connection.execute("SELECT COUNT(*) FROM event_feed").fetchone()[0]), 3)
+
+    def test_boot_migration_is_idempotent_on_clean_legacy_database(self) -> None:
+        self._seed_legacy_feed(
+            [{"camera_id": "road1", "payload": {"event_id": "old-1"}, "created_at": "t1"}]
+        )
+        self._legacy_boot()
+        self._legacy_boot()
+        self.assertTrue(self._event_id_column())
+        self.assertEqual(len(_feed_rows(self.state_db, "road1")), 1)
+
+
+@unittest.skipUnless(STORE is not None, "api/app/store.py is required")
+class ReceiptRetentionTests(unittest.TestCase):
+    """Issue #537 wave 1: the 90-day retention sweep removes only old receipts."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.state_db = Path(self.tmp.name) / "state.sqlite3"
+        STORE.initialize_state_db(self.state_db)
+        self.now = 1_800_000_000.0
+
+    def _receipt(self, event_id: str, completed_at: str) -> None:
+        with STORE.open_state_db(self.state_db) as connection:
+            connection.execute(
+                "INSERT INTO event_receipts (event_id, camera_id, content_hash, snapshot_hash, response_event_json, completed_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (event_id, "road1", "c", "s", "{}", completed_at),
+            )
+
+    def test_prune_removes_only_receipts_older_than_retention(self) -> None:
+        moment = datetime.fromtimestamp(self.now, timezone.utc)
+        old = (moment - timedelta(days=91)).isoformat()
+        boundary = (moment - timedelta(days=90, seconds=1)).isoformat()
+        fresh = (moment - timedelta(days=1)).isoformat()
+        self._receipt("old", old)
+        self._receipt("boundary", boundary)
+        self._receipt("fresh", fresh)
+        deleted = STORE.prune_event_receipts(self.state_db, now=self.now)
+        self.assertEqual(deleted, 2)
+        remaining = {row for row in _receipt_event_ids(self.state_db)}
+        self.assertEqual(remaining, {"fresh"})
+
+    def test_prune_with_default_retention_uses_90_days(self) -> None:
+        self.assertEqual(STORE.EVENT_RECEIPTS_RETENTION_DAYS, 90)
+
+    def test_prune_leaves_feed_and_crossings_untouched(self) -> None:
+        moment = datetime.fromtimestamp(self.now, timezone.utc)
+        self._receipt("old", (moment - timedelta(days=120)).isoformat())
+        STORE.append_event(self.state_db, "road1", {"event_id": "feed-1"}, 500)
+        STORE.append_crossing(self.state_db, "road1", {"event_id": "cross-1"})
+        STORE.prune_event_receipts(self.state_db, now=self.now)
+        self.assertEqual(_receipt_count(self.state_db), 0)
+        self.assertEqual([event["event_id"] for event in _feed_rows(self.state_db, "road1")], ["feed-1"])
+        self.assertEqual([record["event_id"] for record in STORE.read_crossings(self.state_db, "road1")], ["cross-1"])
+
+
+def _receipt_event_ids(state_db: Path) -> List[str]:
+    with STORE.open_state_db(state_db) as connection:
+        return [str(row["event_id"]) for row in connection.execute("SELECT event_id FROM event_receipts")]
+
+
+@unittest.skipUnless(STORE is not None, "api/app/store.py is required")
+class AtomicWriteBytesTests(unittest.TestCase):
+    """Issue #537 wave 1: atomic snapshot publish (design §6 API)."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.directory = Path(self.tmp.name)
+        self.target = self.directory / "snap.jpg"
+
+    def test_happy_path_publishes_exact_bytes_and_no_tmp(self) -> None:
+        STORE.atomic_write_bytes(self.target, b"jpeg-v1")
+        self.assertEqual(self.target.read_bytes(), b"jpeg-v1")
+        self.assertEqual([p.name for p in self.directory.iterdir()], ["snap.jpg"])
+        STORE.atomic_write_bytes(self.target, b"jpeg-v2")
+        self.assertEqual(self.target.read_bytes(), b"jpeg-v2")
+        self.assertEqual([p.name for p in self.directory.iterdir()], ["snap.jpg"])
+
+    def test_failed_replace_leaves_previous_content_and_no_tmp(self) -> None:
+        STORE.atomic_write_bytes(self.target, b"jpeg-v1")
+        real_replace = os.replace
+
+        def failing_replace(src: Any, dst: Any) -> None:
+            raise OSError("disk full")
+
+        try:
+            os.replace = failing_replace
+            with self.assertRaises(OSError):
+                STORE.atomic_write_bytes(self.target, b"jpeg-v2")
+        finally:
+            os.replace = real_replace
+        self.assertEqual(self.target.read_bytes(), b"jpeg-v1", "previous content must survive a failed publish")
+        leftovers = [p.name for p in self.directory.iterdir() if p.name.endswith(".tmp")]
+        self.assertEqual(leftovers, [], "orphan tmp must be cleaned after a failed publish")
+
+    def test_failed_fsync_leaves_no_partial_file(self) -> None:
+        real_fsync = os.fsync
+
+        def failing_fsync(fd: int) -> None:
+            raise OSError("fsync failed")
+
+        try:
+            os.fsync = failing_fsync
+            with self.assertRaises(OSError):
+                STORE.atomic_write_bytes(self.target, b"jpeg-bytes")
+        finally:
+            os.fsync = real_fsync
+        self.assertFalse(self.target.exists(), "no partial file may be published")
+        leftovers = [p.name for p in self.directory.iterdir() if p.name.endswith(".tmp")]
+        self.assertEqual(leftovers, [])
+
+    def test_concurrent_writers_never_share_a_tmp(self) -> None:
+        errors: List[BaseException] = []
+
+        def writer(index: int) -> None:
+            try:
+                for round_no in range(25):
+                    STORE.atomic_write_bytes(self.target, f"writer-{index}-{round_no}".encode())
+            except BaseException as error:  # pragma: no cover - failure path
+                errors.append(error)
+
+        threads = [threading.Thread(target=writer, args=(i,)) for i in range(4)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        self.assertEqual(errors, [])
+        self.assertTrue(self.target.read_bytes().startswith(b"writer-"))
+        leftovers = [p.name for p in self.directory.iterdir() if p.name.endswith(".tmp")]
+        self.assertEqual(leftovers, [])
+
+
+@unittest.skipUnless(STORE is not None, "api/app/store.py is required")
+class EventIdentityHelperTests(unittest.TestCase):
+    def test_content_fingerprint_is_stable_and_content_sensitive(self) -> None:
+        event = {"event_id": "e1", "camera_id": "road1", "object_type": "car", "created_at": "t"}
+        first = STORE.event_content_fingerprint(event)
+        self.assertEqual(first, STORE.event_content_fingerprint(dict(event)))
+        self.assertNotEqual(first, STORE.event_content_fingerprint(dict(event, object_type="truck")))
+        self.assertNotEqual(first, STORE.event_content_fingerprint(dict(event, camera_id="cam1")))
+        self.assertNotEqual(first, STORE.event_content_fingerprint(dict(event, created_at="t2")))
+
+    def test_safe_event_filename_keeps_safe_ids_verbatim(self) -> None:
+        self.assertEqual(STORE.safe_event_filename("road1", "1750000000-abcd1234"), "road1-1750000000-abcd1234.jpg")
+        self.assertEqual(STORE.safe_event_filename("cam1", "E.1_2-3"), "cam1-E.1_2-3.jpg")
+
+    def test_safe_event_filename_never_escapes_the_media_directory(self) -> None:
+        for hostile in ("../../etc/passwd", "..", "a/b", "a\\b", ".hidden", "", "x" * 500, "ev id"):
+            filename = STORE.safe_event_filename("road1", hostile)
+            self.assertTrue(filename.startswith("road1-"))
+            self.assertTrue(filename.endswith(".jpg"))
+            self.assertEqual(Path(filename).name, filename, f"filename must stay a bare name for {hostile!r}")
+            self.assertNotIn("/", filename)
+            self.assertNotIn("\\", filename)
+            self.assertNotIn("..", filename)
+        # Deterministic: the same hostile id always maps to the same name.
+        self.assertEqual(
+            STORE.safe_event_filename("road1", "../../etc/passwd"),
+            STORE.safe_event_filename("road1", "../../etc/passwd"),
         )
 
 

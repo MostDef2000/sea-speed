@@ -822,15 +822,77 @@ async def post_analytics_event(
     event["created_at"] = event.get("created_at") or now_iso()
     if snapshot is None:
         raise HTTPException(status_code=422, detail="snapshot is required")
-    filename = f"{camera_id}-{event_id}.jpg"
+    snapshot_bytes = await snapshot.read()
+    # Issue #537 wave 1 (design §3): validate metadata, then derive the safe
+    # deterministic snapshot filename from validated identity — the raw
+    # client event_id is never interpolated unchecked into a media path, and
+    # verbatim retries deterministically rebuild the same snapshot_url.
+    filename = store.safe_event_filename(camera_id, event_id)
     snapshot_path = EVENTS_MEDIA_DIR / filename
-    snapshot_path.write_bytes(await snapshot.read())
     event["snapshot_url"] = f"/sea-speed/media/events/{filename}"
-    if not persist_object_event(event):
-        raise HTTPException(status_code=422, detail="snapshot is required")
+    content_hash = store.event_content_fingerprint(event)
+    snapshot_hash = store.hash_bytes(snapshot_bytes)
+    stored_receipt = store.find_event_receipt(STATE_DB_FILE, event_id)
+    if stored_receipt is not None:
+        if (
+            stored_receipt["camera_id"] != camera_id
+            or stored_receipt["content_hash"] != content_hash
+            or stored_receipt["snapshot_hash"] != snapshot_hash
+        ):
+            raise HTTPException(status_code=409, detail="event_id already delivered with different content or camera")
+        return {"ok": True, "event": json.loads(stored_receipt["response_event_json"]), "duplicate": True}
+    # Same-ID ingestion is serialized (design §3): the receipt is re-checked
+    # under the lock so a concurrent duplicate short-circuits here instead of
+    # racing the snapshot/registry stages or double-inserting the feed.
+    with store.EVENT_INGEST_LOCK:
+        stored_receipt = store.find_event_receipt(STATE_DB_FILE, event_id)
+        if stored_receipt is not None:
+            if (
+                stored_receipt["camera_id"] != camera_id
+                or stored_receipt["content_hash"] != content_hash
+                or stored_receipt["snapshot_hash"] != snapshot_hash
+            ):
+                raise HTTPException(status_code=409, detail="event_id already delivered with different content or camera")
+            return {"ok": True, "event": json.loads(stored_receipt["response_event_json"]), "duplicate": True}
+        # Conflict probe BEFORE media publication: a retained feed row with
+        # different immutable content or camera (receipt pruned/legacy) is a
+        # 409 — the rejected snapshot bytes must never overwrite the media
+        # already published for the accepted delivery.
+        if store.find_feed_row_conflict(STATE_DB_FILE, camera_id, event) is not None:
+            raise HTTPException(status_code=409, detail="event_id already delivered with different content or camera")
+        # AC-003 (spec.md:105-107): with a retained feed row and a pruned
+        # receipt, an identical-payload re-delivery would otherwise publish
+        # new media and collapse to duplicate success. Compare the currently
+        # published snapshot bytes against the incoming snapshot hash BEFORE
+        # publication: an existing file with different bytes is a 409. A
+        # missing published file stays on the media-recovery path —
+        # publication proceeds and deliver_event collapses to duplicate.
+        if store.find_retained_feed_row(STATE_DB_FILE, camera_id, event) is not None:
+            if snapshot_path.exists() and store.hash_bytes(snapshot_path.read_bytes()) != snapshot_hash:
+                raise HTTPException(status_code=409, detail="event_id already delivered with different content or camera")
+        # Atomic snapshot publish (design §6 API): unique same-directory tmp,
+        # fsync, os.replace, directory fsync — no partial JPEG is observable
+        # and a failed write leaves the previous bytes intact.
+        store.atomic_write_bytes(snapshot_path, snapshot_bytes)
+        # Registry persist stays the existing idempotent INSERT OR IGNORE
+        # path (objects_registry.py untouched). A False return means this
+        # identity is already registered (crash-repair or cross-process
+        # race): the feed/receipt completion below finishes the missing
+        # pieces instead of failing the retry.
+        persist_object_event(event)
+        try:
+            outcome, stored_event = store.deliver_event(
+                STATE_DB_FILE, camera_id, event, content_hash, snapshot_hash, EVENTS_FEED_LIMIT
+            )
+        except store.EventDeliveryConflict as conflict:
+            # Same event_id, different immutable content or camera — the
+            # conflict stays worker-visible as an unconfirmed delivery.
+            raise HTTPException(status_code=409, detail=str(conflict)) from conflict
+    if outcome == "duplicate":
+        return {"ok": True, "event": stored_event, "duplicate": True}
     sweep_events_media()
-    store.append_event(STATE_DB_FILE, camera_id, event, EVENTS_FEED_LIMIT)
-    return {"ok": True, "event": event}
+    store.prune_event_receipts(STATE_DB_FILE)
+    return {"ok": True, "event": event, "duplicate": False}
 
 
 @app.get("/api/analytics/{camera_id}/roi")
