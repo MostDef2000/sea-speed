@@ -24,7 +24,7 @@ Windows Worker is retired. Historical Windows evidence remains readable audit hi
 3. For a genuinely new task, read canonical governance, delivery policy, task runtime and release readiness gate and recover only relevant current `main`, Issue/spec/open work/evidence.
 4. Use Task Intake as a read-only lens for new or materially invalidated work, not as the default resume path.
 5. Produce Task Brief, Outcome Contract and exact Implementation Scope Check when fresh source authorization is required.
-6. Before requesting `OUTCOME APPROVED`, show complete six-field Scope as last substantive assistant content; accept only immediately following approval.
+6. Before requesting `commit approved`, show complete six-field Scope as last substantive assistant content; accept only immediately following approval.
 7. Admit source authorization fail closed before first write and persist a durable authorization receipt/checkpoint after valid admission.
 8. Complete runtime capability preflight for every active contour when applicable.
 9. Create a fresh branch from current `main` using GitHub Connector.
@@ -47,9 +47,9 @@ Windows Worker is retired. Historical Windows evidence remains readable audit hi
 
 - **Repository/product truth**: current `main`, committed contracts/specs/source and accepted runtime evidence.
 - **Delivery-control truth**: canonical Issue Outcome, source-authorization receipt, Delivery Checkpoint, exact branch/PR/head, completed gates and evidence cursors.
-- **Transient interaction state**: live conversation used to present a new visible Scope and receive its immediately-following `OUTCOME APPROVED`, plus the structured todo projection of current synchronous execution.
+- **Transient interaction state**: live conversation used to present a new visible Scope and receive its immediately-following `commit approved`, plus the structured todo projection of current synchronous execution.
 
-Initial Scope/approval adjacency is an admission condition. Once a valid admission is durably receipted, that receipt can continue only the **same exact admitted scope**. It cannot create, widen, or replace source authorization and never grants production authority. Context compaction, session restart, response truncation, Connector truncation, or model-memory loss does not by itself revoke authorization or return an admitted task to `DISCUSSION`.
+Initial Scope/approval adjacency is an admission condition. Once a valid admission is durably receipted, that receipt can continue only the **same exact admitted scope**. It cannot create, widen, or replace source authorization and never grants production authority. Context compaction, session restart, response truncation, Connector truncation, or model-memory loss does not by itself revoke authorization or return an admitted task to `DISCUSSION`. Legacy receipts `OUTCOME APPROVED` remain accepted for their recorded admitted scopes (historical).
 
 ## Resume Probe and monotonic lifecycle
 
@@ -134,7 +134,7 @@ All other connectors/plugins/services and ad-hoc mutation paths are forbidden im
 
 ```text
 Scope presentation: mandatory immediately preceding assistant turn
-OUTCOME APPROVED: one user source decision
+commit approved: one user source decision
 per-release production approval: zero
 standing delegation/settings administration: rare protected human action
 manual runtime action: 0 target; <=1 fallback per required active contour

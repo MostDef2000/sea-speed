@@ -32,14 +32,16 @@ The Orchestrator alone owns Scope admission, durable checkpoints, branch/PR life
 
 ## Mandatory operating rules
 
+General delivery gates follow the global contract `~/.config/opencode/AGENTS.md` (durable source: profiles/global/** in the workspace repo ai-playground); scope-admission phrase: `commit approved`. Rules below are additive project-specific strength.
+
 1. Treat GitHub `main` as the only long-term source of truth for repository/product state.
 2. Treat the canonical Issue as durable delivery-control truth for an existing task: admitted Outcome/scope, authorization receipt, Delivery Checkpoint and exact evidence cursors.
 3. Treat the live conversation as transient interaction state used for new source-admission decisions, not as the durable execution cursor.
 4. Start new implementation from a canonical Issue and explicit Outcome Contract / Implementation Scope Check.
-5. Before asking for `OUTCOME APPROVED`, show the complete visible six-field Scope as the last substantive assistant content; approval is valid only in the immediately following user turn.
+5. Before asking for `commit approved`, show the complete visible six-field Scope as the last substantive assistant content; approval is valid only in the immediately following user turn.
 6. Before the first repository write require `VISIBLE_SCOPE_PRESENTED=YES`, `SCOPE_IMMEDIATELY_PRECEDES_APPROVAL=YES`, and `SOURCE_AUTHORIZATION_ADMISSION=OPEN`.
 7. After valid admission persist a durable authorization receipt and machine-readable `Sea Speed Delivery Checkpoint v2`; the receipt may continue only the same exact admitted scope and cannot create, widen, or replace source authority.
-8. `OUTCOME APPROVED` authorizes only the bounded reversible repository lifecycle: branch/source/SDD writes, commits, integrity checks, PR creation/repair, in-scope CI remediation and exact-green-head merge. It does not itself grant runtime authority.
+8. `commit approved` authorizes only the bounded reversible repository lifecycle: branch/source/SDD writes, commits, integrity checks, PR creation/repair, in-scope CI remediation and exact-green-head merge. It does not itself grant runtime authority. Legacy receipts `OUTCOME APPROVED` remain accepted for their recorded admitted scopes (historical); `commit approved` is the only phrase presented for new admissions.
 9. Significant implementation/control-plane work creates or updates linked `spec.md`, `plan.md`, and `tasks.md` under `specs/**`.
 10. Use one fresh branch and one bounded PR for one canonical task. Material scope/protected-boundary changes require fresh source authorization.
 11. Keep the PR Change Contract synchronized with exact diff, risk profile, production impact, active runtime contours, execution capability and operator-action count.
@@ -69,7 +71,7 @@ Truth classes are explicit:
 
 - **Repository/product truth** — `main`, committed source/contracts/specs and accepted runtime evidence.
 - **Delivery-control truth** — canonical Issue, authorization receipt, `Sea Speed Delivery Checkpoint v2`, branch/PR/head, completed gates and evidence cursors.
-- **Transient interaction state** — current chat used for initial visible-Scope -> immediately-following `OUTCOME APPROVED` admission, plus the structured todo projection used to expose current synchronous execution.
+- **Transient interaction state** — current chat used for initial visible-Scope -> immediately-following `commit approved` admission, plus the structured todo projection used to expose current synchronous execution.
 
 Initial Scope/approval adjacency remains mandatory to create source authority. A durable authorization receipt can only resume the **same exact admitted scope**. It never creates source authority, cannot expand it, and never grants production authority.
 

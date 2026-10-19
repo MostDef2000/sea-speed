@@ -50,7 +50,7 @@ HUMAN DECISION REQUIRED
 ## Phase semantics
 
 - `DISCUSSION`: read-only discovery, Task Brief, Outcome Contract and visible Scope for a new/materially invalidated task.
-- `READY_FOR_IMPLEMENTATION`: complete Scope immediately followed by exact `OUTCOME APPROVED`; source admission OPEN and durable receipt/checkpoint recorded.
+- `READY_FOR_IMPLEMENTATION`: complete Scope immediately followed by exact `commit approved`; source admission OPEN and durable receipt/checkpoint recorded.
 - `IMPLEMENTING`: bounded source/SDD work and in-scope CI remediation.
 - `SOURCE_INTEGRATED`: exact source accepted on `main`; not runtime evidence.
 - `POLICY_PENDING`: runtime applies and autonomous standing-policy evaluation is waiting on exact-main Quality or trusted standing delegation/settings state.
@@ -64,7 +64,7 @@ GitHub Actions capability is orthogonal to runtime contour capability. Before a 
 
 - **Repository/product truth**: current `main`, committed contracts/specs/source and accepted runtime evidence.
 - **Delivery-control truth**: canonical Issue Outcome, source-authorization receipt, `Sea Speed Delivery Checkpoint v2`, branch/PR/head, completed gates and evidence cursors.
-- **Transient interaction state**: live conversation used for new visible-Scope -> immediately-following `OUTCOME APPROVED` admission, plus the structured todo projection used to expose current synchronous execution.
+- **Transient interaction state**: live conversation used for new visible-Scope -> immediately-following `commit approved` admission, plus the structured todo projection used to expose current synchronous execution.
 
 The initial adjacent Scope/approval creates source authority. A durable authorization receipt may continue only the **same exact admitted scope**. It cannot create, widen or replace source authority and never grants production authority.
 
@@ -117,7 +117,7 @@ If source configuration is missing and an admitted repair is executable, remain 
 
 ## Sea Speed Delivery Checkpoint v2
 
-Persist the compact machine-readable checkpoint in the canonical Issue after valid source admission and update it only at meaningful lifecycle/evidence transitions, not after every tool call. The JSON object conforms to `schemas/delivery-checkpoint-v2.schema.json`; cross-field invariants and v1 upgrade are implemented by `scripts/ci/validate_delivery_checkpoint.py`.
+Persist the compact machine-readable checkpoint in the canonical Issue after valid source admission and update it only at meaningful lifecycle/evidence transitions, not after every tool call. The JSON object conforms to `schemas/delivery-checkpoint-v2.schema.json`; cross-field invariants and v1 upgrade are implemented by `scripts/ci/validate_delivery_checkpoint.py`. `authorization_receipt` records the unified admission phrase `commit approved`; the validator and schema also accept the legacy value `OUTCOME APPROVED` for receipts recorded before the 2026-10-19 unification.
 
 ```json
 {
@@ -125,7 +125,7 @@ Persist the compact machine-readable checkpoint in the canonical Issue after val
   "task": "#<canonical-issue>",
   "generation": 1,
   "approved_scope_identity": "<stable-scope-hash-or-id>",
-  "authorization_receipt": "OUTCOME APPROVED",
+  "authorization_receipt": "commit approved",
   "authorization_base_main": "<40-char-lowercase-sha>",
   "current_phase": "<active-phase>",
   "branch": null,
@@ -143,7 +143,7 @@ Persist the compact machine-readable checkpoint in the canonical Issue after val
 
 Checkpoint generation is monotonic. It does not increment for every read/tool call; it advances when phase, exact source identity, completed gate, evidence cursor, invalidation state, next action, session disposition, or wait predicate materially changes.
 
-Persisted `Sea Speed Delivery Checkpoint v1` records remain readable continuation evidence for the same exact admitted scope. The repository validator parses and upgrades active v1 evidence to v2 at its next meaningful transition. Conversion does not recreate source authority and does not require another `OUTCOME APPROVED`.
+Persisted `Sea Speed Delivery Checkpoint v1` records remain readable continuation evidence for the same exact admitted scope. The repository validator parses and upgrades active v1 evidence to v2 at its next meaningful transition. Conversion does not recreate source authority and does not require another approval; a legacy `OUTCOME APPROVED` receipt carried by v1 evidence remains valid after the upgrade.
 
 ## WAITING_EXTERNAL contract
 
@@ -209,7 +209,7 @@ MATERIAL_MAIN_DIVERGENCE
 EVIDENCE_CONTRADICTION
 ```
 
-`CONTEXT_LOSS` is intentionally not a valid reason. Context compaction, session restart and Connector truncation do not return an admitted task to `DISCUSSION` and do not require another `OUTCOME APPROVED`.
+`CONTEXT_LOSS` is intentionally not a valid reason. Context compaction, session restart and Connector truncation do not return an admitted task to `DISCUSSION` and do not require another `commit approved`.
 
 When invalidation occurs, record the evidence and exact invalidated boundary. Preserve all still-valid earlier evidence rather than restarting unrelated discovery.
 
@@ -260,7 +260,7 @@ Sea Speed Task Runtime
 - Scope presented to operator: YES/NO
 - Scope immediately precedes authorization: YES/NO
 - Source authorization admission: OPEN/BLOCKED
-- Source authorization: OUTCOME APPROVED
+- Source authorization: commit approved
 - Authorization base main:
 - Branch:
 - PR:
@@ -324,7 +324,7 @@ Missing/stale/mismatched delegation produces `DENY` before transport. Protected 
 
 ## Continuation rule
 
-After valid `OUTCOME APPROVED`, continue automatically through implementation, integrity, PR, metadata repair, CI, in-scope remediation and exact-green-head merge. Material source scope/protected-boundary changes require fresh source authorization.
+After valid `commit approved`, continue automatically through implementation, integrity, PR, metadata repair, CI, in-scope remediation and exact-green-head merge. Material source scope/protected-boundary changes require fresh source authorization.
 
 Automatic continuation means execute every safe action available now. It does not mean busy-wait, repeatedly poll unchanged evidence, or claim background execution. A known GitHub Actions run or check that is `queued` or `in_progress` remains `ACTIVE` with foreground rate-limited exact-cursor observation and does not justify `WAITING_EXTERNAL`. When the only prerequisite is a non-CI machine-observable external transition, persist `WAITING_EXTERNAL`; a later synchronous invocation resumes through the bounded wait replay rule.
 
@@ -334,7 +334,7 @@ After exact-main Quality, runtime-impacting releases continue automatically thro
 
 ```text
 visible Scope presentation: mandatory immediately preceding assistant turn
-OUTCOME APPROVED: one user decision per admitted scope
+commit approved: one user decision per admitted scope
 per-release production approval: zero
 standing delegation/settings administration: rare human action, not per release
 manual runtime command: zero target; <=1 fallback per required active contour

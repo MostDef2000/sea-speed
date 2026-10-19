@@ -41,6 +41,7 @@ class DeliveryQualityLayerTests(unittest.TestCase):
         for text in (governance, policy, readiness):
             self.assertIn("waiver", text.lower())
             self.assertIn("hard gate", text.lower())
+        self.assertIn("commit approved", governance)
         self.assertIn("OUTCOME APPROVED", governance)
         self.assertIn("PRODUCTION APPROVED", governance)
 

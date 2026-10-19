@@ -33,7 +33,7 @@ Truth classes remain distinct:
 
 - **Repository/product truth**: `main`, committed source/spec/contracts and accepted runtime evidence.
 - **Delivery-control truth**: canonical Issue, source-authorization receipt, Delivery Checkpoint and exact referenced delivery evidence.
-- **Transient interaction state**: live chat used for initial visible-Scope -> immediately-following `OUTCOME APPROVED` admission.
+- **Transient interaction state**: live chat used for initial visible-Scope -> immediately-following `commit approved` admission.
 
 ## Canonical Task Brief
 
@@ -68,7 +68,7 @@ Windows Worker is retired from new Task Brief runtime classification. Historical
 
 ## Rules
 
-Issues are canonical durable history. Task Brief completion is not source authorization. New repository work requires the complete visible Scope immediately followed by `OUTCOME APPROVED`. Production authorization is separate and exact-SHA bound. Never expose secrets or silently broaden scope.
+Issues are canonical durable history. Task Brief completion is not source authorization. New repository work requires the complete visible Scope immediately followed by `commit approved`. Production authorization is separate and exact-SHA bound. Never expose secrets or silently broaden scope.
 
 A durable authorization receipt can continue only the same exact admitted scope. It cannot create or expand source authority and never grants production authority.
 

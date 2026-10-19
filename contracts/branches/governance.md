@@ -16,7 +16,7 @@ Review repository structure, canonical contracts, SDD, decision records, compati
 - historical Issues/PRs/decision records/release evidence remain immutable audit history;
 - active production topology is VPS + Ubuntu Worker/relay only;
 - Windows Worker remains retired;
-- source authorization remains visible Scope -> immediately following `OUTCOME APPROVED`;
+- source authorization remains visible Scope -> immediately following `commit approved` (legacy receipts `OUTCOME APPROVED` remain accepted, historical);
 - production authority comes only from independently administered standing delegation plus deterministic policy, never repository/comment text;
 - repository policy may narrow but not widen trusted delegation;
 - standing delegation only covers deploy/rollback; IAM/secrets/settings administration remains human-controlled;

@@ -28,7 +28,7 @@ Normal source lifecycle:
 request / Issue recovery
 -> read-only Task Intake
 -> Outcome Contract + visible Implementation Scope Check
--> OUTCOME APPROVED
+-> commit approved
 -> fresh branch + implementation + SDD
 -> integrity gate
 -> PR Validation + Quality integration
@@ -41,7 +41,7 @@ request / Issue recovery
    OR DONE / BLOCKED / HUMAN DECISION REQUIRED
 ```
 
-`OUTCOME APPROVED` authorizes bounded source lifecycle only. It does not itself grant production execution.
+`commit approved` authorizes bounded source lifecycle only. It does not itself grant production execution. Legacy receipts `OUTCOME APPROVED` remain accepted by the repository validators for their recorded admitted scopes (historical); `commit approved` is the only phrase presented for new admissions.
 
 Canonical project rules:
 
@@ -56,9 +56,9 @@ Canonical project rules:
 
 ## Resumable delivery
 
-Sea Speed distinguishes **Repository/product truth**, **Delivery-control truth**, and **Transient interaction state**. `main` remains repository/product truth; the canonical Issue stores the admitted Outcome, source-authorization receipt, and machine-readable `Sea Speed Delivery Checkpoint v2`; the live chat is only where a new visible Scope and immediately-following `OUTCOME APPROVED` are initially admitted.
+Sea Speed distinguishes **Repository/product truth**, **Delivery-control truth**, and **Transient interaction state**. `main` remains repository/product truth; the canonical Issue stores the admitted Outcome, source-authorization receipt, and machine-readable `Sea Speed Delivery Checkpoint v2`; the live chat is only where a new visible Scope and immediately-following `commit approved` are initially admitted.
 
-For an existing task with a valid checkpoint, recovery uses a bounded **Resume Probe** rather than full project recovery. Context compaction, session restart, or Connector truncation do not by themselves return an admitted task to `DISCUSSION` or require another `OUTCOME APPROVED`. Material scope/protected-boundary changes still require fresh source authorization.
+For an existing task with a valid checkpoint, recovery uses a bounded **Resume Probe** rather than full project recovery. Context compaction, session restart, or Connector truncation do not by themselves return an admitted task to `DISCUSSION` or require another `commit approved`. Material scope/protected-boundary changes still require fresh source authorization.
 
 Connector recovery is progressive: `known object -> metadata -> targeted detail -> failure fragment`. Equivalent repeated reads with the same evidence identity and question are not admissible unless a canonical gate requires a fresh read.
 

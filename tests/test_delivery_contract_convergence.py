@@ -28,12 +28,15 @@ class DeliveryContractConvergenceTests(unittest.TestCase):
             self.assertIn("Review Lens", text, path)
             self.assertIn("Delivery Orchestrator", text, path)
 
-    def test_source_authorization_remains_outcome_approved(self) -> None:
+    def test_source_authorization_uses_unified_phrase_with_legacy_acceptance(self) -> None:
         template = self.read(".github/pull_request_template.md")
         validator = self.read("scripts/ci/validate_change_contract.py")
-        self.assertIn("Source authorization: OUTCOME APPROVED", template)
+        schema = self.read("schemas/delivery-checkpoint-v2.schema.json")
+        self.assertIn("Source authorization: commit approved", template)
+        self.assertNotIn("Source authorization: OUTCOME APPROVED", template)
         self.assertNotIn("LEGACY COMMIT APPROVED", template)
-        self.assertIn('SOURCE_AUTHORIZATIONS = {"OUTCOME APPROVED"}', validator)
+        self.assertIn('SOURCE_AUTHORIZATIONS = {"commit approved", "OUTCOME APPROVED"}', validator)
+        self.assertIn('"authorization_receipt": {"enum": ["commit approved", "OUTCOME APPROVED"]}', schema)
 
     def test_active_docs_name_exactly_two_production_contours(self) -> None:
         for path in ("README.md", "AGENTS.md", "contracts/SEA_SPEED_DELIVERY_POLICY.md"):
@@ -118,6 +121,7 @@ class DeliveryContractConvergenceTests(unittest.TestCase):
         for marker in ("context compaction", "session restart", "connector truncation"):
             self.assertIn(marker, combined)
         self.assertIn("discussion", combined)
+        self.assertIn("commit approved", combined)
         self.assertIn("outcome approved", combined)
         self.assertIn("cannot create", combined)
 
