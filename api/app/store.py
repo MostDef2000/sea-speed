@@ -65,6 +65,7 @@ __all__ = [
     "deliver_event",
     "event_content_fingerprint",
     "find_event_receipt",
+    "find_feed_row_conflict",
     "hash_bytes",
     "prune_event_receipts",
     "safe_event_filename",
@@ -442,6 +443,41 @@ def find_event_receipt(db_path: Path, event_id: str) -> Optional[Dict[str, Any]]
             (str(event_id),),
         ).fetchone()
     if row is None:
+        return None
+    return dict(row)
+
+
+def find_feed_row_conflict(
+    db_path: Path,
+    camera_id: str,
+    event: Dict[str, Any],
+) -> Optional[Dict[str, Any]]:
+    """The retained ``event_feed`` row that ``deliver_event`` would 409 on.
+
+    Read-only probe mirroring the stored-row comparison inside
+    ``deliver_event``: a retained feed row with a different camera or a
+    different immutable payload answers a conflict even when the receipt is
+    gone (pruned or legacy). The handler runs this under the ingest lock
+    BEFORE publishing snapshot media, so a 409 re-delivery never overwrites
+    the published snapshot bytes of the accepted delivery.
+    """
+    event_id = str(event.get("event_id") or "")
+    if not event_id:
+        return None
+    payload_json = json.dumps(event, ensure_ascii=False, sort_keys=True)
+    with open_state_db(db_path) as connection:
+        row = connection.execute(
+            "SELECT camera_id, payload_json FROM event_feed WHERE event_id = ? "
+            "ORDER BY id DESC LIMIT 1",
+            (event_id,),
+        ).fetchone()
+    if row is None:
+        return None
+    stored_event = json.loads(row["payload_json"])
+    if (
+        row["camera_id"] == camera_id
+        and json.dumps(stored_event, ensure_ascii=False, sort_keys=True) == payload_json
+    ):
         return None
     return dict(row)
 

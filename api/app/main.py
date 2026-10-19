@@ -854,6 +854,12 @@ async def post_analytics_event(
             ):
                 raise HTTPException(status_code=409, detail="event_id already delivered with different content or camera")
             return {"ok": True, "event": json.loads(stored_receipt["response_event_json"]), "duplicate": True}
+        # Conflict probe BEFORE media publication: a retained feed row with
+        # different immutable content or camera (receipt pruned/legacy) is a
+        # 409 — the rejected snapshot bytes must never overwrite the media
+        # already published for the accepted delivery.
+        if store.find_feed_row_conflict(STATE_DB_FILE, camera_id, event) is not None:
+            raise HTTPException(status_code=409, detail="event_id already delivered with different content or camera")
         # Atomic snapshot publish (design §6 API): unique same-directory tmp,
         # fsync, os.replace, directory fsync — no partial JPEG is observable
         # and a failed write leaves the previous bytes intact.
