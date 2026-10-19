@@ -76,8 +76,8 @@
 - [ ] Issue/spec/plan/tasks current
 - [ ] Exact changed-file scope verified
 - [ ] Required tests and evidence complete
-- [ ] Required CI green
-- [ ] Exact-green-head merge complete
+- [x] Required CI green — auto-synced on merge to main (fcf596d3)
+- [x] Exact-green-head merge complete — auto-synced on merge to main (fcf596d3)
 - [ ] Deployment state resolved (runtime-manual: not applicable — control-plane only, no deploy contour)
 - [ ] Runtime acceptance resolved (not applicable: no runtime surface changed; required CI is the acceptance evidence)
 - [ ] Deferred work recorded (none — no follow-up scope)
@@ -98,8 +98,8 @@
 - [ ] Issue/spec/plan/tasks current — current for the implemented scope at the working tree
 - [ ] Exact changed-file scope verified — full list in the PR Change Contract; git diff --stat inspected
 - [ ] Required tests and evidence complete — battery recorded in plan Validation and the delivery report
-- [ ] Required CI green — pending PR creation on an authorized exact head
-- [ ] Exact-green-head merge complete — pending authorized PR/merge
+- [x] Required CI green — pending PR creation on an authorized exact head — auto-synced on merge to main (fcf596d3)
+- [x] Exact-green-head merge complete — pending authorized PR/merge — auto-synced on merge to main (fcf596d3)
 - [ ] Deployment state resolved — no deploy contour; nothing to resolve
 - [ ] Runtime acceptance resolved — no runtime surface; required CI is the acceptance evidence
 - [ ] Deferred work recorded — none
