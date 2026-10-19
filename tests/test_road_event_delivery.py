@@ -338,6 +338,31 @@ class ConflictTests(RoadEventDeliveryTestCase):
             "a rejected (409) re-delivery must not overwrite the published snapshot media",
         )
 
+    def test_identical_payload_different_snapshot_after_receipt_prune_is_409(self) -> None:
+        # AC-003 residual gap (spec:105-107): same event_id + same camera +
+        # byte-identical payload metadata, but DIFFERENT snapshot bytes, after
+        # the receipt is pruned while the feed row survives. The store probe
+        # (find_feed_row_conflict) compares camera+payload only, so the handler
+        # publishes the new JPEG and deliver_event collapses to a duplicate
+        # success (HTTP 200) — the accepted delivery's media is silently
+        # replaced. The spec demands 409 with prior state intact.
+        metadata = {"event_id": "evt-prune-media", "object_type": "car", "created_at": "2026-10-19T11:53:15+00:00"}
+        original_bytes = b"snapshot-A-published-jpeg"
+        rejected_bytes = b"snapshot-B-different-jpeg"
+        self.post_event(metadata, snapshot=FakeSnapshot(original_bytes))
+        target = self.snapshot_path("road1", "evt-prune-media")
+        self.assertEqual(target.read_bytes(), original_bytes, "baseline: accepted delivery published bytes A")
+        with STORE.open_state_db(self.state_db) as connection:
+            connection.execute("DELETE FROM event_receipts")
+        with self.assertRaises(HTTPExceptionStub) as context:
+            self.post_event(metadata, snapshot=FakeSnapshot(rejected_bytes))
+        self.assertEqual(context.exception.status_code, 409)
+        self.assertEqual(
+            target.read_bytes(),
+            original_bytes,
+            "re-delivery with different snapshot bytes must not overwrite the published media",
+        )
+
 
 class AtomicSnapshotTests(RoadEventDeliveryTestCase):
     def test_failed_publish_leaves_no_partial_file_and_retry_succeeds(self) -> None:
