@@ -66,6 +66,7 @@ __all__ = [
     "event_content_fingerprint",
     "find_event_receipt",
     "find_feed_row_conflict",
+    "find_retained_feed_row",
     "hash_bytes",
     "prune_event_receipts",
     "safe_event_filename",
@@ -447,6 +448,21 @@ def find_event_receipt(db_path: Path, event_id: str) -> Optional[Dict[str, Any]]
     return dict(row)
 
 
+def _feed_row_matches(row: Any, camera_id: str, payload_json: str) -> bool:
+    """Shared identical-delivery comparison for a retained ``event_feed`` row.
+
+    A row matches when it carries the same camera AND a canonically equal
+    payload (``json.dumps(..., ensure_ascii=False, sort_keys=True)`` — the
+    exact serialization ``deliver_event`` stores). Single source of truth for
+    ``find_feed_row_conflict`` and ``find_retained_feed_row``.
+    """
+    stored_event = json.loads(row["payload_json"])
+    return (
+        row["camera_id"] == camera_id
+        and json.dumps(stored_event, ensure_ascii=False, sort_keys=True) == payload_json
+    )
+
+
 def find_feed_row_conflict(
     db_path: Path,
     camera_id: str,
@@ -471,13 +487,40 @@ def find_feed_row_conflict(
             "ORDER BY id DESC LIMIT 1",
             (event_id,),
         ).fetchone()
-    if row is None:
+    if row is None or _feed_row_matches(row, camera_id, payload_json):
         return None
-    stored_event = json.loads(row["payload_json"])
-    if (
-        row["camera_id"] == camera_id
-        and json.dumps(stored_event, ensure_ascii=False, sort_keys=True) == payload_json
-    ):
+    return dict(row)
+
+
+def find_retained_feed_row(
+    db_path: Path,
+    camera_id: str,
+    event: Dict[str, Any],
+) -> Optional[Dict[str, Any]]:
+    """The retained ``event_feed`` row for an IDENTICAL re-delivery (AC-003).
+
+    Same query shape as ``find_feed_row_conflict`` with the opposite outcome:
+    it answers the row only when the same camera re-delivers the same
+    immutable payload while the receipt is gone (pruned or legacy) — the
+    delivery that ``deliver_event`` would collapse to duplicate success. The
+    handler runs this under the ingest lock BEFORE publishing snapshot media
+    so it can gate on the published snapshot bytes (spec.md:105-107): when
+    the currently published file exists and hashes differently from the
+    incoming snapshot, the re-delivery is a 409 instead of silently
+    replacing the accepted delivery's media. A missing published file stays
+    on the media-recovery path (publication proceeds, duplicate success).
+    """
+    event_id = str(event.get("event_id") or "")
+    if not event_id:
+        return None
+    payload_json = json.dumps(event, ensure_ascii=False, sort_keys=True)
+    with open_state_db(db_path) as connection:
+        row = connection.execute(
+            "SELECT camera_id, payload_json FROM event_feed WHERE event_id = ? "
+            "ORDER BY id DESC LIMIT 1",
+            (event_id,),
+        ).fetchone()
+    if row is None or not _feed_row_matches(row, camera_id, payload_json):
         return None
     return dict(row)
 

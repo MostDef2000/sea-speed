@@ -860,6 +860,16 @@ async def post_analytics_event(
         # already published for the accepted delivery.
         if store.find_feed_row_conflict(STATE_DB_FILE, camera_id, event) is not None:
             raise HTTPException(status_code=409, detail="event_id already delivered with different content or camera")
+        # AC-003 (spec.md:105-107): with a retained feed row and a pruned
+        # receipt, an identical-payload re-delivery would otherwise publish
+        # new media and collapse to duplicate success. Compare the currently
+        # published snapshot bytes against the incoming snapshot hash BEFORE
+        # publication: an existing file with different bytes is a 409. A
+        # missing published file stays on the media-recovery path —
+        # publication proceeds and deliver_event collapses to duplicate.
+        if store.find_retained_feed_row(STATE_DB_FILE, camera_id, event) is not None:
+            if snapshot_path.exists() and store.hash_bytes(snapshot_path.read_bytes()) != snapshot_hash:
+                raise HTTPException(status_code=409, detail="event_id already delivered with different content or camera")
         # Atomic snapshot publish (design §6 API): unique same-directory tmp,
         # fsync, os.replace, directory fsync — no partial JPEG is observable
         # and a failed write leaves the previous bytes intact.
