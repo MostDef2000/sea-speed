@@ -26,7 +26,7 @@ Production acceptance/regressions/operational discoveries update active feature 
 Prefer the smallest operable architecture satisfying the outcome and compatibility boundaries.
 
 ## VII. Governance authority
-SDD tooling does not grant source/merge/production authorization. New source work uses `OUTCOME APPROVED`; production remains separately exact-SHA authorized.
+SDD tooling does not grant source/merge/production authorization. New source work uses `commit approved` (legacy receipts `OUTCOME APPROVED` remain accepted, historical); production remains separately exact-SHA authorized.
 
 ## VIII. Traceability
 A significant PR links exactly one feature spec. Required `spec.md`, `plan.md`, `tasks.md` are CI validated. Docs/spec-only maintenance may remain lightweight.
@@ -51,7 +51,7 @@ The PR quality verdict may be `PASS`, `CONCERNS`, `FAIL`, or `WAIVED`. `FAIL` bl
 ```text
 Issue + Outcome Contract
 -> spec / plan / tasks
--> OUTCOME APPROVED
+-> commit approved
 -> implementation + delivery-quality artifacts
 -> CI consistency + quality
 -> exact-green-head merge

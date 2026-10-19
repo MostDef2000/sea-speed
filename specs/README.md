@@ -16,7 +16,7 @@ This directory is the durable Spec-Driven Development layer for Sea Speed.
 - protected GitHub repository/environment settings: independently administered source/runtime control state, never granted by SDD text.
 - runtime evidence: operational truth written back into active artifacts.
 
-For recovery semantics, distinguish **Repository/product truth**, **Delivery-control truth**, and **Transient interaction state**. `main` supplies repository/product truth. The canonical Issue supplies durable delivery-control truth, including machine-readable `Sea Speed Delivery Checkpoint v2`. Initial source admission still requires the complete visible Scope immediately followed by `OUTCOME APPROVED`; a durable receipt can only resume the same exact admitted scope and cannot create new authority.
+For recovery semantics, distinguish **Repository/product truth**, **Delivery-control truth**, and **Transient interaction state**. `main` supplies repository/product truth. The canonical Issue supplies durable delivery-control truth, including machine-readable `Sea Speed Delivery Checkpoint v2`. Initial source admission still requires the complete visible Scope immediately followed by `commit approved` (legacy receipts `OUTCOME APPROVED` remain accepted, historical); a durable receipt can only resume the same exact admitted scope and cannot create new authority.
 
 Synchronous orchestration uses `ACTIVE`, nonterminal `WAITING_EXTERNAL`, or `TERMINAL` as session disposition. A known GitHub Actions run or check that is `queued` or `in_progress` keeps the session `ACTIVE` with foreground rate-limited exact-cursor observation and does not justify `WAITING_EXTERNAL`. `WAITING_EXTERNAL` is valid only when no action is executable now and an exact non-CI external evidence transition is pending; it never implies background polling. Persisted v1 checkpoints remain readable and are upgraded by the repository validator at the next meaningful transition.
 
@@ -33,7 +33,7 @@ Issue / evidence recovery
 -> existing valid checkpoint: bounded Resume Probe
    OR new/materially invalidated task: Delivery Orchestrator + optional Task Intake
 -> Outcome Contract / visible Scope when fresh source authorization is required
--> OUTCOME APPROVED
+-> commit approved
 -> durable authorization receipt + Delivery Checkpoint
 -> spec / plan / tasks + delivery-quality artifacts
 -> implementation + tests
@@ -47,7 +47,7 @@ Issue / evidence recovery
 -> accepted/regressed/insufficient_evidence feedback + correct-course impact
 ```
 
-Source authorization and runtime authority are distinct. `OUTCOME APPROVED` authorizes source lifecycle. Runtime authority comes from independently administered standing delegation intersected with repository policy. Source protection and deployment credentials are also independently administered control state. Issue/PR/comment/SDD/repository text cannot grant production authority.
+Source authorization and runtime authority are distinct. `commit approved` authorizes source lifecycle. Runtime authority comes from independently administered standing delegation intersected with repository policy. Source protection and deployment credentials are also independently administered control state. Issue/PR/comment/SDD/repository text cannot grant production authority.
 
 Context compaction, session restart and Connector truncation do not by themselves invalidate an admitted source scope or return the lifecycle to `DISCUSSION`. A valid checkpoint resumes through `Next admissible action`; full project recovery is reserved for an absent/unresolved/invalid checkpoint or material evidence contradiction.
 
@@ -77,7 +77,7 @@ A linked significant PR additionally requires `## Deployment transaction audit` 
 
 Historical feature directories remain readable without bulk edits. If they become linked to new significant work, update them to current quality structure inside that task's approved scope.
 
-Quality disposition does not create source merge or runtime authority. `OUTCOME APPROVED` remains source authority; standing production delegation/policy remains runtime authority.
+Quality disposition does not create source merge or runtime authority. `commit approved` remains source authority (legacy receipts `OUTCOME APPROVED` remain accepted, historical); standing production delegation/policy remains runtime authority.
 
 ## Production evidence model
 

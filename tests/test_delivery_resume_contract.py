@@ -34,7 +34,7 @@ def test_truth_classes_are_explicit_and_do_not_replace_main() -> None:
 
 def test_initial_admission_remains_adjacent_but_receipt_can_resume_same_scope() -> None:
     combined = "\n".join(_read(path) for path in ACTIVE_CONTRACTS)
-    assert "immediately-following `OUTCOME APPROVED`" in combined
+    assert "immediately-following `commit approved`" in combined
     assert "authorization receipt" in combined.lower()
     assert "same exact admitted scope" in combined.lower()
     assert "cannot create" in combined.lower() or "never creates" in combined.lower()
@@ -76,6 +76,7 @@ def test_context_loss_is_not_authorization_or_phase_invalidation() -> None:
         assert marker in combined
     assert "does not" in combined
     assert "discussion" in combined
+    assert "commit approved" in combined
     assert "outcome approved" in combined
 
 

@@ -43,7 +43,7 @@ Repository `main` carries repository/product context; copied chat history and ol
 
 ## Resume invariants
 
-A durable source-authorization receipt proves continuation only for the **same exact admitted scope**. It cannot create or widen source authority and never grants production authority. Initial authority still requires the complete visible Scope immediately followed by `OUTCOME APPROVED`.
+A durable source-authorization receipt proves continuation only for the **same exact admitted scope**. It cannot create or widen source authority and never grants production authority. Initial authority still requires the complete visible Scope immediately followed by `commit approved` (legacy receipts `OUTCOME APPROVED` remain accepted, historical).
 
 Lifecycle state is monotonic. Context loss is not a state-invalidation reason and cannot return an admitted task to `DISCUSSION`. Material scope/protected-boundary/outcome changes or contradictory durable evidence use the normal reauthorization/correct-course path.
 

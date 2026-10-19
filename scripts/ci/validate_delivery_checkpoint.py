@@ -10,6 +10,11 @@ from pathlib import Path
 from typing import Any
 
 SCHEMA_ID = "sea_speed_delivery_checkpoint_v2"
+# Unified admission phrase (2026-10-19): `commit approved` is the only phrase
+# presented for NEW admissions. Legacy `OUTCOME APPROVED` receipts remain
+# valid (owner's standing decision "legacy receipts remain historical"),
+# including v1 checkpoints upgraded to v2.
+AUTHORIZATION_RECEIPTS = {"commit approved", "OUTCOME APPROVED"}
 ACTIVE_PHASES = {
     "DISCUSSION", "READY_FOR_IMPLEMENTATION", "IMPLEMENTING", "SOURCE_INTEGRATED",
     "POLICY_PENDING", "ACTIONS_REQUIRED", "ACTIONS_RUNNING", "ACTIONS_COMPLETED",
@@ -131,8 +136,8 @@ def validate_checkpoint(checkpoint: dict[str, Any], *, allow_legacy_ci_wait: boo
     if not isinstance(generation, int) or isinstance(generation, bool) or generation < 1:
         raise CheckpointValidationError("generation must be a positive integer")
     _require_non_empty_string(checkpoint["approved_scope_identity"], "approved_scope_identity")
-    if checkpoint["authorization_receipt"] != "OUTCOME APPROVED":
-        raise CheckpointValidationError("authorization_receipt must be OUTCOME APPROVED")
+    if checkpoint["authorization_receipt"] not in AUTHORIZATION_RECEIPTS:
+        raise CheckpointValidationError("authorization_receipt must be commit approved (legacy receipt OUTCOME APPROVED remains accepted)")
     base = checkpoint["authorization_base_main"]
     if not isinstance(base, str) or not re.fullmatch(r"[0-9a-f]{40}", base):
         raise CheckpointValidationError("authorization_base_main must be a lowercase 40-character SHA")

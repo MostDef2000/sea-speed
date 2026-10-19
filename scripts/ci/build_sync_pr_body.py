@@ -26,7 +26,7 @@ import argparse
 import sys
 from pathlib import Path
 
-SOURCE_AUTHORIZATION = "OUTCOME APPROVED"
+SOURCE_AUTHORIZATION = "commit approved"
 ISSUE_REF = "#477"
 
 

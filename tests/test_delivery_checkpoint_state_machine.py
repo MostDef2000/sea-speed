@@ -25,7 +25,7 @@ def checkpoint(*, disposition: str = "ACTIVE") -> dict[str, Any]:
         "task": "#248",
         "generation": 3,
         "approved_scope_identity": "synchronous-external-wait-v1",
-        "authorization_receipt": "OUTCOME APPROVED",
+        "authorization_receipt": "commit approved",
         "authorization_base_main": "a" * 40,
         "current_phase": "IMPLEMENTING",
         "branch": "agent/synchronous-external-wait",
@@ -217,6 +217,28 @@ class DeliveryCheckpointStateMachineTests(unittest.TestCase):
         self.assertEqual(result["generation"], 8)
         self.assertEqual(result["session_disposition"], "WAITING_EXTERNAL")
         self.assertEqual(result["authorization_receipt"], "OUTCOME APPROVED")
+
+    def test_legacy_receipt_v1_upgrade_still_validates(self) -> None:
+        """A persisted v1 checkpoint carrying the legacy receipt upgrades to a
+        valid v2 checkpoint without re-authorization (dual-accept)."""
+        result = upgrade_v1_checkpoint(
+            V1_CHECKPOINT,
+            next_action_kind="RUN_LOCAL_VALIDATION",
+            next_action_executable_now=True,
+        )
+        validate_checkpoint(result)
+        self.assertEqual(result["authorization_receipt"], "OUTCOME APPROVED")
+
+    def test_legacy_receipt_remains_accepted_in_v2_checkpoint(self) -> None:
+        value = checkpoint()
+        value["authorization_receipt"] = "OUTCOME APPROVED"
+        validate_checkpoint(value)
+
+    def test_garbage_receipt_is_rejected(self) -> None:
+        value = checkpoint()
+        value["authorization_receipt"] = "APPROVED OUTCOME"
+        with self.assertRaisesRegex(CheckpointValidationError, "commit approved"):
+            validate_checkpoint(value)
 
     def test_absence_of_action_wait_or_terminal_condition_fails_closed(self) -> None:
         with self.assertRaisesRegex(CheckpointValidationError, "no executable action"):
