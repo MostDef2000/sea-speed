@@ -311,6 +311,33 @@ class ConflictTests(RoadEventDeliveryTestCase):
             "the accepted delivery is never overwritten",
         )
 
+    def test_conflict_redelivery_keeps_published_snapshot_bytes(self) -> None:
+        # A 409 must leave the media of the accepted delivery untouched: the
+        # conflict path (retained feed row, pruned receipt) currently writes
+        # the rejected JPEG via atomic_write_bytes BEFORE deliver_event raises,
+        # so the published snapshot of the first delivery gets overwritten.
+        # The DB-only assertions above cannot see that — this test reads the
+        # real file bytes.
+        metadata = {"event_id": "evt-409-media", "object_type": "car", "created_at": "2026-10-19T11:53:30+00:00"}
+        original_bytes = b"snapshot-A-published-jpeg"
+        rejected_bytes = b"snapshot-B-rejected-jpeg"
+        self.post_event(metadata, snapshot=FakeSnapshot(original_bytes))
+        target = self.snapshot_path("road1", "evt-409-media")
+        self.assertEqual(target.read_bytes(), original_bytes, "baseline: accepted delivery published bytes A")
+        with STORE.open_state_db(self.state_db) as connection:
+            connection.execute("DELETE FROM event_receipts")
+        with self.assertRaises(HTTPExceptionStub) as context:
+            self.post_event(
+                dict(metadata, object_type="truck"),
+                snapshot=FakeSnapshot(rejected_bytes),
+            )
+        self.assertEqual(context.exception.status_code, 409)
+        self.assertEqual(
+            target.read_bytes(),
+            original_bytes,
+            "a rejected (409) re-delivery must not overwrite the published snapshot media",
+        )
+
 
 class AtomicSnapshotTests(RoadEventDeliveryTestCase):
     def test_failed_publish_leaves_no_partial_file_and_retry_succeeds(self) -> None:
