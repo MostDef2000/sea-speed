@@ -149,9 +149,18 @@ def sweep_events_media(force: bool = False, now: Optional[float] = None) -> int:
         if not path.is_file():
             continue
         name = path.name
-        if not name.endswith(".jpg") or name != Path(name).name:
+        if name != Path(name).name:
             continue
-        if f"/sea-speed/media/events/{name}" in referenced:
+        is_jpeg = name.endswith(".jpg")
+        # Issue #537 wave 1: interrupted atomic snapshot writes can leave an
+        # orphaned "<name>.<uuid>.tmp" sibling behind (process killed between
+        # tmp creation and os.replace). Such tmp files are never referenced
+        # by the registry, so they are swept with the same grace period —
+        # an in-flight upload is never older than the grace window.
+        is_tmp = name.endswith(".tmp")
+        if not is_jpeg and not is_tmp:
+            continue
+        if is_jpeg and f"/sea-speed/media/events/{name}" in referenced:
             continue
         try:
             age = current - path.stat().st_mtime
