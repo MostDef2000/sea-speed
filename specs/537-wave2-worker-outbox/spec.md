@@ -162,10 +162,10 @@ The road publication gate code and `event_id` composition remain unchanged
 
 ## NFR assessment
 
-- NFR-001 | Area: RELIABILITY | Target: zero accepted-event loss across restarts and API outages (delete-on-confirm only; no attempt-based discard) | Validation: outage-recovery, restart-recovery and duplicate-collapse fault-injection suites | Evidence: tests/test_worker_outbox_delivery.py 22 tests + tests/test_worker_outbox_module.py 8 tests (focused run 30 passed, 2026-10-21); OutboxFaultInjectionTests (outage→recovery FIFO delivery with nothing discarded, restart recovery without new detections, duplicate collapse with delete-on-confirm, no attempt-based discard after 12 failures) | Status: PASS
-- NFR-002 | Area: DATA | Target: explicit schema init at outbox open in a WAL database; a failed/corrupt open or disk-full write never reports durable acceptance | Validation: disk-full, init-at-open and open-failure fault-injection tests | Evidence: tests/test_worker_outbox_module.py WorkerOutboxSchemaTests (schema + lifetime meta counters created at open before any enqueue and without the publisher thread; WAL active) + tests/test_worker_outbox_delivery.py disk-full fail-closed (OutboxDurabilityTests module arm incl. missing-snapshot OSError, EntrypointSeamTests seam arm); a failed open propagates and the seam degrades fail-closed by construction (D-103 seam path) | Status: PASS
+- NFR-001 | Area: RELIABILITY | Target: zero accepted-event loss across restarts and API outages (delete-on-confirm only; no attempt-based discard) | Validation: outage-recovery, restart-recovery and duplicate-collapse fault-injection suites | Evidence: tests/test_worker_outbox_delivery.py 23 tests + tests/test_worker_outbox_module.py 9 tests (focused run 32 passed on head 8a51a07); OutboxFaultInjectionTests (outage→recovery FIFO delivery with nothing discarded, restart recovery without new detections, duplicate collapse with delete-on-confirm, no attempt-based discard after 12 failures) | Status: PASS
+- NFR-002 | Area: DATA | Target: explicit schema init at outbox open in a WAL database; a failed/corrupt open or disk-full write never reports durable acceptance | Validation: disk-full, init-at-open and open-failure fault-injection tests | Evidence: tests/test_worker_outbox_module.py WorkerOutboxSchemaTests (schema + lifetime meta counters created at open before any enqueue and without the publisher thread; WAL active; synchronous=FULL per-commit fsync pinned, D-112) + tests/test_worker_outbox_delivery.py disk-full fail-closed (OutboxDurabilityTests module arm incl. missing-snapshot OSError, EntrypointSeamTests seam arm); a failed open propagates and the seam degrades fail-closed by construction (D-103 seam path) | Status: PASS
 - NFR-003 | Area: OPERATIONS | Target: prolonged delivery failure visible within one heartbeat interval (pending count, oldest-unconfirmed age, send errors, retries, accept errors, last confirmed) | Validation: runner state-key and health report-field tests with schema_version 1 consumers green | Evidence: tests/test_worker_outbox_delivery.py OutboxHeartbeatObservabilityTests (real subprocess marker → six observed-worker-runner.py state keys, none/noise line handling, check-worker-health.py additive report fields with backward-compatible nulls; schema_version 1; tests/test_ubuntu_worker_observability.py consumers green in the regression guard) | Status: PASS
-- NFR-004 | Area: PERFORMANCE | Target: acceptance adds one local SQLite WAL transaction plus bounded snapshot byte capture; publisher is one thread with backoff bounded at a 60s cap | Validation: backoff-bounds test; full-suite runtime unchanged in order of magnitude | Evidence: backoff envelope + jitter determinism pinned (OutboxFaultInjectionTests backoff cases); acceptance cost is one snapshot file read + one SQLite WAL INSERT (worker/worker_outbox.py enqueue, D-109); the full-suite runtime observation executes with the full battery at PR (T-537-109, pending) — implementation constrains the cost, the order-of-magnitude proof is the PR battery | Status: CONCERNS
+- NFR-004 | Area: PERFORMANCE | Target: acceptance adds one local SQLite WAL transaction plus bounded snapshot byte capture; publisher is one thread with backoff bounded at a 60s cap | Validation: backoff-bounds test; full-suite runtime unchanged in order of magnitude | Evidence: backoff envelope + jitter determinism pinned (OutboxFaultInjectionTests backoff cases; extreme-attempt overflow guard pinned per D-112); acceptance cost is one snapshot file read + one SQLite WAL INSERT with synchronous=FULL fsync per commit (worker/worker_outbox.py enqueue, D-109/D-112); CI green on the exact head 8a51a07 (all 8 PR checks, runs 39468294685 + 39468294700) — no runtime timing measurements exist yet, so the order-of-magnitude target stays unproven; runtime timing evidence lands with the worker-deploy acceptance probes | Status: CONCERNS
 - NFR-005 | Area: SECURITY | Target: no new credentials, endpoints or metadata mutation — the outbox reuses Bearer SEA_SPEED_API_TOKEN and the existing URL derivation; module imports limited to stdlib + requests | Validation: byte-verbatim retry test; import-allowlist module test (guarded-import convention) | Evidence: tests/test_worker_outbox_module.py WorkerOutboxImportAllowlistTests (stdlib + guarded-requests allowlist, forbidden offline/process layers absent, allowlist declared in the module docstring) + tests/test_worker_outbox_delivery.py test_retry_posts_identical_metadata_string_and_snapshot_bytes (same URL derivation, Bearer SEA_SPEED_API_TOKEN, byte-verbatim re-posts) | Status: PASS
 
 ## Protected / out of scope
@@ -183,22 +183,28 @@ The road publication gate code and `event_id` composition remain unchanged
 
 ## Runtime feedback
 
-- Local: RED authenticity proven before the in-wave DEF-1 fix — three
-  neutralization shims (409-terminal handling, backoff envelope, durable
-  enqueue) each made their pinned test FAIL under the shim and PASS with the
-  behavior restored; the two DEF-1 pins ran RED against the pre-fix tree
-  (1 failed / 20 passed and 1 failed / 21 passed observed) and are GREEN
-  after the in-wave fix (worker/worker_outbox.py:372-373 confirmed, :384-385
-  terminal; D-111 in plan.md).
-- Local: focused suites green on the change — tests/test_worker_outbox_delivery.py
-  (22 tests) + tests/test_worker_outbox_module.py (8 tests) → 30 passed;
-  protected-surface regression guard green (82 passed / 6 subtests).
-- Pending (recorded in issue #537 after implementation): full-suite + validators
-  battery, PR CI on the exact head, lane-A Ubuntu worker/relay deploy (worker
-  first; pending outbox rows preserved and paused, not dropped), post-deploy
-  probes (outage→recovery delivery, restart recovery, duplicate collapse, 409
-  visibility, heartbeat fields).
-- Reconciled post-implementation (2026-10-21, same flow as the wave-1 trio):
-  delivery tasks T-537-100..T-537-108 are [x] with Evidence, TEST/NFR Evidence
-  is filled with suite references and RISK-001..006 are MITIGATED; T-537-109
-  and the CI/deploy/probe items remain orchestrator-owned pending PR.
+- Local: RED authenticity proven — three neutralization shims (409-terminal
+  handling, backoff envelope, durable enqueue) and five fix-simulation
+  shims, each FAIL under the shim and PASS without it; the two DEF-1 pins
+  ran RED against the pre-fix tree (1 failed / 20 passed and 1 failed /
+  21 passed observed) and are GREEN after the in-wave fix
+  (worker/worker_outbox.py:388-389 confirmed, :400-401 terminal at head
+  8a51a07; D-111 in plan.md); the two pre-merge validator-finding pins ran
+  RED→GREEN (D-112, fix commit 8a51a07).
+- Local: final battery green on head 8a51a07 (orchestrator-observed) —
+  focused suites tests/test_worker_outbox_delivery.py (23 tests) +
+  tests/test_worker_outbox_module.py (9 tests) → 32 passed; protected-surface
+  regression guard green (82 passed / 6 subtests); full battery 145 passed +
+  6 subtests across 14 suites; ruff clean; validate_repo green (772 files);
+  validate_sdd green; compatibility gate compatible=True; functional probe
+  all-probes-OK; PR CI all 8 checks green on the exact head (runs
+  39468294685, 39468294700).
+- Pending (recorded in issue #537): exact-green-head merge, lane-A Ubuntu
+  worker/relay deploy (worker first; pending outbox rows preserved and
+  paused, not dropped), post-deploy probes (outage→recovery delivery,
+  restart recovery, duplicate collapse, 409 visibility, heartbeat fields).
+- Reconciled (2026-10-21, same flow as the wave-1 trio): delivery tasks
+  T-537-100..T-537-109 are [x] with Evidence (T-537-109 = CI gate: all 8 PR
+  checks green on head 8a51a07), TEST/NFR Evidence is filled with suite
+  references and RISK-001..006 are MITIGATED; merge, lane-A deploy and
+  post-deploy probes remain orchestrator-owned.
