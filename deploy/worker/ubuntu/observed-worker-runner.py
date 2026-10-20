@@ -65,6 +65,12 @@ def main() -> int:
         "state_post_failure_count": 0,
         "last_event_post_at": None,
         "event_post_success_count": 0,
+        "outbox_pending": 0,
+        "outbox_oldest_unconfirmed_sec": None,
+        "outbox_send_errors": 0,
+        "outbox_retries": 0,
+        "outbox_accept_errors": 0,
+        "outbox_last_confirmed_at": None,
         "ai_inference_ready": False,
         "last_ai_inference_at": None,
         "last_ai_inference_ok": None,
@@ -110,6 +116,34 @@ def main() -> int:
             elif line.startswith("POST event ok"):
                 state["last_event_post_at"] = now
                 state["event_post_success_count"] += 1
+            elif line.startswith("outbox "):
+                # worker_outbox heartbeat marker: "outbox pending=... oldest=...
+                # send_errors=... retries=... accept_errors=... last_confirmed=..."
+                # ("outbox send error"/"outbox accept_error" lines carry no
+                # matching key= fragments and parse to a no-op).
+                for fragment in line.split()[1:]:
+                    if "=" not in fragment:
+                        continue
+                    key, _, raw = fragment.partition("=")
+                    try:
+                        if key == "pending":
+                            state["outbox_pending"] = int(raw)
+                        elif key == "oldest":
+                            state["outbox_oldest_unconfirmed_sec"] = (
+                                None if raw == "none" else float(raw)
+                            )
+                        elif key == "send_errors":
+                            state["outbox_send_errors"] = int(raw)
+                        elif key == "retries":
+                            state["outbox_retries"] = int(raw)
+                        elif key == "accept_errors":
+                            state["outbox_accept_errors"] = int(raw)
+                        elif key == "last_confirmed":
+                            state["outbox_last_confirmed_at"] = (
+                                None if raw == "none" else float(raw)
+                            )
+                    except ValueError:
+                        pass
             elif line.startswith(("AI inference self-test ok", "AI inference ok")):
                 state["last_ai_inference_at"] = now
                 state["last_ai_inference_ok"] = True

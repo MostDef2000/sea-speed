@@ -32,6 +32,7 @@ MODULE_SOURCES = (
     ROOT / "worker" / "worker_live.py",
     ROOT / "worker" / "worker_tracking.py",
     ROOT / "worker" / "worker_roi.py",
+    ROOT / "worker" / "worker_outbox.py",
 )
 
 REQUIRED_ENV_NAMES = {

@@ -34,8 +34,9 @@ hls_motion_yolo_worker_events.py into worker/worker_crossings.py):
     site in build_road_live_envelope (worker) depends on that membership, so
     losing the re-export would silently drop crossings from the road live
     envelope instead of failing loudly.
-(f) Compatibility gate: MODULE_SOURCES is the eight-file union (worker +
-    media + render + transport + crossings + live + tracking + roi), union-
+ (f) Compatibility gate: MODULE_SOURCES is the nine-file union (worker +
+     media + render + transport + crossings + live + tracking + roi +
+     outbox), union-
     compatible with every required env name still resolved across the union
     (wave-7 transfer: the gate grew by worker_live.py; wave-8 transfer: by
     worker_tracking.py; wave-9 transfer: by worker_roi.py — this file's pin
@@ -250,7 +251,7 @@ class WorkerCrossingsPlacementTests(unittest.TestCase):
 class WorkerCrossingsNoRebindingTests(unittest.TestCase):
     def test_no_rebinding_of_state_names_anywhere(self) -> None:
         # (c) AST guard across ALL worker/*.py sources (cheap: the worker dir
-        # is eight files): the ONLY Store access to a non-rebinding state name
+        # is nine files): the ONLY Store access to a non-rebinding state name
         # is its defining literal at module level of worker_crossings.py. Any
         # other assignment would fork mover/staying views of the counters.
         sources = sorted((ROOT / "worker").glob("*.py"))
@@ -458,8 +459,8 @@ class WorkerCrossingsIdentityTests(unittest.TestCase):
 class CompatibilityGateModuleSourcesTests(unittest.TestCase):
     def test_gate_scans_module_sources(self) -> None:
         # (f) wave-6 contract, extended by waves 7-9: the gate's MODULE_SOURCES
-        # union is the eight-file set (worker + media + render + transport +
-        # crossings + live + tracking + roi) and stays compatible with every
+        # union is the nine-file set (worker + media + render + transport +
+        # crossings + live + tracking + roi + outbox) and stays compatible with every
         # required env name resolved across it. (Renamed from the stale
         # wave-4/6 five-file name — wave-agnostic, mirrors the transport-side
         # wave-7 rename; no logic change.)
@@ -472,8 +473,8 @@ class CompatibilityGateModuleSourcesTests(unittest.TestCase):
         self.assertIsNotNone(spec)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
-        # wave-9 contract transfer: the gate grew by worker_roi.py (8 files).
-        self.assertEqual(len(module.MODULE_SOURCES), 8)
+        # wave-9 contract transfer: the gate grew by worker_roi.py (9 files).
+        self.assertEqual(len(module.MODULE_SOURCES), 9)
         self.assertTrue(all(path.is_file() for path in module.MODULE_SOURCES))
         findings = module.inspect_worker(list(module.MODULE_SOURCES))
         self.assertTrue(findings["compatible"], findings)

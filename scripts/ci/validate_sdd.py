@@ -76,6 +76,14 @@ GRANDFATHERED_PREFIX_COLLISIONS = {
         "520-operator-edge-auth",
         "520-edge-vhost-renderer",
     },
+    # Issue #537 ships as staged waves under one issue number (wave 1 API-side
+    # durable delivery receipts, wave 2 worker durable outbox per the issue
+    # #537 Outcome Contract delivery plan); the wave set shares the 537
+    # prefix by design — same staged-wave precedent as 396/397/520.
+    "537": {
+        "537-wave1-event-delivery-receipts",
+        "537-wave2-worker-outbox",
+    },
 }
 
 SIGNIFICANT_PREFIXES = (

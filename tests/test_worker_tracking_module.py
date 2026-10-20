@@ -44,9 +44,9 @@ hls_motion_yolo_worker_events.py into worker/worker_tracking.py):
     turn every speed estimate and track event into a NameError at runtime;
     the vars() membership pins (wave-6/7 globals-guard pattern) make
     exactly that failure loud in CI.
-(e) Compatibility gate: MODULE_SOURCES is the eight-file union (worker +
-    media + render + transport + crossings + live + tracking + roi),
-    worker_tracking present, union-compatible with every required env name
+ (e) Compatibility gate: MODULE_SOURCES is the nine-file union (worker +
+     media + render + transport + crossings + live + tracking + roi +
+     outbox), worker_tracking present, union-compatible with every required env name
     still resolved across the union.
 (f) draw_speed_lines_overlay placement: the overlay renderer STAYS in the
     worker (render surface, no production callers — it reads only
@@ -479,8 +479,8 @@ class WorkerTrackingIdentityTests(unittest.TestCase):
 class CompatibilityGateModuleSourcesTests(unittest.TestCase):
     def test_gate_scans_module_sources(self) -> None:
         # (e) wave-8 contract, extended by wave 9: the gate's MODULE_SOURCES
-        # union is the eight-file set (worker + media + render + transport +
-        # crossings + live + tracking + roi) with worker_tracking.py present,
+        # union is the nine-file set (worker + media + render + transport +
+        # crossings + live + tracking + roi + outbox) with worker_tracking.py present,
         # and stays compatible with every required env name resolved across it.
         import importlib.util
 
@@ -491,8 +491,8 @@ class CompatibilityGateModuleSourcesTests(unittest.TestCase):
         self.assertIsNotNone(spec)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
-        # wave-9 contract transfer: the gate grew by worker_roi.py (8 files).
-        self.assertEqual(len(module.MODULE_SOURCES), 8)
+        # wave-9 contract transfer: the gate grew by worker_roi.py (9 files).
+        self.assertEqual(len(module.MODULE_SOURCES), 9)
         self.assertIn(ROOT / "worker" / "worker_tracking.py", module.MODULE_SOURCES)
         self.assertTrue(all(path.is_file() for path in module.MODULE_SOURCES))
         findings = module.inspect_worker(list(module.MODULE_SOURCES))
