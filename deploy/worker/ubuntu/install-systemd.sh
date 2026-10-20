@@ -57,6 +57,7 @@ for required in \
   "$source_root/worker/worker_media.py" \
   "$source_root/worker/worker_render.py" \
   "$source_root/worker/worker_transport.py" \
+  "$source_root/worker/worker_outbox.py" \
   "$source_root/worker/worker_crossings.py" \
   "$source_root/worker/worker_live.py" \
   "$source_root/worker/worker_tracking.py" \

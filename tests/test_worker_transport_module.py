@@ -370,14 +370,14 @@ class CompatibilityGateModuleSourcesTests(unittest.TestCase):
         spec.loader.exec_module(module)
         self.assertEqual(
             len(module.MODULE_SOURCES),
-            8,
+            9,
             "wave-9: the ROI module joins the gate's worker-source union",
         )
         self.assertTrue(all(path.is_file() for path in module.MODULE_SOURCES))
         findings = module.inspect_worker(list(module.MODULE_SOURCES))
         self.assertTrue(findings["compatible"], findings)
         self.assertEqual(findings["missing_required_environment_names"], [])
-        # The eight-file union must still surface every required env read,
+        # The nine-file union must still surface every required env read,
         # including the SEA_SPEED_API_URL/SEA_SPEED_API_TOKEN reads that
         # moved into worker_transport with the post_* functions.
         self.assertEqual(

@@ -31,6 +31,7 @@ except Exception:
 _perf_tracker = PerformanceTracker() if PerformanceTracker else None
 _publish_queue: queue.Queue = queue.Queue(maxsize=32)
 _publish_thread: threading.Thread | None = None
+_outbox = None  # lazy WorkerOutbox instance; import stays out of module top level
 _LIVE_GENERATION = str(int(time.monotonic() * 1000))  # restart-safe generation
 
 # Ubuntu main is the water contour unless protected runtime config overrides it.
@@ -94,8 +95,6 @@ def _publish_worker() -> None:
                             pass
                 else:
                     _ORIGINAL_POST_STATE(meta, payload)
-            elif kind == "event":
-                _ORIGINAL_POST_EVENT(meta, payload)
             _publish_queue.task_done()
         except Exception:
             try:
@@ -159,16 +158,59 @@ def post_state(metadata, overlay_path):
     return True
 
 
+def _ensure_outbox():
+    """Lazily open the durable outbox and start its publisher thread.
+
+    The import is deliberately function-local: provenance tests load this
+    module with mocked dependencies, and environments without requests must
+    still import the entrypoint. The default database is the road runtime
+    cwd file road-worker-outbox.sqlite3 (systemd WorkingDirectory), with
+    SEA_SPEED_OUTBOX_DB overriding it. Open/init failures propagate so the
+    event seam can fail closed to the wave-1 poster (D-103).
+    """
+    global _outbox
+    if _outbox is not None:
+        return _outbox
+    from worker_outbox import WorkerOutbox
+
+    db_path = (
+        os.environ.get("SEA_SPEED_OUTBOX_DB", "").strip() or "road-worker-outbox.sqlite3"
+    )
+    instance = WorkerOutbox(db_path)
+    instance.start()
+    _outbox = instance
+    return _outbox
+
+
 def post_event(metadata, snapshot_path):
     enriched = _metadata_with_runtime_source_commit(metadata)
     if _is_sync_publish():
         return _ORIGINAL_POST_EVENT(enriched, snapshot_path)
-    _ensure_publish_thread()
-    try:
-        _publish_queue.put_nowait(("event", enriched, snapshot_path))
-    except queue.Full:
+    event_id = enriched.get("event_id") if isinstance(enriched, dict) else None
+    if not isinstance(event_id, str) or not event_id.strip():
+        # Not an outbox candidate: degrade to the wave-1 synchronous poster.
         return _ORIGINAL_POST_EVENT(enriched, snapshot_path)
+    try:
+        outbox = _ensure_outbox()
+    except Exception:
+        # Outbox unavailable: wave-1 degrade path; never claim durable acceptance.
+        return _ORIGINAL_POST_EVENT(enriched, snapshot_path)
+    try:
+        outbox.enqueue(event_id, json.dumps(enriched, ensure_ascii=False), snapshot_path)
+    except Exception:
+        # Not durably persisted: report failure instead of a non-durable post (FR-003).
+        return False
     return True
+
+
+def _close_outbox() -> None:
+    instance = _outbox
+    if instance is None:
+        return
+    try:
+        instance.close()
+    except Exception:
+        pass
 
 
 def latest_frame_bounded_enabled() -> bool:
@@ -754,9 +796,16 @@ worker.detect_vehicles = supervised_detect_vehicles
 if __name__ == "__main__":
     try:
         runtime_source_commit()
+        try:
+            # Eager outbox open + publisher start: pending rows from a previous
+            # run are recovered at boot, before the first new event (FR-009).
+            _ensure_outbox()
+        except Exception as exc:
+            print(f"outbox unavailable reason={type(exc).__name__}", flush=True)
         _supervisor = BoundedYoloSupervisor()
         _supervisor.startup_self_test()
         worker.main()
     finally:
         if _supervisor is not None:
             _supervisor.close()
+        _close_outbox()
