@@ -221,11 +221,13 @@ class WorkerOutboxSchemaTests(unittest.TestCase):
         WAL pages sit in the OS cache. Only FULL (value 2) upholds the
         contract.
 
-        Pin (RED by design): after opening a WorkerOutbox on a fresh file,
-        PRAGMA synchronous on the outbox connection reports 2 (FULL). The
-        current implementation sets NORMAL (reports 1,
-        worker/worker_outbox.py:172); the fix goes to a code order — do NOT
-        weaken this test.
+        Pin (RED was verified against the pre-fix tree — suite state then:
+        2 failed / 30 passed): after opening a WorkerOutbox on a fresh file,
+        PRAGMA synchronous on the outbox connection must report 2 (FULL).
+        The pre-fix implementation set NORMAL (reports 1,
+        worker/worker_outbox.py:172 as of the wave-2 head); the fix landed
+        in commit 8a51a07 (synchronous=FULL) and this pin is GREEN in the
+        current tree. Do NOT weaken this test.
         """
         mod = load_outbox_module()
         outbox = mod.WorkerOutbox(self.db_path, jitter_function=lambda: 0.0)

@@ -546,7 +546,7 @@ class OutboxFaultInjectionTests(OutboxTestBase):
         """DEF-1 pin (confirmed branch): the lifetime ``retries`` metric counts
         successful re-deliveries. The module docstring — "``retries`` counts
         re-delivery attempts of a row that already failed at least once (a
-        retry that succeeds still counts)" (lines 74-75 of the module
+        retry that succeeds still counts)" (lines 78-79 of the module
         docstring) — states the intended semantics; the initial implementation
         dropped the increment in the confirmed branch of _deliver (defect
         DEF-1, discovered by this suite and reported to the delivery
@@ -563,7 +563,7 @@ class OutboxFaultInjectionTests(OutboxTestBase):
 
         RED was verified against the pre-fix tree (suite state then:
         1 failed / 20 passed); the fix landed in-wave in the confirmed branch
-        of _deliver (worker/worker_outbox.py:372-373, guarded ``if is_retry:
+        of _deliver (worker/worker_outbox.py:388-389, guarded ``if is_retry:
         _meta_increment("outbox_retries_total")``) and this pin is GREEN in
         the current tree. Do NOT weaken this test to make it pass.
         """
@@ -632,7 +632,7 @@ class OutboxFaultInjectionTests(OutboxTestBase):
 
         RED was verified against the pre-fix tree (suite state then:
         1 failed / 21 passed); the fix landed in-wave in the terminal branch
-        of _deliver (worker/worker_outbox.py:384-385, the same guarded
+        of _deliver (worker/worker_outbox.py:400-401, the same guarded
         ``if is_retry: _meta_increment("outbox_retries_total")``) and this
         pin is GREEN in the current tree. Do NOT weaken this test.
         """
@@ -694,7 +694,11 @@ class OutboxFaultInjectionTests(OutboxTestBase):
         instead of the promised 60s capped backoff, and the send-error
         bookkeeping UPDATE is skipped entirely.
 
-        Pin (RED by design; the fix goes to a code order — do NOT weaken):
+        Pin (RED was verified against the pre-fix tree — suite state then:
+        2 failed / 30 passed; the fix landed in commit 8a51a07, which clamps
+        the exponent via _BACKOFF_EXPONENT_CAP = 6 before the power and
+        keeps the 1/2/4/8/16/32/60 envelope exact — this pin is GREEN in the
+        current tree. Do NOT weaken this test):
         (a) _backoff_delay(5000) with the zero-jitter function (constructed
             the same way as the backoff-envelope test) returns exactly the
             60s cap and does not raise;

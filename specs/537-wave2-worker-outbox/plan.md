@@ -130,7 +130,8 @@ server contract this wave consumes).
   409-terminal re-deliveries (the terminal branch). Fixed with a guarded
   `if is_retry: _meta_increment("outbox_retries_total")` in both branches
   (+2 lines each, inside the existing per-delivery transaction;
-  worker/worker_outbox.py:372-373 confirmed, :384-385 terminal). Pinned by
+  worker/worker_outbox.py:388-389 confirmed, :400-401 terminal at head
+  8a51a07 — shifted by the D-112 fix commit). Pinned by
   tests `test_confirmed_retry_increments_lifetime_retries_metric` and
   `test_terminal_409_on_redelivery_increments_lifetime_retries_metric`
   (RED→GREEN verified: 1 failed / 20 passed and 1 failed / 21 passed against
@@ -138,6 +139,22 @@ server contract this wave consumes).
   stays NONE: the defect was found and remediated in-wave before PR with no
   scope/spec/plan change — the metric was already in scope as one of the
   FR-008 heartbeat fields.
+- D-112: pre-merge validator REJECT resolved (both findings confirmed
+  against the code; fix commit 8a51a07): (a) the outbox connection ran
+  `PRAGMA synchronous=NORMAL`, which in WAL mode does not guarantee
+  per-commit durability across power loss — spec user scenario 2 names power
+  among the restart scenarios and AC-001 requires durable-before-report —
+  switched to `PRAGMA synchronous=FULL` (fsync per commit; the enqueue rate
+  is low, so correctness over throughput); (b) `_backoff_delay` evaluated
+  the exponential factor BEFORE the 60s cap, so attempts-1 >= 1024 raised
+  OverflowError — reachable during a long outage because the publisher
+  retries indefinitely by design (no attempt-based discard) — the exponent
+  is now clamped via `_BACKOFF_EXPONENT_CAP = 6` before the power, keeping
+  the 1/2/4/8/16/32/60 envelope exact and unchanged. Both fixes pinned
+  RED→GREEN: `test_pragma_synchronous_is_full_for_power_loss_durability`
+  (tests/test_worker_outbox_module.py) and
+  `test_backoff_survives_extreme_attempt_counts_without_overflow`
+  (tests/test_worker_outbox_delivery.py).
 
 ## Affected contours
 
@@ -160,25 +177,30 @@ server contract this wave consumes).
 ## Validation
 
 - Focused suites: `python3 -m pytest tests/test_worker_outbox_delivery.py
-  tests/test_worker_outbox_module.py -q` → 30 passed (22 + 8; observed
-  2026-10-21 at reconciliation).
-- RED authenticity (executed before the in-wave DEF-1 fix): three
-  neutralization shims — 409-terminal handling, backoff envelope, durable
-  enqueue — each made its pinned test FAIL under the shim and PASS with the
-  behavior restored; the two DEF-1 pins ran RED against the pre-fix tree via
-  fix-simulation shims (1 failed / 20 passed and 1 failed / 21 passed
-  observed) and are GREEN after the in-wave fix (D-111).
+  tests/test_worker_outbox_module.py -q` → 32 passed (23 + 9, incl. the two
+  D-112 pins; observed on head 8a51a07).
+- RED authenticity (executed): three neutralization shims — 409-terminal
+  handling, backoff envelope, durable enqueue — and five fix-simulation
+  shims, each FAIL under the shim and PASS without it; the two DEF-1 pins
+  ran RED against the pre-fix tree (1 failed / 20 passed and 1 failed /
+  21 passed observed) and are GREEN after the in-wave fix (D-111); the two
+  D-112 pins ran RED→GREEN against the pre-8a51a07 tree (fix commit
+  8a51a07).
 - Regression guard: the five worker module-pin suites (count pins 9) and the
   protected-surface suites (tests/test_road_event_hygiene.py,
   tests/test_398_wave_a_demo.py, tests/test_api_contract.py,
   tests/test_ubuntu_worker_runtime_provenance.py,
   tests/test_ubuntu_worker_observability.py) run unmodified — 82 passed /
-  6 subtests observed 2026-10-21; re-run with the full battery at PR
-  (T-537-109).
-- Full battery (pending PR, recorded in issue #537): `python3 -m pytest tests/ -q`,
-  `ruff check --config scripts/quality/ruff.toml .`,
-  `python3 scripts/ci/validate_sdd.py` (repo-wide + PR-fixture event),
-  `python3 scripts/ci/validate_repo.py`.
+  6 subtests observed 2026-10-21; re-run green with the final battery on
+  head 8a51a07 (below).
+- Full battery (observed on head 8a51a07, orchestrator-observed; recorded in
+  issue #537): 145 passed + 6 subtests across 14 suites;
+  `ruff check --config scripts/quality/ruff.toml .` clean;
+  `python3 scripts/ci/validate_sdd.py` green (repo-wide + PR-fixture event);
+  `python3 scripts/ci/validate_repo.py` green (772 files); compatibility
+  gate compatible=True; functional probe all-probes-OK; all 8 PR checks
+  green on the exact head (CI runs 39468294685, 39468294700; Repository
+  validation includes Change Contract validation on the exact diff).
 - SDD-stage check (this order): `python3 scripts/ci/validate_sdd.py` repo-wide
   green after adding the grandfathered "537" prefix collision set to
   `scripts/ci/validate_sdd.py` (re-verified 2026-10-21 at reconciliation).
@@ -207,13 +229,13 @@ server contract this wave consumes).
 - TEST-003 | Covers: AC-003 | Level: integration | Priority: P0 | Evidence: tests/test_worker_outbox_delivery.py OutboxFaultInjectionTests.test_duplicate_redelivery_is_confirmed_and_row_deleted (byte-verbatim redelivery answered 200 duplicate=true; row deleted on confirm; no re-post)
 - TEST-004 | Covers: AC-004 | Level: integration | Priority: P0 | Evidence: tests/test_worker_outbox_delivery.py OutboxFaultInjectionTests.test_restart_drains_pending_rows_without_new_detections (rows from a closed first instance drained by a fresh instance, no new enqueues)
 - TEST-005 | Covers: AC-005 | Level: unit | Priority: P0 | Evidence: tests/test_worker_outbox_delivery.py OutboxDurabilityTests.test_sqlite_write_failure_raises_and_leaves_no_partial_row + test_missing_snapshot_file_raises_oserror_and_leaves_no_row + EntrypointSeamTests.test_post_event_returns_false_when_sqlite_write_fails (disk-full at the seam → False, no accepted claim, no partial row)
-- TEST-006 | Covers: AC-006 | Level: unit | Priority: P0 | Evidence: tests/test_worker_outbox_delivery.py OutboxFaultInjectionTests.test_backoff_envelope_is_bounded_exponential_with_zero_jitter (min(60, 2^(n-1)) over 10 attempts) + test_seeded_jitter_is_additive_and_capped_at_sixty_seconds (seeded RNG determinism, 20 attempts) + test_no_attempt_based_discard_after_twelve_failures (row survives 12 send errors, delivered on recovery)
+- TEST-006 | Covers: AC-006 | Level: unit | Priority: P0 | Evidence: tests/test_worker_outbox_delivery.py OutboxFaultInjectionTests.test_backoff_envelope_is_bounded_exponential_with_zero_jitter (min(60, 2^(n-1)) over 10 attempts) + test_seeded_jitter_is_additive_and_capped_at_sixty_seconds (seeded RNG determinism, 20 attempts) + test_no_attempt_based_discard_after_twelve_failures (row survives 12 send errors, delivered on recovery) + test_backoff_survives_extreme_attempt_counts_without_overflow (D-112: extreme attempt counts stay capped, no OverflowError)
 - TEST-007 | Covers: AC-007 | Level: integration | Priority: P0 | Evidence: tests/test_worker_outbox_delivery.py OutboxFaultInjectionTests.test_409_conflict_is_terminal_and_does_not_block_the_queue (retained terminal_error row, never re-posted, accept_errors incremented, oldest-unconfirmed age kept, next event delivered)
 - TEST-008 | Covers: AC-008 | Level: integration | Priority: P1 | Evidence: tests/test_worker_outbox_delivery.py OutboxFaultInjectionTests.test_person_filter_ok_event_null_is_terminal_success (row deleted, single POST, zero error counters)
 - TEST-009 | Covers: AC-009 | Level: integration | Priority: P0 | Evidence: tests/test_worker_outbox_delivery.py OutboxHeartbeatObservabilityTests (4 tests: real subprocess marker line → six observed-worker-runner.py state keys with schema_version 1; none/noise lines ignored; check-worker-health.py additive report fields; old-shape heartbeat backward compat)
 - TEST-010 | Covers: AC-010 | Level: unit | Priority: P0 | Evidence: tests/test_worker_outbox_delivery.py OutboxConvergencePinTests.test_compatibility_gate_union_includes_outbox_with_nine_sources (len(MODULE_SOURCES) == 9, inspect compatible) + the five module count pins reading 9 (tests/test_worker_transport_module.py:372, tests/test_worker_crossings_module.py:477, tests/test_worker_live_module.py:537, tests/test_worker_tracking_module.py:495, tests/test_worker_roi_module.py:632)
 - TEST-011 | Covers: AC-011 | Level: unit | Priority: P1 | Evidence: tests/test_worker_outbox_delivery.py OutboxConvergencePinTests.test_installer_and_artifact_lists_include_worker_outbox (install-systemd.sh + build_exact_artifacts.py + validate_exact_artifacts.py + validate_repo.py source-text pins gained worker/worker_outbox.py together)
-- TEST-012 | Covers: AC-012 | Level: integration | Priority: P0 | Evidence: protected-surface regression guard — tests/test_road_event_hygiene.py, tests/test_398_wave_a_demo.py, tests/test_api_contract.py, tests/test_ubuntu_worker_runtime_provenance.py, tests/test_ubuntu_worker_observability.py + the five module-pin suites run unmodified (82 passed / 6 subtests, 2026-10-21); re-run with the full battery at PR (T-537-109, pending)
+- TEST-012 | Covers: AC-012 | Level: integration | Priority: P0 | Evidence: protected-surface regression guard — tests/test_road_event_hygiene.py, tests/test_398_wave_a_demo.py, tests/test_api_contract.py, tests/test_ubuntu_worker_runtime_provenance.py, tests/test_ubuntu_worker_observability.py + the five module-pin suites run unmodified (82 passed / 6 subtests, 2026-10-21); re-run green with the final battery on head 8a51a07 (145 passed + 6 subtests across 14 suites)
 - TEST-013 | Covers: AC-013 | Level: unit | Priority: P1 | Evidence: tests/test_worker_outbox_delivery.py OutboxFaultInjectionTests.test_retry_posts_identical_metadata_string_and_snapshot_bytes (3 attempts, byte-identical metadata incl. non-ASCII + snapshot bytes, FR-006 multipart/URL/auth shape)
 
 ## Correct-course check
