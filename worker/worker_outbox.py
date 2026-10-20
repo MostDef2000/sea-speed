@@ -135,6 +135,11 @@ _SCHEMA_VERSION = 1
 _BACKOFF_BASE_SEC = 1.0
 _BACKOFF_FACTOR = 2.0
 _BACKOFF_CAP_SEC = 60.0
+# Exponent clamp applied BEFORE the power (see _backoff_delay): 2**6 = 64
+# already exceeds the 60s cap, and an unclamped 2.0**1024 raises OverflowError -
+# the publisher retries indefinitely, so attempt counts are unbounded. Keeps
+# the exact 1/2/4/8/16/32/60 envelope.
+_BACKOFF_EXPONENT_CAP = 6
 _METRIC_INTERVAL_SEC = 5.0
 _ERROR_TEXT_LIMIT = 300
 
@@ -169,7 +174,10 @@ class WorkerOutbox:
         try:
             self._conn.execute("PRAGMA journal_mode=WAL")
             self._conn.execute("PRAGMA busy_timeout=30000")
-            self._conn.execute("PRAGMA synchronous=NORMAL")
+            # synchronous=FULL: fsync per commit so a reported acceptance
+            # survives power loss (AC-001); the enqueue rate is low, so
+            # correctness over throughput.
+            self._conn.execute("PRAGMA synchronous=FULL")
             with self._conn:
                 self._conn.execute(
                     """
@@ -460,9 +468,13 @@ class WorkerOutbox:
         return "confirmed", body
 
     def _backoff_delay(self, attempts: int) -> float:
+        # Clamp the exponent BEFORE the power: an unclamped factor**attempts
+        # overflows for extreme attempt counts even though the cap makes the
+        # extra exponent irrelevant.
         raw = min(
             _BACKOFF_CAP_SEC,
-            _BACKOFF_BASE_SEC * (_BACKOFF_FACTOR ** max(0, attempts - 1)),
+            _BACKOFF_BASE_SEC
+            * (_BACKOFF_FACTOR ** min(max(0, attempts - 1), _BACKOFF_EXPONENT_CAP)),
         )
         jittered = raw + self._jitter() * 0.25 * raw
         return min(_BACKOFF_CAP_SEC, max(0.0, jittered))

@@ -682,6 +682,77 @@ class OutboxFaultInjectionTests(OutboxTestBase):
         self.assertEqual(attempts, 2)
         self.assertEqual(row_retries, 1, "per-row retries column already counts the attempt")
 
+    def test_backoff_survives_extreme_attempt_counts_without_overflow(self) -> None:
+        """Validator finding #2 pin (pre-merge static rejection of the wave-2
+        head): _backoff_delay evaluates ``_BACKOFF_FACTOR ** (attempts - 1)``
+        BEFORE the min(..., 60) cap, so attempts-1 >= 1024 raises
+        OverflowError. The publisher retries indefinitely by design (no
+        attempt-based discard — pinned by the existing no-discard test), so a
+        prolonged outage persists attempt counts into that range. The
+        exception then escapes _deliver into the publisher's generic handler:
+        unbounded "outbox publisher error" spam on a ~1s real-clock rhythm
+        instead of the promised 60s capped backoff, and the send-error
+        bookkeeping UPDATE is skipped entirely.
+
+        Pin (RED by design; the fix goes to a code order — do NOT weaken):
+        (a) _backoff_delay(5000) with the zero-jitter function (constructed
+            the same way as the backoff-envelope test) returns exactly the
+            60s cap and does not raise;
+        (b) end-to-end: a row whose persisted attempts column is synthetically
+            raised to 5000 (separate sqlite connection UPDATE — standing in
+            for a long outage) still flows through the real publisher: the
+            failed send is recorded in the lifetime metric (send_errors == 1),
+            the re-delivery is confirmed, and the publisher loop is NOT broken
+            into exception spam (no "outbox publisher error" line emitted).
+        """
+        import contextlib
+        import io
+
+        mod = load_outbox_module()
+        outbox = mod.WorkerOutbox(self.db_path, jitter_function=lambda: 0.0)
+        self.addCleanup(outbox.close)
+
+        # (a) the documented deterministic boundary must return the cap
+        self.assertEqual(outbox._backoff_delay(5000), 60.0)
+
+        # (b) end-to-end with an extreme persisted attempts value
+        def responder(index: int, metadata: str):
+            if index == 0:
+                raise ConnectionError("connection reset")
+            return _StubResponse(200, _ok_body(metadata))
+
+        stub = _TransportStub(responder)
+        outbox.enqueue("evt-extreme", _event_metadata("evt-extreme"), self.snapshot)
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "UPDATE outbox_events SET attempts = 5000 WHERE event_id = 'evt-extreme'"
+            )
+            conn.commit()
+
+        publisher_stdout = io.StringIO()
+
+        def actions(live, live_stub, summary):
+            self.assertTrue(_wait_for(lambda: live.pending_count() == 0))
+            time.sleep(0.3)  # settle
+            summary.update(live.snapshot())
+
+        with contextlib.redirect_stdout(publisher_stdout):
+            summary = self.drive_publisher(outbox, stub, actions)
+
+        self.assertEqual(len(stub.calls), 2)
+        self.assertEqual(summary["pending"], 0)
+        self.assertEqual(
+            summary["send_errors"],
+            1,
+            "the failed send of the extreme-attempts row must be recorded "
+            "(the OverflowError path skips the send-error bookkeeping UPDATE)",
+        )
+        self.assertNotIn(
+            "outbox publisher error",
+            publisher_stdout.getvalue(),
+            "backoff must not escape into the publisher's generic exception spam",
+        )
+
 
 class EntrypointSeamTests(OutboxTestBase):
     """post_event seam semantics (FR-003/D-106) via the provenance load pattern

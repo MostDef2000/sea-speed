@@ -210,6 +210,33 @@ class WorkerOutboxSchemaTests(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0][0], metadata)
 
+    def test_pragma_synchronous_is_full_for_power_loss_durability(self) -> None:
+        """Validator finding #1 pin (pre-merge static rejection of the wave-2
+        head): spec.md user scenario 2 lists POWER among the restart scenarios
+        ("the worker restarts mid-outage (power, deploy)") and AC-001 requires
+        durable-before-report — an accepted event must survive power loss.
+
+        In WAL mode PRAGMA synchronous=NORMAL does NOT guarantee per-commit
+        durability across power loss: a commit can report success while its
+        WAL pages sit in the OS cache. Only FULL (value 2) upholds the
+        contract.
+
+        Pin (RED by design): after opening a WorkerOutbox on a fresh file,
+        PRAGMA synchronous on the outbox connection reports 2 (FULL). The
+        current implementation sets NORMAL (reports 1,
+        worker/worker_outbox.py:172); the fix goes to a code order — do NOT
+        weaken this test.
+        """
+        mod = load_outbox_module()
+        outbox = mod.WorkerOutbox(self.db_path, jitter_function=lambda: 0.0)
+        self.addCleanup(outbox.close)
+        value = outbox._conn.execute("PRAGMA synchronous").fetchone()[0]
+        self.assertEqual(
+            value,
+            2,
+            "synchronous must be FULL (2): WAL + NORMAL does not survive power loss",
+        )
+
 
 class WorkerOutboxSeamEnvTests(unittest.TestCase):
     """SEA_SPEED_OUTBOX_DB is read at the entrypoint seam (FR-002/D-103); the
