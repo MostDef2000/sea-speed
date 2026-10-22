@@ -157,6 +157,37 @@ class BoundedQueueAndPublishingTests(unittest.TestCase):
             except Exception:
                 pass
 
+    def test_publish_queue_coalescing_drops_stale_and_balances(self):
+        # post_state coalescing: on a full queue, all stale states are dropped
+        # (freshest is enqueued right after) and every drained item gets a
+        # paired task_done so unfinished_tasks returns to a consistent count.
+        entry = self._load_entry_with_mocks()
+        with mock.patch.dict(os.environ, {"SEA_SPEED_SOURCE_COMMIT": "a" * 40}), mock.patch.object(
+            entry, "_ORIGINAL_POST_STATE", return_value=True
+        ), mock.patch.object(entry, "_ensure_publish_thread", lambda: None):
+            q = entry._publish_queue
+            q.queue.clear()
+            try:
+                maxsize = q.maxsize
+                for i in range(maxsize):
+                    q.put_nowait(("state", {"stale": i}, None))
+                self.assertTrue(q.full())
+                self.assertTrue(entry.post_state({"fresh": True}, Path("/tmp/fresh.jpg")))
+                self.assertEqual(q.qsize(), 1)
+                kind, meta, payload = q.get_nowait()
+                self.assertEqual(kind, "state")
+                self.assertTrue(meta.get("fresh") is True)
+                q.task_done()
+                # every drained stale item must be accounted for (no join() hang)
+                self.assertEqual(q.unfinished_tasks, 0)
+            finally:
+                try:
+                    while not q.empty():
+                        q.get_nowait()
+                        q.task_done()
+                except Exception:
+                    pass
+
     def test_queued_metadata_is_deeply_immutable(self):
         entry = self._load_entry_with_mocks()
         metadata = {

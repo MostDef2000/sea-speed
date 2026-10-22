@@ -128,26 +128,16 @@ def post_state(metadata, overlay_path):
             overlay_payload = p.read_bytes()
     except Exception:
         overlay_payload = overlay_path
-    # state/overlay is coalesced — keep latest only, drop stale if queue full
+    # state/overlay is coalesced — drop stale if queue full; the freshly
+    # built state below is the latest, so drained items are all stale.
     if _publish_queue.full():
         try:
-            cur = []
             while not _publish_queue.empty():
                 try:
-                    cur.append(_publish_queue.get_nowait())
+                    _publish_queue.get_nowait()
+                    _publish_queue.task_done()
                 except queue.Empty:
                     break
-            kept = [x for x in cur if x[0] == "event"]
-            for item in kept:
-                try:
-                    _publish_queue.put_nowait(item)
-                except queue.Full:
-                    pass
-            for item in kept:
-                try:
-                    _publish_queue.task_done()
-                except Exception:
-                    pass
         except Exception:
             pass
     _ensure_publish_thread()
