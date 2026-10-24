@@ -14,10 +14,10 @@
 
 ## Completion gate
 
-- [ ] CI gate: full battery green on the exact PR head — orchestrator-owned
-- [ ] merge gate: exact-green-head merge complete — orchestrator-owned
-- [ ] deploy gate: exact-SHA Ubuntu worker deploy success (standing delegation; owner approved 2026-10-22) — orchestrator-owned
-- [ ] runtime gate: acceptance probes (outbox drain, restart drain, 409 retain) recorded on #537 — orchestrator-owned
+- [x] CI gate: full battery green on the exact PR head — orchestrator-owned. Evidence: required CI green on the exact PR head b70b336 (Repository validation incl. Change Contract validation, quality-integration; merge commit CI on 0139f3e8 6/6 success, run 39883264504 workflow)
+- [x] merge gate: exact-green-head merge complete — orchestrator-owned. Evidence: PR #547 merged 2026-10-22 15:57 UTC as merge commit 0139f3e8ae52285f264b4a2e77875bc5ad2d8838 (exact-green-head)
+- [x] deploy gate: exact-SHA Ubuntu worker deploy success (standing delegation; owner approved 2026-10-22) — orchestrator-owned. Evidence: deploy-ubuntu-worker.yaml run 39883264504 success 2026-10-23 01:19:26 UTC, deliveryId ubuntu-0139f3e8ae52-20261023T011926Z, manifest 6/6, on-box shared/config/active-source-commit=0139f3e8 (verified on GPU box)
+- [x] runtime gate: acceptance probes (outbox drain, restart drain, 409 retain) recorded on #537 — orchestrator-owned. Evidence: probes P1 (drain of stale pending rows), P2 (restart drain), P3 (409 terminal retain), P4 (metrics unchanged), P5 (healthy publish byte-identity) recorded on issue #537 (2026-10-23)
 
 ## Requirements traceability
 
@@ -27,13 +27,13 @@
 
 ## Definition of Done
 
-- [ ] Issue/spec/plan/tasks current
-- [ ] Exact changed-file scope verified (worker/ubuntu_worker_entrypoint.py, tests/test_detection_runtime_optimization.py, specs/546-coalesce-followup/**)
-- [ ] Required tests and evidence complete (RED authenticity on base 18b7c47 + GREEN focused run + ruff canon)
-- [ ] CI gate: Required CI green on the exact PR head — orchestrator-owned
-- [ ] merge gate: Exact-green-head merge complete — orchestrator-owned
-- [ ] state gate: Deployment state resolved — exact-SHA Ubuntu worker deploy per the standing delegation — orchestrator-owned
-- [ ] runtime gate: Runtime acceptance resolved — post-deploy probes recorded on #537 — orchestrator-owned
-- [ ] Deferred work recorded — none
-- [ ] Risks resolved or explicitly accepted — Risk profile NOT REQUIRED (plan.md)
-- [ ] Waivers resolved or current — none
+- [x] Issue/spec/plan/tasks current (issue #546 closed with verification record 2026-10-24; this sync reconciles tasks.md to the delivered state)
+- [x] Exact changed-file scope verified (worker/ubuntu_worker_entrypoint.py, tests/test_detection_runtime_optimization.py, specs/546-coalesce-followup/**). Evidence: PR #547 diff matches exactly (worker/ubuntu_worker_entrypoint.py, tests/test_detection_runtime_optimization.py, specs/546-coalesce-followup/**); protected surfaces zero-diff (orchestrator-verified)
+- [x] Required tests and evidence complete (RED authenticity on base 18b7c47 + GREEN focused run + ruff canon). Evidence: RED authenticity on base 18b7c47 verified (T-546-103); GREEN focused run 14 passed; ruff clean under scripts/quality/ruff.toml
+- [x] CI gate: Required CI green on the exact PR head — orchestrator-owned. Evidence: required CI green on the exact PR head b70b336 (Repository validation incl. Change Contract validation, quality-integration; merge commit CI on 0139f3e8 6/6 success, run 39883264504 workflow)
+- [x] merge gate: Exact-green-head merge complete — orchestrator-owned. Evidence: PR #547 merged 2026-10-22 15:57 UTC as merge commit 0139f3e8ae52285f264b4a2e77875bc5ad2d8838 (exact-green-head)
+- [x] state gate: Deployment state resolved — exact-SHA Ubuntu worker deploy per the standing delegation — orchestrator-owned. Evidence: deploy-ubuntu-worker.yaml run 39883264504 success 2026-10-23 01:19:26 UTC, deliveryId ubuntu-0139f3e8ae52-20261023T011926Z, manifest 6/6, on-box shared/config/active-source-commit=0139f3e8 (verified on GPU box)
+- [x] runtime gate: Runtime acceptance resolved — post-deploy probes recorded on #537 — orchestrator-owned. Evidence: probes P1 (drain of stale pending rows), P2 (restart drain), P3 (409 terminal retain), P4 (metrics unchanged), P5 (healthy publish byte-identity) recorded on issue #537 (2026-10-23)
+- [x] Deferred work recorded — none
+- [x] Risks resolved or explicitly accepted — Risk profile NOT REQUIRED (plan.md)
+- [x] Waivers resolved or current — none
