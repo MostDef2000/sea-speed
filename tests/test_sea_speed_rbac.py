@@ -100,8 +100,8 @@ def load_identity_policy(
 ) -> dict[str, Any]:
     """Exec the REAL #530 policy from identity.py in a stub namespace.
 
-    Fresh per call, so the transitional latch and the captured logger are
-    order-independent (same contract as load_require_operator_identity in
+    Fresh per call, so the captured logger is order-independent (same
+    contract as load_require_operator_identity in
     tests/test_auth_session_identity.py).
     """
     functions = {
@@ -112,7 +112,6 @@ def load_identity_policy(
     }
     assigns = {
         "_LOGGER",
-        "_EDGE_AUTH_TRANSITIONAL_WARNING_EMITTED",
         "AUTHENTIK_GROUP_OWNER",
         "AUTHENTIK_GROUP_ADMIN",
         "AUTHENTIK_GROUP_OPERATOR",
@@ -648,20 +647,19 @@ class IdentityFirstOrderingTests(ApiHarness):
             )
         self.assertEqual(raised.exception.status_code, 500)
 
-    def test_transitional_mode_preserved(self) -> None:
-        # Edge secret unset: identity is accepted without edge verification
-        # (existing #520 semantics); role enforcement still applies normally.
-        policy_ns = load_identity_policy(edge_secret="")
-        with self.assertLogs(RBAC_TEST_LOGGER_NAME, level="WARNING"):
-            username = policy_ns["require_role"](
-                "operator@example.test", None, GROUP_OPERATOR, minimum="operator", action="patch_object",
-            )
-        self.assertEqual(username, "operator@example.test")
-        with self.assertRaises(HTTPExceptionStub) as raised:
-            policy_ns["require_role"](
-                "viewer@example.test", None, GROUP_VIEWER, minimum="operator", action="patch_object",
-            )
-        self.assertEqual(raised.exception.status_code, 403)
+    def test_unconfigured_edge_secret_fails_closed(self) -> None:
+        # Edge secret unset/blank (#520 residual, #537 batch): the operator
+        # identity primitive fails closed with 503 — role enforcement is
+        # never reached, nothing is accepted without edge verification.
+        for blank in ("", "   "):
+            with self.subTest(blank=repr(blank)):
+                policy_ns = load_identity_policy(edge_secret=blank)
+                with self.assertNoLogs(RBAC_TEST_LOGGER_NAME, level="WARNING"):
+                    with self.assertRaises(HTTPExceptionStub) as raised:
+                        policy_ns["require_role"](
+                            "operator@example.test", None, GROUP_OPERATOR, minimum="operator", action="patch_object",
+                        )
+                    self.assertEqual(raised.exception.status_code, 503)
 
 
 class AuditRecordTests(ApiHarness):

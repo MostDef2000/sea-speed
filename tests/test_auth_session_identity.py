@@ -16,7 +16,7 @@ IDENTITY_SOURCE = ROOT / "api/app/identity.py"
 EDGE_AUTH_ENV = "SEA_SPEED_EDGE_AUTH_SECRET"
 STRICT_EDGE_FIXTURE = "edge-fixture-520"
 IDENTITY_TEST_LOGGER_NAME = "sea_speed_identity_under_test"
-_IDENTITY_MODULE_GLOBALS = {"_LOGGER", "_EDGE_AUTH_TRANSITIONAL_WARNING_EMITTED"}
+_IDENTITY_MODULE_GLOBALS = {"_LOGGER"}
 
 
 class HTTPExceptionStub(Exception):
@@ -34,10 +34,9 @@ def load_require_operator_identity():
     bind it to /opt state absent in the test environment). ``EDGE_AUTH_SECRET``
     mirrors the config.py env read at load time, so monkeypatching
     ``SEA_SPEED_EDGE_AUTH_SECRET`` and reloading switches between the
-    transitional and strict enforcement modes. The module-level logger and
-    the one-shot transitional latch are extracted together with the
-    function, so every load is a fresh "process" and tests stay
-    order-independent.
+    unconfigured (fail-closed 503) and strict enforcement modes. The
+    module-level logger is extracted together with the function, so every
+    load is a fresh "process" and tests stay order-independent.
     """
     tree = ast.parse(IDENTITY_SOURCE.read_text(encoding="utf-8-sig"), filename=str(IDENTITY_SOURCE))
     body = []
@@ -130,8 +129,8 @@ def load_session_identity_function(
     ast.fix_missing_locations(module)
     if require_operator_identity is None:
         # Issue #520: the route delegates to the shared trust primitive; bind
-        # the real (transitional-mode) primitive so the pins below exercise
-        # the unified path instead of an inline duplication.
+        # the real primitive so the pins below exercise the unified path
+        # instead of an inline duplication.
         require_operator_identity = load_require_operator_identity()[
             "require_operator_identity"
         ]
@@ -176,12 +175,12 @@ class EdgeSecretEnvMixin(unittest.TestCase):
 
 class AuthSessionIdentityTests(EdgeSecretEnvMixin, unittest.TestCase):
     def test_returns_only_trimmed_trusted_username(self) -> None:
-        self._set_edge_secret_env(None)  # transitional mode regardless of shell exports
+        self._set_edge_secret_env(STRICT_EDGE_FIXTURE)  # strict mode regardless of shell exports
         get_session_identity = load_session_identity_function()
         # Issue #530: exact shape is additive — role joins; no groups/override
         # claims are exposed (spec Session contract).
         self.assertEqual(
-            get_session_identity("  owner@example.test  "),
+            get_session_identity("  owner@example.test  ", STRICT_EDGE_FIXTURE),
             {"ok": True, "username": "owner@example.test", "role": "viewer"},
         )
 
@@ -189,7 +188,7 @@ class AuthSessionIdentityTests(EdgeSecretEnvMixin, unittest.TestCase):
         # Issue #530: session adds exactly the role field; no operator/admin
         # minimum is enforced on the read (spec: worker-status/session keep
         # identity checks only).
-        self._set_edge_secret_env(None)
+        self._set_edge_secret_env(STRICT_EDGE_FIXTURE)
         for groups, expected_role in (
             ("Sea Speed Admin", "admin"),
             ("Sea Speed Owner", "admin"),
@@ -201,23 +200,23 @@ class AuthSessionIdentityTests(EdgeSecretEnvMixin, unittest.TestCase):
             with self.subTest(groups=groups):
                 get_session_identity = load_session_identity_function()
                 self.assertEqual(
-                    get_session_identity("user@example.test", None, groups),
+                    get_session_identity("user@example.test", STRICT_EDGE_FIXTURE, groups),
                     {"ok": True, "username": "user@example.test", "role": expected_role},
                 )
         # Env override is honored by the session too (same resolver).
         get_session_identity = load_session_identity_function(admin_users=["boss@example.test"])
         self.assertEqual(
-            get_session_identity("boss@example.test", None, None),
+            get_session_identity("boss@example.test", STRICT_EDGE_FIXTURE, None),
             {"ok": True, "username": "boss@example.test", "role": "admin"},
         )
 
     def test_missing_or_blank_trusted_username_fails_closed(self) -> None:
-        self._set_edge_secret_env(None)  # transitional mode regardless of shell exports
+        self._set_edge_secret_env(STRICT_EDGE_FIXTURE)  # strict mode regardless of shell exports
         get_session_identity = load_session_identity_function()
         for value in (None, "", "   "):
             with self.subTest(value=value):
                 with self.assertRaises(HTTPExceptionStub) as raised:
-                    get_session_identity(value)
+                    get_session_identity(value, STRICT_EDGE_FIXTURE)
                 self.assertEqual(raised.exception.status_code, 503)
                 self.assertEqual(
                     raised.exception.detail,
@@ -257,55 +256,39 @@ class OperatorEdgeAuthTests(EdgeSecretEnvMixin):
     reload): requests must carry ``X-Sea-Speed-Edge-Auth`` equal to the
     secret BEFORE the username is inspected; mismatch/absence is 403
     "Forbidden"; correct secret keeps the 503-on-blank-username semantics.
-    Transitional mode — env unset/blank: legacy semantics byte-identical
-    plus a one-shot WARNING per process. Each test restores the env and
-    loads a fresh primitive (fresh latch), so tests are order-independent.
+    Unconfigured secret (#520 residual, #537 batch) — env unset/blank:
+    fail-closed 503 "Trusted Authentik identity is unavailable" with no
+    warning log (the endpoint never accepts identity without edge
+    verification). Each test restores the env and loads a fresh primitive,
+    so tests are order-independent.
     """
 
-    def test_transitional_mode_warns_exactly_once_per_process(self) -> None:
+    def test_unconfigured_edge_secret_fails_closed(self) -> None:
         self._set_edge_secret_env(None)
         namespace = load_require_operator_identity()
         require_operator_identity = namespace["require_operator_identity"]
-        with self.assertLogs(IDENTITY_TEST_LOGGER_NAME, level="WARNING") as captured:
+        with self.assertNoLogs(IDENTITY_TEST_LOGGER_NAME, level="WARNING"):
+            with self.assertRaises(HTTPExceptionStub) as raised:
+                require_operator_identity("  owner@example.test  ")
+            self.assertEqual(raised.exception.status_code, 503)
             self.assertEqual(
-                require_operator_identity("  owner@example.test  "),
-                "owner@example.test",
+                raised.exception.detail,
+                "Trusted Authentik identity is unavailable",
             )
-            self.assertEqual(
-                require_operator_identity("owner@example.test"),
-                "owner@example.test",
-            )
-        self.assertEqual(
-            len(captured.records), 1, "transitional warning must fire exactly once per process"
-        )
-        message = captured.records[0].getMessage()
-        self.assertIn("SEA_SPEED_EDGE_AUTH_SECRET is not set", message)
-        # Never log identity material: no username/header values in the warning.
-        self.assertNotIn("owner@example.test", message)
 
-    def test_transitional_mode_blank_secret_warns_set_but_blank(self) -> None:
+    def test_blank_edge_secret_fails_closed(self) -> None:
         self._set_edge_secret_env("   ")
         namespace = load_require_operator_identity()
         require_operator_identity = namespace["require_operator_identity"]
-        with self.assertLogs(IDENTITY_TEST_LOGGER_NAME, level="WARNING") as captured:
-            # Set-but-blank secret keeps transitional acceptance semantics.
+        with self.assertNoLogs(IDENTITY_TEST_LOGGER_NAME, level="WARNING"):
+            # Set-but-blank secret is fail-closed exactly like unset.
+            with self.assertRaises(HTTPExceptionStub) as raised:
+                require_operator_identity("owner@example.test")
+            self.assertEqual(raised.exception.status_code, 503)
             self.assertEqual(
-                require_operator_identity("owner@example.test"),
-                "owner@example.test",
+                raised.exception.detail,
+                "Trusted Authentik identity is unavailable",
             )
-            self.assertEqual(
-                require_operator_identity("owner@example.test"),
-                "owner@example.test",
-            )
-        self.assertEqual(
-            len(captured.records), 1, "blank-secret warning must fire exactly once per process"
-        )
-        message = captured.records[0].getMessage()
-        # The warning must distinguish "set but blank" from "not set" and
-        # still never log the (whitespace) value or identity material.
-        self.assertIn("SEA_SPEED_EDGE_AUTH_SECRET is set but blank", message)
-        self.assertNotIn("is not set", message)
-        self.assertNotIn("owner@example.test", message)
 
     def test_strict_mode_non_ascii_edge_header_rejected_before_username(self) -> None:
         self._set_edge_secret_env(STRICT_EDGE_FIXTURE)
