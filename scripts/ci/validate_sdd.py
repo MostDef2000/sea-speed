@@ -70,11 +70,14 @@ GRANDFATHERED_PREFIX_COLLISIONS = {
     },
     # Issue #520 ships as staged PRs under one issue number (PR-1 app-layer
     # edge enforcement, PR-2 edge vhost renderer codification per the design
-    # comment 6217745201); the PR set shares the 520 prefix by design — same
-    # staged-wave precedent as 396/397.
+    # comment 6217745201; PR-3 transitional-mode removal — the strict-mode
+    # residual approved in the #537 Outcome Contract batch, 2026-10-19); the
+    # PR set shares the 520 prefix by design — same staged-wave precedent as
+    # 396/397.
     "520": {
         "520-operator-edge-auth",
         "520-edge-vhost-renderer",
+        "520-transitional-mode-removal",
     },
     # Issue #537 ships as staged waves under one issue number (wave 1 API-side
     # durable delivery receipts, wave 2 worker durable outbox per the issue

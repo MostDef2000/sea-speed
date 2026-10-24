@@ -97,10 +97,8 @@ def require_auth(authorization: Optional[str]) -> None:
         raise HTTPException(status_code=403, detail="Forbidden")
 
 
-# Issue #520: module-level latch for the transitional-mode warning (one shot
-# per process) and the module logger. Both are private: never part of __all__.
+# Issue #520: module logger. Private: never part of __all__.
 _LOGGER = logging.getLogger(__name__)
-_EDGE_AUTH_TRANSITIONAL_WARNING_EMITTED = False
 
 # Issue #530: authentik group names are exact, case-sensitive whole-token
 # matches against the groups defined in
@@ -138,10 +136,11 @@ def require_operator_identity(
 ) -> str:
     # Issue #520: strict mode (secret set) requires the edge-injected shared
     # secret to match BEFORE any username handling, so a forged
-    # X-Authentik-Username reveals nothing. Transitional mode (secret
-    # unset/blank) keeps the legacy semantics byte-identical and warns once
-    # per process. The secret value is never logged or echoed.
-    global _EDGE_AUTH_TRANSITIONAL_WARNING_EMITTED
+    # X-Authentik-Username reveals nothing. When the secret is unset or blank
+    # (#520 residual, approved in the #537 batch 2026-10-19) the endpoint
+    # fails closed with 503: operator identity is unavailable rather than
+    # accepted without edge verification. The secret value is never logged
+    # or echoed.
     expected = EDGE_AUTH_SECRET.strip()
     if expected:
         # Compare UTF-8 bytes: hmac.compare_digest rejects non-ASCII str
@@ -150,18 +149,8 @@ def require_operator_identity(
         provided = (x_sea_speed_edge_auth or "").encode("utf-8")
         if not hmac.compare_digest(expected.encode("utf-8"), provided):
             raise HTTPException(status_code=403, detail="Forbidden")
-    elif not _EDGE_AUTH_TRANSITIONAL_WARNING_EMITTED:
-        if EDGE_AUTH_SECRET:
-            _LOGGER.warning(
-                "SEA_SPEED_EDGE_AUTH_SECRET is set but blank: operator identity is "
-                "accepted without edge verification (transitional mode)"
-            )
-        else:
-            _LOGGER.warning(
-                "SEA_SPEED_EDGE_AUTH_SECRET is not set: operator identity is "
-                "accepted without edge verification (transitional mode)"
-            )
-        _EDGE_AUTH_TRANSITIONAL_WARNING_EMITTED = True
+    else:
+        raise HTTPException(status_code=503, detail="Trusted Authentik identity is unavailable")
     username = (x_authentik_username or "").strip()
     if not username:
         raise HTTPException(status_code=503, detail="Trusted Authentik identity is unavailable")
@@ -209,7 +198,8 @@ def require_role(
 
     Identity verification always runs first via the unchanged
     ``require_operator_identity`` (strict edge check, existing 403/503
-    ordering, transitional behavior untouched). An unsupported ``minimum``
+    ordering; unconfigured secret fails closed with 503). An unsupported
+    ``minimum``
     fails closed as a programming/configuration error (HTTP 500) and never
     authorizes. Insufficient role raises HTTP 403 "Forbidden"; failure paths
     never log raw headers, groups, edge secrets, payloads or unverified
