@@ -74,18 +74,20 @@ frontend/**).
 
 ## Risk profile
 
-- Risk profile: NOT REQUIRED (single trust primitive, behavior-neutral while the
-  secret is set; fail-closed direction only tightens; no data, schema, or
-  contract change)
+- Risk profile: REQUIRED
+
+- RISK-520-601 | Category: SEC | Probability: 2 | Impact: 4 | Score: 8 | Mitigation: strict-mode paths byte-identical (edge compare precedes username handling, unchanged from base); only the previously-unsafe unconfigured/blank-secret case changes from fail-open acceptance to fail-closed 503; both variants pinned by RED-verified fail-closed tests at primitive and require_role level, with assertNoLogs on the new path | Validation: RED on base 0139f3e8 (worktree) + GREEN focused run (40 passed, 130 subtests) + full battery 1138 OK skipped=4 + mutation pin (503→403 caught by all four pins) | Residual risk: a misconfigured secret is now a visible operator-route outage instead of a silent fail-open (intended tightening; recorded D-520-602) | Owner: delivery-orchestrator | Status: MITIGATED
+- RISK-520-602 | Category: OPS | Probability: 2 | Impact: 3 | Score: 6 | Mitigation: production secret set since 2026-10-18, so the 503 branch is unreachable in the current prod posture; the merged code reaches production only through the separate owner-gated VPS deploy (ИБ-этап + deploy-authorized exact-SHA pipeline) with acceptance probes (operator routes 200 with edge header / 403 without) | Validation: deploy-run probes recorded at the owner-gated deploy step; unit pins cover the 503 path | Residual risk: if the VPS secret is ever lost or blanked, operator routes hard-fail 503 (fail-closed by design; runbook: restore secret, restart service) | Owner: delivery-orchestrator | Status: MITIGATED
+- RISK-520-603 | Category: TECH | Probability: 1 | Impact: 2 | Score: 2 | Mitigation: zero worker/deploy/frontend diff; the 503 detail string is reused (no message-schema change); full battery green | Validation: git diff --name-only equals the declared 7-file scope; frontend coupling search clean ("Trusted Authentik" absent from frontend) | Residual risk: none known | Owner: delivery-orchestrator | Status: MITIGATED
 
 ## Test design
 
-- TEST-520-601 | Covers: AC-001 | Level: unit | Priority: P1 | Evidence:
-  tests/test_auth_session_identity.py OperatorEdgeAuthTests
+- TEST-520-601 | Covers: AC-001 | Level: unit | Priority: P1 | Evidence: tests/test_auth_session_identity.py
+  OperatorEdgeAuthTests
   test_unconfigured_edge_secret_fails_closed + test_blank_edge_secret_fails_closed
   (assertRaises 503 with the canonical detail + assertNoLogs WARNING guard)
-- TEST-520-602 | Covers: AC-001 | Level: unit | Priority: P1 | Evidence:
-  tests/test_sea_speed_rbac.py IdentityFirstOrderingTests
+- TEST-520-602 | Covers: AC-001 | Level: unit | Priority: P1 | Evidence: tests/test_sea_speed_rbac.py
+  IdentityFirstOrderingTests
   test_unconfigured_edge_secret_fails_closed (require_role-level: both blank
   variants, 503, no warning log)
 - TEST-520-603 | Covers: AC-002 | Level: unit | Priority: P1 | Evidence: existing

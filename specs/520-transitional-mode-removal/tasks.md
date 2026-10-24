@@ -49,7 +49,7 @@
 - [ ] CI gate: Required CI green on the exact PR head — orchestrator-owned
 - [ ] review gate: independent review verdict recorded — orchestrator-owned
 - [ ] merge gate: Exact-green-head merge complete — orchestrator-owned
-- [ ] state gate: VPS deploy state resolved — SEPARATE OWNER GATE (security-sensitive contour)
+- [ ] Deployment state resolved (VPS deploy — SEPARATE OWNER GATE, security-sensitive contour)
 - [ ] runtime gate: Runtime acceptance resolved — owner-gated with the deploy
 - [ ] Deferred work recorded — none
 - [ ] Risks resolved or explicitly accepted — Risk profile NOT REQUIRED (plan.md)
