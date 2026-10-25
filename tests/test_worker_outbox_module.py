@@ -31,6 +31,7 @@ import os
 import sqlite3
 import sys
 import tempfile
+import time
 import types
 import unittest
 from pathlib import Path
@@ -311,6 +312,56 @@ class WorkerOutboxSeamEnvTests(unittest.TestCase):
                     entrypoint._close_outbox()
             # the seam must not have written a default-name file anywhere near cwd
             self.assertFalse(Path("road-worker-outbox.sqlite3").exists())
+
+
+class WorkerOutboxHeartbeatOldestAgeTests(unittest.TestCase):
+    """Issue #548 — heartbeat ``oldest`` must reflect real pending time.
+
+    The heartbeat field is ``snapshot()["oldest_unconfirmed_sec"]``, computed
+    as ``max(0.0, time.monotonic() - pending_since)``. If the stamp and the
+    read ever come from different clock epochs (wall-clock stamp read with
+    ``time.monotonic()``), the difference is a huge negative number, the clamp
+    swallows it, and the heartbeat reports ``oldest=0.0`` forever while rows
+    sit pending.
+
+    Real-clock pin: no fake clock, no patched ``time`` module — enqueue one
+    event, never start the publisher, let a fraction of a second pass, then
+    snapshot(). The age must be the elapsed wait, not 0.0.
+    """
+
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp = Path(tmp.name)
+        self.db_path = self.tmp / "road-worker-outbox-548.sqlite3"
+        self.snapshot = self.tmp / "event.jpg"
+        self.snapshot.write_bytes(b"\xff\xd8oldest-age-probe\xff\xd9")
+
+    def test_pending_row_reports_positive_oldest_age(self) -> None:
+        mod = load_outbox_module()
+        outbox = mod.WorkerOutbox(self.db_path, jitter_function=lambda: 0.0)
+        self.addCleanup(outbox.close)
+        metadata = json.dumps({"event_id": "evt-548", "camera_id": "road1"})
+        self.assertIs(outbox.enqueue("evt-548", metadata, self.snapshot), True)
+        # nothing delivers the row: the publisher thread is never started
+        self.assertIsNone(outbox._thread)
+        time.sleep(0.12)
+        summary = outbox.snapshot()
+        self.assertEqual(summary["pending"], 1, "the row must still be pending")
+        oldest = summary["oldest_unconfirmed_sec"]
+        self.assertIsNotNone(oldest, "a pending row must report an oldest age")
+        self.assertNotEqual(
+            oldest,
+            0.0,
+            "heartbeat oldest must not be exactly 0.0 while a row is pending "
+            "(#548: wall-clock stamp read with time.monotonic() clamps to 0.0)",
+        )
+        # sleep(0.12) guarantees >= 0.12s of elapsed monotonic time, so the
+        # age must track the real wait; the 60s cap keeps the value in
+        # elapsed-seconds scale (an epoch-scale value would mean the stamps
+        # and the read use different clock epochs).
+        self.assertGreaterEqual(oldest, 0.10, "age must reflect the real wait")
+        self.assertLess(oldest, 60.0, "age must be elapsed seconds, not an epoch")
 
 
 if __name__ == "__main__":
