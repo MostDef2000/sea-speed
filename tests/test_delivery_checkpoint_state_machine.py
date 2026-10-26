@@ -71,7 +71,7 @@ V1_CHECKPOINT = """Sea Speed Delivery Checkpoint v1
 - Task: #240
 - Checkpoint generation: 7
 - Approved scope identity: resumable-delivery-v1
-- Authorization receipt: OUTCOME APPROVED
+- Authorization receipt: commit approved
 - Authorization base main: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 - Current phase: IMPLEMENTING
 - Branch: agent/resumable-delivery-orchestration
@@ -216,23 +216,26 @@ class DeliveryCheckpointStateMachineTests(unittest.TestCase):
         self.assertEqual(result["schema"], "sea_speed_delivery_checkpoint_v2")
         self.assertEqual(result["generation"], 8)
         self.assertEqual(result["session_disposition"], "WAITING_EXTERNAL")
-        self.assertEqual(result["authorization_receipt"], "OUTCOME APPROVED")
+        self.assertEqual(result["authorization_receipt"], "commit approved")
 
-    def test_legacy_receipt_v1_upgrade_still_validates(self) -> None:
-        """A persisted v1 checkpoint carrying the legacy receipt upgrades to a
-        valid v2 checkpoint without re-authorization (dual-accept)."""
-        result = upgrade_v1_checkpoint(
-            V1_CHECKPOINT,
-            next_action_kind="RUN_LOCAL_VALIDATION",
-            next_action_executable_now=True,
-        )
-        validate_checkpoint(result)
-        self.assertEqual(result["authorization_receipt"], "OUTCOME APPROVED")
+    def test_legacy_receipt_v1_upgrade_requires_fresh_receipt(self) -> None:
+        """A v1 checkpoint carrying the retired legacy receipt cannot be
+        upgraded — the upgrade validates and refuses the legacy value until
+        the task is re-receipted with `commit approved` (owner decision
+        2026-10-26)."""
+        legacy_v1 = V1_CHECKPOINT.replace("commit approved", "OUTCOME APPROVED")
+        with self.assertRaisesRegex(CheckpointValidationError, "commit approved"):
+            upgrade_v1_checkpoint(
+                legacy_v1,
+                next_action_kind="RUN_LOCAL_VALIDATION",
+                next_action_executable_now=True,
+            )
 
-    def test_legacy_receipt_remains_accepted_in_v2_checkpoint(self) -> None:
+    def test_legacy_receipt_is_rejected_in_v2_checkpoint(self) -> None:
         value = checkpoint()
         value["authorization_receipt"] = "OUTCOME APPROVED"
-        validate_checkpoint(value)
+        with self.assertRaisesRegex(CheckpointValidationError, "commit approved"):
+            validate_checkpoint(value)
 
     def test_garbage_receipt_is_rejected(self) -> None:
         value = checkpoint()

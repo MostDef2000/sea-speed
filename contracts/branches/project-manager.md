@@ -49,7 +49,7 @@ Windows Worker is retired. Historical Windows evidence remains readable audit hi
 - **Delivery-control truth**: canonical Issue Outcome, source-authorization receipt, Delivery Checkpoint, exact branch/PR/head, completed gates and evidence cursors.
 - **Transient interaction state**: live conversation used to present a new visible Scope and receive its immediately-following `commit approved`, plus the structured todo projection of current synchronous execution.
 
-Initial Scope/approval adjacency is an admission condition. Once a valid admission is durably receipted, that receipt can continue only the **same exact admitted scope**. It cannot create, widen, or replace source authorization and never grants production authority. Context compaction, session restart, response truncation, Connector truncation, or model-memory loss does not by itself revoke authorization or return an admitted task to `DISCUSSION`. Legacy receipts `OUTCOME APPROVED` remain accepted for their recorded admitted scopes (historical).
+Initial Scope/approval adjacency is an admission condition. Once a valid admission is durably receipted, that receipt can continue only the **same exact admitted scope**. It cannot create, widen, or replace source authorization and never grants production authority. Context compaction, session restart, response truncation, Connector truncation, or model-memory loss does not by itself revoke authorization or return an admitted task to `DISCUSSION`. Legacy receipts `OUTCOME APPROVED` are retired (owner decision 2026-10-26) and rejected for new admissions; they survive only as historical record.
 
 ## Resume Probe and monotonic lifecycle
 

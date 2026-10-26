@@ -114,18 +114,17 @@ class ChangeContractTests(unittest.TestCase):
         }
         self.assertEqual(self.validator.validate_authorization(fields), "commit approved")
 
-    def test_legacy_outcome_approved_remains_accepted(self):
+    def test_legacy_outcome_approved_is_rejected(self):
         files = ["scripts/ci/validate_change_contract.py"]
         fields = {
             "Source authorization": "OUTCOME APPROVED",
             "Approval recorded after Implementation Scope Check": "YES",
             "Material scope/protected-boundary change since authorization": "NO",
         }
-        self.assertEqual(self.validator.validate_authorization(fields), "OUTCOME APPROVED")
-        self.assertEqual(
-            self.validator.validate_contract(body(files, authorization="OUTCOME APPROVED"), files, self.policy),
-            "CONTROL_PLANE",
-        )
+        with self.assertRaisesRegex(self.validator.ContractError, "commit approved"):
+            self.validator.validate_authorization(fields)
+        with self.assertRaisesRegex(self.validator.ContractError, "commit approved"):
+            self.validator.validate_contract(body(files, authorization="OUTCOME APPROVED"), files, self.policy)
 
     def test_garbage_authorization_phrase_is_rejected(self):
         files = ["scripts/ci/validate_change_contract.py"]
