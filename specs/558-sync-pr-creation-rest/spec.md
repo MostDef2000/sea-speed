@@ -30,6 +30,7 @@ After this fix, the tasks.md auto-sync flow creates its auto-sync PR through the
 ## Runtime feedback
 
 - The workflow itself is the runtime surface; verification happens on the next natural merge with a tasks.md delta (the sync run then exercises the REST create live). CI on this PR validates the workflow policy and the structural pins; the live-create confirmation is recorded on issue #558 after the first real sync run with a delta.
+- Live follow-up (first REST-create exercise, sync run on merge `88e54f2`): the create path's GraphQL dependency was removed, but the REUSE check still used the GraphQL-backed CLI list form and died with the same `HTTP 401: Bad credentials (graphql)` immediately after the branch push. The reuse check was therefore converted to REST as well (`GET /repos/{owner}/{repo}/pulls?head=...&base=main&state=open`); same token-class invariant, recorded here so the spec reflects the live finding.
 
 ## NFR assessment
 

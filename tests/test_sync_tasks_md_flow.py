@@ -318,6 +318,11 @@ class WorkflowStructuralPinTests(unittest.TestCase):
         # REST POST /repos/${GH_REPO}/pulls form may appear.
         self.assertIn('gh api -X POST "repos/${GH_REPO}/pulls"', runs)
         self.assertNotIn("gh pr create", runs)
+        # #558 (live, run on merge 88e54f2): the reuse CHECK must be REST too —
+        # the CLI list path is GraphQL-backed and dies on the same classic PAT
+        # right after the branch push.
+        self.assertIn('gh api "repos/${GH_REPO}/pulls?head=${GH_REPO}:${BRANCH}&base=main&state=open"', runs)
+        self.assertNotIn("gh pr list", runs)
         # RF-006 (live): GITHUB_TOKEN-created PRs emit no pull_request events, so
         # the flow must dispatch the two required-check workflows on the sync
         # branch itself; both dispatched names are pinned (no arbitrary dispatch).

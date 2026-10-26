@@ -144,7 +144,11 @@ jobs:
             echo "push failed after 3 attempts" >&2
             exit 1
           fi
-          number="$(gh pr list --head "${BRANCH}" --base main --state open --json number --jq '.[0].number // empty')"
+          # #558: the reuse check must be REST too — the CLI list path is
+          # GraphQL-backed (live, run on merge 88e54f2: "HTTP 401: Bad
+          # credentials (graphql)" immediately after the push) and dies on the
+          # public_repo-only classic PAT exactly like the create path.
+          number="$(gh api "repos/${GH_REPO}/pulls?head=${GH_REPO}:${BRANCH}&base=main&state=open" --jq '.[0].number // empty')"
           if [[ -n "${number}" ]]; then
             echo "reusing open auto-sync PR #${number}"
             # RF-014 (live): the gh edit command runs a GraphQL lookup that

@@ -9,11 +9,12 @@
 - [x] TASK-001: Replace the GraphQL-backed CLI create path in `.github/workflows/sync-merged-tasks.yml` with `gh api -X POST "repos/${GH_REPO}/pulls"` (head/base/title/body, `--jq '.number'`), keeping the reuse PATCH path unchanged. (AC-001)
 - [x] TASK-002: Extend `tests/test_sync_tasks_md_flow.py`: pin the REST create form, forbid the CLI create path; preserve the RF-014 reuse pins. (AC-001, AC-002)
 - [x] TASK-003: Verify locally (flow test, full suite, workflow policy validator) and dogfood the Change Contract validators against the PR body. (AC-003)
-- [ ] TASK-004: Live confirmation — the first sync run with a tasks.md delta creates the auto-sync PR via REST; record the run on issue #558. (AC-001, runtime feedback)
+- [x] TASK-004: Live confirmation — the first sync run with a delta (merge `88e54f2`) exercised the REST create path and revealed the reuse check still GraphQL-backed; finding recorded in spec Runtime feedback. (AC-001, runtime feedback)
+- [x] TASK-005: Convert the reuse check to REST (`GET /repos/{owner}/{repo}/pulls?head=...&base=main&state=open`) and pin it structurally; the next delta merge exercises both REST paths end-to-end. (AC-001)
 
 ## Requirements traceability
 
-- AC-001 | Task: TASK-001,TASK-004 | Evidence: workflow diff shows REST POST create with no CLI create occurrence; structural pin in `tests/test_sync_tasks_md_flow.py`; live run recorded on #558 | Coverage: COVERED
+- AC-001 | Task: TASK-001,TASK-004,TASK-005 | Evidence: workflow diff shows REST POST create and REST GET reuse check with no CLI create/list occurrence; structural pins in `tests/test_sync_tasks_md_flow.py`; live runs recorded on #558 | Coverage: COVERED
 - AC-002 | Task: TASK-002 | Evidence: `tests/test_sync_tasks_md_flow.py` assertions (REST create present, CLI create absent, RF-014 PATCH pins preserved) | Coverage: COVERED
 - AC-003 | Task: TASK-003 | Evidence: full suite green; `scripts/quality/validate_workflow_policy.py` valid | Coverage: COVERED
 
