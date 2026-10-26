@@ -86,7 +86,7 @@ class ConfigureDerivesFromCanonicalProfilesTests(unittest.TestCase):
             worker_env = config_root / "worker.env"
             worker_env.write_text(
                 "SEA_SPEED_API_URL=http://10.123.239.101:18080/api/cam1/state\n"
-                "SEA_SPEED_API_TOKEN=[redacted:generic-assignment]\n"
+                "SEA_SPEED_API_TOKEN=ingest-token-393\n"
                 "SAMPLE_FPS=7.5\n",
                 encoding="utf-8",
             )

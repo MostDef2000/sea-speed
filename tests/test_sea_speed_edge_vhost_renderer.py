@@ -19,7 +19,7 @@ spec.loader.exec_module(nginxauth)
 # tests/test_auth_session_identity.py STRICT_EDGE_FIXTURE). The renderer
 # must never contain, emit or read any secret value: these constants exist
 # only to prove their absence from renderer source and rendered output.
-EDGE_AUTH_FIXTURE_SECRET = "[redacted:generic-assignment]"
+EDGE_SNIPPET_FIXTURE = "edge-fixture-520"
 DEFAULT_EDGE_AUTH_INCLUDE = "/etc/nginx/snippets/sea-speed-edge-auth.conf"
 CUSTOM_EDGE_AUTH_INCLUDE = "/etc/nginx/secrets/sea-speed-edge-auth-520.conf"
 
@@ -541,7 +541,7 @@ class SeaSpeedEdgeVhostRendererTests(unittest.TestCase):
     def test_rendered_output_never_contains_secret_literals(self) -> None:
         renderer_source = RENDERER.read_text(encoding="utf-8")
         for text in (renderer_source, AUTHENTIK_GOLDEN, BASIC_AUTH_GOLDEN):
-            self.assertNotIn(EDGE_AUTH_FIXTURE_SECRET, text)
+            self.assertNotIn(EDGE_SNIPPET_FIXTURE, text)
             self.assertNotIn("set $edge_auth", text)
             self.assertNotRegex(text, r"(?m)^\s*set\s+\$")
         for text in (AUTHENTIK_GOLDEN, BASIC_AUTH_GOLDEN):
@@ -553,12 +553,12 @@ class SeaSpeedEdgeVhostRendererTests(unittest.TestCase):
             snippets = root / "snippets"
             snippets.mkdir()
             edge_snippet = snippets / "sea-speed-edge-auth.conf"
-            edge_snippet.write_text(f'set $edge_auth "{EDGE_AUTH_FIXTURE_SECRET}";\n', encoding="utf-8")
+            edge_snippet.write_text(f'set $edge_auth "{EDGE_SNIPPET_FIXTURE}";\n', encoding="utf-8")
             materialized = nginxauth.materialize_sea_speed_includes(
                 BASIC_AUTH_GOLDEN, host=BASIC_AUTH_HOST, include_root=snippets
             )
             self.assertEqual(materialized, BASIC_AUTH_GOLDEN)
-            self.assertNotIn(EDGE_AUTH_FIXTURE_SECRET, materialized)
+            self.assertNotIn(EDGE_SNIPPET_FIXTURE, materialized)
             self.assertIn(f"include {DEFAULT_EDGE_AUTH_INCLUDE};", materialized)
 
     def test_cli_render_and_verify_both_modes(self) -> None:
