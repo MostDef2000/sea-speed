@@ -30,8 +30,8 @@
 - [x] Issue/spec/plan/tasks current (issue #555 records the owner decision; this SDD dir is the linked delivery record)
 - [x] Exact changed-file scope verified (12 delivery files + `specs/547-retire-legacy-admission-phrase/**`; PR Change Contract declared-files match; no protected surfaces)
 - [x] Required tests and evidence complete (TEST-001..004 green locally; rejection asserted as raised exceptions)
-- [ ] Required CI green (Repository validation + quality-integration on the exact PR head)
-- [ ] Exact-green-head merge complete (merge commit evidence recorded on #555)
+- [x] Required CI green (Repository validation + quality-integration on the exact PR head) — auto-synced on merge to main (503cf23c)
+- [x] Exact-green-head merge complete (merge commit evidence recorded on #555) — auto-synced on merge to main (503cf23c)
 - [ ] Deployment state resolved — NOT REQUIRED (CI-only; no runtime deploy contour)
 - [ ] Runtime acceptance resolved — NOT REQUIRED (validators are the acceptance surface; CI evidence on PR)
 - [x] Deferred work recorded — none
