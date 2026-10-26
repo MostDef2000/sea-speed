@@ -29,8 +29,8 @@
 - [x] Issue/spec/plan/tasks current (issue #558 records the live failure; this SDD dir is the linked delivery record)
 - [x] Exact changed-file scope verified (workflow + flow test + `specs/558-sync-pr-creation-rest/**`; PR Change Contract declared-files match; no protected surfaces)
 - [x] Required tests and evidence complete (TEST-001..003 green locally)
-- [ ] Required CI green (Repository validation + quality-integration on the exact PR head)
-- [ ] Exact-green-head merge complete (merge commit evidence recorded on #558)
+- [x] Required CI green (Repository validation + quality-integration on the exact PR head) — auto-synced on merge to main (f0101a52)
+- [x] Exact-green-head merge complete (merge commit evidence recorded on #558) — auto-synced on merge to main (f0101a52)
 - [ ] Deployment state resolved — NOT REQUIRED (CI-only; no runtime deploy contour)
 - [ ] Runtime acceptance resolved — TASK-004 rides the next natural sync run with a delta (evidence on #558)
 - [x] Deferred work recorded — none
