@@ -154,12 +154,17 @@ jobs:
               -f "title=chore(sdd): auto-sync tasks.md completion (${SOURCE_SHA:0:8})" \
               -F "body=@${PR_BODY_FILE}"
           else
-            # gh pr create has no --json flag (any version); it prints the PR URL.
-            url="$(gh pr create --head "${BRANCH}" --base main \
-              --title "chore(sdd): auto-sync tasks.md completion (${SOURCE_SHA:0:8})" \
-              --body-file "${PR_BODY_FILE}")"
-            number="${url##*/}"
-            echo "created auto-sync PR #${number} (${url})"
+            # #558 (live, run 40281552508): PR creation must also be REST — the
+            # CLI create path performs a GraphQL lookup (repo/viewer) that dies
+            # with "HTTP 401: Bad credentials" on the public_repo-only classic
+            # PAT. REST POST /pulls needs no extra scopes and serves both
+            # token classes; --jq extracts the PR number directly.
+            number="$(gh api -X POST "repos/${GH_REPO}/pulls" \
+              -f "head=${BRANCH}" -f "base=main" \
+              -f "title=chore(sdd): auto-sync tasks.md completion (${SOURCE_SHA:0:8})" \
+              -F "body=@${PR_BODY_FILE}" \
+              --jq '.number')"
+            echo "created auto-sync PR #${number}"
           fi
           echo "PR_NUMBER=${number}" >> "${GITHUB_ENV}"
 
