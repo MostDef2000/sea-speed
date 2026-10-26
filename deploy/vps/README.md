@@ -63,6 +63,14 @@ Data backups remain a separate operation required only before schema migrations,
 
 ## Deployment flow
 
+> **Production topology (issue #520):** the production VPS is lifesim
+> (`10.123.239.29`) behind a Caddy edge. The nginx-era privileged
+> helper/cutover sections below document the legacy RU topology
+> (`10.123.239.101`, retired) and are no longer invoked by `deploy.sh`,
+> which now verifies the Caddy boundary unprivileged (`ss` bind check +
+> public operator gate + authentik private health + public root).
+> The legacy sections are kept as historical tooling documentation.
+
 ```text
 exact commit SHA
 → download GitHub source archive

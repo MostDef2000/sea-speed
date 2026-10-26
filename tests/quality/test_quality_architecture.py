@@ -44,7 +44,7 @@ class QualityArchitectureTests(unittest.TestCase):
         for marker in (
             'SEA_SPEED_REQUIRE_AUTH_BOUNDARY: "1"',
             'SEA_SPEED_AUTHENTIK_UPSTREAM: "http://10.123.239.102:19000"',
-            'SEA_SPEED_WORKER_PRIVATE_LISTEN: "10.123.239.101:18080"',
+            'SEA_SPEED_WORKER_PRIVATE_LISTEN: "10.123.239.29:18080"',
             'SEA_SPEED_WORKER_PRIVATE_PEER: "10.123.239.102"',
             "Deploy exact commit and reconcile Road private M2M boundary",
             "auth_v1_road_private_m2m",
@@ -73,14 +73,21 @@ class QualityArchitectureTests(unittest.TestCase):
         self.assertEqual(policy["authorizedActors"], [])
         self.assertEqual(policy["authority"], "NONE")
 
-    def test_vps_deploy_uses_restricted_privilege_boundary_before_live_mutation(self) -> None:
+    def test_vps_deploy_verifies_unprivileged_caddy_boundary_before_live_mutation(self) -> None:
         source = (ROOT / "deploy/vps/deploy.sh").read_text(encoding="utf-8")
-        self.assertIn("check_auth_privilege_boundary", source)
-        self.assertIn("PRIVILEGE_BOUNDARY_BOOTSTRAP_REQUIRED=YES", source)
-        self.assertIn("SEA_SPEED_AUTH_PRIVILEGE_BOUNDARY=PASS", source)
-        self.assertIn("SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS", source)
+        self.assertIn("verify_private_m2m_boundary", source)
+        self.assertIn("ss -tln", source)
+        self.assertIn("ERROR Road private M2M boundary is not bound at", source)
+        # The privileged nginx-helper markers are retired from the pipeline.
+        self.assertNotIn("check_auth_privilege_boundary", source)
+        self.assertNotIn("PRIVILEGE_BOUNDARY_BOOTSTRAP_REQUIRED=YES", source)
+        self.assertNotIn("SEA_SPEED_AUTH_PRIVILEGE_BOUNDARY=PASS", source)
+        self.assertNotIn("SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS", source)
         self.assertNotIn('run_root bash "$cutover"', source)
-        self.assertLess(source.index("check_auth_privilege_boundary"), source.index("bootstrap_current_release"))
+        # The unprivileged verifier is defined (and invoked) before the live
+        # bootstrap/mutation stage.
+        self.assertLess(source.index("verify_private_m2m_boundary()"), source.index("bootstrap_current_release()"))
+        self.assertIn('  verify_private_m2m_boundary "degraded"\n  recover_auth_boundary_before_source_mutation\n', source)
 
     def test_ubuntu_zero_touch_gate_is_bounded(self) -> None:
         gate = (ROOT / "scripts/operations/sea_speed_ubuntu_zero_touch_gate.sh").read_text(encoding="utf-8")

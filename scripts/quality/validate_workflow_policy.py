@@ -195,7 +195,7 @@ def main() -> int:
     for marker in (
         'SEA_SPEED_REQUIRE_AUTH_BOUNDARY: "1"',
         'SEA_SPEED_AUTHENTIK_UPSTREAM: "http://10.123.239.102:19000"',
-        'SEA_SPEED_WORKER_PRIVATE_LISTEN: "10.123.239.101:18080"',
+        'SEA_SPEED_WORKER_PRIVATE_LISTEN: "10.123.239.29:18080"',
         'SEA_SPEED_WORKER_PRIVATE_PEER: "10.123.239.102"',
         "Deploy exact commit and reconcile Road private M2M boundary", "auth_v1_road_private_m2m",
     ):

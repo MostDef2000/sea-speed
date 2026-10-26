@@ -53,7 +53,11 @@ Cutover and rollback:
 - `scripts/operations/nginx_sea_speed_auth.py` subsequently applies the Authentik Forward Auth boundary to every `/sea-speed/**` location and retires all `/cams/**` locations.
 - `deploy/vps/sea-speed-auth-cutover.sh` is the only production activation path for this route after Auth v1.
 - `deploy/vps/camera1-direct-h264-cutover.sh` is retained as a read-only compatibility status helper. Its standalone `activate` mode is deliberately retired.
-- `deploy/vps/sea-speed-auth-privileged-helper.py` owns the fixed no-argument privileged recovery boundary used by the canonical VPS deployment transaction. After Auth v1 reconcile succeeds, it also verifies that the local Camera 1 HLS media sequence advances. If the playlist is valid but static, it first decodes one frame from the fixed credential-free Ubuntu relay `rtsp://10.123.239.102:8554/cam1`, then restarts only `sea-speed-camera1-h264.service`, and requires a newly advancing local HLS sequence before returning success.
+- `deploy/vps/sea-speed-auth-privileged-helper.py` owns the fixed no-argument privileged recovery boundary used by the canonical VPS deployment transaction.
+
+  > SUPERSEDED (issue #520 VPS retool, 2026-10-26): the deploy pipeline no longer invokes the privileged helper; the recovery boundary is legacy tooling for the retired RU nginx topology.
+
+  After Auth v1 reconcile succeeds, it also verifies that the local Camera 1 HLS media sequence advances. If the playlist is valid but static, it first decodes one frame from the fixed credential-free Ubuntu relay `rtsp://10.123.239.102:8554/cam1`, then restarts only `sea-speed-camera1-h264.service`, and requires a newly advancing local HLS sequence before returning success.
 - `deploy/vps/camera1-h264-freshness-watchdog.py` is the continuous runtime supervisor added by Issue #255. It uses the same fixed freshness predicate and relay-before-restart ordering between deployments, with a five-minute restart-attempt cooldown and no caller-selectable topology.
 - `deploy/vps/sea-speed-camera1-h264-freshness.service` and `.timer` run that watchdog as a root oneshot on a bounded recurring cadence.
 

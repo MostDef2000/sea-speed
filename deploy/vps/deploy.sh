@@ -42,15 +42,13 @@ AUTHENTIK_UPSTREAM="${SEA_SPEED_AUTHENTIK_UPSTREAM:-}"
 WORKER_PRIVATE_LISTEN="${SEA_SPEED_WORKER_PRIVATE_LISTEN:-}"
 WORKER_PRIVATE_PEER="${SEA_SPEED_WORKER_PRIVATE_PEER:-}"
 EXPECTED_AUTHENTIK_UPSTREAM="http://10.123.239.102:19000"
-EXPECTED_WORKER_PRIVATE_LISTEN="10.123.239.101:18080"
+EXPECTED_WORKER_PRIVATE_LISTEN="10.123.239.29:18080"
 EXPECTED_WORKER_PRIVATE_PEER="10.123.239.102"
-PRIVILEGED_HELPER="${SEA_SPEED_AUTH_PRIVILEGED_HELPER:-/usr/local/sbin/sea-speed-auth-privileged-helper}"
 RELEASES_DIR="${DEPLOY_ROOT}/releases"
 STATE_DIR="${DEPLOY_ROOT}/state"
 CURRENT_FILE="${STATE_DIR}/current-release"
 PREVIOUS_FILE="${STATE_DIR}/previous-release"
 DEPLOYMENT_MANIFEST_FILE="${STATE_DIR}/deployment-manifest.json"
-PRIVILEGED_REQUEST_FILE="${STATE_DIR}/auth-privileged-request.json"
 TARGET_RELEASE="${RELEASES_DIR}/${COMMIT_SHA}"
 TEMP_DIR="$(mktemp -d)"
 AUTH_BOUNDARY_VERIFIED=false
@@ -183,7 +181,7 @@ validate_auth_boundary_inputs() {
     }
     if [[ "$EUID" -ne 0 ]]; then
       command -v sudo >/dev/null 2>&1 || {
-        echo "sudo is required for the restricted privileged helper" >&2
+        echo "sudo is required to restart the sea-speed service (sudo -n systemctl restart)" >&2
         exit 4
       }
     fi
@@ -317,119 +315,47 @@ download_release() {
   printf '%s\n' "$archive_sha" > "$TARGET_RELEASE/archive-sha256"
 }
 
-write_privileged_request() {
-  local action="$1"
-  local temp="${PRIVILEGED_REQUEST_FILE}.tmp"
-  python3 - "$temp" "$action" "$COMMIT_SHA" "$TARGET_RELEASE" <<'PY'
-import json
-import os
-import sys
-from pathlib import Path
+# The privileged nginx-boundary helper flow was retired with the legacy RU
+# topology (issue #520 VPS deploy); the helper/cutover files remain in the
+# repository as legacy tooling but are not invoked by this pipeline.
 
-path = Path(sys.argv[1])
-payload = {
-    "schema": "sea_speed_auth_privileged_request_v1",
-    "action": sys.argv[2],
-    "source_sha": sys.argv[3],
-    "release_path": sys.argv[4],
-}
-path.write_text(json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8")
-os.chmod(path, 0o600)
-PY
-  mv -f "$temp" "$PRIVILEGED_REQUEST_FILE"
-}
-
-invoke_privileged_helper() {
-  if [[ "$EUID" -eq 0 ]]; then
-    "$PRIVILEGED_HELPER"
-  else
-    sudo -n "$PRIVILEGED_HELPER"
-  fi
-}
-
-check_auth_privilege_boundary() {
+verify_private_m2m_boundary() {
+  local mode="${1:-}"
   [[ "$AUTH_BOUNDARY_REQUIRED" == "1" ]] || return 0
-  [[ -x "$PRIVILEGED_HELPER" ]] || {
-    echo "ERROR restricted Auth privilege helper is not installed: $PRIVILEGED_HELPER" >&2
-    echo "PRIVILEGE_BOUNDARY_BOOTSTRAP_REQUIRED=YES" >&2
-    return 41
-  }
-
-  write_privileged_request status
-  local output rc recovery_lines
-  set +e
-  output="$(invoke_privileged_helper 2>&1)"
-  rc=$?
-  set -e
-  printf '%s\n' "$output"
-  if [[ "$rc" -eq 0 ]]; then
-    grep -Fq 'SEA_SPEED_AUTH_PRIVILEGE_BOUNDARY=PASS' <<<"$output" || return 42
-    grep -Fq "SOURCE_SHA=${COMMIT_SHA}" <<<"$output" || return 42
-    grep -Fq 'ACTION=status' <<<"$output" || return 42
-    grep -Fq 'ARBITRARY_ROOT_EXECUTION=NO' <<<"$output" || return 42
-    log "Restricted Auth privilege boundary preflight passed before live source mutation"
-    return 0
+  local bind_output status private_health
+  bind_output="$(ss -tln 2>/dev/null || true)"
+  if ! grep -Fq " ${WORKER_PRIVATE_LISTEN} " <<<"$bind_output"; then
+    echo "ERROR Road private M2M boundary is not bound at ${WORKER_PRIVATE_LISTEN} on this VPS (explicit IPv4 bind required; empty output means ss is unavailable)" >&2
+    return 46
   fi
-
-  # Bounded auto-reconcile: the installed privileged bundle is bound to a
-  # different source SHA than the commit being deployed. Re-cut the bundle for
-  # the deployed commit via the existing reconcile action (which re-renders the
-  # Auth v1 nginx boundary from the exact release and re-binds the bundle to
-  # COMMIT_SHA), then re-verify the same restricted markers. This removes the
-  # recurring manual re-cutover step while preserving the exact-commit binding.
-  # Real helper prints "privileged bundle source SHA does not match request";
-  # synthetic test/mock token is PRIVILEGE_BOUNDARY_BOOTSTRAP_REQUIRED=YES.
-  if grep -Fq 'privileged bundle source SHA does not match request' <<<"$output" || grep -Fq 'PRIVILEGE_BOUNDARY_BOOTSTRAP_REQUIRED=YES' <<<"$output"; then
-    log "Auth privilege bundle SHA mismatch (bootstrap required); performing bounded auto-reconcile for ${COMMIT_SHA}"
-    # The installed helper may be stale (old logic rejects reconcile when bundle is stale).
-    # Refresh it from the exact staged release before invoking reconcile so the new
-    # helper (which tolerates stale bundle for reconcile) is used. Only for the
-    # real production helper path; tests use a temp fake helper and must not be
-    # overwritten.
-    if [[ "$PRIVILEGED_HELPER" == "/usr/local/sbin/sea-speed-auth-privileged-helper" && -f "$TARGET_RELEASE/deploy/vps/sea-speed-auth-privileged-helper.py" ]]; then
-      if [[ "$EUID" -eq 0 ]]; then
-        install -m 0755 -o root -g root "$TARGET_RELEASE/deploy/vps/sea-speed-auth-privileged-helper.py" "$PRIVILEGED_HELPER" 2>/dev/null || log "warning: failed to refresh privileged helper from $TARGET_RELEASE"
-      else
-        sudo -n install -m 0755 -o root -g root "$TARGET_RELEASE/deploy/vps/sea-speed-auth-privileged-helper.py" "$PRIVILEGED_HELPER" 2>/dev/null || log "warning: failed to refresh privileged helper from $TARGET_RELEASE (sudo)"
+  status="$(protected_frontend_status)"
+  case "$status" in
+    302|401|403)
+      ;;
+    500|503)
+      if [[ "$mode" == "degraded" ]]; then
+        # Degraded mode is the pre-mutation context only: the bounded
+        # recovery stage immediately re-probes below and owns the
+        # 500/503-fallback admissibility verdict there; do not double-fail
+        # here. The default (no argument) is strict and fails closed.
+        log "Protected Operator boundary reports degraded HTTP ${status} pre-mutation; bounded recovery stage owns the degraded verdict"
+        return 0
       fi
-    fi
-    write_privileged_request reconcile
-    set +e
-    output="$(invoke_privileged_helper 2>&1)"
-    rc=$?
-    set -e
-    printf '%s\n' "$output"
-    if [[ "$rc" -ne 0 ]]; then
-      echo "ERROR bounded Auth privilege auto-reconcile failed for ${COMMIT_SHA}" >&2
-      return "$rc"
-    fi
-    grep -Fq 'SEA_SPEED_AUTH_PRIVILEGE_BOUNDARY=PASS' <<<"$output" || return 44
-    grep -Fq "SOURCE_SHA=${COMMIT_SHA}" <<<"$output" || return 44
-    grep -Fq 'ACTION=reconcile' <<<"$output" || return 44
-    grep -Fq 'ARBITRARY_ROOT_EXECUTION=NO' <<<"$output" || return 44
-    # The privileged helper prints SEA_SPEED_AUTH_RECOVERY=PASS only when the
-    # reconcile actually ran the bounded broken-500 recovery path; a normal
-    # reconcile ends with SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS and no
-    # recovery marker at all. Accept both outcomes: absence of the recovery
-    # marker is admissible, and UNIVERSALLY every occurrence of
-    # SEA_SPEED_AUTH_RECOVERY= in the output must be =PASS — a stray =PASS
-    # line must not rescue a =FAIL occurrence (peer review F-1). The matching
-    # lines are captured first and re-checked in a single grep pass, so the
-    # verdict stays exact under set -o pipefail (no SIGPIPE-skewed pipeline
-    # status); the [[ -n ]] guard skips the check when no recovery marker was
-    # printed (a herestring of an empty capture is one empty line, which -v
-    # would otherwise select) and keeps set -e from exiting on no-match.
-    recovery_lines="$(grep -F 'SEA_SPEED_AUTH_RECOVERY=' <<<"$output" || true)"
-    if [[ -n "$recovery_lines" ]] && grep -Fqv 'SEA_SPEED_AUTH_RECOVERY=PASS' <<<"$recovery_lines"; then
-      return 44
-    fi
-    grep -Fq 'SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS' <<<"$output" || return 44
-    log "Restricted Auth privilege boundary auto-reconciled for ${COMMIT_SHA} before live source mutation"
-    return 0
+      echo "Protected Operator boundary preflight failed with non-recoverable HTTP ${status}: ${FRONTEND_URL}" >&2
+      return 43
+      ;;
+    *)
+      echo "Protected Operator boundary preflight failed with non-recoverable HTTP ${status}: ${FRONTEND_URL}" >&2
+      return 43
+      ;;
+  esac
+  private_health="$(private_authentik_health_status)"
+  if [[ "$private_health" != "PASS" ]]; then
+    echo "ERROR private Authentik health check failed: ${AUTHENTIK_UPSTREAM}" >&2
+    return 47
   fi
-
-  echo "ERROR restricted Auth privilege boundary preflight failed" >&2
-  return "$rc"
+  verify_public_url "Root frontend" "$ROOT_FRONTEND_URL" || return 48
+  log "Road private M2M Auth v1 boundary verified (Caddy topology): bind ${WORKER_PRIVATE_LISTEN}, operator gate HTTP ${status}, authentik private health PASS"
 }
 
 protected_frontend_status() {
@@ -452,7 +378,7 @@ private_authentik_health_status() {
 
 recover_auth_boundary_before_source_mutation() {
   [[ "$AUTH_BOUNDARY_REQUIRED" == "1" ]] || return 0
-  local status output rc recovered private_health recovery_lines
+  local status private_health
   status="$(protected_frontend_status)"
   case "$status" in
     302|401|403)
@@ -460,7 +386,7 @@ recover_auth_boundary_before_source_mutation() {
       return 0
       ;;
     500)
-      log "Protected Operator boundary reports HTTP 500; attempting bounded privileged Auth v1 recovery before live source mutation"
+      log "Protected Operator boundary reports HTTP 500; evaluating bounded degraded admissibility before live source mutation"
       ;;
     503)
       log "Protected Operator boundary reports HTTP 503 fallback; degraded baseline is admissible for bounded outage-safe deployment"
@@ -481,62 +407,14 @@ recover_auth_boundary_before_source_mutation() {
       printf 'PRIVATE_AUTHENTIK_HEALTH=FAIL\n'
       return 0
     fi
-    log "Private Authentik unreachable and no fallback in target — attempting recovery anyway"
+    log "Private Authentik unreachable and no fallback in target — degraded 500 baseline is not admissible"
   fi
 
-  write_privileged_request reconcile
-  set +e
-  output="$(invoke_privileged_helper 2>&1)"
-  rc=$?
-  set -e
-  printf '%s\n' "$output"
-  if [[ "$rc" -ne 0 ]]; then
-    private_health="$(private_authentik_health_status)"
-    if [[ "$private_health" == "FAIL" && -f "$TARGET_RELEASE/frontend/sea-speed/unavailable.html" ]]; then
-      log "Privileged reconcile failed but private Authentik is unreachable and fallback is available — treating degraded 500 as admissible baseline"
-      printf 'DEGRADED_BASELINE=RECONCILE_FAILED_BUT_FALLBACK_AVAILABLE\n'
-      return 0
-    fi
-    return "$rc"
-  fi
-  grep -Fq 'SEA_SPEED_AUTH_PRIVILEGE_BOUNDARY=PASS' <<<"$output" || return 44
-  grep -Fq "SOURCE_SHA=${COMMIT_SHA}" <<<"$output" || return 44
-  grep -Fq 'ACTION=reconcile' <<<"$output" || return 44
-  grep -Fq 'ARBITRARY_ROOT_EXECUTION=NO' <<<"$output" || return 44
-  # Same two-outcome contract as the auto-reconcile preflight above, and
-  # universally over occurrences: the privileged helper prints
-  # SEA_SPEED_AUTH_RECOVERY=PASS only when the reconcile took the bounded
-  # broken-500 recovery path; a normal reconcile ends with
-  # SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS and no recovery marker. Absence
-  # is admissible, but EVERY occurrence of SEA_SPEED_AUTH_RECOVERY= must be
-  # =PASS — a stray =PASS line must not rescue a =FAIL one (peer review F-1).
-  # The matching lines are captured first and re-checked in a single grep
-  # pass, so the verdict stays exact under set -o pipefail (no
-  # SIGPIPE-skewed pipeline status); the [[ -n ]] guard skips the check when
-  # no recovery marker was printed (a herestring of an empty capture is one
-  # empty line, which -v would otherwise select) and keeps set -e from
-  # exiting on no-match.
-  recovery_lines="$(grep -F 'SEA_SPEED_AUTH_RECOVERY=' <<<"$output" || true)"
-  if [[ -n "$recovery_lines" ]] && grep -Fqv 'SEA_SPEED_AUTH_RECOVERY=PASS' <<<"$recovery_lines"; then
-    return 44
-  fi
-  grep -Fq 'SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS' <<<"$output" || return 44
-
-  recovered="$(protected_frontend_status)"
-  case "$recovered" in
-    302|401|403)
-      log "Bounded Auth v1 recovery restored protected Operator boundary with HTTP ${recovered}"
-      printf 'AUTH_V1_RECOVERY_PRE_SOURCE=PASS\n'
-      ;;
-    503)
-      log "Protected boundary now reports HTTP 503 fallback after degraded-state handling"
-      printf 'DEGRADED_BASELINE_RECOVERY=503_FALLBACK_ACTIVE\n'
-      ;;
-    *)
-      echo "Bounded Auth v1 recovery returned success markers but protected Operator boundary is HTTP ${recovered}" >&2
-      return 45
-      ;;
-  esac
+  # No nginx machinery exists on this Caddy topology: there is no bounded
+  # recovery to attempt for a broken protected boundary, so HTTP 500 without
+  # an admissible degraded baseline fails closed before any source mutation.
+  echo "Protected Operator boundary reports HTTP 500 and no bounded Caddy-topology recovery exists; deployment fails closed" >&2
+  return 43
 }
 
 bootstrap_current_release() {
@@ -989,47 +867,12 @@ run_auth_boundary() {
     return 0
   fi
 
-  # The root-owned helper enforces the Auth cutover's --require-protected-baseline
-  # mode and fixed private topology; deploy.sh never runs writable release code as root.
-  write_privileged_request reconcile
-  log "Reconciling exact Road private M2M Auth v1 boundary through restricted root helper"
-  local output rc
-  set +e
-  output="$(invoke_privileged_helper 2>&1)"
-  rc=$?
-  set -e
-  printf '%s\n' "$output"
-  [[ "$rc" -eq 0 ]] || return "$rc"
-  grep -Fq 'SEA_SPEED_AUTH_PRIVILEGE_BOUNDARY=PASS' <<<"$output" || return 1
-  grep -Fq 'ACTION=reconcile' <<<"$output" || return 1
-  grep -Fq 'SEA_SPEED_AUTH_CUTOVER=PASS' <<<"$output" || return 1
-  grep -Fq 'WORKER_PRIVATE_ROAD_API_BASE=' <<<"$output" || return 1
-  # Two-outcome capability contract (issue #464, F-4): a normal reconcile
-  # prints ROLLBACK_CAPABILITY=VERIFIED (the cutover verified the protected
-  # baseline), while the bounded broken-500 recovery path re-runs the cutover
-  # WITHOUT --require-protected-baseline and therefore honestly prints
-  # ROLLBACK_CAPABILITY=MANUAL plus SEA_SPEED_AUTH_RECOVERY=PASS. The
-  # pre-mutation sites already accept that exact recovery output (universal
-  # =PASS recovery rule); rejecting it here made an identical helper success
-  # abort the deploy after the source mutation and force a rollback. Accept
-  # MANUAL only when recovery markers are present and UNIVERSALLY =PASS; a
-  # stray =PASS line must not rescue a =FAIL occurrence (peer review F-1).
-  # Everything else keeps requiring VERIFIED, so the gate stays fail-closed
-  # both ways: missing or FAIL-shaped recovery output still returns 1, and a
-  # recovery success without the honest MANUAL marker also returns 1. The
-  # matching lines are captured first and re-checked in a single grep pass,
-  # so the verdict stays exact under set -o pipefail (no SIGPIPE-skewed
-  # pipeline status); the [[ -n ]] guard skips the check when no recovery
-  # marker was printed (a herestring of an empty capture is one empty line,
-  # which -v would otherwise select) and keeps set -e from exiting on
-  # no-match.
-  recovery_lines="$(grep -F 'SEA_SPEED_AUTH_RECOVERY=' <<<"$output" || true)"
-  if [[ -n "$recovery_lines" ]] && ! grep -Fqv 'SEA_SPEED_AUTH_RECOVERY=PASS' <<<"$recovery_lines"; then
-    grep -Fq 'ROLLBACK_CAPABILITY=MANUAL' <<<"$output" || return 1
-  else
-    grep -Fq 'ROLLBACK_CAPABILITY=VERIFIED' <<<"$output" || return 1
-  fi
-  grep -Fq 'SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS' <<<"$output" || return 1
+  # Unprivileged verification of the Caddy-managed Road private M2M boundary:
+  # the deploy user checks the private bind, the public operator gate, private
+  # Authentik health and the public root; no root helper is invoked.
+  verify_private_m2m_boundary || return $?
+  printf 'SEA_SPEED_AUTH_CUTOVER=PASS\n'
+  printf 'WORKER_PRIVATE_ROAD_API_BASE=http://%s/api/analytics/road1\n' "$WORKER_PRIVATE_LISTEN"
   AUTH_BOUNDARY_VERIFIED=true
 }
 
@@ -1102,10 +945,12 @@ main() {
   ensure_layout
   download_release
 
-  # Exact release staging and restricted-helper admission occur before any live source,
-  # service or release-state mutation. If the protected public boundary is already HTTP
-  # 500, only the fixed Auth v1 nginx boundary may be recovered at this checkpoint.
-  check_auth_privilege_boundary
+  # Exact release staging and the unprivileged Caddy-boundary verification
+  # occur before any live source, service or release-state mutation; on this
+  # topology the edge boundary is Caddy-managed and verified, not rendered.
+  # Degraded mode is pre-mutation only: the recovery stage below immediately
+  # re-probes and owns any degraded 500/503 verdict.
+  verify_private_m2m_boundary "degraded"
   recover_auth_boundary_before_source_mutation
 
   bootstrap_current_release
