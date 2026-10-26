@@ -11,10 +11,11 @@ from typing import Any
 
 SCHEMA_ID = "sea_speed_delivery_checkpoint_v2"
 # Unified admission phrase (2026-10-19): `commit approved` is the only phrase
-# presented for NEW admissions. Legacy `OUTCOME APPROVED` receipts remain
-# valid (owner's standing decision "legacy receipts remain historical"),
-# including v1 checkpoints upgraded to v2.
-AUTHORIZATION_RECEIPTS = {"commit approved", "OUTCOME APPROVED"}
+# presented for NEW admissions. Legacy `OUTCOME APPROVED` receipts are retired
+# (owner decision 2026-10-26) and rejected for new/updated checkpoints; they
+# survive only as historical records in past issues/PRs. v1 checkpoints that
+# still carry the legacy value must be re-receipted with `commit approved`.
+AUTHORIZATION_RECEIPTS = {"commit approved"}
 ACTIVE_PHASES = {
     "DISCUSSION", "READY_FOR_IMPLEMENTATION", "IMPLEMENTING", "SOURCE_INTEGRATED",
     "POLICY_PENDING", "ACTIONS_REQUIRED", "ACTIONS_RUNNING", "ACTIONS_COMPLETED",
@@ -137,7 +138,7 @@ def validate_checkpoint(checkpoint: dict[str, Any], *, allow_legacy_ci_wait: boo
         raise CheckpointValidationError("generation must be a positive integer")
     _require_non_empty_string(checkpoint["approved_scope_identity"], "approved_scope_identity")
     if checkpoint["authorization_receipt"] not in AUTHORIZATION_RECEIPTS:
-        raise CheckpointValidationError("authorization_receipt must be commit approved (legacy receipt OUTCOME APPROVED remains accepted)")
+        raise CheckpointValidationError("authorization_receipt must be commit approved (legacy phrase OUTCOME APPROVED is retired and rejected)")
     base = checkpoint["authorization_base_main"]
     if not isinstance(base, str) or not re.fullmatch(r"[0-9a-f]{40}", base):
         raise CheckpointValidationError("authorization_base_main must be a lowercase 40-character SHA")

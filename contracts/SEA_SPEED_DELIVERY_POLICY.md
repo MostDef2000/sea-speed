@@ -24,7 +24,7 @@ Windows Worker is retired. The historical name **Windows AI Worker** may still a
 
 ## 3. Source admission and continuation
 
-New tasks use `commit approved` only after complete visible Scope immediately precedes the approval. Legacy receipts `OUTCOME APPROVED` remain accepted (historical); the PR Change Contract validator accepts both. Before first repository write require `VISIBLE_SCOPE_PRESENTED=YES`, `SCOPE_IMMEDIATELY_PRECEDES_APPROVAL=YES`, `SOURCE_AUTHORIZATION_ADMISSION=OPEN`.
+New tasks use `commit approved` only after complete visible Scope immediately precedes the approval. Legacy receipts `OUTCOME APPROVED` are retired (owner decision 2026-10-26); the PR Change Contract validator rejects them for new admissions. Before first repository write require `VISIBLE_SCOPE_PRESENTED=YES`, `SCOPE_IMMEDIATELY_PRECEDES_APPROVAL=YES`, `SOURCE_AUTHORIZATION_ADMISSION=OPEN`.
 
 After valid admission, the canonical Issue records a durable source-authorization receipt and machine-readable `Sea Speed Delivery Checkpoint v2`. The receipt is continuation evidence for the **same exact admitted scope** only. It cannot create, widen, or replace source authority and never grants production authority.
 

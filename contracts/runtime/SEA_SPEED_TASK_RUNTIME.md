@@ -117,7 +117,7 @@ If source configuration is missing and an admitted repair is executable, remain 
 
 ## Sea Speed Delivery Checkpoint v2
 
-Persist the compact machine-readable checkpoint in the canonical Issue after valid source admission and update it only at meaningful lifecycle/evidence transitions, not after every tool call. The JSON object conforms to `schemas/delivery-checkpoint-v2.schema.json`; cross-field invariants and v1 upgrade are implemented by `scripts/ci/validate_delivery_checkpoint.py`. `authorization_receipt` records the unified admission phrase `commit approved`; the validator and schema also accept the legacy value `OUTCOME APPROVED` for receipts recorded before the 2026-10-19 unification.
+Persist the compact machine-readable checkpoint in the canonical Issue after valid source admission and update it only at meaningful lifecycle/evidence transitions, not after every tool call. The JSON object conforms to `schemas/delivery-checkpoint-v2.schema.json`; cross-field invariants and v1 upgrade are implemented by `scripts/ci/validate_delivery_checkpoint.py`. `authorization_receipt` records the unified admission phrase `commit approved`; the legacy value `OUTCOME APPROVED` is retired (owner decision 2026-10-26) and rejected for new/updated checkpoints.
 
 ```json
 {
@@ -143,7 +143,7 @@ Persist the compact machine-readable checkpoint in the canonical Issue after val
 
 Checkpoint generation is monotonic. It does not increment for every read/tool call; it advances when phase, exact source identity, completed gate, evidence cursor, invalidation state, next action, session disposition, or wait predicate materially changes.
 
-Persisted `Sea Speed Delivery Checkpoint v1` records remain readable continuation evidence for the same exact admitted scope. The repository validator parses and upgrades active v1 evidence to v2 at its next meaningful transition. Conversion does not recreate source authority and does not require another approval; a legacy `OUTCOME APPROVED` receipt carried by v1 evidence remains valid after the upgrade.
+Persisted `Sea Speed Delivery Checkpoint v1` records remain readable continuation evidence for the same exact admitted scope. The repository validator parses and upgrades active v1 evidence to v2 at its next meaningful transition. Conversion does not recreate source authority; a v1 record still carrying the retired legacy `OUTCOME APPROVED` receipt fails the upgrade validation and requires a fresh `commit approved` at its next meaningful transition.
 
 ## WAITING_EXTERNAL contract
 

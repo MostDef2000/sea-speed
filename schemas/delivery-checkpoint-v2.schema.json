@@ -15,7 +15,7 @@
     "task": {"type": "string", "pattern": "^#[1-9][0-9]*$"},
     "generation": {"type": "integer", "minimum": 1},
     "approved_scope_identity": {"type": "string", "pattern": ".*\\S.*"},
-    "authorization_receipt": {"enum": ["commit approved", "OUTCOME APPROVED"]},
+    "authorization_receipt": {"enum": ["commit approved"]},
     "authorization_base_main": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
     "current_phase": {
       "enum": [

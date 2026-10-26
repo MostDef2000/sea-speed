@@ -20,9 +20,10 @@ HEADING_PATTERN = re.compile(r"^##\s+(.+?)\s*$", re.MULTILINE)
 DECLARED_PATH_PATTERN = re.compile(r"^\s{2}- `([^`]+)`\s*$", re.MULTILINE)
 PLACEHOLDERS = {"", "TBD", "TODO", "TBC", "YES/NO", "NO/YES", "REQUIRED / NOT REQUIRED", "NONE / CONTROL_PLANE / VPS / UBUNTU_WORKER / MIXED", "PASS / CONCERNS / FAIL / WAIVED", "CONNECTOR / ONE_COMMAND_FALLBACK / MISSING / NOT APPLICABLE"}
 # Unified admission phrase (2026-10-19): `commit approved` is the only phrase
-# presented for NEW Change Contracts. Legacy `OUTCOME APPROVED` receipts remain
-# valid (owner's standing decision "legacy receipts remain historical").
-SOURCE_AUTHORIZATIONS = {"commit approved", "OUTCOME APPROVED"}
+# presented for NEW Change Contracts. Legacy `OUTCOME APPROVED` receipts are
+# retired (owner decision 2026-10-26) and rejected for new admissions; they
+# survive only as historical records in past issues/PRs.
+SOURCE_AUTHORIZATIONS = {"commit approved"}
 RUNTIME_IMPACTS = {"VPS", "UBUNTU_WORKER"}
 RISK_PROFILE_VALUES = {"REQUIRED", "NOT REQUIRED"}
 QUALITY_VERDICTS = {"PASS", "CONCERNS", "FAIL", "WAIVED"}
@@ -124,7 +125,7 @@ def _require_yes_no(fields: dict[str, str], name: str) -> str:
 def validate_authorization(fields: dict[str, str]) -> str:
     authorization = require_value(fields, "Source authorization")
     if authorization not in SOURCE_AUTHORIZATIONS:
-        raise ContractError("new Change Contracts require Source authorization: commit approved (legacy receipts OUTCOME APPROVED remain accepted)")
+        raise ContractError("new Change Contracts require Source authorization: commit approved (legacy phrase OUTCOME APPROVED is retired and rejected)")
     if fields.get("Approval recorded after Implementation Scope Check") != "YES":
         raise ContractError("Implementation Scope Check approval must be YES")
     if fields.get("Material scope/protected-boundary change since authorization", "").strip() != "NO":

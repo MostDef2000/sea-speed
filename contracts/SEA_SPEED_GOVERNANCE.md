@@ -12,7 +12,7 @@ Source of truth: GitHub `main`
 - All GitHub repository lifecycle writes use the connected GitHub Connector. Local `gh`, local GitHub authentication, `git push` and direct manual publication are not part of Sea Speed delivery.
 - VPS and Worker hosts are runtime environments, not editable source stores.
 - Task Intake is read-only and is for new/materially invalidated work, not the default resume path for an existing valid checkpoint.
-- Before asking for `commit approved`, the Delivery Orchestrator presents the complete six-field visible Scope as the last substantive assistant content; approval must be the immediately following user decision. Legacy receipts `OUTCOME APPROVED` remain accepted for their recorded admitted scopes (historical); the repository validators accept both, and `commit approved` is the only phrase presented for new admissions.
+- Before asking for `commit approved`, the Delivery Orchestrator presents the complete six-field visible Scope as the last substantive assistant content; approval must be the immediately following user decision. Legacy receipts `OUTCOME APPROVED` are retired (owner decision 2026-10-26) and rejected for new admissions; they survive only as historical records in past issues/PRs, and `commit approved` is the only live admission phrase.
 - Source admission is fail closed: before first repository write require `VISIBLE_SCOPE_PRESENTED=YES`, `SCOPE_IMMEDIATELY_PRECEDES_APPROVAL=YES`, `SOURCE_AUTHORIZATION_ADMISSION=OPEN`.
 - After valid admission, persist a durable source-authorization receipt plus machine-readable `Sea Speed Delivery Checkpoint v2` in the canonical Issue.
 - Maintain a structured todo list for significant, multi-step and resumed delivery as a current visible transient projection of the durable Issue checkpoint; todo never creates authority or replaces the checkpoint.
@@ -154,7 +154,7 @@ Standing-delegation administration is a protected settings operation outside Del
 
 Before implementation record current `main`, branch and freshness. After writes and before PR validate complete files, syntax/structure, exact diff/scope, secret/runtime-artifact absence and SDD linkage. Before merge re-read `main`, compare exact base/head, verify required exact-head CI, zero unresolved review threads and expected-head protection when available.
 
-Successful CI does not replace source authorization. A still-current `commit approved` or its valid same-scope durable receipt is sufficient continuation/merge authority. Persisted receipts `OUTCOME APPROVED` remain machine-readable continuation evidence for their recorded admitted scopes (historical); `scripts/ci/validate_delivery_checkpoint.py` and the v2 schema accept both receipt values.
+Successful CI does not replace source authorization. A still-current `commit approved` or its valid same-scope durable receipt is sufficient continuation/merge authority. Persisted receipts `OUTCOME APPROVED` remain machine-readable historical evidence for their recorded admitted scopes, but `scripts/ci/validate_delivery_checkpoint.py` and the v2 schema reject the legacy value for new/updated checkpoints — a checkpoint resuming under it requires a fresh `commit approved`.
 
 Mandatory fresh reads at explicit merge/release gates are not Connector-loop violations because the evidence identity is intentionally being revalidated.
 
