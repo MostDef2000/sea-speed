@@ -466,7 +466,9 @@ class SeaSpeedAuthV1Tests(unittest.TestCase):
         self.assertIn('AUTH_BOUNDARY_REQUIRED="${SEA_SPEED_REQUIRE_AUTH_BOUNDARY:-0}"', source)
         self.assertIn('run_auth_boundary()', source)
         self.assertIn('deploy/vps/sea-speed-auth-cutover.sh', source)
-        self.assertIn('--require-protected-baseline', source)
+        # The privileged cutover flow is retired from the VPS deploy pipeline;
+        # the flag remains pinned against the cutover script above.
+        self.assertNotIn('--require-protected-baseline', source)
         self.assertIn('"auth_v1_road_private_m2m"', source)
         self.assertNotIn('curl --fail --silent --show-error --max-time 10 "$PUBLIC_HEALTH_URL"', source)
 

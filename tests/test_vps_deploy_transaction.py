@@ -1,93 +1,17 @@
 from __future__ import annotations
 
-import importlib.util
 import json
 import os
 import subprocess
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DEPLOY_SCRIPT = ROOT / "deploy/vps/deploy.sh"
-HELPER_SOURCE = ROOT / "deploy/vps/sea-speed-auth-privileged-helper.py"
 OLD = "a" * 40
 CANDIDATE = "b" * 40
 OLDER = "c" * 40
-
-helper_spec = importlib.util.spec_from_file_location("sea_speed_auth_privileged_helper_test", HELPER_SOURCE)
-assert helper_spec and helper_spec.loader
-privileged_helper = importlib.util.module_from_spec(helper_spec)
-sys.modules[helper_spec.name] = privileged_helper
-helper_spec.loader.exec_module(privileged_helper)
-
-
-class SequenceRunner:
-    def __init__(self, responses: list[tuple[int, str]]) -> None:
-        self.responses = list(responses)
-        self.calls: list[list[str]] = []
-
-    def __call__(self, args: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
-        self.calls.append(list(args))
-        if not self.responses:
-            raise AssertionError(f"unexpected command: {args}")
-        returncode, stdout = self.responses.pop(0)
-        return subprocess.CompletedProcess(args=args, returncode=returncode, stdout=stdout)
-
-
-class PrivilegedAuthRecoveryTests(unittest.TestCase):
-    def test_http_500_prepare_failure_uses_narrow_recovery_without_protected_flag(self) -> None:
-        candidate = "d" * 64
-        runner = SequenceRunner(
-            [
-                (22, "NGINX_SITE=/etc/nginx/sites-available/mostdef.ru\nERROR /sea-speed/ is not auth-gated: HTTP 500\nERROR existing protected Auth v1 rollback baseline is not valid\n"),
-                (0, f"NGINX_SITE=/etc/nginx/sites-available/mostdef.ru\nCANDIDATE_SHA256={candidate}\nROLLBACK_CAPABILITY=MANUAL\n"),
-                (0, "SEA_SPEED_AUTH_CUTOVER=PASS\nWORKER_PRIVATE_ROAD_API_BASE=http://10.123.239.101:18080/api/analytics/road1\nROLLBACK_CAPABILITY=MANUAL\n"),
-            ]
-        )
-        restorer_called: list[str] = []
-
-        output = privileged_helper.run_cutover(
-            Path("/root/exact"),
-            runner,
-            restorer=lambda text, _runner: restorer_called.append(text) or "SEA_SPEED_AUTH_RECOVERY_ROLLBACK=PASS",
-        )
-
-        self.assertIn("SEA_SPEED_AUTH_RECOVERY=PASS", output)
-        self.assertEqual(restorer_called, [])
-        self.assertIn("--require-protected-baseline", runner.calls[0])
-        self.assertNotIn("--require-protected-baseline", runner.calls[1])
-        self.assertNotIn("--require-protected-baseline", runner.calls[2])
-        self.assertEqual(runner.responses, [])
-
-    def test_non_500_protected_baseline_failure_does_not_enter_recovery(self) -> None:
-        runner = SequenceRunner(
-            [(22, "ERROR public root expected 200, got 503\nERROR existing protected Auth v1 rollback baseline is not valid\n")]
-        )
-        with self.assertRaises(privileged_helper.BoundaryError):
-            privileged_helper.run_cutover(Path("/root/exact"), runner)
-        self.assertEqual(len(runner.calls), 1)
-
-    def test_failed_recovery_activation_requires_exact_baseline_restorer(self) -> None:
-        candidate = "e" * 64
-        runner = SequenceRunner(
-            [
-                (22, "NGINX_SITE=/etc/nginx/sites-available/mostdef.ru\nERROR /sea-speed/ is not auth-gated: HTTP 500\nERROR existing protected Auth v1 rollback baseline is not valid\n"),
-                (0, f"CANDIDATE_SHA256={candidate}\n"),
-                (35, "NGINX_SITE=/etc/nginx/sites-available/mostdef.ru\nNGINX_BACKUP=/var/lib/sea-speed-auth-v1/backups/pre.conf\nERROR Auth v1 candidate post-mutation verification failed rc=35\n"),
-            ]
-        )
-        restored: list[str] = []
-
-        def restorer(text: str, _runner: object) -> str:
-            restored.append(text)
-            return "SEA_SPEED_AUTH_RECOVERY_ROLLBACK=PASS"
-
-        with self.assertRaises(privileged_helper.BoundaryError) as raised:
-            privileged_helper.run_cutover(Path("/root/exact"), runner, restorer=restorer)
-        self.assertEqual(len(restored), 1)
-        self.assertIn("SEA_SPEED_AUTH_RECOVERY_ROLLBACK=PASS", str(raised.exception))
 
 
 class VpsDeployTransactionTests(unittest.TestCase):
@@ -218,16 +142,61 @@ if [[ "$url" == "$SEA_SPEED_ORIGIN_HEALTH_URL" ]]; then
     *) exit 64 ;;
   esac
 fi
+# Private Authentik health endpoint: healthy modes answer, the degraded/outage
+# scenarios fail the private health probe closed.
+if [[ "$url" == *"/-/health/ready/"* ]]; then
+  [[ " degraded-503 healthy-auth-down degraded-500-fallback " == *" ${FAKE_PUBLIC_MODE:-healthy} "* ]] && exit 7 || exit 0
+fi
 if [[ "$url" == "$SEA_SPEED_FRONTEND_URL" ]]; then
+  body=""
+  fallback_body='<html><body><h1>Sea Speed временно недоступен</h1><button>Повторить подключение</button></body></html>'
   case "${FAKE_PUBLIC_MODE:-healthy}" in
-    healthy) printf '302'; exit 0 ;;
+    # healthy-auth-down/root-broken keep the operator gate healthy; only the
+    # private Authentik health probe / root frontend smoke fail in those modes.
+    healthy | healthy-auth-down | root-broken) printf '302'; exit 0 ;;
     broken-500)
       [[ -f "$FAKE_RECOVERY_MARKER" ]] && printf '302' || printf '500'
       exit 0
       ;;
     bad-502) printf '502'; exit 0 ;;
+    degraded-503) body="$fallback_body" ;;
+    # Degraded-500 admissible baseline: the two pre-mutation probes (boundary
+    # verifier + recovery stage) see the broken 500; after the restart the
+    # staged fallback outage page is live and the deploy completes degraded.
+    degraded-500-fallback)
+      fcount=0
+      [[ -n "${FAKE_FRONTEND_COUNT_FILE:-}" && -f "$FAKE_FRONTEND_COUNT_FILE" ]] && fcount="$(cat "$FAKE_FRONTEND_COUNT_FILE")"
+      fcount=$((fcount + 1))
+      [[ -n "${FAKE_FRONTEND_COUNT_FILE:-}" ]] && printf '%s\n' "$fcount" > "$FAKE_FRONTEND_COUNT_FILE"
+      if (( fcount <= 2 )); then printf '500'; exit 0; fi
+      body="$fallback_body"
+      ;;
+    # Post-mutation strict-500: the candidate release breaks the protected
+    # gate while the previous release serves it fine (sha-keyed on the live
+    # API source, so the rollback verification sees the healthy 302 again).
+    candidate-500)
+      grep -Fq "$FAKE_CANDIDATE_SHA" "$SEA_SPEED_API_TARGET" && printf '500' || printf '302'
+      exit 0
+      ;;
     *) printf '000'; exit 0 ;;
   esac
+  if [[ " ${*} " == *" --include "* ]]; then
+    printf 'HTTP/1.1 503 Service Unavailable\\r\\nCache-Control: no-store\\r\\nRetry-After: 30\\r\\nContent-Type: text/html; charset=utf-8\\r\\nConnection: close\\r\\n\\r\\n%s' "$body"
+  else
+    out=""
+    prev=""
+    for a in "$@"; do
+      [[ "$prev" == "--output" ]] && out="$a"
+      prev="$a"
+    done
+    [[ -n "$out" ]] && printf '%s' "$body" > "$out"
+    printf '503'
+  fi
+  exit 0
+fi
+if [[ "$url" == "$SEA_SPEED_ROOT_FRONTEND_URL" ]]; then
+  [[ "${FAKE_PUBLIC_MODE:-healthy}" == "root-broken" ]] && printf '500' || printf '200'
+  exit 0
 fi
 printf '200'
 """,
@@ -246,127 +215,28 @@ done
 exec /bin/rm "$@"
 """,
         )
-        self.privileged_helper = self.write_executable(
-            "sea-speed-auth-privileged-helper",
-            """#!/usr/bin/env python3
-import json, os, sys
-from pathlib import Path
-request = json.loads(Path(os.environ['FAKE_PRIV_REQUEST']).read_text())
-action = request['action']
-mode = os.environ.get('FAKE_PRIV_MODE', 'success')
-public_mode = os.environ.get('FAKE_PUBLIC_MODE', 'healthy')
-recovery_marker = Path(os.environ['FAKE_RECOVERY_MARKER'])
-if action == 'status':
-    if mode in {'mismatch', 'reconcile-fail', 'recovery-marker-fail', 'recovery-marker-mixed'}:
-        print('ERROR privileged bundle source SHA does not match request')
-        print('PRIVILEGE_BOUNDARY_BOOTSTRAP_REQUIRED=YES')
-        raise SystemExit(41)
-    if mode == 'mismatch-plain':
-        print('ERROR privileged bundle source SHA does not match request')
-        raise SystemExit(41)
-    if mode == 'missing':
-        print('ERROR privileged helper status failed')
-        raise SystemExit(42)
-print('SEA_SPEED_AUTH_PRIVILEGE_BOUNDARY=PASS')
-print('SOURCE_SHA=' + request['source_sha'])
-print('ACTION=' + action)
-print('PRIVILEGED_TOPOLOGY=FIXED')
-print('ARBITRARY_ROOT_EXECUTION=NO')
-if action == 'reconcile':
-    if mode == 'reconcile-fail':
-        print('ERROR bounded Auth privilege auto-reconcile failed')
-        raise SystemExit(36)
-    if public_mode == 'broken-500' and not recovery_marker.exists():
-        if mode == 'recovery-fail':
-            print('SEA_SPEED_AUTH_RECOVERY_ROLLBACK=PASS')
-            raise SystemExit(35)
-        Path(os.environ['FAKE_RECOVERY_API_OBSERVED']).write_text(Path(os.environ['SEA_SPEED_API_TARGET']).read_text())
-        recovery_marker.write_text('recovered')
-        # Contract fidelity with the real helper's bounded recovery path
-        # (issue #464): run_cutover re-invokes prepare+activate WITHOUT
-        # --require-protected-baseline, so the cutover honestly prints
-        # ROLLBACK_CAPABILITY=MANUAL (prepare :598 / activate :665, with
-        # AUTOMATIC_ROLLBACK=NO) and the helper appends
-        # SEA_SPEED_AUTH_RECOVERY=PASS (:487). The fake must carry the same
-        # capability marker so deploy-side capability gating is exercised
-        # against the real output shape.
-        print('SEA_SPEED_AUTH_CUTOVER=PASS')
-        print('WORKER_PRIVATE_ROAD_API_BASE=http://10.123.239.101:18080/api/analytics/road1')
-        print('ROLLBACK_CAPABILITY=MANUAL')
-        print('SEA_SPEED_AUTH_RECOVERY=PASS')
-        print('SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS')
-        raise SystemExit(0)
-    if mode == 'reconcile-recovery':
-        # Issue #464 (F-4): emulate the real helper's bounded broken-500
-        # recovery SUCCESS output shape on the post-mutation reconcile
-        # (run_cutover recovery branch): CUTOVER+WORKER_PRIVATE from the
-        # recovery-common activate, the honest ROLLBACK_CAPABILITY=MANUAL
-        # printed by the cutover without --require-protected-baseline
-        # (prepare :598 / activate :665), the =PASS recovery marker appended
-        # by the helper (:487), and the reconcile marker.
-        print('SEA_SPEED_AUTH_CUTOVER=PASS')
-        print('WORKER_PRIVATE_ROAD_API_BASE=http://10.123.239.101:18080/api/analytics/road1')
-        print('ROLLBACK_CAPABILITY=MANUAL')
-        print('SEA_SPEED_AUTH_RECOVERY=PASS')
-        print('SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS')
-        raise SystemExit(0)
-    if mode == 'capability-missing':
-        # Issue #464 (b): normal reconcile success shape WITHOUT any
-        # ROLLBACK_CAPABILITY line and without a recovery marker — the
-        # post-mutation gate must keep failing closed (rollback) exactly
-        # as before.
-        print('SEA_SPEED_AUTH_CUTOVER=PASS')
-        print('WORKER_PRIVATE_ROAD_API_BASE=http://10.123.239.101:18080/api/analytics/road1')
-        print('SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS')
-        raise SystemExit(0)
-    if mode == 'reconcile-recovery-forged':
-        # Issue #464 review F-3 (forgery direction): the bounded recovery
-        # markers are present and UNIVERSALLY =PASS, but the capability line
-        # claims ROLLBACK_CAPABILITY=VERIFIED instead of the honest MANUAL
-        # that the bounded recovery path prints (cutover runs WITHOUT
-        # --require-protected-baseline). The gate must reject this forgery
-        # closed: the recovery rule admits ROLLBACK_CAPABILITY=MANUAL only.
-        print('SEA_SPEED_AUTH_CUTOVER=PASS')
-        print('WORKER_PRIVATE_ROAD_API_BASE=http://10.123.239.101:18080/api/analytics/road1')
-        print('ROLLBACK_CAPABILITY=VERIFIED')
-        print('SEA_SPEED_AUTH_RECOVERY=PASS')
-        print('SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS')
-        raise SystemExit(0)
-    if mode == 'auth-fail':
-        print('SEA_SPEED_AUTH_ROLLBACK=PASS')
-        print('AUTOMATIC_ROLLBACK=PASS')
-        raise SystemExit(35)
-    if mode == 'recovery-marker-fail':
-        # Normal-path success markers corrupted with a non-PASS recovery
-        # marker: the deploy-side verification must fail closed on any
-        # SEA_SPEED_AUTH_RECOVERY= value that is not PASS.
-        print('SEA_SPEED_AUTH_CUTOVER=PASS')
-        print('WORKER_PRIVATE_ROAD_API_BASE=http://10.123.239.101:18080/api/analytics/road1')
-        print('SEA_SPEED_AUTH_RECOVERY=FAIL')
-        print('ROLLBACK_CAPABILITY=VERIFIED')
-        print('SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS')
-        raise SystemExit(0)
-    if mode == 'recovery-marker-mixed':
-        # Peer review F-1 (universal semantics): a stray =PASS line after a
-        # =FAIL occurrence must not rescue the output — EVERY occurrence of
-        # SEA_SPEED_AUTH_RECOVERY= must be =PASS.
-        print('SEA_SPEED_AUTH_CUTOVER=PASS')
-        print('WORKER_PRIVATE_ROAD_API_BASE=http://10.123.239.101:18080/api/analytics/road1')
-        print('SEA_SPEED_AUTH_RECOVERY=FAIL')
-        print('ROLLBACK_CAPABILITY=VERIFIED')
-        print('SEA_SPEED_AUTH_RECOVERY=PASS')
-        print('SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS')
-        raise SystemExit(0)
-    # Contract fidelity with the real helper (deploy/vps/
-    # sea-speed-auth-privileged-helper.py, run_cutover): the normal reconcile
-    # path ends with ROLLBACK_CAPABILITY=VERIFIED and
-    # SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS and prints NO recovery marker;
-    # SEA_SPEED_AUTH_RECOVERY=PASS is reserved for the bounded broken-500
-    # recovery branch above.
-    print('SEA_SPEED_AUTH_CUTOVER=PASS')
-    print('WORKER_PRIVATE_ROAD_API_BASE=http://10.123.239.101:18080/api/analytics/road1')
-    print('ROLLBACK_CAPABILITY=VERIFIED')
-    print('SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS')
+        self.write_executable(
+            "ss",
+            """#!/usr/bin/env bash
+set -euo pipefail
+# Fake ss for the unprivileged Caddy-boundary verifier: emits a LISTEN line
+# carrying the pinned private M2M listen unless the scenario suppresses it.
+mode="${FAKE_SS_MODE:-bound}"
+count=0
+if [[ -n "${FAKE_SS_COUNT_FILE:-}" && -f "$FAKE_SS_COUNT_FILE" ]]; then
+  count="$(cat "$FAKE_SS_COUNT_FILE")"
+fi
+count=$((count + 1))
+if [[ -n "${FAKE_SS_COUNT_FILE:-}" ]]; then
+  printf '%s\n' "$count" > "$FAKE_SS_COUNT_FILE"
+fi
+if [[ "$mode" == "absent" ]]; then
+  exit 0
+fi
+if [[ "$mode" == "first-only" && "$count" -gt 1 ]]; then
+  exit 0
+fi
+printf 'LISTEN 0 128 %s 0.0.0.0:*\n' "$SEA_SPEED_WORKER_PRIVATE_LISTEN"
 """,
         )
 
@@ -374,7 +244,7 @@ if action == 'reconcile':
         self,
         *,
         mode: str = "success",
-        priv_mode: str = "success",
+        ss_mode: str = "bound",
         prune_failure: str = "",
         public_mode: str = "healthy",
     ) -> dict[str, str]:
@@ -403,18 +273,18 @@ if action == 'reconcile':
                 "SEA_SPEED_ROOT_FRONTEND_URL": "https://example.invalid/",
                 "SEA_SPEED_REQUIRE_AUTH_BOUNDARY": "1",
                 "SEA_SPEED_AUTHENTIK_UPSTREAM": "http://10.123.239.102:19000",
-                "SEA_SPEED_WORKER_PRIVATE_LISTEN": "10.123.239.101:18080",
+                "SEA_SPEED_WORKER_PRIVATE_LISTEN": "10.123.239.29:18080",
                 "SEA_SPEED_WORKER_PRIVATE_PEER": "10.123.239.102",
-                "SEA_SPEED_AUTH_PRIVILEGED_HELPER": str(self.privileged_helper),
-                "FAKE_PRIV_REQUEST": str(self.state / "auth-privileged-request.json"),
-                "FAKE_PRIV_MODE": priv_mode,
                 "FAKE_PUBLIC_MODE": public_mode,
                 "FAKE_RECOVERY_MARKER": str(self.root / "auth-recovered"),
-                "FAKE_RECOVERY_API_OBSERVED": str(self.root / "recovery-api-observed"),
+                "FAKE_SS_MODE": ss_mode,
+                "FAKE_SS_COUNT_FILE": str(self.root / "ss-count"),
                 "FAKE_ORIGIN_MODE": mode,
                 "FAKE_ORIGIN_FAILS": "2",
                 "FAKE_CURL_COUNT_FILE": str(self.root / "curl-count"),
+                "FAKE_FRONTEND_COUNT_FILE": str(self.root / "frontend-count"),
                 "FAKE_OLD_SHA": OLD,
+                "FAKE_CANDIDATE_SHA": CANDIDATE,
                 "FAKE_SYSTEMCTL_LOG": str(self.root / "systemctl.log"),
                 "FAKE_RM_FAIL_BASENAME": prune_failure,
                 "FAKE_RM_LOG": str(self.root / "rm.log"),
@@ -426,7 +296,7 @@ if action == 'reconcile':
         self,
         *,
         mode: str = "success",
-        priv_mode: str = "success",
+        ss_mode: str = "bound",
         prune_failure: str = "",
         public_mode: str = "healthy",
     ) -> subprocess.CompletedProcess[str]:
@@ -435,7 +305,7 @@ if action == 'reconcile':
             cwd=ROOT,
             env=self.env(
                 mode=mode,
-                priv_mode=priv_mode,
+                ss_mode=ss_mode,
                 prune_failure=prune_failure,
                 public_mode=public_mode,
             ),
@@ -456,31 +326,69 @@ if action == 'reconcile':
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assertEqual(self.current(), CANDIDATE)
         self.assertIn(CANDIDATE, self.road.read_text())
-        self.assertIn("SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS", result.stdout)
-        checks = {item["name"]: item["status"] for item in self.manifest()["checks"]}
+        self.assertIn("SEA_SPEED_AUTH_CUTOVER=PASS", result.stdout)
+        self.assertIn(
+            "WORKER_PRIVATE_ROAD_API_BASE=http://10.123.239.29:18080/api/analytics/road1",
+            result.stdout,
+        )
+        manifest = self.manifest()
+        self.assertTrue(manifest["runtimeVerified"])
+        self.assertEqual(manifest["state"], "runtime_verified")
+        checks = {item["name"]: item["status"] for item in manifest["checks"]}
         self.assertEqual(checks["auth_v1_road_private_m2m"], "passed")
 
-    def test_public_500_is_recovered_before_live_source_mutation(self) -> None:
-        result = self.run_deploy(public_mode="broken-500")
-        self.assertEqual(result.returncode, 0, result.stdout)
-        observed = (self.root / "recovery-api-observed").read_text(encoding="utf-8")
-        self.assertIn(OLD, observed)
-        self.assertNotIn(CANDIDATE, observed)
-        # The bounded recovery path keeps its dedicated marker (issue #462):
-        # present here, and required to be =PASS when present.
-        self.assertIn("SEA_SPEED_AUTH_RECOVERY=PASS", result.stdout)
-        self.assertIn("AUTH_V1_RECOVERY_PRE_SOURCE=PASS", result.stdout)
-        self.assertEqual(self.current(), CANDIDATE)
+    def test_m2m_bind_absent_fails_closed_before_live_source_mutation(self) -> None:
+        before_api = self.api.read_bytes()
+        result = self.run_deploy(ss_mode="absent")
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(self.api.read_bytes(), before_api)
+        self.assertEqual(self.current(), OLD)
+        self.assertIn(
+            "ERROR Road private M2M boundary is not bound at 10.123.239.29:18080 on this VPS",
+            result.stdout,
+        )
+        self.assertFalse((self.state / "deployment-manifest.json").exists())
 
-    def test_public_500_recovery_failure_stops_before_live_source_mutation(self) -> None:
+    def test_post_mutation_boundary_failure_rolls_source_back(self) -> None:
+        # The private M2M bind is present for the pre-mutation verification and
+        # disappears before the post-mutation verification: the deploy must
+        # roll the source back to the previous release and fail closed.
+        result = self.run_deploy(ss_mode="first-only")
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertEqual(self.current(), OLD)
+        self.assertIn(OLD, self.api.read_text())
+        self.assertIn(
+            "ERROR Road private M2M boundary is not bound at 10.123.239.29:18080 on this VPS",
+            result.stdout,
+        )
+        self.assertEqual(self.manifest()["state"], "rolled_back")
+
+    def test_degraded_503_fallback_succeeds_without_boundary_checks(self) -> None:
+        result = self.run_deploy(public_mode="degraded-503")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(self.current(), CANDIDATE)
+        self.assertIn("SEA_SPEED_AUTH_CUTOVER=PASS", result.stdout)
+        self.assertIn("DEGRADED_FALLBACK_VERIFIED=PASS", result.stdout)
+        manifest = self.manifest()
+        self.assertTrue(manifest["runtimeVerified"])
+        checks = {item["name"]: item["status"] for item in manifest["checks"]}
+        self.assertEqual(checks["auth_v1_road_private_m2m"], "passed")
+        # The degraded fallback branch verifies the outage page without any
+        # post-mutation ss check: only the single pre-mutation ss call ran.
+        self.assertEqual(int((self.root / "ss-count").read_text()), 1)
+
+    def test_public_500_fails_closed_before_live_source_mutation(self) -> None:
         before_api = self.api.read_bytes()
         before_operator = self.operator.read_bytes()
-        result = self.run_deploy(public_mode="broken-500", priv_mode="recovery-fail")
+        result = self.run_deploy(public_mode="broken-500")
         self.assertNotEqual(result.returncode, 0, result.stdout)
         self.assertEqual(self.api.read_bytes(), before_api)
         self.assertEqual(self.operator.read_bytes(), before_operator)
         self.assertEqual(self.current(), OLD)
-        self.assertIn("SEA_SPEED_AUTH_RECOVERY_ROLLBACK=PASS", result.stdout)
+        self.assertIn(
+            "Protected Operator boundary reports HTTP 500 and no bounded Caddy-topology recovery exists; deployment fails closed",
+            result.stdout,
+        )
         self.assertFalse((self.state / "deployment-manifest.json").exists())
 
     def test_nonrecoverable_public_status_stops_before_live_source_mutation(self) -> None:
@@ -492,99 +400,72 @@ if action == 'reconcile':
         self.assertIn("non-recoverable HTTP 502", result.stdout)
         self.assertFalse((self.state / "deployment-manifest.json").exists())
 
-    def test_privilege_boundary_mismatch_auto_reconciles_before_live_source_mutation(self) -> None:
-        result = self.run_deploy(priv_mode="mismatch")
+    def test_m2m_private_authentik_health_fail_aborts_pre_mutation_with_rc_47(self) -> None:
+        # Gate 302 and root 200 are fine, but the private Authentik health
+        # probe fails: the pre-mutation boundary verification must abort with
+        # its non-recoverable rc 47 before any live source mutation.
+        before_api = self.api.read_bytes()
+        result = self.run_deploy(public_mode="healthy-auth-down")
+        self.assertEqual(result.returncode, 47, result.stdout)
+        self.assertEqual(self.api.read_bytes(), before_api)
+        self.assertEqual(self.current(), OLD)
+        self.assertIn("ERROR private Authentik health check failed", result.stdout)
+        self.assertFalse((self.state / "deployment-manifest.json").exists())
+
+    def test_m2m_root_frontend_smoke_fail_aborts_pre_mutation_with_rc_48(self) -> None:
+        # Gate 302 and private health PASS, but the public root frontend smoke
+        # fails: the boundary verifier must abort with rc 48 before any live
+        # source mutation.
+        before_api = self.api.read_bytes()
+        result = self.run_deploy(public_mode="root-broken")
+        self.assertEqual(result.returncode, 48, result.stdout)
+        self.assertEqual(self.api.read_bytes(), before_api)
+        self.assertEqual(self.current(), OLD)
+        self.assertIn("Root frontend public smoke check failed with HTTP 500", result.stdout)
+        self.assertFalse((self.state / "deployment-manifest.json").exists())
+
+    def test_degraded_500_admissible_baseline_completes_deployment(self) -> None:
+        # The protected gate serves a broken 500 and private Authentik is
+        # unreachable while the target release stages the fallback page: the
+        # degraded 500 baseline is admissible, the deploy proceeds, and after
+        # the restart the fallback outage page is live (degraded success).
+        result = self.run_deploy(public_mode="degraded-500-fallback")
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assertEqual(self.current(), CANDIDATE)
-        self.assertIn("PRIVILEGE_BOUNDARY_BOOTSTRAP_REQUIRED=YES", result.stdout)
-        self.assertIn("SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS", result.stdout)
-        # Fake-helper contract fidelity (issue #462): the normal reconcile
-        # path prints no recovery marker, and the gate accepts it.
-        self.assertNotIn("SEA_SPEED_AUTH_RECOVERY=", result.stdout)
-        checks = {item["name"]: item["status"] for item in self.manifest()["checks"]}
+        self.assertIn("DEGRADED_BASELINE=500_UNAVAILABLE_AUTHENTIK_ADMISSIBLE", result.stdout)
+        self.assertIn("SEA_SPEED_AUTH_CUTOVER=PASS", result.stdout)
+        self.assertIn("DEGRADED_FALLBACK_VERIFIED=PASS", result.stdout)
+        manifest = self.manifest()
+        self.assertTrue(manifest["runtimeVerified"])
+        checks = {item["name"]: item["status"] for item in manifest["checks"]}
         self.assertEqual(checks["auth_v1_road_private_m2m"], "passed")
 
-    def test_privilege_boundary_mismatch_plain_error_also_auto_reconciles(self) -> None:
-        result = self.run_deploy(priv_mode="mismatch-plain")
-        self.assertEqual(result.returncode, 0, result.stdout)
-        self.assertEqual(self.current(), CANDIDATE)
-        self.assertIn("privileged bundle source SHA does not match request", result.stdout)
-        self.assertIn("SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS", result.stdout)
-        checks = {item["name"]: item["status"] for item in self.manifest()["checks"]}
-        self.assertEqual(checks["auth_v1_road_private_m2m"], "passed")
-
-    def test_privilege_boundary_mismatch_broken_500_recovery_keeps_recovery_marker_required(self) -> None:
-        # When the auto-reconcile runs through the bounded broken-500 recovery
-        # path, SEA_SPEED_AUTH_RECOVERY=PASS is printed and must still be
-        # accepted (and enforced) on that path.
-        result = self.run_deploy(priv_mode="mismatch", public_mode="broken-500")
-        self.assertEqual(result.returncode, 0, result.stdout)
-        self.assertEqual(self.current(), CANDIDATE)
-        self.assertIn("SEA_SPEED_AUTH_RECOVERY=PASS", result.stdout)
-        self.assertIn("SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS", result.stdout)
-        checks = {item["name"]: item["status"] for item in self.manifest()["checks"]}
-        self.assertEqual(checks["auth_v1_road_private_m2m"], "passed")
-
-    def test_privilege_boundary_reconcile_recovery_fail_marker_stops_before_live_source_mutation(self) -> None:
-        # A non-PASS recovery marker (SEA_SPEED_AUTH_RECOVERY=FAIL-shaped
-        # reconcile output) must fail the auto-reconcile closed before any
-        # live source mutation.
+    def test_degraded_500_without_admissible_baseline_fails_closed_pre_mutation(self) -> None:
+        # The protected gate serves a broken 500 with no admissible degraded
+        # baseline (private Authentik healthy, no recovery to attempt): the
+        # recovery stage owns the degraded verdict and fails closed with rc 43
+        # before any live source mutation.
         before_api = self.api.read_bytes()
-        before_road = self.road.read_bytes()
-        result = self.run_deploy(priv_mode="recovery-marker-fail")
-        self.assertNotEqual(result.returncode, 0, result.stdout)
-        self.assertEqual(self.api.read_bytes(), before_api)
-        self.assertEqual(self.road.read_bytes(), before_road)
-        self.assertEqual(self.current(), OLD)
-        self.assertIn("SEA_SPEED_AUTH_RECOVERY=FAIL", result.stdout)
-        self.assertFalse((self.state / "deployment-manifest.json").exists())
-
-    def test_privilege_boundary_reconcile_recovery_fail_with_stray_pass_stops_before_live_source_mutation(self) -> None:
-        # Universal recovery-marker semantics (peer review F-1): a stray
-        # SEA_SPEED_AUTH_RECOVERY=PASS line must not rescue a =FAIL
-        # occurrence — the reconcile must abort before any live source
-        # mutation.
-        before_api = self.api.read_bytes()
-        before_road = self.road.read_bytes()
-        result = self.run_deploy(priv_mode="recovery-marker-mixed")
-        self.assertNotEqual(result.returncode, 0, result.stdout)
-        self.assertEqual(self.api.read_bytes(), before_api)
-        self.assertEqual(self.road.read_bytes(), before_road)
-        self.assertEqual(self.current(), OLD)
-        self.assertIn("SEA_SPEED_AUTH_RECOVERY=FAIL", result.stdout)
-        self.assertIn("SEA_SPEED_AUTH_RECOVERY=PASS", result.stdout)
-        self.assertFalse((self.state / "deployment-manifest.json").exists())
-
-    def test_privilege_boundary_mismatch_reconcile_failure_stops_before_live_source_mutation(self) -> None:
-        before_api = self.api.read_bytes()
-        before_road = self.road.read_bytes()
-        result = self.run_deploy(priv_mode="reconcile-fail")
-        self.assertNotEqual(result.returncode, 0, result.stdout)
-        self.assertEqual(self.api.read_bytes(), before_api)
-        self.assertEqual(self.road.read_bytes(), before_road)
-        self.assertEqual(self.current(), OLD)
-        self.assertIn("ERROR bounded Auth privilege auto-reconcile failed", result.stdout)
-        self.assertFalse((self.state / "deployment-manifest.json").exists())
-
-    def test_other_priv_status_error_without_bootstrap_aborts_before_live_source_mutation(self) -> None:
-        before_api = self.api.read_bytes()
-        result = self.run_deploy(priv_mode="missing")
-        self.assertNotEqual(result.returncode, 0, result.stdout)
+        result = self.run_deploy(public_mode="broken-500")
+        self.assertEqual(result.returncode, 43, result.stdout)
         self.assertEqual(self.api.read_bytes(), before_api)
         self.assertEqual(self.current(), OLD)
-        self.assertNotIn("SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS", result.stdout)
-        self.assertNotIn("ERROR bounded Auth privilege auto-reconcile failed", result.stdout)
+        self.assertIn("no bounded Caddy-topology recovery exists", result.stdout)
+        self.assertNotIn("DEGRADED_BASELINE", result.stdout)
         self.assertFalse((self.state / "deployment-manifest.json").exists())
 
-    def test_missing_helper_fails_before_live_source_mutation(self) -> None:
-        before = self.api.read_bytes()
-        env = self.env()
-        env["SEA_SPEED_AUTH_PRIVILEGED_HELPER"] = str(self.root / "missing-helper")
-        result = subprocess.run(["bash", str(DEPLOY_SCRIPT), CANDIDATE], cwd=ROOT, env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
-        self.assertNotEqual(result.returncode, 0, result.stdout)
-        self.assertEqual(self.api.read_bytes(), before)
+    def test_post_mutation_strict_500_fails_closed_and_rolls_back(self) -> None:
+        # The boundary gate answers 302 for the pre-mutation probes, but the
+        # candidate release breaks it to a 500 post-mutation: the post-mutation
+        # verification is strict (no degraded pass-through), so the deploy
+        # fails closed, rolls the live source back to the previous release and
+        # records the rolled_back manifest state.
+        result = self.run_deploy(public_mode="candidate-500")
+        self.assertEqual(result.returncode, 1, result.stdout)
         self.assertEqual(self.current(), OLD)
-        self.assertIn("PRIVILEGE_BOUNDARY_BOOTSTRAP_REQUIRED=YES", result.stdout)
+        self.assertIn(OLD, self.api.read_text())
+        self.assertNotIn("SEA_SPEED_AUTH_CUTOVER=PASS", result.stdout)
+        self.assertEqual(self.manifest()["state"], "rolled_back")
 
     def test_candidate_failure_rolls_back_road_with_other_frontends(self) -> None:
         result = self.run_deploy(mode="fail-candidate")
@@ -610,65 +491,13 @@ if action == 'reconcile':
         )
         self.assertEqual(self.manifest()["state"], "rolled_back")
 
-    def test_auth_boundary_failure_rolls_source_back_after_boundary_self_rollback(self) -> None:
-        result = self.run_deploy(priv_mode="auth-fail")
-        self.assertEqual(result.returncode, 1, result.stdout)
-        self.assertIn("SEA_SPEED_AUTH_ROLLBACK=PASS", result.stdout)
-        self.assertIn(OLD, self.api.read_text())
-        self.assertEqual(self.current(), OLD)
-        self.assertEqual(self.manifest()["state"], "rolled_back")
-
-    def test_post_mutation_reconcile_bounded_recovery_accepts_manual_capability(self) -> None:
-        # Issue #464 (F-4): the privileged helper's bounded broken-500
-        # recovery SUCCESS output ends with the honest
-        # ROLLBACK_CAPABILITY=MANUAL (cutover ran without
-        # --require-protected-baseline) plus SEA_SPEED_AUTH_RECOVERY=PASS.
-        # The pre-mutation sites already accept that exact output (universal
-        # =PASS recovery rule); the post-mutation run_auth_boundary gate must
-        # accept it too, or an identical helper success aborts the deploy
-        # after the source mutation and forces a rollback (workflow red).
-        result = self.run_deploy(priv_mode="reconcile-recovery")
-        self.assertEqual(result.returncode, 0, result.stdout)
-        self.assertEqual(self.current(), CANDIDATE)
-        self.assertIn("SEA_SPEED_AUTH_CUTOVER=PASS", result.stdout)
-        self.assertIn("SEA_SPEED_AUTH_RECOVERY=PASS", result.stdout)
-        self.assertIn("ROLLBACK_CAPABILITY=MANUAL", result.stdout)
-        self.assertIn("SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS", result.stdout)
-        checks = {item["name"]: item["status"] for item in self.manifest()["checks"]}
-        self.assertEqual(checks["auth_v1_road_private_m2m"], "passed")
-
-    def test_normal_reconcile_without_capability_marker_rolls_back(self) -> None:
-        # Issue #464 (b): without ROLLBACK_CAPABILITY=VERIFIED AND without a
-        # valid =PASS recovery marker, the post-mutation gate must keep
-        # failing closed exactly as today: source rolled back, manifest
-        # state=rolled_back, non-zero exit.
-        result = self.run_deploy(priv_mode="capability-missing")
-        self.assertEqual(result.returncode, 1, result.stdout)
-        self.assertEqual(self.current(), OLD)
-        self.assertIn(OLD, self.api.read_text())
-        self.assertNotIn("SEA_SPEED_AUTH_RECOVERY=", result.stdout)
-        self.assertEqual(self.manifest()["state"], "rolled_back")
-
-    def test_post_mutation_reconcile_forged_recovery_capability_is_rejected(self) -> None:
-        # Issue #464 review F-3 (forgery direction): the recovery markers are
-        # present and UNIVERSALLY =PASS, but the capability line claims
-        # ROLLBACK_CAPABILITY=VERIFIED instead of the honest MANUAL the
-        # bounded recovery path prints. The gate must reject this forgery
-        # closed (the recovery rule admits ROLLBACK_CAPABILITY=MANUAL only):
-        # source rolled back, manifest state=rolled_back, non-zero exit.
-        result = self.run_deploy(priv_mode="reconcile-recovery-forged")
-        self.assertNotEqual(result.returncode, 0, result.stdout)
-        self.assertEqual(self.current(), OLD)
-        self.assertIn(OLD, self.api.read_text())
-        self.assertIn("SEA_SPEED_AUTH_RECOVERY=PASS", result.stdout)
-        self.assertIn("ROLLBACK_CAPABILITY=VERIFIED", result.stdout)
-        self.assertNotIn("ROLLBACK_CAPABILITY=MANUAL", result.stdout)
-        self.assertEqual(self.manifest()["state"], "rolled_back")
-
     def test_already_deployed_source_fails_closed_when_boundary_is_not_accepted(self) -> None:
+        # The private M2M bind verifies pre-mutation and is gone by the
+        # post-mutation boundary verification: the already-deployed source
+        # fails closed with no rollback (nothing changed) and manifest failed.
         self.install_live(CANDIDATE)
         (self.state / "current-release").write_text(CANDIDATE + "\n", encoding="utf-8")
-        result = self.run_deploy(priv_mode="auth-fail")
+        result = self.run_deploy(ss_mode="first-only")
         self.assertEqual(result.returncode, 1, result.stdout)
         self.assertEqual(self.current(), CANDIDATE)
         self.assertEqual(self.manifest()["state"], "failed")
