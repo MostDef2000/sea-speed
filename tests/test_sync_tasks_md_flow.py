@@ -328,6 +328,13 @@ class WorkflowStructuralPinTests(unittest.TestCase):
         # branch itself; both dispatched names are pinned (no arbitrary dispatch).
         self.assertIn('gh workflow run pr-validation.yml --ref "${BRANCH}"', runs)
         self.assertIn('gh workflow run quality-integration.yml --ref "${BRANCH}"', runs)
+        # RF-020 (live, run 40325903845 / PR #563, 2026-10-26): pull_request
+        # runs DO fire for a bot-authored auto-sync PR but are PARKED as
+        # action_required, and the ruleset's required context evaluates on
+        # them — the flow must approve every parked run on the branch via the
+        # REST actions-approve endpoint before polling.
+        self.assertIn('gh api "repos/${GH_REPO}/actions/runs?branch=${BRANCH}&status=action_required&per_page=30" --jq \'.workflow_runs[].id\'', runs)
+        self.assertIn('gh api -X POST "repos/${GH_REPO}/actions/runs/${rid}/approve"', runs)
         # RF-018 (live, run 38576674559): the ref update must be a git push
         # carrying the PAT credential in the URL — a REST ref PATCH/POST
         # cannot upload the locally created commit (422 "Object does not

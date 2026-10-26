@@ -12,10 +12,11 @@
 - [x] TASK-004: Live confirmation — the first sync run with a delta (merge `88e54f2`) exercised the REST create path and revealed the reuse check still GraphQL-backed; finding recorded in spec Runtime feedback. (AC-001, runtime feedback)
 - [x] TASK-005: Convert the reuse check to REST (`GET /repos/{owner}/{repo}/pulls?head=...&base=main&state=open`) and pin it structurally. (AC-001)
 - [x] TASK-006: Pin the PAT to the git push only (`SYNC_PUSH_TOKEN` env, RF-015 push actor) and run all REST calls in the create-or-reuse step on the workflow token — live finding: the PAT 401s on `gh api` REST while authenticating the same git push (sync run on merge `cc25cbd`). (AC-001)
+- [x] TASK-007: Approve every parked `action_required` workflow run on the sync branch via REST before polling — RF-006's premise is obsolete (pull_request runs fire for bot PRs but park); manual approval unblocked PR #563's merge, mechanism automated in the flow. (AC-001)
 
 ## Requirements traceability
 
-- AC-001 | Task: TASK-001,TASK-004,TASK-005,TASK-006 | Evidence: workflow diff shows REST POST create and REST GET reuse check with no CLI create/list occurrence; structural pins in `tests/test_sync_tasks_md_flow.py`; live runs recorded on #558 | Coverage: COVERED
+- AC-001 | Task: TASK-001,TASK-004,TASK-005,TASK-006,TASK-007 | Evidence: workflow diff shows REST POST create and REST GET reuse check with no CLI create/list occurrence; structural pins in `tests/test_sync_tasks_md_flow.py`; live runs recorded on #558 | Coverage: COVERED
 - AC-002 | Task: TASK-002 | Evidence: `tests/test_sync_tasks_md_flow.py` assertions (REST create present, CLI create absent, RF-014 PATCH pins preserved) | Coverage: COVERED
 - AC-003 | Task: TASK-003 | Evidence: full suite green; `scripts/quality/validate_workflow_policy.py` valid | Coverage: COVERED
 
