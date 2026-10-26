@@ -312,6 +312,12 @@ class WorkflowStructuralPinTests(unittest.TestCase):
         # (public_repo) lacks.
         self.assertIn('gh api -X PATCH "repos/${GH_REPO}/pulls/${number}"', runs)
         self.assertNotIn("gh pr edit", runs)
+        # #558 (live, run 40281552508): PR creation must be REST too — the CLI
+        # create path is GraphQL-backed and dies with "HTTP 401: Bad
+        # credentials" on the same public_repo-only classic PAT. Only the
+        # REST POST /repos/${GH_REPO}/pulls form may appear.
+        self.assertIn('gh api -X POST "repos/${GH_REPO}/pulls"', runs)
+        self.assertNotIn("gh pr create", runs)
         # RF-006 (live): GITHUB_TOKEN-created PRs emit no pull_request events, so
         # the flow must dispatch the two required-check workflows on the sync
         # branch itself; both dispatched names are pinned (no arbitrary dispatch).
