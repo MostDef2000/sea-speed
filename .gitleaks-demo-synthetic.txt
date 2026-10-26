@@ -1,0 +1,1 @@
+ghp_bK85XuEYd6Jzepl5cPTZ19U9CR9ssYC25jQm — synthetic GitHub-PAT-shape fixture (random chars, not a credential) for the fail-closed demo (issue #518); never merged, branch deleted after evidence capture
