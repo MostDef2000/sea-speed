@@ -100,9 +100,17 @@ jobs:
           # by github-actions[bot] get their pull_request workflow runs
           # approval-parked; PRs authored by a collaborator (the owner's
           # fine-grained PAT stored as the SYNC_PR_TOKEN repo secret) run CI
-          # immediately. Falls back to the workflow token when the secret is
-          # absent (approval-dependent mode, see RF-010).
-          GH_TOKEN: ${{ secrets.SYNC_PR_TOKEN || github.token }}
+          # immediately. The PAT is therefore used ONLY for the git push below
+          # (push actor = human collaborator, RF-015). All REST calls in this
+          # step use the workflow token: #558 (live, runs 40281552508 and the
+          # sync on merge 88e54f2) proved the PAT cannot serve gh api REST
+          # either (401 Bad credentials) even though the same value
+          # authenticates the git push — the workflow token, by contrast, is
+          # proven for REST by the dispatch/poll steps below, and the bot
+          # authorship is safe because the flow dispatches the required-check
+          # workflows itself (RF-006).
+          SYNC_PUSH_TOKEN: ${{ secrets.SYNC_PR_TOKEN || github.token }}
+          GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
@@ -133,7 +141,7 @@ jobs:
           # exits 1 itself after all three attempts fail.
           pushed=false
           for attempt in 1 2 3; do
-            if git push --force "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git" "HEAD:refs/heads/${BRANCH}"; then
+            if git push --force "https://x-access-token:${SYNC_PUSH_TOKEN}@github.com/${GH_REPO}.git" "HEAD:refs/heads/${BRANCH}"; then
               pushed=true
               break
             fi

@@ -335,7 +335,24 @@ class WorkflowStructuralPinTests(unittest.TestCase):
         # whose bot actor parks the PR's pull_request runs (RF-015). The
         # PAT-URL push uploads the objects AND keeps the synchronize actor
         # a human collaborator.
-        self.assertIn('git push --force "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git"', runs)
+        # #558 (live, sync run on merge cc25cbd): the PAT 401s on gh api REST
+        # too (Bad credentials) even though the same value authenticates the
+        # git push — so the PAT is pinned to the PUSH ONLY (SYNC_PUSH_TOKEN)
+        # and every REST call in the step uses the workflow token; bot
+        # authorship is safe because the flow dispatches the required-check
+        # workflows itself (RF-006).
+        self.assertIn('git push --force "https://x-access-token:${SYNC_PUSH_TOKEN}@github.com/${GH_REPO}.git"', runs)
+        # #558 (live, sync run on merge cc25cbd): the PAT cannot serve gh api
+        # REST (401 Bad credentials) while the same value authenticates the
+        # git push — the env block pins SYNC_PUSH_TOKEN (PAT) to the push and
+        # GH_TOKEN (workflow token) to every REST call in the step. Pinned
+        # against the raw workflow text: the env block sits outside the
+        # extracted run script.
+        wf_text = path.read_text(encoding="utf-8")
+        self.assertIn('SYNC_PUSH_TOKEN: ${{ secrets.SYNC_PR_TOKEN || github.token }}', wf_text)
+        step_env = wf["jobs"]["sync-merged-tasks"]["steps"][3]["env"]
+        self.assertEqual(step_env["GH_TOKEN"], "${{ github.token }}")
+        self.assertIn("SYNC_PUSH_TOKEN", step_env)
         self.assertIn('"HEAD:refs/heads/${BRANCH}"', runs)
         self.assertNotIn("git/refs/heads/", runs)  # REST ref update cannot transfer objects (RF-018)
         self.assertNotIn("git push origin", runs)  # checkout-credential push = bot actor (RF-015)
@@ -344,7 +361,7 @@ class WorkflowStructuralPinTests(unittest.TestCase):
         # the whole sync run — the push is retried with bounded backoff (3
         # attempts, 10s-multiples) before the run fails.
         self.assertIn('for attempt in 1 2 3', runs)
-        self.assertIn('if git push --force "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git" "HEAD:refs/heads/${BRANCH}"; then', runs)
+        self.assertIn('if git push --force "https://x-access-token:${SYNC_PUSH_TOKEN}@github.com/${GH_REPO}.git" "HEAD:refs/heads/${BRANCH}"; then', runs)
         self.assertIn('exit 1', runs)
         self.assertIn("*\"no checks reported\"*)", runs)
         # RF-008 (live): parked approval-gated pull_request runs carry HIGHER

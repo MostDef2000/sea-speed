@@ -10,11 +10,12 @@
 - [x] TASK-002: Extend `tests/test_sync_tasks_md_flow.py`: pin the REST create form, forbid the CLI create path; preserve the RF-014 reuse pins. (AC-001, AC-002)
 - [x] TASK-003: Verify locally (flow test, full suite, workflow policy validator) and dogfood the Change Contract validators against the PR body. (AC-003)
 - [x] TASK-004: Live confirmation — the first sync run with a delta (merge `88e54f2`) exercised the REST create path and revealed the reuse check still GraphQL-backed; finding recorded in spec Runtime feedback. (AC-001, runtime feedback)
-- [x] TASK-005: Convert the reuse check to REST (`GET /repos/{owner}/{repo}/pulls?head=...&base=main&state=open`) and pin it structurally; the next delta merge exercises both REST paths end-to-end. (AC-001)
+- [x] TASK-005: Convert the reuse check to REST (`GET /repos/{owner}/{repo}/pulls?head=...&base=main&state=open`) and pin it structurally. (AC-001)
+- [x] TASK-006: Pin the PAT to the git push only (`SYNC_PUSH_TOKEN` env, RF-015 push actor) and run all REST calls in the create-or-reuse step on the workflow token — live finding: the PAT 401s on `gh api` REST while authenticating the same git push (sync run on merge `cc25cbd`). (AC-001)
 
 ## Requirements traceability
 
-- AC-001 | Task: TASK-001,TASK-004,TASK-005 | Evidence: workflow diff shows REST POST create and REST GET reuse check with no CLI create/list occurrence; structural pins in `tests/test_sync_tasks_md_flow.py`; live runs recorded on #558 | Coverage: COVERED
+- AC-001 | Task: TASK-001,TASK-004,TASK-005,TASK-006 | Evidence: workflow diff shows REST POST create and REST GET reuse check with no CLI create/list occurrence; structural pins in `tests/test_sync_tasks_md_flow.py`; live runs recorded on #558 | Coverage: COVERED
 - AC-002 | Task: TASK-002 | Evidence: `tests/test_sync_tasks_md_flow.py` assertions (REST create present, CLI create absent, RF-014 PATCH pins preserved) | Coverage: COVERED
 - AC-003 | Task: TASK-003 | Evidence: full suite green; `scripts/quality/validate_workflow_policy.py` valid | Coverage: COVERED
 
