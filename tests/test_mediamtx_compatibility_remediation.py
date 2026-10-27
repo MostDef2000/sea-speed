@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import re
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "deploy/vps/mediamtx-compatibility-remediation.sh"
@@ -16,11 +19,38 @@ def shell_function(source: str, name: str) -> str:
     return source[start:end]
 
 
+def canary_defaults(source: str) -> tuple[str, str]:
+    """Read the deployed canary address defaults out of the script itself."""
+    rtsp = re.search(r'^canary_rtsp_address="([^"]+)"$', source, re.MULTILINE)
+    hls = re.search(r'^canary_hls_address="([^"]+)"$', source, re.MULTILINE)
+    if rtsp is None or hls is None:
+        raise AssertionError("canary address defaults not found in script")
+    return rtsp.group(1), hls.group(1)
+
+
+def rendered_canary_config(source: str) -> dict:
+    """Extract the canary config heredoc, substitute the defaults, parse.
+
+    398-wave3: converted from source-text pins — the deployed heredoc is
+    rendered exactly as the script would and parsed as YAML, so the config
+    contract is asserted semantically against real mediamtx config keys.
+    """
+    rtsp_address, hls_address = canary_defaults(source)
+    config = source.split('cat > "$run_config" <<EOF_CONFIG', 1)[1].split("EOF_CONFIG", 1)[0]
+    config = config.replace("$canary_rtsp_address", rtsp_address)
+    config = config.replace("$canary_hls_address", hls_address)
+    return yaml.safe_load(config)
+
+
 class MediaMTXCompatibilityRemediationTests(unittest.TestCase):
     def test_shell_is_valid_and_exposes_digest_bound_prepare_activate_contract(self) -> None:
         subprocess.run(["bash", "-n", str(SCRIPT)], check=True)
         source = SCRIPT.read_text(encoding="utf-8")
 
+        # 398-wave3: SP pins — the prepare/activate flows cannot execute in
+        # the sandbox (validate_state_root forces state_root under /var/lib,
+        # unwritable in the user namespace), so the digest-binding interface
+        # literals stay pinned byte-verbatim.
         self.assertIn("prepare|activate|status", source)
         self.assertIn("--candidate-archive", source)
         self.assertIn("--candidate-version", source)
@@ -35,27 +65,58 @@ class MediaMTXCompatibilityRemediationTests(unittest.TestCase):
 
     def test_canary_is_loopback_only_and_runs_as_existing_service_user(self) -> None:
         source = SCRIPT.read_text(encoding="utf-8")
+        config = rendered_canary_config(source)
+        rtsp_address, hls_address = canary_defaults(source)
 
-        self.assertIn('canary_rtsp_address="127.0.0.1:18954"', source)
-        self.assertIn('canary_hls_address="127.0.0.1:18888"', source)
-        self.assertIn('if host != "127.0.0.1"', source)
-        self.assertIn("rtspTransports: [tcp]", source)
-        self.assertIn("api: no", source)
-        self.assertIn("metrics: no", source)
-        self.assertIn("pprof: no", source)
-        self.assertIn("playback: no", source)
-        self.assertIn("rtmp: no", source)
-        self.assertIn("webrtc: no", source)
-        self.assertIn("srt: no", source)
-        self.assertIn("moq: no", source)
+        # 398-wave3: converted from source-text pins (was L39-L56) — the
+        # rendered canary config is parsed as YAML and the loopback-only,
+        # minimal-surface contract is asserted on parsed values (exact
+        # address equality is strictly stronger than text absence).
+        self.assertEqual(config["rtspAddress"], rtsp_address)
+        self.assertEqual(config["hlsAddress"], hls_address)
+        self.assertEqual(config["rtspTransports"], ["tcp"])
+        self.assertTrue(config["rtsp"])
+        self.assertTrue(config["hls"])
+        for disabled in ("api", "metrics", "pprof", "playback", "rtmp", "webrtc", "srt", "moq"):
+            self.assertIs(config[disabled], False, disabled)
+        auth = config["authInternalUsers"]
+        self.assertEqual(auth[0]["ips"], ["127.0.0.1"])
+        self.assertEqual(auth[0]["permissions"], [{"action": "read", "path": "cam1"}])
+        cam1 = config["paths"]["cam1"]
+        self.assertIs(cam1["sourceOnDemand"], True)
+        self.assertEqual(cam1["rtspTransport"], "tcp")
+
+        # 398-wave3: executed twin for the loopback gate (was the
+        # `if host != "127.0.0.1"` source-text pin, L41) — the REAL
+        # parse_loopback_address function accepts the deployed defaults and
+        # rejects non-loopback, privileged, non-numeric and portless values.
+        function = shell_function(source, "parse_loopback_address")
+        accepted = subprocess.run(
+            ["bash", "-c", f"{function}\nparse_loopback_address \"{rtsp_address}\""],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+        self.assertEqual(accepted.stdout.strip(), rtsp_address.rsplit(":", 1)[1])
+        for rejected in ("10.0.0.8:8554", "127.0.0.1:80", "127.0.0.1:notaport", "127.0.0.1"):
+            result = subprocess.run(
+                ["bash", "-c", f'{function}\nparse_loopback_address "{rejected}"'],
+                check=False,
+                capture_output=True,
+            )
+            self.assertNotEqual(result.returncode, 0, rejected)
+
+        # 398-wave3: SP pins — the transient systemd-run unit properties are
+        # not executable in the sandbox; keep them byte-verbatim.
         self.assertIn('--property="User=$service_user"', source)
         self.assertIn('--property="Group=$service_group"', source)
-        self.assertIn("sourceOnDemand: yes", source)
-        self.assertIn("rtspTransport: tcp", source)
-        self.assertNotIn("0.0.0.0:18954", source)
-        self.assertNotIn("0.0.0.0:18888", source)
 
     def test_canary_requires_actual_rtsp_and_hls_media_before_activation_marker(self) -> None:
+        # 398-wave3: SP pins — the canary flow ordering cannot execute in the
+        # sandbox (state_root under /var/lib is unwritable in the user
+        # namespace); gate ordering and probe wiring stay byte-verbatim. The
+        # probe function itself is executed in test_media_probe_requires...
         source = SCRIPT.read_text(encoding="utf-8")
 
         active_config_check = source.index('config_check_unit="sea-speed-mediamtx-config-check-')
@@ -76,19 +137,62 @@ class MediaMTXCompatibilityRemediationTests(unittest.TestCase):
 
     def test_v120_startup_regression_disables_moq_and_waits_for_listener_readiness(self) -> None:
         source = SCRIPT.read_text(encoding="utf-8")
-        config = source.split('cat > "$run_config" <<EOF_CONFIG', 1)[1].split("EOF_CONFIG", 1)[0]
+        config = rendered_canary_config(source)
 
-        self.assertIn("rtsp: yes", config)
-        self.assertIn("hls: yes", config)
-        self.assertIn("sourceOnDemand: yes", config)
-        self.assertIn("moq: no", config)
-        self.assertIn("hlsVariant: fmp4", config)
-        self.assertNotIn("moq: yes", config)
-        self.assertNotIn("hlsVariant: mpegts", config)
-        self.assertIn('canary_listeners_ready "$rtsp_port" "$hls_port"', source)
-        self.assertNotIn("sleep 1\n  kill -0", source)
+        # 398-wave3: converted from source-text pins (was L81-L87) — the
+        # startup-regression mitigations are asserted on parsed config
+        # values (fmp4 variant + MoQ disabled are exact-equality checks,
+        # strictly stronger than the retired text pins).
+        self.assertTrue(config["rtsp"])
+        self.assertTrue(config["hls"])
+        self.assertIs(config["paths"]["cam1"]["sourceOnDemand"], True)
+        self.assertIs(config["moq"], False)
+        self.assertEqual(config["hlsVariant"], "fmp4")
+
+        # 398-wave3: executed twin for the readiness wait (was the
+        # `canary_listeners_ready "$rtsp_port" "$hls_port"` call pin, L88,
+        # plus the `sleep 1\n  kill -0` polling ban, L89) — the REAL
+        # canary_listeners_ready function passes when both listeners are
+        # bound and fails while either port is closed, which is exactly the
+        # wait-for-readiness contract the retired pins guarded textually.
+        function = shell_function(source, "canary_listeners_ready")
+        import socket
+
+        with socket.socket() as rtsp_listener, socket.socket() as hls_listener:
+            rtsp_listener.bind(("127.0.0.1", 0))
+            rtsp_listener.listen(4)
+            hls_listener.bind(("127.0.0.1", 0))
+            hls_listener.listen(4)
+            rtsp_port, hls_port = rtsp_listener.getsockname()[1], hls_listener.getsockname()[1]
+            ready = subprocess.run(
+                ["bash", "-c", f"{function}\ncanary_listeners_ready {rtsp_port} {hls_port}"],
+                check=False,
+                capture_output=True,
+            )
+            self.assertEqual(ready.returncode, 0, ready.stderr)
+        # 398-wave3 review LOW-7: the not-ready sub-run uses FRESH ports
+        # (bound, captured, closed) instead of the just-closed listener
+        # ports, so a same-instant rebinding of the ready-run ports cannot
+        # flip the not-ready expectation.
+        with socket.socket() as closed_rtsp, socket.socket() as closed_hls:
+            closed_rtsp.bind(("127.0.0.1", 0))
+            closed_hls.bind(("127.0.0.1", 0))
+            fresh_rtsp_port, fresh_hls_port = (
+                closed_rtsp.getsockname()[1],
+                closed_hls.getsockname()[1],
+            )
+        not_ready = subprocess.run(
+            ["bash", "-c", f"{function}\ncanary_listeners_ready {fresh_rtsp_port} {fresh_hls_port}"],
+            check=False,
+            capture_output=True,
+        )
+        self.assertNotEqual(not_ready.returncode, 0)
 
     def test_hls_probe_uses_cookie_check_and_decodes_media(self) -> None:
+        # 398-wave3: SP pins — probe wiring (cookie-check URL construction
+        # and call sites) cannot execute outside the canary flow; the probe
+        # function behavior is executed in test_media_probe_requires... and
+        # the classifier signature is executed in the diagnostics twin.
         source = SCRIPT.read_text(encoding="utf-8")
 
         self.assertIn('canary_hls_probe_url="${canary_hls_url}?cookieCheck=1"', source)
@@ -98,6 +202,10 @@ class MediaMTXCompatibilityRemediationTests(unittest.TestCase):
         self.assertIn("HLS_MPEGTS_H265_UNSUPPORTED", source)
 
     def test_active_config_compatibility_is_sandboxed_and_marker_bound(self) -> None:
+        # 398-wave3: SP pins — the sandboxed active-config proof requires a
+        # real systemd-run transient unit and a canary binary; sandbox
+        # properties, snapshot install and marker-binding order stay
+        # byte-verbatim. verify_cam1_contract is executed separately.
         source = SCRIPT.read_text(encoding="utf-8")
 
         self.assertIn('install -o root -g "$service_group" -m 0640 "$config" "$active_config"', source)
@@ -181,10 +289,82 @@ class MediaMTXCompatibilityRemediationTests(unittest.TestCase):
                 capture_output=True,
                 text=True,
             )
-            self.assertIn("CANARY_FAILURE_REASON=MOQ_TLS_KEYPAIR_PERMISSION_DENIED", result.stderr)
+            # 398-wave3: extended executed twin — all three evidence keys are
+            # parsed from the REAL stderr emission (this retires the
+            # CANARY_FAILURE_CATEGORY/REASON/LOG text pins from
+            # test_startup_failure_evidence_is_protected_and_sanitized, was
+            # L230-L232).
+            evidence = dict(
+                line.split("=", 1)
+                for line in result.stderr.splitlines()
+                if line.startswith("CANARY_FAILURE_")
+            )
+            self.assertEqual(evidence["CANARY_FAILURE_CATEGORY"], "STARTUP")
+            self.assertEqual(evidence["CANARY_FAILURE_REASON"], "MOQ_TLS_KEYPAIR_PERMISSION_DENIED")
             preserved = list(root.glob("canary.*.STARTUP.*.log"))
             self.assertEqual(len(preserved), 1)
+            self.assertEqual(evidence["CANARY_FAILURE_LOG"], str(preserved[0]))
+            self.assertEqual(preserved[0].read_text(encoding="utf-8"), log.read_text(encoding="utf-8"))
             self.assertEqual(preserved[0].stat().st_mode & 0o777, 0o600)
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            log = root / "candidate.log"
+            log.write_text("mpeg-ts variant of hls supports h264 video only\n", encoding="utf-8")
+            result = subprocess.run(
+                [
+                    "bash",
+                    "-c",
+                    f'{function}\ndiagnostic_root="$1"\ncandidate_sha="$(printf a%.0s {{1..64}})"\npreserve_failure_log HLS_MEDIA "$2"',
+                    "_",
+                    str(root),
+                    str(log),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            self.assertIn("CANARY_FAILURE_REASON=HLS_MPEGTS_H265_UNSUPPORTED", result.stderr)
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            result = subprocess.run(
+                [
+                    "bash",
+                    "-c",
+                    f'{function}\ndiagnostic_root="$1"\ncandidate_sha="$(printf a%.0s {{1..64}})"\npreserve_failure_log STARTUP "$2"',
+                    "_",
+                    str(root),
+                    str(root / "missing.log"),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            self.assertIn("CANARY_FAILURE_REASON=LOG_UNAVAILABLE", result.stderr)
+            self.assertIn("CANARY_FAILURE_LOG=NONE", result.stderr)
+            self.assertEqual(list(root.glob("canary.*")), [])
+
+        # Executed twin of the sanitization ban: the preserved log's raw
+        # content must never be echoed into the diagnostic stderr.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            log = root / "candidate.log"
+            log.write_text("native MoQ QUIC listener: open auto.key: permission denied\n", encoding="utf-8")
+            result = subprocess.run(
+                [
+                    "bash",
+                    "-c",
+                    f'{function}\ndiagnostic_root="$1"\ncandidate_sha="$(printf a%.0s {{1..64}})"\npreserve_failure_log STARTUP "$2"',
+                    "_",
+                    str(root),
+                    str(log),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotIn("native MoQ QUIC listener", result.stderr)
 
     def test_transient_unit_cleanup_stops_and_verifies_the_unit(self) -> None:
         source = SCRIPT.read_text(encoding="utf-8")
@@ -224,15 +404,28 @@ class MediaMTXCompatibilityRemediationTests(unittest.TestCase):
     def test_startup_failure_evidence_is_protected_and_sanitized(self) -> None:
         source = SCRIPT.read_text(encoding="utf-8")
 
+        # 398-wave3: retired source-text pins and their executed twins (same
+        # commit, this file):
+        # - CANARY_FAILURE_CATEGORY/REASON/LOG emission →
+        #   test_failure_diagnostic_classification_is_protected parses all
+        #   three keys from the REAL stderr emission.
+        # - the `install -o root -g root -m 0600` preservation command → the
+        #   executed twin asserts the preserved file is mode 0600 with the
+        #   original bytes.
+        # - MOQ_TLS_KEYPAIR_PERMISSION_DENIED / HLS_MPEGTS_H265_UNSUPPORTED
+        #   classifier strings → executed classification of both failure
+        #   signatures through the REAL preserve_failure_log.
+        # - the `cat "$destination"` leak ban → the executed twin asserts the
+        #   raw log content never appears in the emitted stderr.
+        # Kept as SP pins (no executable surface): the diagnostic_root
+        # wiring into the protected state tree.
         self.assertIn('diagnostic_root="$state_root/diagnostics"', source)
-        self.assertIn('install -o root -g root -m 0600 "$source" "$destination"', source)
-        self.assertIn("MOQ_TLS_KEYPAIR_PERMISSION_DENIED", source)
-        self.assertIn("CANARY_FAILURE_CATEGORY", source)
-        self.assertIn("CANARY_FAILURE_REASON", source)
-        self.assertIn("CANARY_FAILURE_LOG", source)
-        self.assertNotIn('cat "$destination"', source)
 
     def test_activation_changes_only_binary_after_canary_and_requires_real_production_hls(self) -> None:
+        # 398-wave3: SP pins — the activation transaction (backup/install/mv,
+        # single restart, /proc exe identity, evidence literals) cannot
+        # execute in the sandbox; transaction ordering and bans stay
+        # byte-verbatim.
         source = SCRIPT.read_text(encoding="utf-8")
 
         self.assertIn('install -o root -g root -m 0700 "$installed_binary" "$backup"', source)

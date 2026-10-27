@@ -35,11 +35,16 @@ This battery pins:
 from __future__ import annotations
 
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tests"))
+
+from support import relay_shell  # noqa: E402
+
 UBUNTU = ROOT / "deploy/worker/ubuntu/camera-relay.sh"
 
 UNIT_PATH_ROOTS = {
@@ -281,6 +286,309 @@ class ActivateIdentityDerivationTests(unittest.TestCase):
         self.assertNotIn("IDENTITY=", result.stdout)
 
 
+RELAY_CONFIG = """logLevel: info
+authMethod: internal
+authInternalUsers:
+  - user: any
+    pass:
+    ips: ["127.0.0.1"]
+    permissions:
+      - action: api
+rtsp: yes
+rtspAddress: :8554
+api: yes
+apiAddress: "127.0.0.1:9997"
+paths:
+  cam1:
+    source: rtsp://10.0.0.8:8554/cam1
+    sourceOnDemand: yes
+    rtspTransport: tcp
+"""
+
+READER_IP = "10.123.239.101"
+PRIV_ADDR = "10.0.0.8:8554"
+
+
+class ActivateFlowExecutedTwinTests(unittest.TestCase):
+    """398-wave3: executed twins for the activate-block contract pins.
+
+    The REAL camera-relay.sh bytes run (a) bare for the rootless status
+    subcommand and (b) under an unprivileged user namespace for the
+    root-gated prepare/activate flows, with systemctl stubbed on PATH and
+    every mutable path inside a temp dir. Identity derivation, digest
+    binding, the worker-stopped gate, backup/install/mv, the systemctl
+    restart hand-off and the private-listener probe execute for real.
+    """
+
+    def _env_file(self, tmp: Path) -> Path:
+        env_file = tmp / "worker.env"
+        # Runtime-assembled, never a literal credential shape in this file.
+        env_file.write_text("HLS_URL=rtsp://" + "cam_user:cam_key" + "@10.0.0.21/live\n", encoding="utf-8")
+        env_file.chmod(0o600)
+        return env_file
+
+    def prepare_candidate(self, tmp: Path, private_address: str) -> tuple[str, str, Path]:
+        config = tmp / "mediamtx.yml"
+        config.write_text(RELAY_CONFIG, encoding="utf-8")
+        result = relay_shell.run_shell(
+            relay_shell.CAMERA_RELAY,
+            [
+                "prepare", "--config", str(config),
+                "--private-rtsp-address", private_address,
+                "--reader-ip", READER_IP,
+                "--source-env-file", str(self._env_file(tmp)),
+                "--state-root", str(tmp / "state"),
+            ],
+            tmp,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        digest = ""
+        for line in result.stdout.splitlines():
+            if line.startswith("CANDIDATE_SHA256="):
+                digest = line.split("=", 1)[1]
+        self.assertRegex(digest, r"^[0-9a-f]{64}$")
+        candidate = tmp / "state" / "cam1-mediamtx.candidate.yml"
+        self.assertTrue(candidate.exists())
+        return digest, config.read_text(encoding="utf-8"), candidate
+
+    def activate(self, tmp: Path, digest: str, **env: str) -> subprocess.CompletedProcess:
+        return relay_shell.run_shell(
+            relay_shell.CAMERA_RELAY,
+            [
+                "activate", "--config", str(tmp / "mediamtx.yml"),
+                "--private-rtsp-address", PRIV_ADDR,
+                "--reader-ip", READER_IP,
+                "--expected-sha256", digest,
+                "--state-root", str(tmp / "state"),
+            ],
+            tmp,
+            env_extra=env or None,
+        )
+
+    def test_status_reports_without_root(self) -> None:
+        # The status subcommand executes bare (no user namespace, no root):
+        # evidence fields come from the stubbed systemctl, the private
+        # listener is NOT_CHECKED without --private-rtsp-address.
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            result = relay_shell.run_shell(
+                relay_shell.CAMERA_RELAY,
+                ["status"],
+                tmp,
+                use_unshare=False,
+                env_extra={
+                    "SYSTEMCTL_ENABLED_TEXT": "enabled",
+                    "SYSTEMCTL_ACTIVE_TEXT": "active",
+                },
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("RELAY_ENABLED=enabled", result.stdout)
+            self.assertIn("RELAY_ACTIVE=active", result.stdout)
+            self.assertIn("AI_WORKER_ACTIVE=active", result.stdout)
+            self.assertIn("PRIVATE_RELAY_TCP=NOT_CHECKED", result.stdout)
+
+    def test_activate_digest_mismatch_refuses_before_any_mutation(self) -> None:
+        # --expected-sha256 binds activation to the reviewed prepare digest.
+        relay_shell.skip_without_user_namespace(self)
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            digest, original, candidate = self.prepare_candidate(tmp, PRIV_ADDR)
+            wrong = "0" * 64
+            self.assertNotEqual(wrong, digest)
+            result = self.activate(tmp, wrong)
+            self.assertEqual(result.returncode, 7)
+            self.assertIn("ERROR prepared candidate digest mismatch", result.stderr)
+            self.assertNotIn("INSTALL_OWNER=", result.stdout)
+            self.assertEqual((tmp / "mediamtx.yml").read_text(encoding="utf-8"), original)
+            # state/ exists from prepare; "no mutation" means no backup was taken.
+            self.assertFalse(list((tmp / "state" / "backups").glob("mediamtx.*.yml")))
+
+    def test_activate_refuses_when_ai_worker_is_active(self) -> None:
+        # Executed twin: the worker-stopped gate fires before the identity
+        # derivation and any mutation.
+        relay_shell.skip_without_user_namespace(self)
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            digest, original, candidate = self.prepare_candidate(tmp, PRIV_ADDR)
+            result = self.activate(
+                tmp, digest, SYSTEMCTL_QUIET_ACTIVE_SERVICES="sea-speed-worker.service"
+            )
+            self.assertEqual(result.returncode, 8)
+            self.assertIn("ERROR AI worker must remain stopped", result.stderr)
+            self.assertNotIn("INSTALL_OWNER=", result.stdout)
+            self.assertEqual((tmp / "mediamtx.yml").read_text(encoding="utf-8"), original)
+            # state/ exists from prepare; "no mutation" means no backup was taken.
+            self.assertFalse(list((tmp / "state" / "backups").glob("mediamtx.*.yml")))
+
+    def test_activate_refuses_when_identity_cannot_be_derived_and_mutates_nothing(self) -> None:
+        # Executed twin of the fail-closed ordering: the derivation runs
+        # BEFORE any mutation, so an underivable identity exits 9 with the
+        # explicit error, the live config is untouched and no backup exists.
+        relay_shell.skip_without_user_namespace(self)
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            digest, original, candidate = self.prepare_candidate(tmp, PRIV_ADDR)
+            # Default stub: systemctl show returns an empty User and no
+            # readable unit file exists anywhere in the sandbox image.
+            result = self.activate(tmp, digest)
+            self.assertEqual(result.returncode, 9)
+            self.assertIn("refusing to install with guessed ownership", result.stderr)
+            self.assertNotIn("INSTALL_OWNER=", result.stdout)
+            self.assertNotIn("MODE=", result.stdout)
+            self.assertEqual((tmp / "mediamtx.yml").read_text(encoding="utf-8"), original)
+            # state/ exists from prepare; "no mutation" means no backup was taken.
+            self.assertFalse(list((tmp / "state" / "backups").glob("mediamtx.*.yml")))
+
+    def test_activate_restart_failure_preserves_backup_and_refuses_rollback(self) -> None:
+        # Executed twin of the deploy-transaction contract: after the identity
+        # is derived and evidenced, the candidate is backed up (0600), the
+        # live config is replaced through .next, and a failed systemctl
+        # restart refuses with the rollback warning while pointing at the
+        # protected backup.
+        relay_shell.skip_without_user_namespace(self)
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            digest, original, candidate = self.prepare_candidate(tmp, PRIV_ADDR)
+            log = tmp / "systemctl-calls.log"
+            result = self.activate(
+                tmp,
+                digest,
+                SYSTEMCTL_USER="root",
+                SYSTEMCTL_GROUP="root",
+                SYSTEMCTL_QUIET_ACTIVE_SERVICES="sea-speed-stream.service",
+                SYSTEMCTL_LOG=str(log),
+                SYSTEMCTL_RESTART_FAIL="yes",
+            )
+            self.assertEqual(result.returncode, 30)
+            self.assertIn("INSTALL_OWNER=root:root", result.stdout)
+            self.assertIn("MODE=0600", result.stdout)
+            self.assertIn(
+                "relay service restart failed; automatic rollback is not authorized",
+                result.stderr,
+            )
+            self.assertIn("BACKUP=", result.stderr)
+            backups = sorted((tmp / "state" / "backups").glob("mediamtx.*.yml"))
+            self.assertEqual(len(backups), 1)
+            self.assertEqual(backups[0].stat().st_mode & 0o777, 0o600)
+            # The candidate replaced the live config (mv happened before the
+            # restart), and exactly one restart reached systemctl.
+            self.assertEqual(
+                (tmp / "mediamtx.yml").read_text(encoding="utf-8"),
+                candidate.read_text(encoding="utf-8"),
+            )
+            restarts = [
+                line for line in log.read_text(encoding="utf-8").splitlines()
+                if line.startswith("restart ")
+            ]
+            self.assertEqual(restarts, ["restart sea-speed-stream.service"])
+
+    def test_activate_field_order_distinct_identity_fails_closed_at_install(self) -> None:
+        # 398-wave3 review MED-2: executed twin of the retired #448 F2 caller
+        # field-order pin (`read -r install_owner install_group install_mode`).
+        # The identity fields are made DISTINCT (SYSTEMCTL_USER=nobody takes
+        # the non-root derivation branch → identity "root nogroup 0640"), so
+        # the real caller's order-sensitive evidence proves the destructure:
+        # a swapped owner/group read flips INSTALL_OWNER=nogroup:root, a
+        # misplaced mode flips MODE. The subsequent
+        # `install -o root -g nogroup` fails closed in the single-uid
+        # namespace (chown to the unmapped group is EINVAL) — observed
+        # empirically — so the transaction dies before the mv: no activation,
+        # live config untouched, and the root:root backup (installed first)
+        # is preserved. Asserting the installed file's uid/gid for a distinct
+        # group is impossible here (unmapped gid), so the order-sensitive
+        # evidence plus fail-closed semantics is the strongest executed twin.
+        relay_shell.skip_without_user_namespace(self)
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            digest, original, candidate = self.prepare_candidate(tmp, PRIV_ADDR)
+            result = self.activate(
+                tmp,
+                digest,
+                SYSTEMCTL_USER="nobody",
+                SYSTEMCTL_GROUP="nogroup",
+                SYSTEMCTL_QUIET_ACTIVE_SERVICES="sea-speed-stream.service",
+            )
+            # Past the worker gate (8) and the derivation (9); the failure is
+            # the candidate install itself (never reached restart's 30).
+            self.assertNotIn(result.returncode, (0, 8, 9, 30), result.stdout + result.stderr)
+            self.assertIn("INSTALL_OWNER=root:nogroup", result.stdout)
+            self.assertIn("MODE=0640", result.stdout)
+            self.assertNotIn("ACTIVATED_RELAY=YES", result.stdout)
+            # The candidate install died before the mv: live config untouched.
+            self.assertEqual((tmp / "mediamtx.yml").read_text(encoding="utf-8"), original)
+            backups = sorted((tmp / "state" / "backups").glob("mediamtx.*.yml"))
+            self.assertEqual(len(backups), 1)
+            self.assertEqual(backups[0].stat().st_mode & 0o777, 0o600)
+
+    def test_activate_full_happy_path_against_real_private_listener(self) -> None:
+        # Executed twin of the success contract: digest verified, worker
+        # stopped, identity derived and evidenced, backup taken, config
+        # replaced, restart accepted, is-active quiet-passes, and the REAL
+        # TCP probe reaches a listening private socket.
+        relay_shell.skip_without_user_namespace(self)
+        listener = relay_shell.bindable_private_listener()
+        if listener is None:
+            self.skipTest("no bindable RFC1918 address for a deterministic listener probe")
+        address, sock = listener
+        try:
+            with tempfile.TemporaryDirectory() as raw:
+                tmp = Path(raw)
+                digest, original, candidate = self.prepare_candidate(tmp, address)
+                log = tmp / "systemctl-calls.log"
+                result = self.activate(
+                    tmp,
+                    digest,
+                    SYSTEMCTL_USER="root",
+                    SYSTEMCTL_GROUP="root",
+                    SYSTEMCTL_QUIET_ACTIVE_SERVICES="sea-speed-stream.service",
+                    SYSTEMCTL_LOG=str(log),
+                )
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("ACTIVATED_RELAY=YES", result.stdout)
+                self.assertIn("PRIVATE_RELAY_TCP=PASS", result.stdout)
+                self.assertIn("INSTALL_OWNER=root:root", result.stdout)
+                self.assertIn("MODE=0600", result.stdout)
+                self.assertIn("READER_AUTH_SCOPE=cam1-single-rfc1918-peer", result.stdout)
+                self.assertIn("READER_AUTH_PERMISSION=read-only", result.stdout)
+                self.assertIn("RELAY_ACTIVE=active", result.stdout)
+                self.assertIn("AI_WORKER_ACTIVE=inactive", result.stdout)
+                self.assertIn("AI_WORKER_STARTED=NO", result.stdout)
+                self.assertIn("CAMERA_PLAYBACK_TESTED=NO", result.stdout)
+                self.assertIn("SECRETS_DISPLAYED=NO", result.stdout)
+                self.assertIn("BACKUP=", result.stdout)
+                self.assertEqual(
+                    (tmp / "mediamtx.yml").read_text(encoding="utf-8"),
+                    candidate.read_text(encoding="utf-8"),
+                )
+        finally:
+            sock.close()
+
+    def test_prepare_refuses_systemd_auth_environment_override(self) -> None:
+        # check_auth_environment_override executes: an MTX_AUTHMETHOD
+        # systemd-environment override fails the transaction closed before
+        # any candidate is rendered.
+        relay_shell.skip_without_user_namespace(self)
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            config = tmp / "mediamtx.yml"
+            config.write_text(RELAY_CONFIG, encoding="utf-8")
+            result = relay_shell.run_shell(
+                relay_shell.CAMERA_RELAY,
+                [
+                    "prepare", "--config", str(config),
+                    "--private-rtsp-address", PRIV_ADDR,
+                    "--reader-ip", READER_IP,
+                    "--source-env-file", str(self._env_file(tmp)),
+                    "--state-root", str(tmp / "state"),
+                ],
+                tmp,
+                env_extra={"SYSTEMCTL_ENVIRONMENT": "MTX_AUTHMETHOD=internal"},
+            )
+            self.assertEqual(result.returncode, 10)
+            self.assertIn("relay authentication is overridden by systemd environment", result.stderr)
+            self.assertFalse((tmp / "state" / "cam1-mediamtx.candidate.yml").exists())
+
+
 class ActivateIdentityContractTests(unittest.TestCase):
     """Structural pins: fail-closed ordering, evidence, unchanged counts,
     offline productivity (#449), caller field order (#448 F2)."""
@@ -288,42 +596,30 @@ class ActivateIdentityContractTests(unittest.TestCase):
     def test_shell_is_valid_and_contracts_fail_closed_derivation(self) -> None:
         subprocess.run(["bash", "-n", str(UBUNTU)], check=True)
         source = UBUNTU.read_text(encoding="utf-8")
-
-        # The extractable derivation function exists.
-        self.assertIn("derive_relay_service_identity() {", source)
-        # The activate block calls it and refuses on failure (exit 9).
-        self.assertIn('identity="$(derive_relay_service_identity)" || exit 9', source)
-        # The old silent fallback is gone.
+        # 398-wave3: the derivation-existence, exit-9 caller wiring, explicit
+        # error and INSTALL_OWNER/MODE evidence pins were retired against the
+        # executed twins in ActivateFlowExecutedTwinTests (the real script
+        # bytes exit 9 / emit INSTALL_OWNER=.../MODE=... / refuse with the
+        # exact error under the stubbed-systemctl user-namespace harness).
+        # Kept below: the silent-fallback bans are SP policy pins.
+        # The old silent fallback is gone (SP pin — the #447 failure mode
+        # must never return; no executed twin can prove a permanent absence).
         self.assertNotIn('[[ -z "$service_user" || "$service_user" == "root" ]]', source)
         self.assertNotIn('install_group="root"', source)
         self.assertNotIn('install_mode="0600"', source)
-        # Explicit fail-closed error before any install.
-        self.assertIn(
-            "refusing to install with guessed ownership",
-            source,
-        )
-        # AC-2: expected ownership/mode evidenced on the install path.
-        self.assertIn("INSTALL_OWNER=%s:%s", source)
-        self.assertIn("MODE=%s", source)
-
-    def test_identity_derivation_precedes_any_mutation(self) -> None:
-        source = UBUNTU.read_text(encoding="utf-8")
-        derivation = source.index('identity="$(derive_relay_service_identity)"')
-        backup = source.index('backup="$backup_root/')
-        install = source.index('install -o "$install_owner"')
-        self.assertLess(derivation, backup)
-        self.assertLess(derivation, install)
 
     def test_activate_flow_unchanged_pins_hold(self) -> None:
         source = UBUNTU.read_text(encoding="utf-8")
         # AC-3: no new renderer invocations, digest/backup/restart discipline
-        # unchanged.
+        # unchanged. 398-wave3: the "--expected-sha256" / restart / rollback
+        # pins retired against the executed activate twins (digest-mismatch
+        # refusal, restart call logged, dead-listener rollback warning);
+        # the cross-flow counts stay SP (structural invariant across all
+        # three digest-emitting blocks; prepare/sanitize/remediate twins live
+        # in the sibling suites).
         self.assertEqual(source.count("verify-reader-auth"), 5)
         self.assertEqual(source.count("CANDIDATE_SHA256=%s"), 3)
         self.assertEqual(source.count("MUTATIONS=PROTECTED_CANDIDATE_ONLY"), 3)
-        self.assertIn("automatic rollback is not authorized", source)
-        self.assertIn("--expected-sha256", source)
-        self.assertIn('systemctl restart "$service_name"', source)
 
     def test_offline_branch_does_not_call_systemctl_cat(self) -> None:
         # #449 AC-1 (productivity): the bus-dependent `systemctl cat` is the
@@ -337,6 +633,9 @@ class ActivateIdentityContractTests(unittest.TestCase):
         self.assertNotIn("systemctl cat", "\n".join(executable))
 
     def test_offline_branch_reads_standard_unit_paths_in_order(self) -> None:
+        # 398-wave3: kept — /usr/lib precedence has no planted-unit executed
+        # twin (the namespace cannot write /usr/lib), so this stays the only
+        # guard for the third unit-path root.
         function = shell_function(UBUNTU.read_text(encoding="utf-8"), "derive_relay_service_identity")
         etc = function.index('"/etc/systemd/system/$service_name"')
         lib = function.index('"/lib/systemd/system/$service_name"')
@@ -344,17 +643,20 @@ class ActivateIdentityContractTests(unittest.TestCase):
         self.assertLess(etc, lib)
         self.assertLess(lib, usrlib)
 
-    def test_caller_read_field_order_is_pinned(self) -> None:
-        # #448 F2: a field-swap regression in the caller would be
-        # transcript-visible but suite-invisible; pin the exact line.
-        source = UBUNTU.read_text(encoding="utf-8")
-        self.assertIn('read -r install_owner install_group install_mode <<< "$identity"', source)
-
-    def test_whitespace_tolerant_captures_are_pinned(self) -> None:
-        # #448 F3a: optional whitespace after `=` in both captures.
-        function = shell_function(UBUNTU.read_text(encoding="utf-8"), "derive_relay_service_identity")
-        self.assertIn("User=[[:space:]]*([^[:space:]].*)$", function)
-        self.assertIn("Group=[[:space:]]*([^[:space:]].*)$", function)
+    # 398-wave3 retired source-text pins and their executed twins (same
+    # commit, this file):
+    # - the exact `read -r install_owner install_group install_mode <<<`
+    #   caller line (#448 F2) →
+    #   ActivateFlowExecutedTwinTests.
+    #   test_activate_field_order_distinct_identity_fails_closed_at_install
+    #   (the real caller destructures a distinct owner/group/mode identity
+    #   and prints the order-sensitive evidence before the install);
+    #   test_activate_full_happy_path_against_real_private_listener and
+    #   .test_activate_restart_failure_preserves_backup_and_refuses_rollback
+    #   additionally execute the derived-identity install end to end.
+    # - the whitespace-tolerant capture regexes (#448 F3a) →
+    #   test_offline_whitespace_after_equals_is_tolerated (executes the real
+    #   derivation against `User= mediamtx` / `Group= mediamtx` fixtures).
 
 
 if __name__ == "__main__":
