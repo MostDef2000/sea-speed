@@ -21,11 +21,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 RENDERER = ROOT / "scripts/operations/mediamtx_path_config.py"
 UBUNTU = ROOT / "deploy/worker/ubuntu/camera-relay.sh"
+sys.path.insert(0, str(ROOT / "tests"))
 
 spec = importlib.util.spec_from_file_location("mediamtx_path_config", RENDERER)
 assert spec and spec.loader
 mediamtx = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mediamtx)
+
+from support import relay_shell  # noqa: E402
 
 IP_A = "10.123.239.101"
 IP_B = "10.123.239.102"
@@ -245,26 +248,88 @@ class MultiReaderIpCliTests(unittest.TestCase):
 
 
 class CameraRelayForwardingTests(unittest.TestCase):
-    """Structural pins (established style): the shell forwards every occurrence."""
+    """Executed twins for the shell reader-ip forwarding (#398 wave 3).
+
+    The REAL camera-relay.sh prepare flow runs under an unprivileged user
+    namespace with the real renderer and a stubbed systemctl; the reader-ip
+    accumulation, per-IP validation and scope evidence therefore execute for
+    real instead of being pinned as source text.
+    """
+
+    def _prepare(self, tmp: Path, reader_ip_args: list[str]) -> subprocess.CompletedProcess:
+        config = tmp / "mediamtx.yml"
+        config.write_text(BASE_CONFIG, encoding="utf-8")
+        env_file = tmp / "worker.env"
+        env_file.write_text("HLS_URL=rtsp://" + "cam_user:cam_key" + "@10.0.0.21/live\n", encoding="utf-8")
+        env_file.chmod(0o600)
+        return relay_shell.run_shell(
+            relay_shell.CAMERA_RELAY,
+            [
+                "prepare", "--config", str(config),
+                "--private-rtsp-address", "10.0.0.8:8554",
+                *reader_ip_args,
+                "--source-env-file", str(env_file),
+                "--state-root", str(tmp / "state"),
+            ],
+            tmp,
+        )
+
+    def _candidate(self, tmp: Path) -> str | None:
+        candidate = tmp / "state" / "cam1-mediamtx.candidate.yml"
+        return candidate.read_text(encoding="utf-8") if candidate.exists() else None
+
+    def test_prepare_forwards_repeatable_reader_ips_in_input_order(self) -> None:
+        relay_shell.skip_without_user_namespace(self)
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            result = self._prepare(tmp, ["--reader-ip", IP_A, "--reader-ip", IP_B])
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("READER_AUTH_SCOPE=cam1-multi-rfc1918-peer-count-2", result.stdout)
+            rendered = self._candidate(tmp)
+            assert rendered is not None
+            self.assertIn(f'ips: ["{IP_A}", "{IP_B}"]', rendered)
+            self.assertNotIn(IP_C, rendered)
+            mediamtx.verify_internal_reader_rule(rendered, "cam1", [IP_A, IP_B])
+
+    def test_prepare_forwards_comma_separated_reader_ips(self) -> None:
+        relay_shell.skip_without_user_namespace(self)
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            result = self._prepare(tmp, ["--reader-ip", f"{IP_A},{IP_B}"])
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("READER_AUTH_SCOPE=cam1-multi-rfc1918-peer-count-2", result.stdout)
+            rendered = self._candidate(tmp)
+            assert rendered is not None
+            self.assertIn(f'ips: ["{IP_A}", "{IP_B}"]', rendered)
+            mediamtx.verify_internal_reader_rule(rendered, "cam1", [IP_A, IP_B])
+
+    def test_prepare_rejects_non_rfc1918_reader_ip_before_rendering(self) -> None:
+        # Executed twin of the fail-closed ordering: the per-IP validation
+        # loop precedes any renderer invocation, so a bad IP exits 3 with no
+        # candidate rendered and no state written.
+        relay_shell.skip_without_user_namespace(self)
+        for bad in ("8.8.8.8", "10.123.239.999", "not-an-ip"):
+            with self.subTest(bad=bad), tempfile.TemporaryDirectory() as raw:
+                tmp = Path(raw)
+                result = self._prepare(tmp, ["--reader-ip", bad])
+                self.assertEqual(result.returncode, 3, result.stdout + result.stderr)
+                self.assertIn("reader IP must be a literal RFC1918 IPv4 address", result.stderr)
+                self.assertIsNone(self._candidate(tmp))
+                self.assertFalse((tmp / "state").exists())
 
     def test_shell_contracts_forward_all_reader_ip_occurrences(self) -> None:
         subprocess.run(["bash", "-n", str(UBUNTU)], check=True)
         ubuntu = UBUNTU.read_text(encoding="utf-8")
-        self.assertIn("reader_ips=()", ubuntu)
-        self.assertIn("IFS=',' read -r -a __reader_ip_parts", ubuntu)
-        self.assertIn('reader_ips+=("$__reader_ip_part")', ubuntu)
-        self.assertIn('reader_ip_args+=(--reader-ip "$reader_ip")', ubuntu)
-        # Every renderer invocation that consumes reader IPs forwards the
-        # accumulated occurrences: the prepare render, the activate
-        # verify-reader-auth call, the #436 sanitize verify-before and
-        # verify-after reader checks, and the #437 remediate verify-before and
-        # verify-after reader checks.
+        # 398-wave3: SP pins — the activate/sanitize/remediate verify
+        # call-sites execute only inside their own flows (twinned in the
+        # sanitize/remediate test files); the forwarding count across all
+        # six renderer invocations stays pinned byte-verbatim, as do the
+        # scope-evidence emission sites. The accumulation loop text itself
+        # is retired: the executed prepare twins above prove repeatable and
+        # comma-separated occurrences reach the renderer in input order,
+        # and the bad-IP twin proves validation precedes any render.
         self.assertEqual(ubuntu.count('"${reader_ip_args[@]}"'), 6)
         self.assertIn("verify-reader-auth", ubuntu)
-        # Per-IP RFC1918 validation loop precedes any renderer invocation.
-        self.assertLess(ubuntu.index("validate_reader_ip \"$reader_ip\""), ubuntu.index("ubuntu-relay"))
-        # Generalized deterministic scope evidence; the single-reader literal
-        # is preserved so single-IP output stays byte-identical.
         self.assertIn("printf 'cam1-single-rfc1918-peer'", ubuntu)
         self.assertIn("cam1-multi-rfc1918-peer-count-", ubuntu)
         self.assertEqual(ubuntu.count("READER_AUTH_SCOPE=%s"), 2)

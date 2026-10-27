@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import importlib.util
 import os
 import subprocess
@@ -12,12 +13,17 @@ ROOT = Path(__file__).resolve().parents[1]
 RENDERER = ROOT / "scripts/operations/mediamtx_path_config.py"
 UBUNTU = ROOT / "deploy/worker/ubuntu/camera-relay.sh"
 VPS = ROOT / "deploy/vps/camera-source-switch.sh"
+TRANSCODE = ROOT / "deploy/worker/ubuntu/camera1-h264-transcode.sh"
 DOC = ROOT / "docs/operations/CAMERA1_LIVE_REPLACEMENT.md"
+sys.path.insert(0, str(ROOT / "tests"))
 
 spec = importlib.util.spec_from_file_location("mediamtx_path_config", RENDERER)
 assert spec and spec.loader
 mediamtx = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mediamtx)
+
+from support import relay_shell  # noqa: E402
+from support import worker_source  # noqa: E402
 
 
 BASE_CONFIG = """logLevel: info
@@ -236,22 +242,30 @@ class Camera1LiveReplacementTests(unittest.TestCase):
         ubuntu = UBUNTU.read_text(encoding="utf-8")
         vps = VPS.read_text(encoding="utf-8")
 
+        # 398-wave3: retired source-text pins and their executed twins (same
+        # commit, this cluster):
+        # - "--reader-ip" and the scope-evidence emission literals
+        #   (cam1-single-rfc1918-peer / cam1-multi-rfc1918-peer-count-,
+        #   READER_AUTH_SCOPE count) → the F1 executed activate flow observes
+        #   READER_AUTH_SCOPE=cam1-single-rfc1918-peer and the F3 forwarding
+        #   twins observe cam1-multi-rfc1918-peer-count-2 from the REAL shell.
+        # - "AI worker must remain stopped" → the F1 rc-8 twin observes the
+        #   real refusal line from the stubbed-but-real flow.
+        # - "verify-reader-auth" presence → count==5 wiring pinned as SP in
+        #   the remediate/sanitize batteries (same cross-flow discipline).
+        # Kept as SP pins: the worker_service variable wiring (no executed
+        # negative-space surface), MTX_AUTHMETHOD renderer env wiring, the
+        # worker start/restart/enable bans and the rollback warning.
         self.assertIn('worker_service="sea-speed-worker.service"', ubuntu)
-        self.assertIn("--reader-ip", ubuntu)
-        # Issue #372 re-pin: the scope evidence is count-generalized; the
-        # single-reader literal lives inside reader_auth_scope() so single-IP
-        # output stays byte-identical, and both prepare/activate print the token.
-        self.assertIn("printf 'cam1-single-rfc1918-peer'", ubuntu)
-        self.assertIn("cam1-multi-rfc1918-peer-count-", ubuntu)
-        self.assertEqual(ubuntu.count("READER_AUTH_SCOPE=%s"), 2)
-        self.assertIn("verify-reader-auth", ubuntu)
         self.assertIn("MTX_AUTHMETHOD=", ubuntu)
-        self.assertIn("AI worker must remain stopped", ubuntu)
         self.assertNotIn('systemctl restart "$worker_service"', ubuntu)
         self.assertNotIn('systemctl start "$worker_service"', ubuntu)
         self.assertNotIn('systemctl enable "$worker_service"', ubuntu)
         self.assertIn("automatic rollback is not authorized", ubuntu)
 
+        # 398-wave3: SP pins — the VPS shell is outside the executed surface
+        # (no sandbox lane runs deploy/vps/**); its renderer-side contract is
+        # executed above through the vps-switch / verify-vps-switch CLI twins.
         self.assertIn("--confirmed-public-hls", vps)
         self.assertIn("cam1-new", vps)
         self.assertIn("verify-vps-switch", vps)
@@ -283,30 +297,48 @@ class WaterRtspTransportTests(unittest.TestCase):
         cls.entrypoint_text = (ROOT / "worker/ubuntu_worker_entrypoint.py").read_text(encoding="utf-8")
 
     def test_transcode_run_hides_credentials_and_configures_transport(self) -> None:
-        subprocess.run(["bash", "-n", str(ROOT / "deploy/worker/ubuntu/camera1-h264-transcode.sh")], check=True)
-        self.assertIn("CAMERA1_RTSP_TRANSPORT", self.transcode_text)
-        self.assertIn("option rtsp_transport", self.transcode_text)
-        self.assertIn("-f concat -safe 0", self.transcode_text)
-        self.assertIn("-protocol_whitelist file,rtsp,tcp,udp,rtp", self.transcode_text)
+        # 398-wave3: converted from source-text pins — the real `run`
+        # subcommand executes with a recording fake ffmpeg (TranscodeRunExecutedTests):
+        # the ffconcat contract (0600, file-before-option, transport value),
+        # the ffmpeg argv shape (-f concat, -protocol_whitelist) and the
+        # credential-never-in-argv property are all observed from the REAL
+        # script bytes. Kept as SP pin: the pre-run stale-input sweep
+        # (`rm -f /tmp/camera1-h264-input.ffconcat.*`) — defensive hygiene
+        # with no observable executed surface (exec replaces the process).
+        subprocess.run(["bash", "-n", str(TRANSCODE)], check=True)
         self.assertIn("rm -f /tmp/camera1-h264-input.ffconcat.", self.transcode_text)
-        self.assertIn("chmod 0600", self.transcode_text)
-        self.assertNotIn('-i "$HLS_URL"', self.transcode_text)
-        file_idx = self.transcode_text.index('printf "file \'%s\'\\n"')
-        option_idx = self.transcode_text.index("printf 'option rtsp_transport")
-        self.assertLess(file_idx, option_idx, "concat `option` needs a preceding `file` directive (NEEDS_FILE)")
 
     def test_entrypoint_transport_knob_and_ffconcat_contract(self) -> None:
-        self.assertIn("CAMERA1_RTSP_TRANSPORT", self.entrypoint_text)
-        self.assertIn('os.environ.get("CAMERA1_RTSP_TRANSPORT", "udp")', self.entrypoint_text)
-        self.assertIn("ffconcat version 1.0", self.entrypoint_text)
-        self.assertIn("option rtsp_transport", self.entrypoint_text)
-        self.assertIn('"-f",', self.entrypoint_text)
-        self.assertIn('"concat",', self.entrypoint_text)
-        self.assertIn('"-protocol_whitelist"', self.entrypoint_text)
-        self.assertIn('"file,rtsp,tcp,udp,rtp"', self.entrypoint_text)
-        self.assertIn("O_NOFOLLOW", self.entrypoint_text)
-        self.assertNotIn("print(input_url)", self.entrypoint_text)
-        self.assertIn("NEEDS_FILE", self.entrypoint_text)
+        # 398-wave3: converted from source-text pins — the entrypoint's
+        # transport knob, ffconcat framing and no-secret-print property are
+        # asserted on the parsed AST: the required string constants exist as
+        # real constants, O_NOFOLLOW is referenced, and no `print` call
+        # emits the credential-bearing input URL (the behavior twins below
+        # additionally execute the helpers for real).
+        # worker_source's curated path list does not include the entrypoint
+        # module; parse it directly (same AST discipline, exact file bytes).
+        entry_tree = ast.parse(
+            (ROOT / "worker/ubuntu_worker_entrypoint.py").read_text(encoding="utf-8")
+        )
+        constants = set(worker_source.string_constants(entry_tree))
+        for required in (
+            "CAMERA1_RTSP_TRANSPORT", "-protocol_whitelist", "file,rtsp,tcp,udp,rtp",
+            "-f", "concat",
+        ):
+            self.assertIn(required, constants, required)
+        # Docstring-embedded / format-whitespace constants: substring semantics
+        # (NEEDS_FILE is documented inside the ffconcat docstring; the framing
+        # constants carry format whitespace).
+        self.assertTrue(any("NEEDS_FILE" in value for value in constants))
+        self.assertTrue(any("ffconcat version 1.0" in value for value in constants))
+        self.assertTrue(any("option rtsp_transport" in value for value in constants))
+        self.assertTrue(worker_source.references_name([entry_tree], "O_NOFOLLOW"))  # type: ignore[arg-type]
+        for node in ast.walk(entry_tree):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "print":
+                self.assertFalse(
+                    any(isinstance(arg, ast.Name) and arg.id == "input_url" for arg in node.args),
+                    "the entrypoint must never print the credential-bearing input URL",
+                )
 
     def test_entrypoint_transport_helpers_behavior(self) -> None:
         import unittest.mock as mock
@@ -329,6 +361,16 @@ class WaterRtspTransportTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {"CAMERA1_RTSP_TRANSPORT": "bogus"}):
             with self.assertRaises(RuntimeError):
                 entry._camera1_rtsp_transport(cred)
+        # 398-wave3 review MED-5: the udp DEFAULT is behavioral (a udp→tcp
+        # default change must fail here) — asserted with the env var absent
+        # AND with it set to an empty string (both fall back to udp for
+        # credential-bearing inputs; the private relay stays tcp regardless).
+        with mock.patch.dict(os.environ):
+            os.environ.pop("CAMERA1_RTSP_TRANSPORT", None)
+            self.assertEqual(entry._camera1_rtsp_transport(cred), "udp")
+            self.assertEqual(entry._camera1_rtsp_transport(relay), "tcp")
+        with mock.patch.dict(os.environ, {"CAMERA1_RTSP_TRANSPORT": ""}):
+            self.assertEqual(entry._camera1_rtsp_transport(cred), "udp")
 
         self.assertNotIn("camera_key", entry._redact_media_secrets(f"Impossible to open '{cred}'"))
         self.assertIn("rtsp://[REDACTED]", entry._redact_media_secrets(f"Opening {cred}"))
@@ -350,6 +392,122 @@ class WaterRtspTransportTests(unittest.TestCase):
             )
             with self.assertRaises(RuntimeError):
                 entry._write_rtsp_ffconcat_input("rtsp://u:se'cret@h/x", "udp")
+
+
+class TranscodeRunExecutedTests(unittest.TestCase):
+    """Executed twins for the transcode `run` subcommand (#398 wave 3).
+
+    The REAL camera1-h264-transcode.sh bytes execute the `run` flow (no root
+    gate) with a recording fake ffmpeg on PATH; the ffconcat handoff file and
+    the full ffmpeg argv are captured and asserted.
+    """
+
+    CREDENTIAL_URL = "rtsp://camera_user:camera_key@10.0.0.21:554/live"
+
+    def _env_file(self, tmp: Path) -> Path:
+        env_file = tmp / "worker.env"
+        env_file.write_text("HLS_URL=" + self.CREDENTIAL_URL + "\n", encoding="utf-8")
+        env_file.chmod(0o600)
+        return env_file
+
+    def _run(self, tmp: Path, transport: str | None = None, publish: str = "10.0.0.8") -> tuple[subprocess.CompletedProcess[str], list[list[str]], Path | None]:
+        stubs = tmp / "stubs"
+        stubs.mkdir(parents=True, exist_ok=True)
+        ffmpeg = stubs / "ffmpeg"
+        ffmpeg.write_text(
+            "#!/usr/bin/env bash\n"
+            '{ printf \'%s\\t\' "$@"; printf \'\\n\'; } >> "$FFMPEG_ARGV_LOG"\n',
+            encoding="utf-8",
+        )
+        ffmpeg.chmod(0o755)
+        env: dict[str, str] = {
+            "FFMPEG_ARGV_LOG": str(tmp / "ffmpeg-argv.log"),
+        }
+        if transport is not None:
+            env["CAMERA1_RTSP_TRANSPORT"] = transport
+        result = relay_shell.run_shell(
+            TRANSCODE,
+            ["run", "--source-env-file", str(tmp / "worker.env"), "--publish-address", publish],
+            tmp,
+            env_extra=env,
+            use_unshare=False,
+        )
+        argv_lines = [
+            line.rstrip("\t").split("\t") for line in (tmp / "ffmpeg-argv.log").read_text(encoding="utf-8").splitlines()
+        ] if (tmp / "ffmpeg-argv.log").exists() else []
+        return result, argv_lines, tmp / "worker.env"
+
+    def test_run_streams_ffconcat_input_and_hides_credentials_from_argv(self) -> None:
+        # Executed twin of the #522 ffconcat contract: the credential-bearing
+        # camera URL reaches ffmpeg ONLY through a 0600 ffconcat file (the
+        # argv's -i target), the file directive precedes the transport option,
+        # and the publish target ends the argv.
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            (tmp / "worker.env").write_text("HLS_URL=" + self.CREDENTIAL_URL + "\n", encoding="utf-8")
+            (tmp / "worker.env").chmod(0o600)
+            result, argv_lines, _ = self._run(tmp, transport="tcp")
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("CAMERA1_CREDENTIALS_IN_ARGV=NO", result.stdout)
+            self.assertIn("CAMERA1_RTSP_TRANSPORT=tcp", result.stdout)
+            self.assertEqual(len(argv_lines), 1)
+            argv = argv_lines[0]
+            concat_idx = argv.index("-f")
+            self.assertEqual(argv[concat_idx + 1], "concat")
+            self.assertIn("-safe", argv)
+            whitelist_idx = argv.index("-protocol_whitelist")
+            self.assertEqual(argv[whitelist_idx + 1], "file,rtsp,tcp,udp,rtp")
+            input_idx = argv.index("-i")
+            ffconcat_path = Path(argv[input_idx + 1])
+            self.assertEqual(ffconcat_path.stat().st_mode & 0o777, 0o600)
+            self.assertNotIn("camera_key", ffconcat_path.name)
+            content = ffconcat_path.read_text(encoding="utf-8")
+            self.assertIn("ffconcat version 1.0", content)
+            self.assertIn(f"file '{self.CREDENTIAL_URL}'", content)
+            self.assertIn("option rtsp_transport tcp", content)
+            self.assertLess(
+                content.index(f"file '{self.CREDENTIAL_URL}'"),
+                content.index("option rtsp_transport tcp"),
+                "concat `option` needs a preceding `file` directive (NEEDS_FILE)",
+            )
+            # The credential URL never appears anywhere in the ffmpeg argv;
+            # the publish target ends the argv (after `-f rtsp`).
+            for element in argv:
+                self.assertNotIn("camera_key", element)
+            self.assertEqual(argv[-1], "rtsp://10.0.0.8:8554/cam1-h264")
+            self.assertEqual(argv[-2], "rtsp")
+
+    def test_run_rejects_invalid_transport_fail_closed(self) -> None:
+        # Executed twin of the transport vocabulary gate: an unsupported
+        # CAMERA1_RTSP_TRANSPORT refuses the run (exit 6) before any ffmpeg
+        # invocation.
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            (tmp / "worker.env").write_text("HLS_URL=" + self.CREDENTIAL_URL + "\n", encoding="utf-8")
+            (tmp / "worker.env").chmod(0o600)
+            result, argv_lines, _ = self._run(tmp, transport="bogus")
+            self.assertEqual(result.returncode, 6, result.stdout)
+            self.assertIn("CAMERA1_RTSP_TRANSPORT must be one of: udp, tcp, automatic", result.stderr)
+            self.assertEqual(argv_lines, [])
+
+    def test_run_rejects_bad_source_env_fail_closed(self) -> None:
+        # Executed twins: a missing env file and a non-credential URL both
+        # refuse the run closed (exit 6) — no ffmpeg, no ffconcat residue.
+        for scenario in ("missing-file", "no-userinfo", "single-quote"):
+            with self.subTest(scenario=scenario):
+                with tempfile.TemporaryDirectory() as raw:
+                    tmp = Path(raw)
+                    env_file = tmp / "worker.env"
+                    if scenario != "missing-file":
+                        payload = {
+                            "no-userinfo": "HLS_URL=rtsp://10.0.0.21/live\n",
+                            "single-quote": "HLS_URL=rtsp://u:se'cret@10.0.0.21/live\n",
+                        }[scenario]
+                        env_file.write_text(payload, encoding="utf-8")
+                        env_file.chmod(0o600)
+                    result, argv_lines, _ = self._run(tmp)
+                    self.assertEqual(result.returncode, 6, result.stdout)
+                    self.assertEqual(argv_lines, [])
 
 
 class UbuntuRelayApiBlockTests(unittest.TestCase):

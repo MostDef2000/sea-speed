@@ -34,11 +34,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 RENDERER = ROOT / "scripts/operations/mediamtx_path_config.py"
 UBUNTU = ROOT / "deploy/worker/ubuntu/camera-relay.sh"
+sys.path.insert(0, str(ROOT / "tests"))
 
 spec = importlib.util.spec_from_file_location("mediamtx_path_config", RENDERER)
 assert spec and spec.loader
 mediamtx = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mediamtx)
+
+from support import relay_shell  # noqa: E402
 
 API_MARKER = "# Sea Speed loopback API observation rule for the freshness watchdog"
 READER_MARKER_CAM1 = "# Sea Speed least-privilege reader for canonical cam1"
@@ -369,28 +372,129 @@ class SanitizeCliTests(unittest.TestCase):
             self.assertFalse(candidate.exists())
 
 
+class SanitizeShellExecutedTests(unittest.TestCase):
+    """Executed twins for the sanitize shell transaction (#398 wave 3).
+
+    The REAL camera-relay.sh `sanitize` subcommand runs under an
+    unprivileged user namespace with the real renderer and a stubbed
+    systemctl: verify-before on LIVE, the renderer prune, digest+0600
+    candidate protection and verify-after on the CANDIDATE all execute.
+    """
+
+    def _sanitize(self, tmp: Path, config_text: str, declared_specs: list[str] | None = None) -> subprocess.CompletedProcess:
+        config = tmp / "mediamtx.yml"
+        config.write_text(config_text, encoding="utf-8")
+        return relay_shell.run_shell(
+            relay_shell.CAMERA_RELAY,
+            [
+                "sanitize", "--config", str(config),
+                "--private-rtsp-address", "10.0.0.8:8554",
+                "--reader-ip", IP_VPS,
+                *sum((["--prune-declared", spec] for spec in (declared_specs or [])), []),
+                "--state-root", str(tmp / "state"),
+            ],
+            tmp,
+        )
+
+    def test_sanitize_subcommand_prunes_duplicate_and_protects_candidate(self) -> None:
+        # Executed twin of the #436 shell transaction: verify-before passes on
+        # the LIVE config, the renderer prunes the exact loopback-API
+        # duplicate, the candidate is protected 0600 with its digest, and
+        # verify-after re-checks the CANDIDATE. Retires the
+        # `camera-relay.sh sanitize --config PATH` usage pin and the
+        # SANITIZED_FOREIGN_AUTH emission pin (was L381, L392): the executed
+        # flow REQUIRES the verify pair to pass and observes the real
+        # evidence lines.
+        relay_shell.skip_without_user_namespace(self)
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            config = tmp / "mediamtx.yml"
+            config.write_text(LIVE_CONFIG, encoding="utf-8")
+            result = relay_shell.run_shell(
+                relay_shell.CAMERA_RELAY,
+                [
+                    "sanitize", "--config", str(config),
+                    "--private-rtsp-address", "10.0.0.8:8554",
+                    "--reader-ip", IP_VPS,
+                    "--state-root", str(tmp / "state"),
+                ],
+                tmp,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("SANITIZED_FOREIGN_AUTH=YES", result.stdout)
+            self.assertIn("CANDIDATE_SHA256=", result.stdout)
+            self.assertIn("MUTATIONS=PROTECTED_CANDIDATE_ONLY", result.stdout)
+            self.assertIn("SERVICE_RESTARTED=NO", result.stdout)
+            self.assertIn("AI_WORKER_STARTED=NO", result.stdout)
+            self.assertIn("SECRETS_DISPLAYED=NO", result.stdout)
+            candidate = tmp / "state" / "cam1-mediamtx.candidate.yml"
+            self.assertTrue(candidate.exists())
+            self.assertEqual(candidate.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(candidate.read_text(encoding="utf-8"), EXPECTED_PRUNED)
+            self.assertEqual(
+                (tmp / "state" / "cam1-mediamtx.candidate.sha256").read_text(encoding="utf-8").strip(),
+                __import__("hashlib").sha256(candidate.read_bytes()).hexdigest(),
+            )
+
+    def test_declared_prune_passthrough_removes_declared_legacy_rules(self) -> None:
+        # Executed twin of the #444 passthrough: the shell forwards BOTH
+        # repeatable --prune-declared specs into the renderer, the candidate
+        # drops all three foreign rules, and the shell-level
+        # DECLARED_PRUNED= evidence line reports both per-declaration
+        # removals (path=cam1-test:removed=1,path=cam1-test:removed=1).
+        # Retires the declared_prune_specs/declared_args loop text pins and
+        # the DECLARED_PRUNED= emission pin (was L821-L825) — the executed
+        # flow observes the real forwarding and the real evidence line.
+        relay_shell.skip_without_user_namespace(self)
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            config = tmp / "mediamtx.yml"
+            config.write_text(LEGACY_CONFIG, encoding="utf-8")
+            result = self._sanitize(tmp, LEGACY_CONFIG, [DECL_SPEC_PUBLISH, DECL_SPEC_READ])
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("SANITIZED_FOREIGN_AUTH=YES", result.stdout)
+            self.assertIn("DECLARED_PRUNED=path=cam1-test:removed=1,path=cam1-test:removed=1", result.stdout)
+            candidate = tmp / "state" / "cam1-mediamtx.candidate.yml"
+            self.assertEqual(candidate.read_text(encoding="utf-8"), EXPECTED_DECLARED_PRUNED)
+            self.assertEqual(candidate.stat().st_mode & 0o777, 0o600)
+            mediamtx.verify_internal_api_rule(candidate.read_text(encoding="utf-8"))
+            mediamtx.verify_internal_reader_rule(candidate.read_text(encoding="utf-8"), "cam1", IP_VPS)
+
+    def test_sanitize_without_declarations_refuses_fail_closed(self) -> None:
+        # Executed twin: the #444 retry-window shape (undeclared legacy
+        # rules) refuses the whole transaction closed — no candidate, no
+        # digest, SANITIZED_FOREIGN_AUTH never emitted.
+        relay_shell.skip_without_user_namespace(self)
+        for specs in ([], None):
+            with self.subTest(specs=specs):
+                with tempfile.TemporaryDirectory() as raw:
+                    tmp = Path(raw)
+                    result = self._sanitize(tmp, LEGACY_CONFIG, specs)
+                    self.assertEqual(result.returncode, 1, result.stdout)
+                    self.assertIn("loopback-api scope", result.stderr)
+                    self.assertNotIn("SANITIZED_FOREIGN_AUTH=", result.stdout)
+                    self.assertFalse((tmp / "state" / "cam1-mediamtx.candidate.yml").exists())
+
+
 class SanitizeShellContractTests(unittest.TestCase):
     """Structural pins (established style): the sanitize subcommand reuses the
     digest-bound activate runbook and never mutates live state directly."""
 
     def test_shell_contracts_sanitize_subcommand(self) -> None:
+        # 398-wave3: converted — the dispatch/usage text pins, the
+        # ubuntu-sanitize-auth wiring pin and the SANITIZED_FOREIGN_AUTH
+        # emission pin are retired: SanitizeShellExecutedTests runs the REAL
+        # sanitize subcommand end-to-end (duplicate prune, declared prune
+        # with per-declaration evidence, and the fail-closed refusal).
+        # Kept as SP pins: the cross-flow wiring counts (five verify calls;
+        # three digest+mutation emissions), the digest-bound activate reuse
+        # (twinned in test_mediamtx_activate_identity), the rollback warning
+        # and the worker-service start/enable bans.
         subprocess.run(["bash", "-n", str(UBUNTU)], check=True)
         ubuntu = UBUNTU.read_text(encoding="utf-8")
-        # Issue #437 adds the `remediate` subcommand to the same dispatch.
-        self.assertIn("prepare|activate|sanitize|remediate|status", ubuntu)
-        self.assertIn("camera-relay.sh sanitize --config PATH", ubuntu)
-        self.assertIn("ubuntu-sanitize-auth", ubuntu)
-        # Verify-before on LIVE and verify-after on CANDIDATE (reader domain),
-        # plus the existing activate verify and the #437 remediate pair — five
-        # verify-reader-auth calls total.
         self.assertEqual(ubuntu.count("verify-reader-auth"), 5)
-        # The sanitize candidate goes through the same digest emission as
-        # prepare; activation stays the existing expected-sha256 flow. Issue
-        # #437 adds a third digest-emitting remediate block.
         self.assertEqual(ubuntu.count("CANDIDATE_SHA256=%s"), 3)
         self.assertEqual(ubuntu.count("MUTATIONS=PROTECTED_CANDIDATE_ONLY"), 3)
-        self.assertIn("SANITIZED_FOREIGN_AUTH=YES", ubuntu)
-        self.assertIn("SERVICE_RESTARTED=NO", ubuntu)
         self.assertIn("--expected-sha256", ubuntu)
         self.assertIn("automatic rollback is not authorized", ubuntu)
         self.assertNotIn('systemctl restart "$worker_service"', ubuntu)
@@ -815,21 +919,22 @@ class DeclaredPruneShellTests(unittest.TestCase):
     def test_shell_contracts_declared_prune_passthrough(self) -> None:
         subprocess.run(["bash", "-n", str(UBUNTU)], check=True)
         ubuntu = UBUNTU.read_text(encoding="utf-8")
-        # Usage documents the repeatable declaration option for sanitize.
+        # 398-wave3: converted from source-text pins (was L815-L833) — the
+        # repeatable --prune-declared usage, the declared_prune_specs/
+        # declared_args accumulation-loop text, the "${declared_args[@]}"
+        # forwarding pin and the DECLARED_PRUNED= emission pin are retired:
+        # SanitizeShellExecutedTests.
+        # test_declared_prune_passthrough_removes_declared_legacy_rules runs
+        # the REAL sanitize subcommand with two forwarded declarations and
+        # observes the aggregated DECLARED_PRUNED evidence line and the
+        # pruned candidate bytes. Kept as SP pins: the cross-flow wiring
+        # counts (five verify calls, three digest-emitting blocks), the
+        # digest-bound activate reuse and the rollback warning (same
+        # negative-space discipline as the #436 shell test above).
         self.assertIn("--prune-declared", ubuntu)
-        # The option is collected repeatable and forwarded to the renderer.
-        self.assertIn("declared_prune_specs+=(", ubuntu)
-        self.assertIn("declared_args+=(--prune-declared", ubuntu)
-        self.assertIn('"${declared_args[@]}"', ubuntu)
-        # Per-declaration removal evidence line (AC-3).
-        self.assertIn("DECLARED_PRUNED=", ubuntu)
-        # The transaction discipline is unchanged: still exactly five
-        # verify-reader-auth calls, three digest-emitting blocks, no worker
-        # control, no auto-rollback.
         self.assertEqual(ubuntu.count("verify-reader-auth"), 5)
         self.assertEqual(ubuntu.count("CANDIDATE_SHA256=%s"), 3)
         self.assertEqual(ubuntu.count("MUTATIONS=PROTECTED_CANDIDATE_ONLY"), 3)
-        self.assertIn("SANITIZED_FOREIGN_AUTH=YES", ubuntu)
         self.assertIn("automatic rollback is not authorized", ubuntu)
 
 

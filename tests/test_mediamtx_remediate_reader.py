@@ -39,11 +39,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 RENDERER = ROOT / "scripts/operations/mediamtx_path_config.py"
 UBUNTU = ROOT / "deploy/worker/ubuntu/camera-relay.sh"
+sys.path.insert(0, str(ROOT / "tests"))
 
 spec = importlib.util.spec_from_file_location("mediamtx_path_config", RENDERER)
 assert spec and spec.loader
 mediamtx = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mediamtx)
+
+from support import relay_shell  # noqa: E402
 
 API_MARKER = "# Sea Speed loopback API observation rule for the freshness watchdog"
 READER_MARKER_CAM1 = "# Sea Speed least-privilege reader for canonical cam1"
@@ -365,28 +368,114 @@ class RemediateCliTests(unittest.TestCase):
         self.assertIsNone(candidate_bytes)
 
 
-class RemediateShellContractTests(unittest.TestCase):
-    """Structural pins (established style): the remediate subcommand reuses the
-    digest-bound activate runbook and never mutates live state directly."""
+class RemediateShellExecutedTests(unittest.TestCase):
+    """Executed twins for the remediate shell transaction (#398 wave 3).
+
+    The REAL camera-relay.sh bytes run under an unprivileged user namespace
+    with the real renderer and a stubbed systemctl: verify-before on LIVE,
+    the renderer remediation, the digest+0600 candidate protection and
+    verify-after on the CANDIDATE all execute for real.
+    """
+
+    def _remediate(self, tmp: Path, config_text: str, reader_ips: tuple[str, ...] = (IP_VPS,)) -> subprocess.CompletedProcess:
+        config = tmp / "mediamtx.yml"
+        config.write_text(config_text, encoding="utf-8")
+        return relay_shell.run_shell(
+            relay_shell.CAMERA_RELAY,
+            [
+                "remediate", "--config", str(config),
+                "--private-rtsp-address", "10.0.0.8:8554",
+                *sum((["--reader-ip", ip] for ip in reader_ips), []),
+                "--state-root", str(tmp / "state"),
+            ],
+            tmp,
+        )
+
+    def test_remediate_converges_drifted_live_rule_end_to_end(self) -> None:
+        # Executed twin of the shell transaction contract: verify-before
+        # accepts the drifted LIVE scope, the renderer converges it, the
+        # candidate is protected 0600 with its digest emitted, verify-after
+        # re-checks the CANDIDATE, and the evidence reports the converged
+        # state. Retires the REMEDIATED_READER / REMEDIATION_NEEDED /
+        # remediation_needed="YES" emission pins (was L386-L388).
+        relay_shell.skip_without_user_namespace(self)
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            drifted = live_with_reader_block(DRIFTED_TWO_IP_RULE)
+            result = self._remediate(tmp, drifted, reader_ips=(IP_VPS_SECOND, IP_VPS))
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("REMEDIATED_READER=YES", result.stdout)
+            self.assertIn("REMEDIATION_NEEDED=YES", result.stdout)
+            self.assertIn("CANDIDATE_SHA256=", result.stdout)
+            self.assertIn("MUTATIONS=PROTECTED_CANDIDATE_ONLY", result.stdout)
+            self.assertIn("SERVICE_RESTARTED=NO", result.stdout)
+            self.assertIn("AI_WORKER_STARTED=NO", result.stdout)
+            self.assertIn("SECRETS_DISPLAYED=NO", result.stdout)
+            candidate = tmp / "state" / "cam1-mediamtx.candidate.yml"
+            self.assertTrue(candidate.exists())
+            self.assertEqual(candidate.stat().st_mode & 0o777, 0o600)
+            remediated = candidate.read_text(encoding="utf-8")
+            # The candidate carries the LIVE two-IP scope in live order, in
+            # canonical form (byte-parity with the renderer's own emission).
+            block_start = remediated.index(f"  {READER_MARKER_CAM1}\n")
+            block_end = remediated.index(f"  {READER_MARKER_CAM1_H264}\n")
+            self.assertEqual(
+                remediated[block_start:block_end],
+                canonical_reader_block([IP_VPS_SECOND, IP_VPS]),
+            )
+            mediamtx.verify_internal_reader_rule(remediated, "cam1", [IP_VPS_SECOND, IP_VPS])
+            mediamtx.verify_internal_api_rule(remediated)
+
+    def test_remediate_conforming_live_rule_is_byte_identical_noop(self) -> None:
+        # Executed twin of the no-op contract: a conforming LIVE config
+        # remediates to a byte-identical candidate with remediation_needed=NO.
+        relay_shell.skip_without_user_namespace(self)
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            result = self._remediate(tmp, LIVE_CONFIG)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("REMEDIATION_NEEDED=NO", result.stdout)
+            candidate = tmp / "state" / "cam1-mediamtx.candidate.yml"
+            self.assertEqual(candidate.read_text(encoding="utf-8"), LIVE_CONFIG)
+
+    def test_remediate_fail_closed_refuses_widened_scope_before_render(self) -> None:
+        # Executed twin: verify-before rejects a live rule that does not
+        # authorize the stated reader scope (exit 3, before the renderer
+        # runs — no candidate, no state).
+        relay_shell.skip_without_user_namespace(self)
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            drifted = live_with_reader_block(DRIFTED_SINGLE_IP_RULE)
+            result = self._remediate(tmp, drifted, reader_ips=(IP_VPS_SECOND,))
+            self.assertEqual(result.returncode, 1, result.stdout)
+            self.assertIn("not a subset", result.stderr)
+            self.assertFalse((tmp / "state" / "cam1-mediamtx.candidate.yml").exists())
 
     def test_shell_contracts_remediate_subcommand(self) -> None:
         subprocess.run(["bash", "-n", str(UBUNTU)], check=True)
         ubuntu = UBUNTU.read_text(encoding="utf-8")
+        # 398-wave3: retired source-text pins and their executed twins (same
+        # commit, this file):
+        # - the remediate dispatch and usage literal →
+        #   test_remediate_converges_drifted_live_rule_end_to_end runs the
+        #   REAL `remediate` subcommand end-to-end under the user namespace.
+        # - REMEDIATED_READER / REMEDIATION_NEEDED / remediation_needed="YES"
+        #   emission pins → the executed twin observes the real evidence
+        #   lines (and the NO variant in the no-op twin).
+        # - the verify-before/verify-after wiring (verify-reader-auth on LIVE
+        #   then CANDIDATE) → the executed twin's success REQUIRES both
+        #   verifies to pass, and the bad-scope twin proves verify-before
+        #   gates the render.
+        # Kept as SP pins: the cross-flow wiring counts (five verify calls
+        # across prepare/activate/sanitize/remediate; three digest+mutation
+        # emissions), the digest-bound activate reuse (twinned in
+        # test_mediamtx_activate_identity), the rollback warning and the
+        # worker-service start/enable bans (no executed surface for the
+        # negative space).
         self.assertIn("prepare|activate|sanitize|remediate|status", ubuntu)
-        self.assertIn("camera-relay.sh remediate --config PATH", ubuntu)
-        self.assertIn("ubuntu-remediate-reader", ubuntu)
-        # Verify-before on LIVE and verify-after on CANDIDATE (reader domain),
-        # plus the existing activate verify and the #436 sanitize pair — five
-        # verify-reader-auth calls total.
         self.assertEqual(ubuntu.count("verify-reader-auth"), 5)
-        # The remediate candidate goes through the same digest emission as
-        # prepare/sanitize; activation stays the existing expected-sha256 flow.
         self.assertEqual(ubuntu.count("CANDIDATE_SHA256=%s"), 3)
         self.assertEqual(ubuntu.count("MUTATIONS=PROTECTED_CANDIDATE_ONLY"), 3)
-        self.assertIn("REMEDIATED_READER=YES", ubuntu)
-        self.assertIn("REMEDIATION_NEEDED=%s", ubuntu)
-        self.assertIn('remediation_needed="YES"', ubuntu)
-        self.assertIn("SERVICE_RESTARTED=NO", ubuntu)
         self.assertIn("--expected-sha256", ubuntu)
         self.assertIn("automatic rollback is not authorized", ubuntu)
         self.assertNotIn('systemctl restart "$worker_service"', ubuntu)
