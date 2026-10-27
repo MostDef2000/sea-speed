@@ -25,12 +25,15 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
 import zipfile
+
+import yaml
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -376,37 +379,71 @@ class StructuralPinsTests(unittest.TestCase):
     def setUp(self) -> None:
         self.source = prepare_script().read_text(encoding="utf-8")
 
+    # Issue #398 wave 2: the two-phase install and validation-order contracts
+    # are asserted against whitespace-normalized pip invocations / guard
+    # positions instead of raw byte-exact lines, so reformatting or adding
+    # unrelated flags cannot fail them.
+    def _pip_command(self, subcommand: str) -> str:
+        """Whitespace-normalized text of the `-m pip <subcommand>` invocation."""
+        lines = self.source.splitlines()
+        for index, line in enumerate(lines):
+            if f"-m pip {subcommand}" not in line:
+                continue
+            joined = [line]
+            while joined[-1].rstrip().endswith("\\") and index + len(joined) < len(lines):
+                joined.append(lines[index + len(joined)])
+            return " ".join(" ".join(joined).replace("\\", " ").split())
+        self.fail(f"pip {subcommand} invocation not found in prepare-runtime.sh")
+
     def test_two_phase_hash_locked_install_replaces_direct_index_install(self) -> None:
-        self.assertIn("-m pip download", self.source)
-        self.assertGreaterEqual(self.source.count("--require-hashes"), 2)
-        self.assertIn("--only-binary=:all:", self.source)
-        self.assertIn("--no-index", self.source)
-        self.assertIn('--find-links "$wheelhouse_dir"', self.source)
-        self.assertIn('-r "$lock_file_path"', self.source)
-        self.assertIn("grep -v '^--' \"$lock_file_path\"", self.source)
+        # Phase 1 downloads the hash-locked graph from the indexes (verified at
+        # download time); phase 2 installs strictly offline from the verified
+        # wheel set. Flag sets are asserted per invocation, not anywhere in the
+        # file, and download must precede install (issue #398 wave 2).
+        download = self._pip_command("download")
+        install = self._pip_command("install")
+        for flag in ("--require-hashes", "--only-binary=:all:", "-r", "$lock_file_path"):
+            self.assertIn(flag, download)
+        for flag in ("--no-index", "--find-links", "$wheelhouse_dir", "--require-hashes", "-r"):
+            self.assertIn(flag, install)
+        self.assertIn('grep -v \'^--\' "$lock_file_path"', self.source)  # STATIC_POLICY: directive lines stripped before offline install
         self.assertNotIn('pip install -r "$requirements_path"', self.source)
-        download = self.source.index("-m pip download")
-        install = self.source.index("-m pip install")
-        self.assertLess(download, install)
+        self.assertLess(
+            self.source.index("-m pip download"),
+            self.source.index("-m pip install"),
+        )
 
     def test_fail_closed_validation_precedes_any_mutation(self) -> None:
-        self.assertIn("if ! validate_runtime_lock; then", self.source)
+        # STATIC_POLICY: "ERROR runtime lock inputs are invalid" is the fail-closed
+        # guard's evidence marker (no executed twin runs the missing-input path).
+        # The graph-empty marker is asserted by the executed
+        # test_placeholder_lock_fails_closed_before_any_mutation, and
+        # "PASS runtime_lock_validated" by the executed healthy-path battery in
+        # test_ubuntu_worker_runtime_rebuild.py, so they are not re-pinned here.
         self.assertIn("ERROR runtime lock inputs are invalid", self.source)
-        self.assertIn("ERROR runtime lock graph is empty", self.source)
-        self.assertIn("PASS runtime_lock_validated", self.source)
-        validation = self.source.index("if ! validate_runtime_lock; then")
-        root_check = self.source.index('if [[ "$EUID" -ne 0 ]]; then')
-        venv_creation = self.source.index("python3 -m venv")
-        self.assertLess(validation, root_check)
-        self.assertLess(validation, venv_creation)
+        positions = [
+            self._source_position(r"if\s+!\s*validate_runtime_lock\s*;\s*then"),
+            self._source_position(r'if\s+\[\[\s*"\$EUID"\s+-ne 0\s*\]\];\s*then'),
+            self._source_position(r"python3\s+-m\s+venv"),
+        ]
+        self.assertEqual(positions, sorted(positions))
 
-    def test_runtime_id_v2_payload_covers_all_three_definition_files(self) -> None:
-        self.assertIn('lock_file_path="$script_dir/requirements-runtime.lock.txt"', self.source)
-        self.assertIn("lock_path.read_bytes()", self.source)
-        self.assertIn("requirements_path.read_bytes()", self.source)
-        self.assertIn("lock_file_path.read_bytes()", self.source)
+    def _source_position(self, pattern: str) -> int:
+        match = re.search(pattern, self.source)
+        if match is None:
+            self.fail(f"fail-closed guard anchor not found: {pattern}")
+        return match.start()
+
+    # test_runtime_id_v2_payload_covers_all_three_definition_files retired
+    # (issue #398 wave 2): the runtime-id payload invariant is asserted
+    # behaviorally by test_runtime_id_v2_formula_is_deterministic and
+    # test_any_single_byte_change_moves_the_runtime_id, which execute the real
+    # formula against every definition file.
 
     def test_manifest_records_lock_hash_and_finalizes_lock_file(self) -> None:
+        # STATIC_POLICY: fail-closed deploy contract — the manifest must carry the
+        # lock hash, drift must abort, and the lock file must be finalized
+        # read-only into the staged runtime; kept byte-exact (issue #398 wave 2).
         self.assertIn('"requirements_lock_sha256"', self.source)
         self.assertIn("runtime manifest requirements_lock_sha256 mismatch", self.source)
         self.assertIn("runtime manifest graph drift", self.source)
@@ -415,6 +452,8 @@ class StructuralPinsTests(unittest.TestCase):
         self.assertIn("$staged_root/requirements-runtime.lock.txt", self.source)
 
     def test_verify_ready_runtime_extends_to_lock_file_and_manifest(self) -> None:
+        # STATIC_POLICY: fail-closed runtime verification contract — lock file and
+        # manifest parity gates kept byte-exact (issue #398 wave 2).
         self.assertIn('[[ -f "$runtime_root/requirements-runtime.lock.txt" ]]', self.source)
         self.assertIn(
             'cmp -s "$lock_file_path" "$runtime_root/requirements-runtime.lock.txt"',
@@ -481,48 +520,36 @@ class StructuralPinsTests(unittest.TestCase):
             self.assertIn("--hash=sha256:", matches[0], f"pytorch pin not hash-pinned: {pin}")
 
     def test_resolver_workflow_is_dispatch_only_without_deploy_logic(self) -> None:
+        # Structured parse (issue #398 wave 2): trigger, permission and job
+        # shapes come from yaml.safe_load instead of an indentation walk, so
+        # reformatting or reordering inside the workflow cannot fail the pins.
+        # YAML 1.1 parses the bare `on:` key as boolean True.
         workflow_path = ROOT / ".github/workflows/resolve-runtime-lock.yml"
-        lines = workflow_path.read_text(encoding="utf-8").splitlines()
-
-        def top_level_block(key: str) -> list[str]:
-            """Raw lines of the top-level `key:` block, up to the next key."""
-            start = next(i for i, line in enumerate(lines) if line == f"{key}:")
-            block = []
-            for line in lines[start + 1 :]:
-                if line and not line.startswith(" "):
-                    break
-                block.append(line)
-            return block
-
-        def direct_child_keys(block: list[str]) -> list[str]:
-            """Two-space-indented `key:` children of a top-level block."""
-            keys = []
-            for line in block:
-                stripped = line.strip()
-                if (
-                    line.startswith("  ")
-                    and not line.startswith("   ")
-                    and stripped.endswith(":")
-                    and not stripped.startswith("#")
-                ):
-                    keys.append(stripped[:-1])
-            return keys
+        workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
 
         # workflow_dispatch is the ONLY trigger of the workflow.
-        self.assertEqual(direct_child_keys(top_level_block("on")), ["workflow_dispatch"])
+        triggers = workflow.get(True, workflow.get("on", {}))
+        self.assertEqual(list(triggers), ["workflow_dispatch"])
         # contents: read is the ONLY permission granted anywhere at the
         # top level (job-level permission blocks would not satisfy the
         # strict equality even if added).
-        permission_lines = [line.strip() for line in top_level_block("permissions") if line.strip()]
-        self.assertEqual(permission_lines, ["contents: read"])
-        # resolve is the ONLY job.
-        self.assertEqual(direct_child_keys(top_level_block("jobs")), ["resolve"])
-        text = "\n".join(lines)
-        self.assertIn("--generate-hashes", text)
-        self.assertIn("uv pip compile", text)
-        self.assertIn("actions/upload-artifact", text)
-        self.assertNotIn("secrets:", text)
-        self.assertNotIn("deploy-authorized", text)
+        self.assertEqual(workflow["permissions"], {"contents": "read"})
+        # resolve is the ONLY job; the lock is compiled with uv pip compile
+        # --generate-hashes and uploaded as an artifact.
+        self.assertEqual(list(workflow["jobs"]), ["resolve"])
+        steps = workflow["jobs"]["resolve"]["steps"]
+        runs = [step.get("run", "") for step in steps]
+        self.assertTrue(
+            any("uv pip compile" in run and "--generate-hashes" in run for run in runs),
+            "lock compilation step lost uv pip compile --generate-hashes",
+        )
+        self.assertTrue(
+            any(step.get("uses", "").startswith("actions/upload-artifact@") for step in steps),
+            "resolved lock artifact upload step missing",
+        )
+        text = workflow_path.read_text(encoding="utf-8")
+        self.assertNotIn("secrets:", text)  # STATIC_POLICY: resolver carries no secret plumbing
+        self.assertNotIn("deploy-authorized", text)  # STATIC_POLICY: resolver never transports deploys
 
 
 if __name__ == "__main__":

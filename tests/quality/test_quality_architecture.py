@@ -1,14 +1,49 @@
 from __future__ import annotations
 
+import ast
 import json
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any, Iterator
+
+# PyYAML is a test-only dependency: the battery jobs install pyyaml==6.0.3
+# (pr-validation.yml, quality-integration.yml) and run every test here; the
+# stdlib-only property-fuzz-reliability job runs this module without it, so the
+# two yaml-consuming tests skip LOUDLY there instead of breaking the import
+# (issue #398 wave 2; CI failure 40443050987).
+try:
+    import yaml  # noqa: F401
+    HAS_YAML = True
+except ModuleNotFoundError:  # pragma: no cover - exercised by the stdlib-only CI job
+    HAS_YAML = False
+
+
+def _yaml_load(text: str) -> Any:
+    """Parse YAML in tests that require the test-only parser (see HAS_YAML)."""
+    import yaml
+
+    return yaml.safe_load(text)
+
+from tests.support import worker_source
 
 ROOT = Path(__file__).resolve().parents[2]
 COMMIT = "0123456789abcdef0123456789abcdef01234567"
+
+
+def walk_strings(node: Any) -> Iterator[str]:
+    """Every string value reachable in a parsed YAML structure (issue #398)."""
+    if isinstance(node, str):
+        yield node
+    elif isinstance(node, dict):
+        for key, value in node.items():
+            yield from walk_strings(key)
+            yield from walk_strings(value)
+    elif isinstance(node, list):
+        for item in node:
+            yield from walk_strings(item)
 
 
 class QualityArchitectureTests(unittest.TestCase):
@@ -18,76 +53,141 @@ class QualityArchitectureTests(unittest.TestCase):
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=True,
         )
 
+    @unittest.skipUnless(HAS_YAML, "PyYAML not installed (stdlib-only property-fuzz job); battery jobs run this test")
     def test_protected_workflow_admission_contracts_remain(self) -> None:
-        deploy = (ROOT / ".github/workflows/deploy-vps.yml").read_text(encoding="utf-8")
-        ubuntu = (ROOT / ".github/workflows/deploy-ubuntu-worker.yml").read_text(encoding="utf-8")
-        autonomous = (ROOT / ".github/workflows/deploy-runtime-autonomous.yml").read_text(encoding="utf-8")
-        for source in (deploy, ubuntu):
-            self.assertIn("environment: production", source)
-            self.assertIn("verify_source_protection.py", source)
-            self.assertIn("verify_quality_status.py", source)
-            self.assertIn("evaluate_production_policy.py", source)
-            self.assertIn("--require-allow", source)
-            self.assertIn("--first-parent", source)
-            self.assertIn("production-policy-decision.json", source)
-            self.assertNotIn("verify_production_authorization.py", source)
-            self.assertLess(source.index("verify_source_protection.py"), source.index("evaluate_production_policy.py"))
-        self.assertIn("deploy/worker/ubuntu/deploy-authorized.sh", ubuntu)
-        self.assertIn("ProxyJump sea-speed-vps-jump", ubuntu)
-        self.assertIn("User sea-speed-deploy", ubuntu)
-        self.assertIn("Operator actions expected: 0", ubuntu)
-        self.assertNotIn("ubuntu-worker-one-command.sh", ubuntu)
-        self.assertIn("workflow_run:", autonomous)
-        self.assertIn('workflows: ["Quality integration gate"]', autonomous)
-        self.assertIn("verify_source_protection.py", autonomous)
-        self.assertNotIn("issue_comment:", autonomous)
-        for marker in (
-            'SEA_SPEED_REQUIRE_AUTH_BOUNDARY: "1"',
-            'SEA_SPEED_AUTHENTIK_UPSTREAM: "http://10.123.239.102:19000"',
-            'SEA_SPEED_WORKER_PRIVATE_LISTEN: "10.123.239.29:18080"',
-            'SEA_SPEED_WORKER_PRIVATE_PEER: "10.123.239.102"',
-            "Deploy exact commit and reconcile Road private M2M boundary",
-            "auth_v1_road_private_m2m",
-        ):
-            self.assertIn(marker, deploy)
+        # Structured workflow contracts (issue #398 wave 2): shapes are parsed
+        # with yaml.safe_load instead of substring pins; the retirement bans
+        # (STATIC_POLICY: textual absence is the contract) stay verbatim.
+        deploy_text = (ROOT / ".github/workflows/deploy-vps.yml").read_text(encoding="utf-8")
+        ubuntu_text = (ROOT / ".github/workflows/deploy-ubuntu-worker.yml").read_text(encoding="utf-8")
+        autonomous_text = (ROOT / ".github/workflows/deploy-runtime-autonomous.yml").read_text(encoding="utf-8")
+        deploy = _yaml_load(deploy_text)
+        ubuntu = _yaml_load(ubuntu_text)
+        autonomous = _yaml_load(autonomous_text)
 
+        # The shared composite action is the structured carrier of the
+        # exact-release verification chain: source protection, first-parent
+        # main membership, aggregate quality status, then standing-delegation
+        # policy evaluation with the require-allow switch the deploy
+        # workflows bind.
+        verify_action = _yaml_load(
+            (ROOT / ".github/actions/verify-exact-release/action.yml").read_text(encoding="utf-8")
+        )
+        action_strings = "\n".join(walk_strings(verify_action["runs"]["steps"]))
+        chain_positions = [
+            action_strings.index("verify_source_protection.py"),
+            action_strings.index("verify_quality_status.py"),
+            action_strings.index("evaluate_production_policy.py"),
+        ]
+        self.assertEqual(chain_positions, sorted(chain_positions))
+        self.assertIn("--require-allow", action_strings)
+        self.assertIn("--first-parent", action_strings)
+        self.assertIn('require-context "Repository validation"', action_strings)
+
+        for workflow, text in ((deploy, deploy_text), (ubuntu, ubuntu_text)):
+            job = workflow["jobs"]["deploy"]
+            self.assertEqual(job["environment"], "production")
+            verify_step = next(step for step in job["steps"] if step.get("id") == "verify")
+            self.assertEqual(verify_step["uses"], "./.github/actions/verify-exact-release")
+            self.assertEqual(verify_step["with"]["require_allow"], "true")
+            job_strings = "\n".join(walk_strings(job))
+            self.assertIn("production-policy-decision.json", job_strings)
+            self.assertNotIn("verify_production_authorization.py", text)  # STATIC_POLICY: retired verifier never re-enters the pipeline
+
+        ubuntu_strings = "\n".join(walk_strings(ubuntu["jobs"]["deploy"]))
+        self.assertIn("deploy/worker/ubuntu/deploy-authorized.sh", ubuntu_strings)
+        self.assertIn("ProxyJump sea-speed-vps-jump", ubuntu_strings)
+        self.assertIn("User sea-speed-deploy", ubuntu_strings)
+        self.assertIn("Operator actions expected: 0", ubuntu_strings)
+        self.assertNotIn("ubuntu-worker-one-command.sh", ubuntu_text)  # STATIC_POLICY: retired one-command path stays retired
+
+        # The autonomous router triggers only on the aggregate quality gate.
+        autonomous_triggers = autonomous.get(True, autonomous.get("on", {}))
+        self.assertEqual(autonomous_triggers["workflow_run"]["workflows"], ["Quality integration gate"])
+        evaluate_strings = "\n".join(walk_strings(autonomous["jobs"]["evaluate"]))
+        self.assertEqual(autonomous["jobs"]["evaluate"]["environment"], "production")
+        self.assertIn("verify_source_protection.py", evaluate_strings)
+        self.assertNotIn("issue_comment:", autonomous_text)  # STATIC_POLICY: comments are non-authoritative
+
+        # The Road private M2M boundary travels with the VPS deploy step.
+        deploy_job = deploy["jobs"]["deploy"]
+        self.assertEqual(
+            deploy_job["env"],
+            {
+                "SEA_SPEED_REQUIRE_AUTH_BOUNDARY": "1",
+                "SEA_SPEED_AUTHENTIK_UPSTREAM": "http://10.123.239.102:19000",
+                "SEA_SPEED_WORKER_PRIVATE_LISTEN": "10.123.239.29:18080",
+                "SEA_SPEED_WORKER_PRIVATE_PEER": "10.123.239.102",
+            },
+        )
+        self.assertTrue(
+            any(
+                step.get("name") == "Deploy exact commit and reconcile Road private M2M boundary"
+                for step in deploy_job["steps"]
+            ),
+            "reconcile step missing from deploy-vps.yml",
+        )
+        self.assertIn("auth_v1_road_private_m2m", "\n".join(walk_strings(deploy_job)))
+
+    @unittest.skipUnless(HAS_YAML, "PyYAML not installed (stdlib-only property-fuzz job); battery jobs run this test")
     def test_source_protection_contract_is_fail_closed(self) -> None:
+        # AST conversion (issue #398 wave 2): the fail-closed comparisons and
+        # the required-status-checks refusal are parsed from the verifier
+        # instead of pinned as raw substrings, so harmless refactoring cannot
+        # break them while any loosening of the guards still fails RED.
         source = (ROOT / "scripts/release/verify_source_protection.py").read_text(encoding="utf-8")
-        self.assertIn('repository.get("visibility") != "public"', source)
-        self.assertIn('branch.get("protected") is not True', source)
-        self.assertIn("missing required status checks", source)
-        self.assertIn("Repository validation", (ROOT / ".github/workflows/deploy-vps.yml").read_text(encoding="utf-8"))
-        self.assertIn("quality-integration", (ROOT / ".github/workflows/deploy-vps.yml").read_text(encoding="utf-8"))
+        tree = ast.parse(source)
+        self.assertTrue(worker_source.contains_expr(tree, 'repository.get("visibility") != "public"'))
+        self.assertTrue(worker_source.contains_expr(tree, 'branch.get("protected") is not True'))
+        self.assertTrue(
+            any("missing required status checks" in constant for constant in worker_source.string_constants(tree)),
+            "required-status-checks refusal message missing from verify_source_protection.py",
+        )
+        # The deploy chain requires the two status contexts through the shared
+        # action (structured), not by comment text in the workflow files.
+        verify_action = _yaml_load(
+            (ROOT / ".github/actions/verify-exact-release/action.yml").read_text(encoding="utf-8")
+        )
+        action_strings = "\n".join(walk_strings(verify_action["runs"]["steps"]))
+        self.assertIn('--require-context "Repository validation"', action_strings)
+        self.assertIn('--workflow-file quality-integration.yml', action_strings)
 
     def test_comment_authority_paths_are_retired_or_fail_closed_tombstones(self) -> None:
         self.assertFalse((ROOT / ".github/workflows/deploy-runtime-request.yml").exists())
         self.assertFalse((ROOT / ".github/workflows/deploy-vps-request.yml").exists())
         self.assertFalse((ROOT / "scripts/release/parse_runtime_execution_request.py").exists())
         self.assertFalse((ROOT / "scripts/release/parse_deployment_request.py").exists())
+        # Executed tombstone (issue #398 wave 2): the retired verifier is run
+        # for real — it must fail closed with exit code 2 and the retirement
+        # error, not just contain the right text.
+        result = subprocess.run(
+            [sys.executable, "scripts/release/verify_production_authorization.py"],
+            cwd=ROOT, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("retired", (result.stderr + result.stdout).lower())
         verifier = (ROOT / "scripts/release/verify_production_authorization.py").read_text(encoding="utf-8")
-        self.assertIn("Retired compatibility tombstone", verifier)
-        self.assertIn("return 2", verifier)
-        self.assertNotIn("PRODUCTION APPROVED", verifier)
+        self.assertNotIn("PRODUCTION APPROVED", verifier)  # STATIC_POLICY: comment authority stays retired
         policy = json.loads((ROOT / "data/contracts/production-authorization-policy-v1.json").read_text(encoding="utf-8"))
         self.assertEqual(policy["status"], "retired-compatibility-tombstone")
         self.assertEqual(policy["authorizedActors"], [])
         self.assertEqual(policy["authority"], "NONE")
 
     def test_vps_deploy_verifies_unprivileged_caddy_boundary_before_live_mutation(self) -> None:
+        # STATIC_POLICY: the privileged nginx-helper pipeline markers are
+        # retired from the pipeline — their textual absence is the retirement
+        # contract and stays pinned verbatim. The fail-closed verifier markers
+        # and their before-mutation ordering are asserted behaviorally by the
+        # executed deploy.sh twins in tests/test_vps_deploy_transaction.py
+        # (bind-absent failures before manifest, degraded-path recovery,
+        # post-mutation rollback), so they are not re-pinned here
+        # (issue #398 wave 2).
         source = (ROOT / "deploy/vps/deploy.sh").read_text(encoding="utf-8")
-        self.assertIn("verify_private_m2m_boundary", source)
-        self.assertIn("ss -tln", source)
-        self.assertIn("ERROR Road private M2M boundary is not bound at", source)
-        # The privileged nginx-helper markers are retired from the pipeline.
         self.assertNotIn("check_auth_privilege_boundary", source)
         self.assertNotIn("PRIVILEGE_BOUNDARY_BOOTSTRAP_REQUIRED=YES", source)
         self.assertNotIn("SEA_SPEED_AUTH_PRIVILEGE_BOUNDARY=PASS", source)
         self.assertNotIn("SEA_SPEED_AUTH_PRIVILEGED_RECONCILE=PASS", source)
         self.assertNotIn('run_root bash "$cutover"', source)
-        # The unprivileged verifier is defined (and invoked) before the live
-        # bootstrap/mutation stage.
-        self.assertLess(source.index("verify_private_m2m_boundary()"), source.index("bootstrap_current_release()"))
-        self.assertIn('  verify_private_m2m_boundary "degraded"\n  recover_auth_boundary_before_source_mutation\n', source)
 
     def test_ubuntu_zero_touch_gate_is_bounded(self) -> None:
         gate = (ROOT / "scripts/operations/sea_speed_ubuntu_zero_touch_gate.sh").read_text(encoding="utf-8")

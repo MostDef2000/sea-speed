@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import os
 import sys
 import unittest
@@ -98,23 +99,32 @@ class MotionGateTests(unittest.TestCase):
 
 
 class ConfigGenerationTests(unittest.TestCase):
-    def test_no_704_fallback_in_config(self):
-        text = (ROOT / "deploy/worker/ubuntu/configure-analytics-profiles.py").read_text()
-        # The fixed generator must resolve HD and not default to 704 for road
-        self.assertIn('"1920"', text)
-        self.assertIn('"1080"', text)
-        # ensure fallback logic forces HD
-        self.assertIn("LATEST_FRAME_BOUNDED", text)
-        self.assertIn("YOLO_HALF", text)
-        self.assertIn("MOTION_GATE_MODE", text)
+    @staticmethod
+    def _parse_env_file(path: Path) -> dict[str, str]:
+        """Structured KEY=VALUE parse of an env file (issue #398 wave 2)."""
+        values: dict[str, str] = {}
+        for line in path.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#") or "=" not in stripped:
+                continue
+            key, _, value = stripped.partition("=")
+            values[key.strip()] = value.strip()
+        return values
+
+    # test_no_704_fallback_in_config retired (issue #398 wave 2): the
+    # '"1920"'/'"1080"' literals and flag-name text pins are covered
+    # behaviorally by the executed legacy-resolution test in
+    # tests/test_analytics_profiles_configure_drift.py, which runs the real
+    # configure script against a legacy 704x576 env seed and asserts the
+    # regenerated envs carry HD dimensions plus the wired runtime flags.
 
     def test_road_env_example_is_hd_10fps(self):
-        text = (ROOT / "deploy/worker/ubuntu/road-worker.env.example").read_text()
-        self.assertIn("FRAME_WIDTH=1920", text)
-        self.assertIn("FRAME_HEIGHT=1080", text)
-        self.assertIn("SAMPLE_FPS=10", text)
-        self.assertIn("YOLO_HALF=1", text)
-        self.assertIn("MOTION_GATE_MODE=gated", text)
+        values = self._parse_env_file(ROOT / "deploy/worker/ubuntu/road-worker.env.example")
+        self.assertEqual(values["FRAME_WIDTH"], "1920")
+        self.assertEqual(values["FRAME_HEIGHT"], "1080")
+        self.assertEqual(values["SAMPLE_FPS"], "10")
+        self.assertEqual(values["YOLO_HALF"], "1")
+        self.assertEqual(values["MOTION_GATE_MODE"], "gated")
 
 
 class BoundedQueueAndPublishingTests(unittest.TestCase):
@@ -212,10 +222,18 @@ class BoundedQueueAndPublishingTests(unittest.TestCase):
 
 class ObservedRunnerTelemetryTests(unittest.TestCase):
     def test_observed_parses_telemetry(self):
-        text = (ROOT / "deploy/worker/ubuntu/observed-worker-runner.py").read_text()
-        self.assertIn("last_inference_ms", text)
-        self.assertIn("inference_ms=", text)
-        self.assertIn("dropped_frames", text)
+        # AST conversion (issue #398 wave 2): the telemetry keys are asserted
+        # as string constants of the real runner module, so reformatting or
+        # moving the parse code cannot fail the check while losing a marker
+        # still does.
+        source = (ROOT / "deploy/worker/ubuntu/observed-worker-runner.py").read_text(encoding="utf-8")
+        constants = [
+            node.value
+            for node in ast.walk(ast.parse(source))
+            if isinstance(node, ast.Constant) and isinstance(node.value, str)
+        ]
+        for marker in ("last_inference_ms", "inference_ms=", "dropped_frames"):
+            self.assertTrue(any(marker in constant for constant in constants), marker)
 
 
 if __name__ == "__main__":
