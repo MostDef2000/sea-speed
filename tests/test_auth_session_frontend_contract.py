@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import sys
 import unittest
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from tests.support import frontend_html
+
 FRONTENDS = (
     ROOT / "frontend/sea-speed/index.html",
     ROOT / "frontend/sea-speed/cameras/index.html",
@@ -39,11 +43,23 @@ class AuthSessionFrontendContractTests(unittest.TestCase):
         self.assertNotIn('/cams/hls/cam1/index.m3u8', text)
 
     def test_road_session_watchdog_matches_protected_operator_semantics(self) -> None:
-        text = (ROOT / "frontend/sea-speed/road/index.html").read_text(encoding="utf-8-sig")
-        self.assertIn('const SESSION_WATCHDOG_MS=15000', text)
-        self.assertIn('function redirectForReauthentication()', text)
-        self.assertIn('setInterval(loadSessionIdentity,SESSION_WATCHDOG_MS)', text)
-        self.assertIn('credentials:"same-origin"', text)
+        # Behavioral conversion (issue #398 wave 2): the page's real inline
+        # scripts execute in node under the frontend_html shim — the 15 s
+        # watchdog wiring, the same-origin session fetch, the identity
+        # population and the identity-loss redirect are asserted on the
+        # executed page, not on its formatting (reformatting or renaming
+        # internals keeps this green; breaking the wiring fails it even when
+        # the historical marker text survives).
+        evidence = frontend_html.run_inline_scripts()
+        self.assertIn(
+            frontend_html.WATCHDOG_MS,
+            [interval["ms"] for interval in evidence["intervals"]],
+            "15 s session watchdog interval missing",
+        )
+        self.assertTrue(evidence["sessionFetches"], "session endpoint never fetched")
+        self.assertEqual(evidence["sessionFetches"][0].get("credentials"), "same-origin")
+        self.assertEqual(evidence["sessionUser"], "operator")
+        self.assertEqual(evidence["redirects"], [frontend_html.REDIRECT_PATH])
 
 
 if __name__ == "__main__":

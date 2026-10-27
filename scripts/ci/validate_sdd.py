@@ -87,6 +87,14 @@ GRANDFATHERED_PREFIX_COLLISIONS = {
         "537-wave1-event-delivery-receipts",
         "537-wave2-worker-outbox",
     },
+    # Issue #398 ships as staged waves under one issue number (source-text
+    # test-conversion program; wave A merged as PR #474, wave 1 as #523,
+    # wave 2 per the 2026-10-16 OUTCOME-APPROVED six-field scope) — same
+    # staged-wave precedent as 396/397/520/537.
+    "398": {
+        "398-wave1",
+        "398-wave2",
+    },
 }
 
 SIGNIFICANT_PREFIXES = (

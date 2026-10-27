@@ -262,61 +262,23 @@ class PrepareRuntimeRebuildContractTests(unittest.TestCase):
         ):
             self.assertIn(marker, self.source)
 
-    def test_rebuild_evidence_markers_present(self) -> None:
-        for marker in (
-            "classify_ready_runtime_failure() {",
-            'echo "RUNTIME_VERIFY_FAILED runtime_id=$runtime_id check=$rebuild_reason" >&2',
-            'RUNTIME_VERIFY_DETAIL ',
-            'quarantine_root="$(mktemp -d "$runtime_parent/.quarantine.$runtime_id.XXXXXX")"',
-            'rmdir "$quarantine_root"',
-            'mv "$runtime_root" "$quarantine_root"',
-            'echo "RUNTIME_QUARANTINED runtime_id=$runtime_id path=$quarantine_root" >&2',
-            "RUNTIME_REBUILD_FAILED runtime_id=$runtime_id reason=$rebuild_reason",
-        ):
-            self.assertIn(marker, self.source)
-
-    def test_classify_mirrors_verify_ready_runtime_check_order(self) -> None:
-        classify_start = self.source.index("classify_ready_runtime_failure() {")
-        classify_end = self.source.index("\n}", classify_start)
-        classify = self.source[classify_start:classify_end]
-        checks = [
-            "ready_file",
-            "venv_python",
-            "runtime_lock_file",
-            "requirements_file",
-            "lock_file",
-            "manifest_file",
-            "ready_marker",
-            "cmp_runtime_lock",
-            "cmp_requirements",
-            "cmp_lock_file",
-            "manifest_python",
-        ]
-        positions = [classify.index(f'echo "{check}"') for check in checks]
-        self.assertEqual(positions, sorted(positions))
-        # Same predicates, same order as verify_ready_runtime.
-        for predicate in (
-            '[[ -f "$runtime_root/ready" ]]',
-            '[[ -x "$runtime_root/venv/bin/python" ]]',
-            '[[ -f "$runtime_root/runtime-lock.json" ]]',
-            '[[ -f "$runtime_root/requirements-runtime.txt" ]]',
-            '[[ -f "$runtime_root/requirements-runtime.lock.txt" ]]',
-            '[[ -f "$runtime_root/runtime-manifest.json" ]]',
-            'cmp -s "$lock_path" "$runtime_root/runtime-lock.json"',
-            'cmp -s "$requirements_path" "$runtime_root/requirements-runtime.txt"',
-            'cmp -s "$lock_file_path" "$runtime_root/requirements-runtime.lock.txt"',
-            'verify_python "$runtime_root/venv/bin/python" "$runtime_root/runtime-manifest.json"',
-        ):
-            self.assertIn(predicate, classify)
+    # test_rebuild_evidence_markers_present and
+    # test_classify_mirrors_verify_ready_runtime_check_order retired (issue
+    # #398 wave 2): their invariants are asserted behaviorally by the executed
+    # class — rebuild/quarantine/fail-closed evidence markers on real runs
+    # (scenarios (a)/(b)) and the full 11-sub-check classify matrix with
+    # check=<name> evidence (test_failing_check_evidence_names_each_sub_check),
+    # which proves order and naming for every verify_ready_runtime sub-check.
 
     def test_quarantine_preserves_evidence_and_never_deletes(self) -> None:
+        # STATIC_POLICY: the transaction never deletes the failing runtime —
+        # ANY rm of the runtime root is a violation, so the absence pins stay
+        # textual. Quarantine preservation is asserted behaviorally by the
+        # executed scenarios (a) (quarantine dir + prior bytes intact) and (b)
+        # (staging failure keeps the quarantine as evidence), so the
+        # mktemp/rmdir/mv mechanism order is not re-pinned here.
         self.assertNotIn('rm -rf "$runtime_root"', self.source)
         self.assertNotIn('rm -r "$runtime_root"', self.source)
-        quarantine = self.source.index('quarantine_root="$(mktemp -d')
-        rmdir = self.source.index('rmdir "$quarantine_root"')
-        mv = self.source.index('mv "$runtime_root" "$quarantine_root"')
-        self.assertLess(quarantine, rmdir)
-        self.assertLess(rmdir, mv)
 
     def test_rebuild_skips_legacy_adoption_and_runs_fresh_staging(self) -> None:
         guard = self.source.index('if [[ -z "$rebuild_reason" ]]; then')
@@ -331,15 +293,10 @@ class PrepareRuntimeRebuildContractTests(unittest.TestCase):
         rebuilt_close = self.source.rindex("fi\nprintf 'RUNTIME_ID %s\\n' \"$runtime_id\"")
         self.assertLess(rebuilt, rebuilt_close)
 
-    def test_healthy_path_emissions_are_unchanged(self) -> None:
-        self.assertIn("printf 'RUNTIME_REUSED runtime_id=%s\\n' \"$runtime_id\"", self.source)
-        self.assertIn("printf 'RUNTIME_CREATED runtime_id=%s cache=%s hash_locked=true\\n'", self.source)
-        reused = self.source.index("RUNTIME_REUSED runtime_id=")
-        rebuild_branch = self.source.index('if [[ -n "$rebuild_reason" ]]; then')
-        created = self.source.index("RUNTIME_CREATED runtime_id=")
-        self.assertLess(reused, rebuild_branch)
-        # RUNTIME_CREATED survives as the healthy fresh-install emission.
-        self.assertLess(rebuild_branch, created)
+    # test_healthy_path_emissions_are_unchanged retired (issue #398 wave 2):
+    # executed twins assert the same healthy-path emissions on real runs —
+    # scenario (c) pins the exact stdout including RUNTIME_REUSED, and the
+    # issue-514 rebaked test asserts RUNTIME_CREATED on the fresh-install path.
 
     def test_manifest_names_share_one_pypi_canonicalization(self) -> None:
         # Issue #514 structural pin: exactly ONE textual PEP 503 definition,
@@ -449,6 +406,22 @@ class PrepareRuntimeRebuildExecutedTests(unittest.TestCase):
         if kind == "cmp_runtime_lock":
             with open(runtime_root / "runtime-lock.json", "ab") as handle:
                 handle.write(b"# drift\n")
+        if kind == "cmp_requirements":
+            with open(runtime_root / "requirements-runtime.txt", "ab") as handle:
+                handle.write(b"# drift\n")
+        if kind == "cmp_lock_file":
+            with open(runtime_root / "requirements-runtime.lock.txt", "ab") as handle:
+                handle.write(b"# drift\n")
+        # Missing-file sub-checks: the runtime-root copy of the named
+        # definition file is absent, so verify_ready_runtime fails at the
+        # corresponding [[ -f ... ]] check (issue #398 wave 2: the failing
+        # sub-check evidence is now exercised for every sub-check).
+        if kind == "runtime_lock_file":
+            (runtime_root / "runtime-lock.json").unlink()
+        elif kind == "requirements_file":
+            (runtime_root / "requirements-runtime.txt").unlink()
+        elif kind == "lock_file":
+            (runtime_root / "requirements-runtime.lock.txt").unlink()
         if kind == "venv_python":
             (runtime_root / "venv" / "bin" / "python").unlink()
         return runtime_root
@@ -586,11 +559,21 @@ class PrepareRuntimeRebuildExecutedTests(unittest.TestCase):
         self.assertEqual(self._quarantine_dirs(), [])
 
     def test_failing_check_evidence_names_each_sub_check(self) -> None:
-        # (d) which-check evidence correctness for the mirrored sub-checks.
+        # (d) which-check evidence correctness for EVERY verify_ready_runtime
+        # sub-check (issue #398 wave 2): the executed matrix replaces the
+        # structural order-mirror pin — each failing runtime kind must produce
+        # its named check evidence in classify order.
         cases = {
             "ready_file": "ready marker file missing",
             "venv_python": "venv python executable missing",
+            "runtime_lock_file": "runtime lock json missing from runtime root",
+            "requirements_file": "runtime requirements missing from runtime root",
+            "lock_file": "runtime lock file missing from runtime root",
+            "manifest_file": "runtime manifest missing from runtime root",
+            "ready_marker": "ready marker runtime_id drift",
             "cmp_runtime_lock": "lock json byte drift",
+            "cmp_requirements": "requirements byte drift",
+            "cmp_lock_file": "lock file byte drift",
             "manifest_python": "manifest lock-hash drift",
         }
         for kind, description in cases.items():

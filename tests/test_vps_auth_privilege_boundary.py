@@ -14,7 +14,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 HELPER_PATH = ROOT / "deploy/vps/sea-speed-auth-privileged-helper.py"
-DEPLOY_SCRIPT = ROOT / "deploy/vps/deploy.sh"
 INSTALLER = ROOT / "deploy/vps/install-auth-privilege-boundary.sh"
 SOURCE_SHA = "a" * 40
 
@@ -288,12 +287,13 @@ class CameraFreshnessRecoveryTests(unittest.TestCase):
         self.assertFalse(any(argv[:2] == ["systemctl", "restart"] for argv in calls))
         self.assertTrue(any(any("v3/paths/cam1/patch" in a for a in argv) for argv in calls))
 
-    def test_deploy_runtime_verified_remains_behind_reconcile_gate(self) -> None:
-        text = DEPLOY_SCRIPT.read_text(encoding="utf-8")
-        self.assertGreaterEqual(text.count("if run_auth_boundary; then"), 2)
-        self.assertIn('write_deployment_manifest "$COMMIT_SHA"', text)
-        self.assertIn('"runtime_verified" "true"', text)
-        self.assertLess(text.index("if run_auth_boundary; then"), text.index('"runtime_verified" "true"'))
+    # test_deploy_runtime_verified_remains_behind_reconcile_gate retired
+    # (issue #398 wave 2): the executed deploy.sh transaction twins in
+    # tests/test_vps_deploy_transaction.py assert the same gate behaviorally —
+    # pre-gate boundary failure produces no manifest, post-mutation gate
+    # failure produces a rolled_back manifest, success writes
+    # runtime_verified=true, and the first-restart-only ss-mode case proves
+    # the boundary gate runs at both transaction sites.
 
 
 class PrivilegeInstallerTests(unittest.TestCase):

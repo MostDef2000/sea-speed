@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -47,74 +48,92 @@ class UbuntuWorkerInstalledCopyRefreshContractTests(unittest.TestCase):
     def test_shell_syntax(self) -> None:
         subprocess.run(["bash", "-n", str(UPDATER)], check=True)
 
+    # Issue #398 wave 2: the inventory, transaction order and required-command
+    # contracts are asserted structurally (parsed from the script) instead of
+    # by raw substring pins, so harmless reformatting/quoting cannot fail them.
+    def _declared_inventory_entries(self) -> list[tuple[str, str, str]]:
+        """(source-var, destination-var, mode) triples declared by the inventory.
+
+        Structured parse of the installed_copy_inventory array (issue #398):
+        entry VALUES are shell variable references, so the invariant is the
+        declared (src, dst, mode) triple set — quote/whitespace tolerant.
+        """
+        start = self.source.index("local -a installed_copy_inventory=(")
+        body = self.source[start : self.source.index(")", start)]
+        entries = re.findall(r"\$\{?(\w+)_src\}?\|\$\{?(\w+)_dst\}?\|(\d{4})", body)
+        self.assertTrue(entries, "installed_copy_inventory array not found")
+        return entries
+
     def test_inventory_covers_every_release_derived_installed_copy(self) -> None:
         # Full installed-copy inventory (recon, issue #406): the watchdog trio is
         # the complete set of release-derived files installed outside the release
         # tree; deploy-managed units are swapped by install-systemd.sh and every
         # other deploy/worker/ubuntu component executes in place from the release
         # tree, so nothing else can go stale.
-        for marker in (
-            "local -a installed_copy_inventory=(",
-            '"$watchdog_src|$watchdog_dst|0755"',
-            '"$watchdog_unit_src|$watchdog_unit_dst|0644"',
-            '"$watchdog_timer_src|$watchdog_timer_dst|0644"',
-        ):
-            self.assertIn(marker, self.source)
+        self.assertEqual(
+            sorted(self._declared_inventory_entries()),
+            sorted(
+                [
+                    ("watchdog", "watchdog", "0755"),
+                    ("watchdog_unit", "watchdog_unit", "0644"),
+                    ("watchdog_timer", "watchdog_timer", "0644"),
+                ]
+            ),
+        )
 
     def test_refresh_runs_inside_deploy_transaction_before_control_restart(self) -> None:
-        self.assertIn(
-            'refresh_installed_copies || abort_activation "installed copy refresh failed"', self.source
-        )
-        self.assertLess(
-            self.source.index("capture_watchdog_prestate\n"),
-            self.source.index('refresh_installed_copies || abort_activation "installed copy refresh failed"'),
-        )
-        self.assertLess(
-            self.source.index('refresh_installed_copies || abort_activation "installed copy refresh failed"'),
-            self.source.index("systemctl daemon-reload || abort_activation \"watchdog daemon-reload failed\""),
-        )
-        self.assertLess(
-            self.source.index("systemctl daemon-reload || abort_activation \"watchdog daemon-reload failed\""),
-            self.source.index('if ! systemctl restart "$control_service_name"'),
-        )
+        # Transaction stage order (issue #406): prestate capture -> inventory
+        # refresh -> daemon-reload -> control-service restart. Anchored on the
+        # stage commands, not their surrounding formatting (issue #398).
+        positions = [
+            self._source_position(r"^\s*capture_watchdog_prestate\s*$"),
+            self._source_position(r"refresh_installed_copies\s*\|\|\s*abort_activation"),
+            self._source_position(r"systemctl\s+daemon-reload\s*\|\|\s*abort_activation"),
+            self._source_position(
+                r'systemctl\s+restart\s+"\$control_service_name"\s*(?:\|\|\s*abort_activation|;\s*then)'
+            ),
+        ]
+        self.assertEqual(positions, sorted(positions))
 
-    def test_prior_bytes_backed_up_before_first_mutation(self) -> None:
-        body = self._refresh_body()
-        self.assertIn('installed_copy_backup="$(mktemp "$updater_root/installed-copy-backup.XXXXXX")" || return 1', body)
-        self.assertIn('install -o root -g root -m 0600 "$dst" "$installed_copy_backup" || return 1', body)
-        self.assertLess(
-            body.index('install -o root -g root -m 0600 "$dst" "$installed_copy_backup"'),
-            body.index('install -o root -g root -m "$mode" "$src" "$dst"'),
-        )
+    def _source_position(self, pattern: str) -> int:
+        match = re.search(pattern, self.source, re.MULTILINE)
+        if match is None:
+            self.fail(f"transaction stage anchor not found: {pattern}")
+        return match.start()
 
-    def test_hash_parity_is_verified_after_every_refresh(self) -> None:
-        body = self._refresh_body()
-        for marker in (
-            'src_sha="$(sha256sum "$src")"',
-            'dst_sha="$(sha256sum "$dst")"',
-            'if [[ -z "$src_sha" || "$src_sha" != "$dst_sha" ]]; then',
-            'install -o root -g root -m "$mode" "$installed_copy_backup" "$dst" || return 1',
-        ):
-            self.assertIn(marker, body)
+    # test_prior_bytes_backed_up_before_first_mutation,
+    # test_hash_parity_is_verified_after_every_refresh and
+    # test_fresh_install_is_idempotent retired (issue #398 wave 2): their
+    # invariants are asserted behaviorally by the executed class below —
+    # backup-before-mutation by test_install_failure_fails_closed_and_restores_
+    # prior_bytes (prior bytes restored on refresh failure), hash parity after
+    # every refresh by test_hash_mismatch_fails_closed_and_restores_prior_bytes
+    # (corrupt install caught by the parity gate), fresh-install idempotency by
+    # test_fresh_host_installs_every_inventory_entry_from_release.
 
     def test_leftover_is_reported_and_never_deleted(self) -> None:
-        # Bounded behavior: a release tree that lacks the source for an existing
-        # installed copy (installed-only leftover) is reported and left untouched;
-        # the transaction must not delete installed artifacts.
+        # STATIC_POLICY: the transaction never deletes installed artifacts —
+        # ANY rm of an installed copy is a violation, so the absence pin stays
+        # textual. The report evidence markers are asserted behaviorally by the
+        # executed test_release_tree_lacking_source_reports_leftover_without_
+        # deletion (stderr markers + untouched bytes), so they are not re-pinned
+        # here (issue #398 wave 2).
         body = self._refresh_body()
-        self.assertIn("INSTALLED_COPY_LEFTOVER", body)
-        self.assertIn("action=reported_not_deleted", body)
         self.assertNotIn('rm -f "$dst"', body)
 
-    def test_fresh_install_is_idempotent(self) -> None:
-        # A missing installed copy is a fresh install from the release: the
-        # refresh path must not require a pre-existing installed copy.
-        body = self._refresh_body()
-        self.assertIn('if [[ -f "$dst" ]]; then', body)
-        self.assertIn('if ! install -o root -g root -m "$mode" "$src" "$dst"; then', body)
-
     def test_required_commands_include_sha256sum(self) -> None:
-        self.assertIn("for command_name in git python3 ffmpeg tar flock stat install grep mktemp mv sha256sum; do", self.source)
+        # The required-command gate list is parsed structurally: the full gate
+        # set must stay required (order/spelling-tolerant), with sha256sum
+        # explicitly pinned because the parity gate depends on it (issue #398
+        # wave 2; peer-review finding 1 — full set restored).
+        match = re.search(r"for command_name in ([^;]+); do", self.source)
+        if match is None:
+            self.fail("required-command gate not found")
+        commands = set(match.group(1).split())
+        self.assertEqual(
+            commands,
+            {"git", "python3", "ffmpeg", "tar", "flock", "stat", "install", "grep", "mktemp", "mv", "sha256sum"},
+        )
 
     def test_cleanup_covers_installed_copy_backup(self) -> None:
         cleanup = self.source[self.source.index("cleanup() {"):self.source.index("trap cleanup EXIT")]
