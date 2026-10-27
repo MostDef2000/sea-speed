@@ -27,14 +27,21 @@
 
 ## Requirements traceability
 
-- R-1 → mapping table in plan.md (all 16 files adjudicated; every removed assertion has a twin or
-  SP retention) + tasks.md ledger.
-- R-2 → SP pins kept verbatim carry in-code justification comments (T8b / D-6 / #514 precedents).
-- R-3 → tests/test_398_wave2_demo.py passes both directions (inverted mutation recorded below).
-- R-4 → no production file touched (git status limited to tests/**, tests/support/**,
-  specs/398-wave2/**).
-- R-5 → executed harnesses offline; PyYAML already CI-pinned; node exec deterministic.
-- R-6 → battery green with per-file deltas accounted; both validators green.
+- AC-001 | Task: T-1, T-2, T-3, T-4, T-5, T-6, T-7, T-8 | Evidence: TEST-001 | Coverage: COVERED
+- AC-002 | Task: T-2, T-3, T-4, T-5, T-6, T-7 | Evidence: TEST-002 | Coverage: COVERED
+- AC-003 | Task: T-9 | Evidence: TEST-003 | Coverage: COVERED
+- AC-004 | Task: T-1, T-10 | Evidence: TEST-004 | Coverage: COVERED
+- AC-005 | Task: T-10 | Evidence: TEST-004 | Coverage: COVERED
+- AC-006 | Task: T-10 | Evidence: TEST-005 | Coverage: COVERED
+
+Requirement notes: R-1 → mapping table in plan.md (all 16 files adjudicated; every removed
+assertion has a twin or SP retention) + the battery-delta ledger below; R-2 → SP pins kept
+verbatim carry in-code justification comments (T8b / D-6 / #514 precedents); R-3 → the demo's
+inverted-mutation proof recorded below; R-4 → no production file touched (git status limited to
+tests/**, tests/support/**, specs/398-wave2/** + the recorded validate_sdd.py exception); R-5 →
+executed harnesses offline; PyYAML already CI-pinned (battery jobs) and loudly skipped in the
+stdlib-only property-fuzz job; node exec deterministic; R-6 → battery green with per-file deltas
+accounted; both validators green.
 
 ## Battery-delta ledger (cluster net −8; demo +1; observed 1167→1160, subtests 262→271)
 
@@ -71,9 +78,19 @@ Peer-review corrections (adversarial review, 2026-10-27; both verified by orches
 
 ## Definition of Done
 
-- [x] All 16 cluster files adjudicated (mapping table in plan.md).
-- [x] Battery delta −8 (+1 demo) with recorded twins; no assertion weakened or skipped.
-- [x] Demo proves conversion property in both directions.
-- [x] validate_repo.py green; validate_sdd.py green for the trio (staged-wave grandfather entry
-      for prefix 398 added by the orchestrator).
-- [x] No commits/pushes: work delivered as an uncommitted branch `test/398-wave2-pin-conversion`.
+- [x] Issue/spec/plan/tasks current
+- [x] Exact changed-file scope verified
+- [x] Required tests and evidence complete
+- [ ] Required CI green — orchestrator-owned (PR creation and exact-head CI)
+- [ ] Exact-green-head merge complete — orchestrator-owned
+- [x] Deployment state resolved — NOT REQUIRED (tests-only + one validator line; no runtime artifact changes)
+- [ ] Runtime acceptance resolved — runtime acceptance = exact-head CI green on the merge PR (RF-001)
+- [x] Deferred work recorded — waves 3+ of #398 remain in the issue backlog; #478 owner-lane items live on the issue; CI-admission findings recorded in the tasks.md ledger
+- [x] Risks resolved or explicitly accepted — plan.md Risk profile: NOT REQUIRED with prose risks recorded
+- [x] Waivers resolved or current — no waivers
+
+Wave record: all 16 cluster files adjudicated (mapping table in plan.md); battery delta −8 (+1 demo)
+with recorded twins, no assertion weakened or skipped; demo proves the conversion property in both
+directions; validate_repo.py green; validate_sdd.py green for the trio (staged-wave grandfather
+entry for prefix 398 added by the orchestrator).
+

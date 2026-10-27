@@ -73,6 +73,7 @@ reuses the established node-exec pattern; Python AST conversions reuse the gener
 
 ## Risk profile
 
+- Risk profile: NOT REQUIRED
 - Executed harnesses are offline and deterministic (node stub DOM, tmp fixtures, no network); the
   executed classify matrix reuses the existing PIP/PY3/CHOWN stub harness — no new flake surface.
 - Battery may only shrink by the redundancy ledger; every retirement cites its twin.
@@ -81,15 +82,18 @@ reuses the established node-exec pattern; Python AST conversions reuse the gener
 
 ## Test design
 
-- RB where execution is natural (configure script, tombstone verifier, page inline scripts,
-  classify matrix); SS where the artifact is a file format (workflows, lock JSON, env files,
-  Python sources); SP verbatim where the text IS the contract; NO CHANGE recorded where the file
-  is already RB/SS-clean or its pins are deliberate SP.
+- TEST-001 | Covers: AC-001 | Level: unit | Priority: P0 | Evidence: every mapping-table action's focused run green (F2 14, F3 17, F4 8, F5 14 with 11 executed sub-checks, F7 15, F12+F15 18, F16 node-exec); SP pins byte-verbatim (peer-review enumeration, findings 1-2 corrected)
+- TEST-002 | Covers: AC-002 | Level: integration | Priority: P0 | Evidence: battery 1167/4/262 → 1160/4/271; battery-delta ledger in tasks.md maps every retired assertion to its recorded executed twin
+- TEST-003 | Covers: AC-003 | Level: integration | Priority: P1 | Evidence: tests/test_398_wave2_demo.py — both directions with recorded inverted-mutation run (dead-marker direction fails the converted check)
+- TEST-004 | Covers: AC-004, AC-005 | Level: integration | Priority: P0 | Evidence: full battery 1160 passed / 4 skipped / 271 subtests; validate_sdd + validate_repo green (CI-mode --event re-run after CI findings)
+- TEST-005 | Covers: AC-006 | Level: integration | Priority: P1 | Evidence: git status shows only declared paths + the recorded validate_sdd.py grandfather-entry exception
 
 ## Correct-course check
 
-No production change was required at any point; no criterion forced a STOP. Pre-existing LSP
-import-resolution diagnostics in tests/test_detection_runtime_optimization.py and
-tests/test_sync_tasks_md_flow.py are unrelated to this wave (untouched lines). The staged-wave
-grandfather entry for prefix 398 was required in scripts/ci/validate_sdd.py (orchestrator-added;
-forbidden path for this wave).
+- Trigger: NONE
+- Issue impact: NONE
+- Specification impact: NONE
+- Plan impact: NONE
+- Tasks impact: NONE
+- Authorization impact: NONE
+- Follow-up: none — no production learning, no pivot, no material scope change (the two CI-admission fixes — NFR line-wrapping and the yaml guard for the stdlib-only property-fuzz job — stayed inside the wave-2 allowed paths and are recorded in the tasks.md ledger).

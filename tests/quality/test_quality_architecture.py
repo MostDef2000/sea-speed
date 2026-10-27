@@ -9,7 +9,23 @@ import unittest
 from pathlib import Path
 from typing import Any, Iterator
 
-import yaml
+# PyYAML is a test-only dependency: the battery jobs install pyyaml==6.0.3
+# (pr-validation.yml, quality-integration.yml) and run every test here; the
+# stdlib-only property-fuzz-reliability job runs this module without it, so the
+# two yaml-consuming tests skip LOUDLY there instead of breaking the import
+# (issue #398 wave 2; CI failure 40443050987).
+try:
+    import yaml  # noqa: F401
+    HAS_YAML = True
+except ModuleNotFoundError:  # pragma: no cover - exercised by the stdlib-only CI job
+    HAS_YAML = False
+
+
+def _yaml_load(text: str) -> Any:
+    """Parse YAML in tests that require the test-only parser (see HAS_YAML)."""
+    import yaml
+
+    return yaml.safe_load(text)
 
 from tests.support import worker_source
 
@@ -37,24 +53,24 @@ class QualityArchitectureTests(unittest.TestCase):
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=True,
         )
 
+    @unittest.skipUnless(HAS_YAML, "PyYAML not installed (stdlib-only property-fuzz job); battery jobs run this test")
     def test_protected_workflow_admission_contracts_remain(self) -> None:
         # Structured workflow contracts (issue #398 wave 2): shapes are parsed
         # with yaml.safe_load instead of substring pins; the retirement bans
         # (STATIC_POLICY: textual absence is the contract) stay verbatim.
-        workflows = ROOT / ".github/workflows"
         deploy_text = (ROOT / ".github/workflows/deploy-vps.yml").read_text(encoding="utf-8")
         ubuntu_text = (ROOT / ".github/workflows/deploy-ubuntu-worker.yml").read_text(encoding="utf-8")
         autonomous_text = (ROOT / ".github/workflows/deploy-runtime-autonomous.yml").read_text(encoding="utf-8")
-        deploy = yaml.safe_load(deploy_text)
-        ubuntu = yaml.safe_load(ubuntu_text)
-        autonomous = yaml.safe_load(autonomous_text)
+        deploy = _yaml_load(deploy_text)
+        ubuntu = _yaml_load(ubuntu_text)
+        autonomous = _yaml_load(autonomous_text)
 
         # The shared composite action is the structured carrier of the
         # exact-release verification chain: source protection, first-parent
         # main membership, aggregate quality status, then standing-delegation
         # policy evaluation with the require-allow switch the deploy
         # workflows bind.
-        verify_action = yaml.safe_load(
+        verify_action = _yaml_load(
             (ROOT / ".github/actions/verify-exact-release/action.yml").read_text(encoding="utf-8")
         )
         action_strings = "\n".join(walk_strings(verify_action["runs"]["steps"]))
@@ -113,6 +129,7 @@ class QualityArchitectureTests(unittest.TestCase):
         )
         self.assertIn("auth_v1_road_private_m2m", "\n".join(walk_strings(deploy_job)))
 
+    @unittest.skipUnless(HAS_YAML, "PyYAML not installed (stdlib-only property-fuzz job); battery jobs run this test")
     def test_source_protection_contract_is_fail_closed(self) -> None:
         # AST conversion (issue #398 wave 2): the fail-closed comparisons and
         # the required-status-checks refusal are parsed from the verifier
@@ -128,7 +145,7 @@ class QualityArchitectureTests(unittest.TestCase):
         )
         # The deploy chain requires the two status contexts through the shared
         # action (structured), not by comment text in the workflow files.
-        verify_action = yaml.safe_load(
+        verify_action = _yaml_load(
             (ROOT / ".github/actions/verify-exact-release/action.yml").read_text(encoding="utf-8")
         )
         action_strings = "\n".join(walk_strings(verify_action["runs"]["steps"]))

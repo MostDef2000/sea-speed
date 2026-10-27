@@ -92,19 +92,7 @@ road page.
 
 ## NFR assessment
 
-- NFR-001 | Area: reliability | Target: converted suites are deterministic (no network, tmp
-  fixtures, stub DOM; node subprocess failures carry embedded stderr) | Validation: focused runs
-  repeated across sessions; demo isolates mutations in tmp with cleanup | Evidence: full battery
-  1160 passed / 4 skipped | Status: PASS
-- NFR-002 | Area: coverage | Target: zero coverage loss — every removed text assertion maps to an
-  executed twin, a structured equivalent, or a retained verbatim SP pin; the classify order-mirror
-  pin becomes STRONGER (all 11 sub-checks executed) | Validation: mapping table in plan.md;
-  tasks.md redundancy ledger | Evidence: tests_run tails | Status: PASS
-- NFR-003 | Area: performance | Target: battery wall time does not materially regress (43.24s vs
-  39.67s baseline; the executed classify matrix adds ~1.5s; one node spawn per frontend scenario)
-  | Validation: full battery timing comparison vs baseline | Evidence: tests_run tails | Status:
-  PASS
-- NFR-004 | Area: maintainability | Target: ONE new support module (tests/support/frontend_html.py)
-  beside the wave-1 harness; house conversion models only (node harness, yaml.safe_load, AST
-  helpers from tests/support/worker_source.py) | Validation: reviewer check that no new
-  framework/pattern was invented | Evidence: diff review | Status: PASS
+- NFR-001 | Area: reliability | Target: converted suites are deterministic (no network, tmp fixtures, stub DOM; node subprocess failures carry embedded stderr) | Validation: focused runs repeated across sessions; demo isolates mutations in tmp with cleanup | Evidence: full battery 1160 passed / 4 skipped | Status: PASS
+- NFR-002 | Area: coverage | Target: zero coverage loss — every removed text assertion maps to an executed twin, a structured equivalent, or a retained verbatim SP pin; the classify order-mirror pin becomes STRONGER (all 11 sub-checks executed) | Validation: mapping table in plan.md; tasks.md redundancy ledger | Evidence: tests_run tails | Status: PASS
+- NFR-003 | Area: performance | Target: battery wall time does not materially regress (43.24s vs 39.67s baseline; the executed classify matrix adds ~1.5s; one node spawn per frontend scenario) | Validation: full battery timing comparison vs baseline | Evidence: tests_run tails | Status: PASS
+- NFR-004 | Area: maintainability | Target: ONE new support module (tests/support/frontend_html.py) beside the wave-1 harness; house conversion models only (node harness, yaml.safe_load, AST helpers from tests/support/worker_source.py) | Validation: reviewer check that no new framework/pattern was invented | Evidence: diff review | Status: PASS

@@ -21,7 +21,6 @@ Both directions run against tmp copies only; frontend/ is never modified.
 """
 from __future__ import annotations
 
-import subprocess
 import sys
 import tempfile
 import unittest
