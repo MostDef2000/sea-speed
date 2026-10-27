@@ -118,6 +118,14 @@ globalThis.document = {
     if (!__record.elements[id]) __record.elements[id] = __makeElement(id);
     return __record.elements[id];
   },
+  // Issue #398 wave 4: pages may build DOM nodes at boot (the water operator
+  // page appends a crossing-line canvas inside the overlay wrap) — fabricate
+  // the same full element stub for any created tag.
+  createElement(tag) {
+    const element = __makeElement("");
+    element.tagName = String(tag || "").toUpperCase();
+    return element;
+  },
 };
 globalThis.window = globalThis;
 globalThis.addEventListener = function () {};
