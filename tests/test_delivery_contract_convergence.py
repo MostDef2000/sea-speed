@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import ast
+import importlib.util
 import json
 import unittest
 from pathlib import Path
+
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -10,6 +14,33 @@ ROOT = Path(__file__).resolve().parents[1]
 class DeliveryContractConvergenceTests(unittest.TestCase):
     def read(self, path: str) -> str:
         return (ROOT / path).read_text(encoding="utf-8-sig")
+
+    def _constant_string_set(self, path: str, name: str) -> set[str]:
+        """Parse a module-level `NAME = {...}` literal into a set of strings."""
+        tree = ast.parse((ROOT / path).read_text(encoding="utf-8"))
+        for node in tree.body:
+            if not isinstance(node, ast.Assign):
+                continue
+            if not any(isinstance(target, ast.Name) and target.id == name for target in node.targets):
+                continue
+            elements = node.value.elts if isinstance(node.value, (ast.Set, ast.List, ast.Tuple)) else []
+            values = {
+                element.value
+                for element in elements
+                if isinstance(element, ast.Constant) and isinstance(element.value, str)
+            }
+            self.assertEqual(len(values), len(elements), f"{name} must be a flat string literal set")
+            return values
+        self.fail(f"{path} does not define module constant {name}")
+
+    def _load_validator(self):
+        """Import the real validate_change_contract module (import-safe)."""
+        path = ROOT / "scripts/ci/validate_change_contract.py"
+        spec = importlib.util.spec_from_file_location("validate_change_contract", path)
+        module = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(module)
+        return module
 
     def test_delivery_orchestrator_is_canonical_owner(self) -> None:
         contract = self.read("contracts/branches/project-manager.md")
@@ -30,14 +61,46 @@ class DeliveryContractConvergenceTests(unittest.TestCase):
 
     def test_source_authorization_uses_unified_phrase_exclusively(self) -> None:
         template = self.read(".github/pull_request_template.md")
-        validator = self.read("scripts/ci/validate_change_contract.py")
-        schema = self.read("schemas/delivery-checkpoint-v2.schema.json")
+        # Template presentation keeps (markdown prose, no AST): the unified
+        # phrase is the only one presented and no legacy phrase appears.
         self.assertIn("Source authorization: commit approved", template)
         self.assertNotIn("Source authorization: OUTCOME APPROVED", template)
         self.assertNotIn("LEGACY COMMIT APPROVED", template)
-        self.assertIn('SOURCE_AUTHORIZATIONS = {"commit approved"}', validator)
-        self.assertNotIn('"OUTCOME APPROVED"', validator)
-        self.assertIn('"authorization_receipt": {"enum": ["commit approved"]}', schema)
+        # AST twin (issue #398 wave 5): the admission set is read from the
+        # validator's PARSED module constant instead of a byte-exact source
+        # line, so refactors of the literal cannot silently widen the set.
+        self.assertEqual(
+            self._constant_string_set("scripts/ci/validate_change_contract.py", "SOURCE_AUTHORIZATIONS"),
+            {"commit approved"},
+        )
+        # Parsed schema twin (issue #398 wave 5): the receipt enum is read via
+        # json.loads instead of a byte-exact JSON fragment.
+        schema = json.loads(self.read("schemas/delivery-checkpoint-v2.schema.json"))
+        self.assertEqual(schema["properties"]["authorization_receipt"]["enum"], ["commit approved"])
+        # The retired raw validator pins — the byte-exact constant line and
+        # the absence ban on the quoted legacy literal — are superseded by the
+        # EXECUTED twin in
+        # test_validate_authorization_rejects_retired_phrase_and_accepts_unified.
+
+    def test_validate_authorization_rejects_retired_phrase_and_accepts_unified(self) -> None:
+        # EXECUTED twin (issue #398 wave 5): the real validate_authorization
+        # runs against both phrases — the unified phrase is accepted and
+        # returned as the receipt; the retired legacy phrase fails closed for
+        # new admissions, with the unified phrase named in the error.
+        validator = self._load_validator()
+        fields = {
+            "Approval recorded after Implementation Scope Check": "YES",
+            "Material scope/protected-boundary change since authorization": "NO",
+        }
+        self.assertEqual(
+            validator.validate_authorization({**fields, "Source authorization": "commit approved"}),
+            "commit approved",
+        )
+        with self.assertRaises(validator.ContractError) as rejected:
+            validator.validate_authorization({**fields, "Source authorization": "OUTCOME APPROVED"})
+        message = str(rejected.exception)
+        self.assertIn("commit approved", message)
+        self.assertIn("OUTCOME APPROVED", message)
 
     def test_active_docs_name_exactly_two_production_contours(self) -> None:
         for path in ("README.md", "AGENTS.md", "contracts/SEA_SPEED_DELIVERY_POLICY.md"):
@@ -55,15 +118,35 @@ class DeliveryContractConvergenceTests(unittest.TestCase):
         self.assertIn("VPS deployment:", template)
         self.assertIn("Ubuntu worker/relay update:", template)
 
-    def test_autonomous_runtime_router_has_no_comment_authority(self) -> None:
-        workflow = self.read(".github/workflows/deploy-runtime-autonomous.yml")
-        self.assertNotIn("issue_comment:", workflow)
-        self.assertNotIn("PRODUCTION APPROVED", workflow)
-        self.assertNotIn("Execution-Intent: EXECUTE", workflow)
-        self.assertIn("deploy-vps", workflow)
-        self.assertIn("deploy-ubuntu-worker", workflow)
-        self.assertIn("SEA_SPEED_PRODUCTION_DELEGATION_V1", workflow)
-        self.assertIn("verify_source_protection.py", workflow)
+    def test_autonomous_runtime_router_routes_only_allowed_contours(self) -> None:
+        # Parsed-structure twin (issue #398 wave 5): the router's downstream
+        # routing table is asserted on the parsed jobs — each contour job
+        # needs the policy evaluation, is gated on the allowed decision AND
+        # its own contour requirement, and delegates to the local reusable
+        # deploy workflow with inherited secrets.
+        # The retired raw text pins of the former
+        # test_autonomous_runtime_router_has_no_comment_authority (trigger
+        # ban, comment-authority bans, delegation env, source-protection
+        # step) are superseded by the strictly stronger parsed twins in
+        # test_autonomous_execution_policy.py
+        # ::test_autonomous_router_uses_current_tip_quality_trusted_environment_and_source_protection.
+        workflow = yaml.safe_load(self.read(".github/workflows/deploy-runtime-autonomous.yml"))
+        jobs = workflow["jobs"]
+        self.assertEqual(sorted(jobs), ["deploy-ubuntu-worker", "deploy-vps", "evaluate"])
+        for job_name, contour_output, workflow_file in (
+            ("deploy-vps", "vps_required", "deploy-vps.yml"),
+            ("deploy-ubuntu-worker", "ubuntu_worker_required", "deploy-ubuntu-worker.yml"),
+        ):
+            job = jobs[job_name]
+            needs = job["needs"]
+            self.assertEqual(needs if isinstance(needs, list) else [needs], ["evaluate"], job_name)
+            self.assertEqual(job["uses"], f"./.github/workflows/{workflow_file}", job_name)
+            self.assertEqual(job["secrets"], "inherit", job_name)
+            for condition in (
+                "needs.evaluate.outputs.allowed == 'true'",
+                f"needs.evaluate.outputs.{contour_output} == 'true'",
+            ):
+                self.assertIn(condition, job["if"], job_name)
 
     def test_public_protected_main_and_zero_touch_transport_converge_across_contracts(self) -> None:
         policy = self.read("contracts/SEA_SPEED_DELIVERY_POLICY.md")
