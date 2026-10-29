@@ -27,11 +27,11 @@ ANALYTICS_SOURCE = ROOT / "api" / "app" / "analytics.py"
 STORE_FILE = ROOT / "api" / "app" / "store.py"
 
 try:
-    from tests.support import worker_source
+    from tests.support import frontend_html, worker_source
 except ModuleNotFoundError:  # direct file execution: put the repo root on sys.path
     if str(ROOT) not in sys.path:
         sys.path.insert(0, str(ROOT))
-    from tests.support import worker_source
+    from tests.support import frontend_html, worker_source
 
 
 def _load_api_store():
@@ -448,13 +448,14 @@ class ApiCrossingTests(unittest.TestCase):
 class Cam1LegacyKindFallbackTests(unittest.TestCase):
     def test_cam1_unknown_kind_falls_back_to_data_dir(self) -> None:
         # Issue #396 wave 5: the cam1 legacy-kind fallback moved with the
-        # crossing slice into analytics.py; the pin scans main.py joined
-        # with the analytics module (same multi-source walk as the other
-        # readers). Assertion text is byte-unchanged.
-        text = API.read_text(encoding="utf-8")
-        if ANALYTICS_SOURCE.exists():
-            text += "\n" + ANALYTICS_SOURCE.read_text(encoding="utf-8")
-        self.assertIn('if camera_id == "cam1" and kind in legacy:', text)
+        # crossing slice into analytics.py. 398-wave-4: the source-text pin
+        # became an AST twin — the fallback condition must exist as a real
+        # boolean expression (comment-blind, rename-tolerant).
+        tree = ast.parse(ANALYTICS_SOURCE.read_text(encoding="utf-8-sig"), filename=str(ANALYTICS_SOURCE))
+        self.assertTrue(
+            worker_source.contains_expr(tree, 'camera_id == "cam1" and kind in legacy'),
+            "the cam1 legacy-kind fallback condition must stay in the crossing slice",
+        )
 
 
 class CrossingUrlTests(unittest.TestCase):
@@ -611,33 +612,134 @@ class OverlayLineColorTests(unittest.TestCase):
             self.assertNotIn((255, 210, 60), worker_source.tuple_constants(tree), "retired line color must stay removed")
 
 
+CROSSING_PANEL_BOOT_RESPONSE = {
+    "match": "/crossing-line",
+    "json": {"enabled": True, "line": [{"x": 100, "y": 0}, {"x": 100, "y": 576}]},
+}
+
+# Executed crossing-panel twins (water + road). Both pages wire the panel
+# handlers onto the same recorded element ids (water: the crossingCard panel
+# IIFE; road: the main script's crossingCfg handlers), so one page-agnostic
+# scenario drives the real handlers on both pages. The panel API prefix is
+# derived from the recorded boot GET instead of hardcoding per-page URLs.
+CROSSING_PANEL_PREAMBLE = """
+  const assert = (cond, msg) => { if (!cond) { console.error("FAIL: " + msg); process.exit(1); } };
+  await new Promise((r) => setImmediate(r));
+  await new Promise((r) => setImmediate(r));
+  const lineCalls = () => __record.fetch.filter((c) => c.url.endsWith("/crossing-line"));
+  const bootGet = lineCalls().find((c) => (c.options.method || "GET") === "GET");
+  assert(bootGet, "panel must load the crossing-line config at boot");
+  assert(bootGet.options.credentials === "same-origin", "crossing-line config fetch must be same-origin");
+  const api = bootGet.url.slice(0, -"/crossing-line".length);
+  const postsToLine = () => lineCalls().filter((c) => (c.options.method || "GET") === "POST" && c.url === api + "/crossing-line");
+"""
+
+CROSSING_TOGGLE_SCENARIO = """
+;(async () => {
+""" + CROSSING_PANEL_PREAMBLE + """
+  assert(__record.elements.cxStatus.textContent === "линия активна", "boot cfg enabled must show the active status: " + __record.elements.cxStatus.textContent);
+  assert(__record.elements.cxOffBtn.textContent === "Выключить", "toggle label must follow cfg.enabled");
+  __responses.length = 0;
+  __setResponse("/crossing-line", { enabled: false, line: [{ x: 100, y: 0 }, { x: 100, y: 576 }] });
+  await __record.elements.cxOffBtn.onclick();
+  await new Promise((r) => setImmediate(r));
+  let posts = postsToLine();
+  assert(posts.length === 1, "disable must POST the crossing-line config exactly once");
+  let body = JSON.parse(posts[0].options.body);
+  assert(body.enabled === false && body.line.length === 2 && body.line[0].x === 100 && body.line[1].y === 576, "disable POST must carry enabled:false + the loaded line: " + posts[0].options.body);
+  assert(__record.elements.cxStatus.textContent === "линия выключена", "disable must report the off status: " + __record.elements.cxStatus.textContent);
+  assert(__record.elements.cxOffBtn.textContent === "Включить", "toggle label must flip after disable");
+  __responses.length = 0;
+  __setResponse("/crossing-line", { enabled: true, line: [{ x: 100, y: 0 }, { x: 100, y: 576 }] });
+  await __record.elements.cxOffBtn.onclick();
+  await new Promise((r) => setImmediate(r));
+  posts = postsToLine();
+  assert(posts.length === 2, "enable must POST the crossing-line config exactly once");
+  body = JSON.parse(posts[1].options.body);
+  assert(body.enabled === true && body.line.length === 2 && body.line[0].x === 100 && body.line[1].y === 576, "enable POST must carry enabled:true + the line: " + posts[1].options.body);
+  assert(__record.elements.cxStatus.textContent === "линия включена", "enable must report the enabled status: " + __record.elements.cxStatus.textContent);
+  assert(__record.elements.cxOffBtn.textContent === "Выключить", "toggle label must flip after enable");
+  console.log("###" + JSON.stringify({ api, posts: posts.length }));
+})().catch((e) => { console.error(e && e.stack || e); process.exit(1); });
+"""
+
+CROSSING_DELETE_SCENARIO = """
+;(async () => {
+""" + CROSSING_PANEL_PREAMBLE + """
+  __responses.length = 0;
+  __setResponse("/crossing-line", { enabled: false, line: [] });
+  await __record.elements.cxUndoBtn.onclick();
+  await new Promise((r) => setImmediate(r));
+  const posts = postsToLine();
+  assert(posts.length === 1, "delete must POST the crossing-line config exactly once");
+  const body = JSON.parse(posts[0].options.body);
+  assert(body.enabled === false && Array.isArray(body.line) && body.line.length === 0, "delete must persist the disabled empty state: " + posts[0].options.body);
+  assert(__record.elements.cxStatus.textContent === "линия удалена", "delete must report the removal: " + __record.elements.cxStatus.textContent);
+  assert(__record.elements.cxOffBtn.textContent === "Включить", "toggle label must offer enable after delete");
+  console.log("###" + JSON.stringify({ api, posts: posts.length }));
+})().catch((e) => { console.error(e && e.stack || e); process.exit(1); });
+"""
+
+# Executed DOM-guard twin (water page): booted while document.readyState is
+# "loading", the panel must not touch the crossing-line API and must register
+# a document DOMContentLoaded listener; firing it runs the deferred init
+# exactly once (config GET + cfg consumed into the status/toggle UI).
+CROSSING_DOM_GUARD_SCENARIO = """
+;(async () => {
+  const assert = (cond, msg) => { if (!cond) { console.error("FAIL: " + msg); process.exit(1); } };
+  await new Promise((r) => setImmediate(r));
+  await new Promise((r) => setImmediate(r));
+  const lineCalls = () => __record.fetch.filter((c) => c.url.endsWith("/crossing-line"));
+  assert(lineCalls().length === 0, "panel init must stay deferred while the DOM is loading");
+  const dcl = __record.listeners.filter(([scope, type]) => scope === "document" && type === "DOMContentLoaded");
+  assert(dcl.length >= 1, "panel must register a document DOMContentLoaded listener while the DOM is loading");
+  for (const [, , fn] of dcl) fn();
+  await new Promise((r) => setImmediate(r));
+  await new Promise((r) => setImmediate(r));
+  const gets = lineCalls().filter((c) => (c.options.method || "GET") === "GET");
+  assert(gets.length === 1, "firing DOMContentLoaded must load the crossing-line config exactly once");
+  assert(gets[0].options.cache === "no-store" && gets[0].options.credentials === "same-origin", "deferred config fetch must be same-origin no-store");
+  assert(__record.elements.cxStatus.textContent === "линия активна", "deferred init must consume the config into the status: " + __record.elements.cxStatus.textContent);
+  assert(__record.elements.cxOffBtn.textContent === "Выключить", "deferred init must sync the toggle label");
+  console.log("###" + JSON.stringify({ gets: gets.length }));
+})().catch((e) => { console.error(e && e.stack || e); process.exit(1); });
+"""
+
+
 class CrossingPanelUiTests(unittest.TestCase):
-    PANEL_PAGES = ("frontend/sea-speed/index.html", "frontend/sea-speed/road/index.html")
+    PANEL_PAGES = (ROOT / "frontend/sea-speed/index.html", ROOT / "frontend/sea-speed/road/index.html")
 
     def test_delete_line_button_replaces_point_undo(self) -> None:
-        for rel in self.PANEL_PAGES:
-            text = (ROOT / rel).read_text(encoding="utf-8")
+        # SS: the button labels are static panel markup (no AST/behavior beyond
+        # the label text); the executed delete behavior is the twin below.
+        for page in self.PANEL_PAGES:
+            text = page.read_text(encoding="utf-8")
             start = text.index('id="crossingCard"')
             block = text[start:text.index("</details>", start)]
             self.assertIn(">Удалить линию<", block)
             self.assertNotIn("Отменить точку", block)
 
     def test_delete_line_persists_disabled_empty_state(self) -> None:
-        for rel in self.PANEL_PAGES:
-            text = (ROOT / rel).read_text(encoding="utf-8")
-            start = text.index('id="cxUndoBtn"')
-            block = text[start:text.index("</script>", start)]
-            self.assertIn("enabled:false,line:[]", block)
-            self.assertIn("линия удалена", block)
+        # Executed twin: the recorded cxUndoBtn handler must POST the disabled
+        # empty config and report the removal on both pages.
+        for page in self.PANEL_PAGES:
+            frontend_html.run_inline_scripts(
+                source=page,
+                scenario=CROSSING_DELETE_SCENARIO,
+                responses=[CROSSING_PANEL_BOOT_RESPONSE],
+            )
 
     def test_off_button_is_dynamic_toggle(self) -> None:
-        for rel in self.PANEL_PAGES:
-            text = (ROOT / rel).read_text(encoding="utf-8")
-            self.assertIn('cfg.enabled?"Выключить":"Включить"', text)
-            start = text.index('id="cxOffBtn"')
-            block = text[start:text.index("</script>", start)]
-            self.assertIn("нет линии для включения", block)
-            self.assertIn("линия включена", block)
+        # Executed twin: the recorded cxOffBtn handler must toggle the config
+        # through the API (enabled:false keeping the line, then enabled:true
+        # with it), keep the label in sync, and the boot response must drive
+        # the initial label — on both pages.
+        for page in self.PANEL_PAGES:
+            frontend_html.run_inline_scripts(
+                source=page,
+                scenario=CROSSING_TOGGLE_SCENARIO,
+                responses=[CROSSING_PANEL_BOOT_RESPONSE],
+            )
 
 
 class CrossingPanelDomGuardTests(unittest.TestCase):
@@ -646,13 +748,24 @@ class CrossingPanelDomGuardTests(unittest.TestCase):
     an immediate getElementById returns null and the panel silently dies."""
 
     def test_panel_init_deferred_until_dom_ready(self) -> None:
-        for rel in CrossingPanelUiTests.PANEL_PAGES:
-            text = (ROOT / rel).read_text(encoding="utf-8")
-            start = text.index('id="crossingCard"')
-            block = text[start:text.index("</script>", start)]
-            self.assertIn('document.readyState==="loading"', block)
-            self.assertIn('addEventListener("DOMContentLoaded",init)', block)
-            self.assertIn("function init(){", block)
+        # Executed twin (water page): booting with readyState "loading" must
+        # keep the panel off the wire until the recorded DOMContentLoaded
+        # listener fires. The road page's crossingCard script block is a
+        # deliberate DOM-contract stub (the real road handlers live in the
+        # main script and are proven by the executed toggle/delete twins), so
+        # its guard markers stay a structural scan.
+        frontend_html.run_inline_scripts(
+            source=ROOT / "frontend/sea-speed/index.html",
+            scenario=CROSSING_DOM_GUARD_SCENARIO,
+            responses=[CROSSING_PANEL_BOOT_RESPONSE],
+            ready_state="loading",
+        )
+        text = (ROOT / "frontend/sea-speed/road/index.html").read_text(encoding="utf-8")
+        start = text.index('id="crossingCard"')
+        block = text[start:text.index("</script>", start)]
+        self.assertIn('document.readyState==="loading"', block)
+        self.assertIn('addEventListener("DOMContentLoaded",init)', block)
+        self.assertIn("function init(){", block)
 
 
 class CrossingConfigRefreshTests(unittest.TestCase):
@@ -708,14 +821,47 @@ class VlzDailyResetTests(unittest.TestCase):
 class SummaryDateRangeTests(unittest.TestCase):
     def test_summary_supports_vlz_day_window_params(self) -> None:
         # Issue #396 wave 5: the crossings summary service moved to
-        # analytics.py; the pins scan main.py joined with the analytics
-        # module (same multi-source walk as the other readers).
-        text = API.read_text(encoding="utf-8")
-        if ANALYTICS_SOURCE.exists():
-            text += "\n" + ANALYTICS_SOURCE.read_text(encoding="utf-8")
-        self.assertIn("date_from: Optional[str] = None, date_to: Optional[str] = None", text)
-        self.assertIn('"mode": "vlz_days"', text)
-        self.assertIn("VLZ_TIMEZONE = timezone(timedelta(hours=10))", text)
+        # analytics.py. 398-wave-4: the source-text pins became AST twins —
+        # the summary handler signature keeps optional date_from/date_to
+        # params, the VLZ window mode literal stays, and the VLZ timezone
+        # offset assignment stays a real call expression.
+        tree = ast.parse(ANALYTICS_SOURCE.read_text(encoding="utf-8-sig"), filename=str(ANALYTICS_SOURCE))
+        summary = next(
+            (node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "get_analytics_crossings_summary"),
+            None,
+        )
+        self.assertIsNotNone(summary, "get_analytics_crossings_summary must stay in the analytics module")
+        positional = {
+            arg.arg: default
+            for arg, default in zip(
+                summary.args.args[len(summary.args.args) - len(summary.args.defaults):],
+                summary.args.defaults,
+            )
+        }
+        kwonly = {arg.arg: default for arg, default in zip(summary.args.kwonlyargs, summary.args.kw_defaults)}
+        defaults = {**positional, **kwonly}
+        for param in ("date_from", "date_to"):
+            self.assertIn(param, defaults, f"summary must keep the {param} parameter")
+            self.assertIsInstance(defaults[param], ast.Constant)
+            self.assertIsNone(defaults[param].value, f"{param} must default to None")
+        vlz_mode_dicts = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Dict)
+            and any(
+                isinstance(k, ast.Constant) and k.value == "mode" and isinstance(v, ast.Constant) and v.value == "vlz_days"
+                for k, v in zip(node.keys, node.values)
+            )
+        ]
+        self.assertTrue(vlz_mode_dicts, "the summary window must keep the vlz_days mode literal")
+        vlz_assignments = worker_source.find_assignments(tree, "VLZ_TIMEZONE")
+        self.assertTrue(
+            any(
+                worker_source.dump(a.value) == worker_source.expr_dump("timezone(timedelta(hours=10))")
+                for a in vlz_assignments
+            ),
+            "VLZ_TIMEZONE must stay UTC+10",
+        )
 
     def test_summary_rejects_malformed_dates(self) -> None:
         ApiCrossingTests.setUpClass()  # fresh tmp so the SQLite store is openable
@@ -754,12 +900,66 @@ class OverlayAllClassesTests(unittest.TestCase):
         )
 
 
+OBJECTS_SPEED_RESPONSE = {
+    "match": "/sea-speed/api/objects",
+    "json": {
+        "objects": [
+            {
+                "object_id": "obj-1",
+                "class_name": "car",
+                "camera_id": "road1",
+                "domain": "road",
+                "speed_kmh": 57.3,
+                "status": "measured",
+            }
+        ],
+        "total": 1,
+        "count": 1,
+    },
+}
+
+# Executed objects-registry twins: the page boots against the shim with the
+# road scope (?scope=road via location_overrides) and the rendered card grid.
+OBJECTS_SCOPE_SCENARIO = """
+;(async () => {
+  const assert = (cond, msg) => { if (!cond) { console.error("FAIL: " + msg); process.exit(1); } };
+  await new Promise((r) => setImmediate(r));
+  await new Promise((r) => setImmediate(r));
+  assert(typeof registryScopeKey !== "undefined" && registryScopeKey === "road", "?scope=road must bind the global registry scope key: " + String(registryScopeKey));
+  assert(typeof window.registryScopeKey === "undefined", "the scope binding must live in the script scope, not on window");
+  const objectsFetch = __record.fetch.find((c) => c.url.startsWith("/sea-speed/api/objects"));
+  assert(objectsFetch, "objects page must load the registry at boot");
+  assert(objectsFetch.url.includes("camera_id=road1") && objectsFetch.url.includes("domain=road"), "road scope must query the road1 registry: " + objectsFetch.url);
+  console.log("###" + JSON.stringify({ url: objectsFetch.url }));
+})().catch((e) => { console.error(e && e.stack || e); process.exit(1); });
+"""
+
+OBJECTS_SPEED_SCENARIO = """
+;(async () => {
+  const assert = (cond, msg) => { if (!cond) { console.error("FAIL: " + msg); process.exit(1); } };
+  await new Promise((r) => setImmediate(r));
+  await new Promise((r) => setImmediate(r));
+  const grid = __record.elements.objectsGrid.innerHTML;
+  assert(grid.includes('<div>Скорость<span class="meta-value">'), "object card must render the speed row: " + grid.slice(0, 300));
+  assert(grid.includes("57.3"), "rendered card must carry the measured speed value");
+  console.log("###" + JSON.stringify({ rendered: grid.includes("obj-1") }));
+})().catch((e) => { console.error(e && e.stack || e); process.exit(1); });
+"""
+
+
 class RegistrySpeedRowTests(unittest.TestCase):
     def test_registry_card_shows_speed_in_description(self) -> None:
-        text = (ROOT / "frontend/sea-speed/objects/index.html").read_text(encoding="utf-8")
-        self.assertIn("<div>Скорость<span class=\"meta-value\">", text)
+        # Executed twin: the objects page must render a measured detection
+        # into a card whose meta block carries the speed row and value.
+        evidence = frontend_html.run_inline_scripts(
+            source=ROOT / "frontend/sea-speed/objects/index.html",
+            scenario=OBJECTS_SPEED_SCENARIO,
+            responses=[OBJECTS_SPEED_RESPONSE],
+        )
+        self.assertTrue(evidence["rendered"])
 
     def test_objects_page_has_crossings_layer(self) -> None:
+        # SS: static layer markup (container id + filter field names).
         text = (ROOT / "frontend/sea-speed/objects/index.html").read_text(encoding="utf-8")
         self.assertIn('id="crossingsLayer"', text)
         self.assertIn("date_from", text)
@@ -767,6 +967,7 @@ class RegistrySpeedRowTests(unittest.TestCase):
 
 class CrossingsLayerToggleTests(unittest.TestCase):
     def test_toggle_button_is_outside_hidden_layer(self) -> None:
+        # SS: static markup ordering (button before the hidden layer).
         text = (ROOT / "frontend/sea-speed/objects/index.html").read_text(encoding="utf-8")
         i_btn = text.index('id="cxViewBtn"')
         i_layer = text.index('id="crossingsLayer"')
@@ -793,6 +994,7 @@ class SummaryVlzHappyPathTests(unittest.TestCase):
         self.assertEqual(r["totals"], {"left_to_right": 1, "right_to_left": 1})
 
     def test_toggle_button_lives_in_filter_actions_row(self) -> None:
+        # SS: static markup containment (button inside the filter-actions row).
         text = (ROOT / "frontend/sea-speed/objects/index.html").read_text(encoding="utf-8")
         i_actions = text.index('class="filter-actions"')
         i_btn = text.index('id="cxViewBtn"')
@@ -803,6 +1005,12 @@ class SummaryVlzHappyPathTests(unittest.TestCase):
 
 class CrossingsLayerCameraScopeTests(unittest.TestCase):
     def test_layer_reads_global_scope_binding_not_window(self) -> None:
-        text = (ROOT / "frontend/sea-speed/objects/index.html").read_text(encoding="utf-8")
-        self.assertIn('registryScopeKey==="road"', text)
-        self.assertNotIn("window.registryScopeKey", text)
+        # Executed twin: booting the objects page with ?scope=road must bind
+        # registryScopeKey as a script-scope global (never a window property)
+        # and the registry load must query the road1 camera/domain.
+        evidence = frontend_html.run_inline_scripts(
+            source=ROOT / "frontend/sea-speed/objects/index.html",
+            scenario=OBJECTS_SCOPE_SCENARIO,
+            location_overrides={"search": "?scope=road"},
+        )
+        self.assertTrue(evidence["url"].startswith("/sea-speed/api/objects"))
