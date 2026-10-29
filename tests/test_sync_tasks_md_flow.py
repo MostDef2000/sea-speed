@@ -352,14 +352,18 @@ class WorkflowStructuralPinTests(unittest.TestCase):
         # #558 (live, sync run on merge cc25cbd): the PAT cannot serve gh api
         # REST (401 Bad credentials) while the same value authenticates the
         # git push — the env block pins SYNC_PUSH_TOKEN (PAT) to the push and
-        # GH_TOKEN (workflow token) to every REST call in the step. Pinned
-        # against the raw workflow text: the env block sits outside the
-        # extracted run script.
-        wf_text = path.read_text(encoding="utf-8")
-        self.assertIn('SYNC_PUSH_TOKEN: ${{ secrets.SYNC_PR_TOKEN || github.token }}', wf_text)
-        step_env = wf["jobs"]["sync-merged-tasks"]["steps"][3]["env"]
+        # GH_TOKEN (workflow token) to every REST call in the step. Twin reads
+        # the env wiring from the PARSED step (issue #398 wave 5): the step
+        # that carries the PAT-URL push must carry both tokens itself, so a
+        # comment or an env block on an unrelated step cannot satisfy the pin.
+        push_step = next(
+            step
+            for step in job["steps"]
+            if 'git push --force "https://x-access-token:${SYNC_PUSH_TOKEN}@github.com/${GH_REPO}.git"' in (step.get("run") or "")
+        )
+        step_env = push_step["env"]
         self.assertEqual(step_env["GH_TOKEN"], "${{ github.token }}")
-        self.assertIn("SYNC_PUSH_TOKEN", step_env)
+        self.assertEqual(step_env["SYNC_PUSH_TOKEN"], "${{ secrets.SYNC_PR_TOKEN || github.token }}")
         self.assertIn('"HEAD:refs/heads/${BRANCH}"', runs)
         self.assertNotIn("git/refs/heads/", runs)  # REST ref update cannot transfer objects (RF-018)
         self.assertNotIn("git push origin", runs)  # checkout-credential push = bot actor (RF-015)
