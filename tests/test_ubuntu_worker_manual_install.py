@@ -29,6 +29,8 @@ class UbuntuWorkerManualInstallTests(unittest.TestCase):
         for name in ("config", "models", "datasets", "output"):
             self.assertIn(f'$install_root/shared/{name}', source)
         self.assertNotIn('rm -rf "$install_root/shared', source)
+        # SP keep (issue #398 wave 6): data-preservation warning — its
+        # textual presence IS the contract; no executable validator exists.
         self.assertIn('Do not remove `shared/`', DOC.read_text(encoding="utf-8"))
 
     def test_source_release_binds_shared_runtime_instead_of_own_venv(self) -> None:

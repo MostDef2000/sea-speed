@@ -8,6 +8,8 @@ from pathlib import Path
 
 import yaml
 
+from tests.support import markdown_docs
+
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "deploy/vps/mediamtx-compatibility-remediation.sh"
 DOC = ROOT / "docs/operations/MEDIAMTX_COMPATIBILITY_REMEDIATION.md"
@@ -449,20 +451,71 @@ class MediaMTXCompatibilityRemediationTests(unittest.TestCase):
         self.assertNotIn("StrictHostKeyChecking=no", source)
 
     def test_documentation_defines_single_final_live_completion_flow(self) -> None:
+        # SS twins (issue #398 wave 6): each retired anywhere-in-file pin is
+        # superseded by a section-scoped twin on the parsed runbook — the
+        # blocker classification in "Why this exists", the official-release
+        # provenance contract in Candidate provenance, the canary contract in
+        # its dedicated section, the worker non-mutation and rollback bans in
+        # Production binary activation, and the single final rollout scope
+        # (confirmation gate, cleanup retirement, public boundary) in its own
+        # section.
         source = DOC.read_text(encoding="utf-8")
 
-        self.assertIn("E_RTSP_HANDSHAKE_COMPATIBILITY", source)
-        self.assertIn("official `bluenviron/mediamtx` release", source)
-        self.assertIn("checksums.sha256", source)
-        self.assertIn("loopback-only compatibility canary", source)
-        self.assertIn("sandboxed active-config compatibility proof", source)
-        self.assertIn("MoQ", source)
-        self.assertIn("/cams/hls/cam1/index.m3u8", source)
-        self.assertIn("CONFIRM_NEW_CAMERA", source)
-        self.assertIn("cam1-new", source)
-        self.assertIn("sea-speed-worker.service", source)
-        self.assertIn("Automatic rollback remains prohibited", source)
-        self.assertIn("one OpenCode rollout scope", source)
+        self.assertIsNotNone(
+            markdown_docs.section_containing(
+                source, "E_RTSP_HANDSHAKE_COMPATIBILITY", "required action class"
+            )
+        )
+        self.assertIsNotNone(
+            markdown_docs.section_containing(
+                source, "official `bluenviron/mediamtx` release", "checksums.sha256"
+            )
+        )
+        canary_section = markdown_docs.section_titled(source, "loopback-only compatibility canary")
+        self.assertIsNotNone(canary_section)
+        canary_lower = (canary_section[0] + canary_section[1]).lower()
+        # Exact-case token (peer review F1): "MoQ" is the case-significant
+        # protocol name, so it is checked against the RAW section body — the
+        # scanner lowercases needles+haystack, and the case-insensitive check
+        # alone would accept "moq"/"MOQ" drift that the old case-sensitive
+        # assertIn pin rejected.
+        self.assertIn("MoQ", canary_section[1])
+        # Case-insensitive prose checks (editorial wording, not identifiers).
+        self.assertIn("disabled", canary_lower)
+        self.assertIn("127.0.0.1:18954", canary_section[1])
+        self.assertIn("sandboxed active-config compatibility proof", canary_lower)
+        scope_section = markdown_docs.section_titled(source, "one final camera 1 completion scope")
+        self.assertIsNotNone(scope_section)
+        scope_lower = (scope_section[0] + scope_section[1]).lower()
+        # Exact-case tokens (peer review F1): "CONFIRM_NEW_CAMERA" is the
+        # case-significant confirmation-gate shell variable and "one
+        # OpenCode rollout scope" is the policy phrase — both checked
+        # against the RAW section body so case drift fails, preserving the
+        # old case-sensitive pins' strength. Genuine prose phrases stay
+        # case-insensitive in the loop below.
+        self.assertIn("CONFIRM_NEW_CAMERA", scope_section[1])
+        self.assertIn("one OpenCode rollout scope", scope_section[1])
+        for marker in (
+            "cam1-new",
+            "/cams/hls/cam1/index.m3u8",
+            "basic auth challenge",
+            "human visual acceptance",
+        ):
+            self.assertIn(marker, scope_lower, marker)
+        self.assertIsNotNone(
+            markdown_docs.section_containing(
+                source, "sea-speed-worker.service", "never starts, stops, restarts or enables"
+            )
+        )
+        # SP keep (issue #398 wave 6): "Automatic rollback remains prohibited"
+        # is the literal rollback prohibition; its twin pins it to the
+        # activation section together with the separate-governed-decision
+        # caveat, so dropping either half fails.
+        self.assertIsNotNone(
+            markdown_docs.section_containing(
+                source, "Automatic rollback remains prohibited", "separate governed decision"
+            )
+        )
 
 
 if __name__ == "__main__":

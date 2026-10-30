@@ -11,6 +11,8 @@ import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 
+from support import markdown_docs
+
 ROOT = Path(__file__).resolve().parents[1]
 DEPLOY = ROOT / "deploy/worker/ubuntu"
 RUNNER = DEPLOY / "observed-worker-runner.py"
@@ -198,10 +200,29 @@ class UbuntuWorkerObservabilityTests(unittest.TestCase):
         self.assertNotIn('cat "$env_file"', installer)
 
     def test_documentation_preserves_runtime_boundary(self) -> None:
+        # SS twins (issue #398 wave 6): the runtime-UNKNOWN boundary is pinned
+        # to the Runtime boundary section; the journalctl inspection commands
+        # live in the Safe inspection section's fenced block; the timer
+        # non-start guarantee lives in the Install periodic checks section.
         source = DOC.read_text(encoding="utf-8")
-        self.assertIn("Runtime remains `UNKNOWN`", source)
-        self.assertIn("journalctl", source)
-        self.assertIn("does not start the timer", source)
+        runtime_boundary = markdown_docs.section_titled(source, "runtime boundary")
+        self.assertIsNotNone(runtime_boundary)
+        self.assertIn("Runtime remains `UNKNOWN`", runtime_boundary[0] + runtime_boundary[1])
+        safe_inspection = markdown_docs.section_titled(source, "safe inspection")
+        self.assertIsNotNone(safe_inspection)
+        journal_blocks = [
+            block
+            for block in markdown_docs.fenced_blocks(safe_inspection[1])
+            if any("journalctl" in line for line in block)
+        ]
+        self.assertEqual(len(journal_blocks), 1)
+        self.assertEqual(len(journal_blocks[0]), 2)
+        install_checks = markdown_docs.section_titled(source, "install periodic checks")
+        self.assertIsNotNone(install_checks)
+        self.assertIn("does not start the timer", install_checks[1])
+        # SP keep (issue #398 wave 6): the no-Grafana exclusion is a negative
+        # contract — whole-doc absence IS the enforcement, no placement twin
+        # can be stronger.
         self.assertNotIn("Grafana", source)
 
 
