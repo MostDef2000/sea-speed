@@ -6,6 +6,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from tests.support import markdown_docs
+
 ROOT = Path(__file__).resolve().parents[1]
 RENDERER = ROOT / "scripts/operations/nginx_cam1_direct_h264.py"
 AUTH_RENDERER = ROOT / "scripts/operations/nginx_sea_speed_auth.py"
@@ -147,12 +149,35 @@ class Camera1DirectH264CutoverTests(unittest.TestCase):
         self.assertIn("/sea-speed/media/cam1/index.m3u8", source)
 
     def test_documentation_records_issue_115_security_migration(self) -> None:
+        # SS twins (issue #398 wave 6): the Issue #115 supersession lives in
+        # the status preamble; the canonical media path is pinned as the EXACT
+        # fenced topology block ending at the Authentik-protected browser
+        # route; the cutover script is pinned to its only-activation-path
+        # role and the standalone helper to its deliberate retirement, both
+        # in Repository components.
         source = DOC.read_text(encoding="utf-8")
-        self.assertIn("Issue #115", source)
-        self.assertIn("/sea-speed/media/cam1/index.m3u8", source)
-        self.assertIn("127.0.0.1:18889/cam1/", source)
-        self.assertIn("sea-speed-auth-cutover.sh", source)
-        self.assertIn("standalone", source.lower())
+        self.assertIsNotNone(markdown_docs.section_containing(source, "Issue #115", "supersedes"))
+        preamble = markdown_docs.sections(source)[0]
+        path_blocks = [
+            block
+            for block in markdown_docs.fenced_blocks(preamble[1])
+            if any("/sea-speed/media/cam1/index.m3u8" in line for line in block)
+        ]
+        self.assertEqual(len(path_blocks), 1)
+        topology = [line.strip().removeprefix("-> ").strip() for line in path_blocks[0]]
+        self.assertIn("127.0.0.1:18889/cam1/", topology)
+        self.assertEqual(
+            topology[-2:],
+            ["/sea-speed/media/cam1/index.m3u8", "Authentik-protected browser session"],
+        )
+        self.assertIsNotNone(
+            markdown_docs.section_containing(source, "sea-speed-auth-cutover.sh", "only production activation path")
+        )
+        self.assertIsNotNone(
+            markdown_docs.section_containing(source, "standalone", "deliberately retired")
+        )
+        # SP keep (issue #398 wave 6): the stale-identity ban is a negative
+        # contract — the retired public-identity wording must not reappear.
         self.assertNotIn("public Camera 1 identity remains", source)
 
 

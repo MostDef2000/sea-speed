@@ -24,6 +24,7 @@ spec.loader.exec_module(mediamtx)
 
 from support import relay_shell  # noqa: E402
 from support import worker_source  # noqa: E402
+from support import markdown_docs  # noqa: E402
 
 
 BASE_CONFIG = """logLevel: info
@@ -275,18 +276,89 @@ class Camera1LiveReplacementTests(unittest.TestCase):
         self.assertNotIn("worker.env", vps)
 
     def test_documentation_preserves_private_relay_and_records_auth_v1_boundary(self) -> None:
+        # SS twins (issue #398 wave 6): each retired anywhere-in-file pin is
+        # superseded by a section-scoped twin on the parsed runbook — the
+        # Issue #115 supersession in the status preamble, the protected
+        # browser path / retired-path ban / cam2 ban / worker-independence
+        # contracts in the Product goal section, the single-reader rule in
+        # the Security model section, the cutover activation boundary in
+        # Repository components, the rollback-decision rule in the Rollback
+        # boundary section, the relay prepare command shape and the exact
+        # three-field canonical cam1 source block.
         source = DOC.read_text(encoding="utf-8")
-        self.assertIn("Issue #115", source)
-        self.assertIn("/sea-speed/media/cam1/index.m3u8", source)
-        self.assertIn("retired `/cams/hls/cam1/index.m3u8`", source)
-        self.assertIn("does not create `cam2`", source)
-        self.assertIn("independent of `sea-speed-worker.service`", source)
-        self.assertIn("single VPS ZeroTier peer", source)
-        self.assertIn("--reader-ip", source)
-        self.assertIn("rtspTransport: tcp", source)
-        self.assertIn("cam1-new", source)
-        self.assertIn("sea-speed-auth-cutover.sh", source)
-        self.assertIn("explicit production rollback decision", source)
+        self.assertIsNotNone(markdown_docs.section_containing(source, "Issue #115", "superseded"))
+        self.assertIsNotNone(
+            markdown_docs.section_containing(source, "/sea-speed/media/cam1/index.m3u8", "Authentik-protected")
+        )
+        self.assertIsNotNone(
+            markdown_docs.section_containing(
+                source, "retired `/cams/hls/cam1/index.m3u8`", "must not be recreated"
+            )
+        )
+        self.assertIsNotNone(
+            markdown_docs.section_containing(
+                source, "does not create `cam2`", "does not change the physical Camera 1 identity"
+            )
+        )
+        self.assertIsNotNone(
+            markdown_docs.section_containing(
+                source, "independent of `sea-speed-worker.service`", "Stopping the AI worker must not stop"
+            )
+        )
+        self.assertIsNotNone(
+            markdown_docs.section_containing(source, "single VPS ZeroTier peer", "read")
+        )
+        prepare_section = markdown_docs.section_titled(source, "prepare ubuntu relay candidate")
+        self.assertIsNotNone(prepare_section)
+        prepare_blocks = [
+            block
+            for block in markdown_docs.fenced_blocks(prepare_section[1])
+            if any("--reader-ip" in line for line in block)
+        ]
+        self.assertEqual(len(prepare_blocks), 1)
+        prepare_command = prepare_blocks[0][0].strip()
+        for flag in ("camera-relay.sh prepare", "--private-rtsp-address", "--reader-ip"):
+            self.assertIn(flag, prepare_command, flag)
+        source_blocks = [
+            block
+            for _, body in markdown_docs.sections(source)
+            for block in markdown_docs.fenced_blocks(body)
+            if len(block) == 3 and any(line.strip() == "rtspTransport: tcp" for line in block)
+        ]
+        self.assertEqual(len(source_blocks), 1)
+        self.assertEqual(
+            [line.strip() for line in source_blocks[0]],
+            [
+                "source: rtsp://<ubuntu-private-ip>:8554/cam1",
+                "sourceOnDemand: yes",
+                "rtspTransport: tcp",
+            ],
+        )
+        retire_section = markdown_docs.section_titled(source, "retire", "cam1-new")
+        self.assertIsNotNone(retire_section)
+        # The retirement RULE lives in the section body (peer review F2 —
+        # heading presence alone is not the contract): the gated cleanup flow
+        # (prepare-cleanup → activate-cleanup, both gated on the confirmed
+        # protected-HLS precondition via --confirmed-public-hls) and the
+        # refuse-unless-canonical-bound guard that removes only `cam1-new`.
+        # Same-or-stronger vs the retired anywhere-in-file
+        # `assertIn("cam1-new", source)` pin.
+        self.assertIn("camera-source-switch.sh prepare-cleanup", retire_section[1])
+        self.assertIn("camera-source-switch.sh activate-cleanup", retire_section[1])
+        self.assertIn("--confirmed-public-hls", retire_section[1])
+        self.assertIn("refuses to proceed unless canonical `cam1`", retire_section[1])
+        self.assertIn("removes only `cam1-new`", retire_section[1])
+        self.assertIsNotNone(
+            markdown_docs.section_containing(source, "sea-speed-auth-cutover.sh", "activation boundary")
+        )
+        self.assertIsNotNone(
+            markdown_docs.section_containing(
+                source, "explicit production rollback decision", "do not restore them automatically"
+            )
+        )
+        # SP keep (issue #398 wave 6): the UNKNOWN runtime-state ban is a
+        # negative contract — the stale placeholder must not appear anywhere
+        # in the runbook.
         self.assertNotIn("runtime remains `UNKNOWN`", source)
 
 

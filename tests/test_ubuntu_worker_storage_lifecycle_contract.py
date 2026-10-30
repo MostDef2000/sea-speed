@@ -14,6 +14,7 @@ from storage_lifecycle_test_support import (
     SERVICE,
     TIMER,
 )
+from support import markdown_docs
 
 class UbuntuWorkerStorageLifecycleContractTests(unittest.TestCase):
     def test_python_and_shell_syntax(self) -> None:
@@ -60,11 +61,27 @@ class UbuntuWorkerStorageLifecycleContractTests(unittest.TestCase):
         self.assertIn("AUDIT_ONLY automatic_deletion=false", installer)
 
     def test_documentation_preserves_runtime_and_secret_boundaries(self) -> None:
+        # SS twins (issue #398 wave 6): the runtime-UNKNOWN status is pinned to
+        # the document preamble; the never-deletes guarantee and the
+        # worker.env secret boundary must co-locate in the Safety model
+        # section; the --apply-plan flag must appear inside the Apply-an-
+        # approved-plan section's fenced command (the only place apply is
+        # documented).
         source = DOC.read_text(encoding="utf-8")
-        self.assertIn("Runtime remains `UNKNOWN`", source)
-        self.assertIn("does not read `worker.env`", source)
-        self.assertIn("never deletes automatically", source)
-        self.assertIn("--apply-plan", source)
+        preamble = markdown_docs.sections(source)[0]
+        self.assertIn("Runtime remains `UNKNOWN`", preamble[0] + preamble[1])
+        safety = markdown_docs.section_titled(source, "safety model")
+        self.assertIsNotNone(safety)
+        self.assertIn("never deletes automatically", safety[1])
+        self.assertIn("does not read `worker.env`", safety[1])
+        apply_section = markdown_docs.section_titled(source, "apply an approved plan")
+        self.assertIsNotNone(apply_section)
+        apply_blocks = [
+            block
+            for block in markdown_docs.fenced_blocks(apply_section[1])
+            if any("--apply-plan" in line for line in block)
+        ]
+        self.assertEqual(len(apply_blocks), 1)
 
 
 if __name__ == "__main__":

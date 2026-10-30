@@ -7,6 +7,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from tests.support import markdown_docs
+
 ROOT = Path(__file__).resolve().parents[1]
 RENDERER = ROOT / "scripts/operations/nginx_sea_speed_auth.py"
 CAM_RENDERER = ROOT / "scripts/operations/nginx_cam1_direct_h264.py"
@@ -473,11 +475,15 @@ class SeaSpeedAuthV1Tests(unittest.TestCase):
         self.assertNotIn('curl --fail --silent --show-error --max-time 10 "$PUBLIC_HEALTH_URL"', source)
 
     def test_sdd_and_runtime_docs_record_issue_122_and_keep_production_separate(self) -> None:
-        for path in (SPEC, PLAN, TASKS, QUICKSTART, AUTH_DOC, OPS_DOC):
+        # SDD feature docs (spec/plan/tasks/quickstart) keep their raw pins:
+        # wave-4 precedent — prose SDD docs are historical records, their
+        # textual presence IS the record (NO-CHANGE). The runtime docs
+        # (worker-auth README, ops runbook) get structural twins below.
+        for path in (SPEC, PLAN, TASKS, QUICKSTART):
             source = path.read_text(encoding="utf-8")
             self.assertIn("#115", source)
             self.assertIn("#122", source)
-        for path in (SPEC, PLAN, TASKS, QUICKSTART, OPS_DOC):
+        for path in (SPEC, PLAN, TASKS, QUICKSTART):
             self.assertIn("#140", path.read_text(encoding="utf-8"))
         spec_source = SPEC.read_text(encoding="utf-8")
         self.assertIn("PRODUCTION APPROVED", spec_source)
@@ -486,25 +492,107 @@ class SeaSpeedAuthV1Tests(unittest.TestCase):
         self.assertIn("worker machine-to-machine", spec_source.lower())
         self.assertIn("96 hours", spec_source)
         self.assertIn("12 hours", spec_source)
+        # SS twins (issue #398 wave 6) — worker-auth README: the doc's first
+        # section (its preamble) must bind the issue chain to the canonical
+        # Ubuntu-worker placement claim — both bound to sections()[0] (peer
+        # review F5: section_containing alone would match any section); the
+        # Topology-section content (socat source-restriction with the exact
+        # /32 range option; the superseded-placement deprecation with its
+        # must-not-stage ban) is enforced as one-section co-location — the
+        # first matching section is the doc's Topology section.
         auth_doc = AUTH_DOC.read_text(encoding="utf-8")
-        self.assertIn("Ubuntu worker", auth_doc)
-        self.assertIn("socat", auth_doc)
-        self.assertIn("range=<vps-ip>/32", auth_doc)
-        self.assertIn("superseded", auth_doc.lower())
+        auth_preamble = markdown_docs.sections(auth_doc)[0]
+        self.assertIn("#115", auth_preamble[1])
+        self.assertIn("#122", auth_preamble[1])
+        self.assertIn("Ubuntu worker", auth_preamble[1])
+        self.assertIn("canonical production runtime placement", auth_preamble[1])
+        self.assertIsNotNone(
+            markdown_docs.section_containing(auth_doc, "socat", "range=<vps-ip>/32")
+        )
+        self.assertIsNotNone(
+            markdown_docs.section_containing(auth_doc, "superseded", "must not be used for production")
+        )
+        # SS twins (issue #398 wave 6) — ops runbook: the doc's first section
+        # (its preamble) carries the full issue chain (#115/#122/#140/#146),
+        # bound to sections()[0] (peer review F5); the Issue #146 section
+        # pins External host and Launch URL as EXACT single-line fenced
+        # values; the staged-invocation tokens co-locate in one section (the
+        # exact staged command fenced block on the real doc — the twin pins
+        # token co-location, not the exact command text); the private origin
+        # is exposed as
+        # non-secret; the ingestion token secrecy rule co-locates with the
+        # token; the cutover script and snippet materialization rules live
+        # in the split-layout section; session/token timing pairs both
+        # timers as separate; the fail-closed dependency test phase requires
+        # the never-anonymous outcome.
         ops_doc = OPS_DOC.read_text(encoding="utf-8")
-        self.assertIn("#146", ops_doc)
-        self.assertIn("External host: https://mostdef.ru", ops_doc)
-        self.assertIn("Launch URL: https://mostdef.ru/sea-speed/", ops_doc)
+        ops_preamble = markdown_docs.sections(ops_doc)[0]
+        for issue in ("#115", "#122", "#140", "#146"):
+            self.assertIn(issue, ops_preamble[1], issue)
+        section_146 = markdown_docs.section_titled(ops_doc, "#146")
+        self.assertIsNotNone(section_146)
+        ext_blocks = [
+            block
+            for block in markdown_docs.fenced_blocks(section_146[1])
+            if any("External host:" in line for line in block)
+        ]
+        self.assertEqual(len(ext_blocks), 1)
+        self.assertEqual(
+            [line.strip() for line in ext_blocks[0]], ["External host: https://mostdef.ru"]
+        )
+        launch_blocks = [
+            block
+            for block in markdown_docs.fenced_blocks(section_146[1])
+            if any("Launch URL:" in line for line in block)
+        ]
+        self.assertEqual(len(launch_blocks), 1)
+        self.assertEqual(
+            [line.strip() for line in launch_blocks[0]], ["Launch URL: https://mostdef.ru/sea-speed/"]
+        )
+        # SP keep (issue #398 wave 6): the path-bearing External host is the
+        # exact misconfiguration the doc bans — negative contract, the ban
+        # must fail if the literal value appears anywhere in the runbook.
         self.assertNotIn("External host: https://mostdef.ru/sea-speed/", ops_doc)
-        self.assertIn("stage.sh stage", ops_doc)
-        self.assertIn("AUTHENTIK_PRIVATE_ORIGIN", ops_doc)
-        self.assertIn("SEA_SPEED_API_URL", ops_doc)
-        self.assertIn("SEA_SPEED_API_TOKEN", ops_doc)
-        self.assertIn("fail-closed", ops_doc.lower())
-        self.assertIn("sea-speed-auth-cutover.sh", ops_doc)
-        self.assertIn("sea-speed-*.conf", ops_doc)
-        self.assertIn("96 hours", ops_doc)
-        self.assertIn("30 days", ops_doc)
+        self.assertIsNotNone(
+            markdown_docs.section_containing(
+                ops_doc, "stage.sh stage", "--bind-ip", "--vps-peer", "--env-file"
+            )
+        )
+        self.assertIsNotNone(
+            markdown_docs.section_containing(ops_doc, "AUTHENTIK_PRIVATE_ORIGIN", "non-secret")
+        )
+        self.assertIsNotNone(
+            markdown_docs.section_containing(ops_doc, "SEA_SPEED_API_TOKEN", "must not appear in chat")
+        )
+        m2m_blocks = [
+            block
+            for _, body in markdown_docs.sections(ops_doc)
+            for block in markdown_docs.fenced_blocks(body)
+            if any(line.strip().startswith("SEA_SPEED_API_URL=") for line in block)
+        ]
+        self.assertEqual(len(m2m_blocks), 1)
+        self.assertEqual(
+            [line.strip() for line in m2m_blocks[0]],
+            [
+                "SEA_SPEED_API_URL=http://<vps-private-ip>:<port>/api/cam1/state",
+                "SEA_SPEED_EVENT_API_URL=http://<vps-private-ip>:<port>/api/cam1/events",
+                "SEA_SPEED_ROI_URL=http://<vps-private-ip>:<port>/api/cam1/roi",
+                "SEA_SPEED_SPEED_CONFIG_URL=http://<vps-private-ip>:<port>/api/cam1/speed-config",
+                "SEA_SPEED_SPEED_LINES_URL=http://<vps-private-ip>:<port>/api/cam1/speed-lines",
+            ],
+        )
+        phase_e = markdown_docs.section_titled(ops_doc, "fail-closed")
+        self.assertIsNotNone(phase_e)
+        self.assertIn("never anonymous", phase_e[1].lower())
+        self.assertIsNotNone(
+            markdown_docs.section_containing(ops_doc, "sea-speed-auth-cutover.sh", "prepare")
+        )
+        self.assertIsNotNone(
+            markdown_docs.section_containing(ops_doc, "sea-speed-*.conf", "materializ")
+        )
+        self.assertIsNotNone(
+            markdown_docs.section_containing(ops_doc, "96 hours", "30 days", "separate timers")
+        )
 
 
 if __name__ == "__main__":
