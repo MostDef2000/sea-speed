@@ -33,6 +33,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[1]
 RENDERER = ROOT / "scripts/operations/mediamtx_path_config.py"
 PREVIEW_SHELL = ROOT / "deploy/worker/ubuntu/camera-preview-relay.sh"
@@ -92,6 +94,21 @@ paths:
 """
 
 CAMERA_ID_RE = r"[a-z0-9][a-z0-9._-]{0,63}"
+
+
+def _parsed_yaml_keys(node: object) -> list[str]:
+    """Every dict key anywhere in a parsed YAML structure (recursive)."""
+    keys: list[str] = []
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if isinstance(key, str):
+                keys.append(key)
+            keys.extend(_parsed_yaml_keys(key))
+            keys.extend(_parsed_yaml_keys(value))
+    elif isinstance(node, (list, tuple)):
+        for item in node:
+            keys.extend(_parsed_yaml_keys(item))
+    return keys
 
 
 def build_inventory(cameras: list[dict[str, str]]) -> str:
@@ -342,14 +359,20 @@ class PreviewProfileContractTests(PreviewRendererCliBase):
     def test_preview_profile_stays_api_less(self) -> None:
         result, config, _, _ = self.render()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertNotIn("api: yes", config)
-        self.assertNotIn("apiAddress", config)
-        # #522: the API server is not merely absent — it is explicitly pinned
-        # off in the rendered skeleton (stronger than absence).
-        self.assertIn("api: false\n", config)
-        # The renderer-level marker ownership contract holds: the marker keeps
-        # the "# Sea Speed " prefix so the bounded sanitize scanner marks the
-        # rule as renderer-owned.
+        # 398-wave7: retired the raw substring pins (were the `api: yes` ban,
+        # the `apiAddress` ban and the `api: false` presence pin on the
+        # rendered text) — asserted on the PARSED structure now: the api
+        # server is exactly the boolean False (assertIs, not a falsy check)
+        # and no apiAddress key exists at ANY level of the parsed structure
+        # (recursive exact-key walk, stronger than top-level absence).
+        parsed = yaml.safe_load(config)
+        self.assertIs(parsed["api"], False)
+        self.assertNotIn("apiAddress", _parsed_yaml_keys(parsed))
+        # 398-wave7: SP KEEP (deliberately NOT converted to a parsed twin) —
+        # the marker is a COMMENT: yaml.safe_load drops comments, so the
+        # parsed structure cannot carry it; the marker line's textual
+        # presence IS the renderer-ownership contract (the bounded sanitize
+        # scanner marks the rule renderer-owned by this exact line).
         marker_line = f"  {PREVIEW_MARKER}\n"
         self.assertIn(marker_line, config)
 
@@ -359,9 +382,19 @@ class PreviewProfileContractTests(PreviewRendererCliBase):
         # while the RTSP endpoint stays enabled (R-4).
         result, config, _, _ = self.render()
         self.assertEqual(result.returncode, 0, result.stderr)
-        for key in ("api", "metrics", "pprof", "playback", "moq"):
-            self.assertIn(f"{key}: false\n", config)
-        self.assertIn("rtsp: true\n", config)
+        # 398-wave7: retired the raw substring loop + rtsp pin (were
+        # assertIn(f"{key}: false\n") over 5 keys and assertIn("rtsp: true\n")
+        # on the rendered text) — asserted on the PARSED structure now, and
+        # STRENGTHENED to the FULL off-set: the canonical render pins ALL
+        # NINE unused default servers off (rtmp/hls/webrtc/srt/api/metrics/
+        # pprof/playback/moq — verified against the live renderer output and
+        # the LEGACY_SINGLE_CAMERA_CONFIG parity oracle; the old loop covered
+        # only 5 of the 9), each as an exact boolean False (assertIs, not a
+        # falsy check), with rtsp exactly True.
+        parsed = yaml.safe_load(config)
+        for key in ("rtmp", "hls", "webrtc", "srt", "api", "metrics", "pprof", "playback", "moq"):
+            self.assertIs(parsed[key], False, key)
+        self.assertIs(parsed["rtsp"], True)
 
     def test_preview_rule_verifies_through_the_shared_rule_parser(self) -> None:
         result, config, _, _ = self.render()

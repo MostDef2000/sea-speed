@@ -98,6 +98,7 @@ GRANDFATHERED_PREFIX_COLLISIONS = {
         "398-wave4",
         "398-wave5",
         "398-wave6",
+        "398-wave7",
     },
 }
 
