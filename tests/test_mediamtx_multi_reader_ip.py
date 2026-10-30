@@ -18,6 +18,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[1]
 RENDERER = ROOT / "scripts/operations/mediamtx_path_config.py"
 UBUNTU = ROOT / "deploy/worker/ubuntu/camera-relay.sh"
@@ -71,10 +73,60 @@ SINGLE_IP_BLOCK = (
 )
 
 
+def _reader_rule_blocks(parsed: object, path_name: str) -> list[dict]:
+    """authInternalUsers blocks granting read on path_name (parsed structure)."""
+    blocks: list[dict] = []
+    if not isinstance(parsed, dict):
+        return blocks
+    for block in parsed.get("authInternalUsers") or []:
+        if not isinstance(block, dict):
+            continue
+        for permission in block.get("permissions") or []:
+            if (
+                isinstance(permission, dict)
+                and permission.get("action") == "read"
+                and permission.get("path") == path_name
+            ):
+                blocks.append(block)
+                break
+    return blocks
+
+
+def _parsed_strings(node: object) -> list[str]:
+    """Every string anywhere in a parsed YAML structure (keys + values, recursive)."""
+    strings: list[str] = []
+    if isinstance(node, dict):
+        for key, value in node.items():
+            strings.extend(_parsed_strings(key))
+            strings.extend(_parsed_strings(value))
+    elif isinstance(node, (list, tuple)):
+        for item in node:
+            strings.extend(_parsed_strings(item))
+    elif isinstance(node, str):
+        strings.append(node)
+    return strings
+
+
 class MultiReaderIpRendererTests(unittest.TestCase):
     def test_two_ip_render_includes_both_ips_in_input_order(self) -> None:
         rendered = mediamtx.ensure_internal_reader_rule(BASE_CONFIG, "cam1", [IP_A, IP_B])
-        self.assertIn(f'ips: ["{IP_A}", "{IP_B}"]', rendered)
+        # 398-wave7: retired the raw substring pins (were the ips order pin and
+        # the foreign-IP exclusion on the rendered text) — both are asserted on
+        # the PARSED structure now: the cam1 reader rule block carries exactly
+        # [IP_A, IP_B] in input order, and the foreign IP appears in NO parsed
+        # key/value anywhere (recursive walk, stronger than substring absence:
+        # it covers every parsed scalar regardless of rendering format —
+        # stronger on parsed scalars; the byte-level ban below is retained for
+        # non-parsed surfaces such as comments).
+        parsed = yaml.safe_load(rendered)
+        blocks = _reader_rule_blocks(parsed, "cam1")
+        self.assertEqual(len(blocks), 1)
+        self.assertEqual(blocks[0]["ips"], [IP_A, IP_B])
+        offenders = [value for value in _parsed_strings(parsed) if IP_C in value]
+        self.assertEqual(offenders, [])
+        # The byte-level ban is RETAINED alongside the parsed walk: yaml.safe_load
+        # drops comments, so a foreign IP mentioned only in a comment would pass
+        # the parsed twin — the byte pin keeps that surface covered.
         self.assertNotIn(IP_C, rendered)
         mediamtx.verify_internal_reader_rule(rendered, "cam1", [IP_A, IP_B])
         # Idempotent re-apply with the same two-IP list.
@@ -88,7 +140,14 @@ class MultiReaderIpRendererTests(unittest.TestCase):
         again = mediamtx.ensure_internal_reader_rule(BASE_CONFIG, "cam1", [IP_A, IP_B])
         self.assertEqual(first, again)
         flipped = mediamtx.ensure_internal_reader_rule(BASE_CONFIG, "cam1", [IP_B, IP_A])
-        self.assertIn(f'ips: ["{IP_B}", "{IP_A}"]', flipped)
+        # 398-wave7: retired the raw substring pin (was the flipped ips order
+        # pin on the rendered text) — the flipped input order is asserted on
+        # the parsed structure: the cam1 reader rule block carries exactly
+        # [IP_B, IP_A].
+        self.assertEqual(
+            _reader_rule_blocks(yaml.safe_load(flipped), "cam1")[0]["ips"],
+            [IP_B, IP_A],
+        )
         self.assertNotEqual(flipped, first)
 
     def test_single_ip_is_byte_identical_to_historical_str_behavior(self) -> None:
@@ -99,6 +158,12 @@ class MultiReaderIpRendererTests(unittest.TestCase):
         # core-API change: the core str|list API behaves exactly as before.
         self.assertEqual(mediamtx._reader_ip_list(IP_A), [IP_A])
         self.assertEqual(mediamtx._reader_ip_list(IP_A + ","), [IP_A])
+        # 398-wave7: SP KEEP (deliberately NOT converted to a parsed twin) —
+        # this pin IS the byte-identity contract under test: the single-IP
+        # render must stay byte-identical to the historical str-API output,
+        # so the exact historical block text (formatting included) is the
+        # asserted artifact; a parsed twin cannot distinguish byte-identical
+        # output from merely structurally-equal output.
         self.assertIn(SINGLE_IP_BLOCK, str_rendered)
         self.assertEqual(mediamtx.reader_scope_token(1), "single-rfc1918-ip")
         self.assertEqual(mediamtx.reader_scope_token(2), "multi-rfc1918-ip-count-2")

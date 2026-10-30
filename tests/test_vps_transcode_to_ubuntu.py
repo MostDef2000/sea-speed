@@ -9,6 +9,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[1]
 RENDERER = ROOT / "scripts/operations/mediamtx_path_config.py"
 UBUNTU_WATCHDOG_PATH = ROOT / "deploy/worker/ubuntu/camera1-h264-freshness-watchdog.py"
@@ -52,15 +54,44 @@ class ReaderRuleGeneralizationTests(unittest.TestCase):
         )
         text = out.read_text(encoding="utf-8")
         mediamtx.verify_internal_reader_rule(text, "cam1-h264", reader_ip="82.146.37.153", publisher_ips=["10.123.239.102"])
-        # The combined rule must allow both VPS read and Ubuntu publish.
-        self.assertIn("ips:", text)
-        self.assertIn("read", text)
-        self.assertIn("publish", text)
+        # 398-wave7: retired the raw substring pins (the "ips:" pin was
+        # vacuous — it matched the rule's own ips: key but asserted no value —
+        # the "read" pin matched the substring "reader", the weak "publish"
+        # pin, the cam1-h264 path pin, the source pin and the sourceOnDemand
+        # pin on the rendered text) — asserted on the PARSED structure now:
+        # the combined cam1-h264 rule block carries the VPS reader IP and the
+        # Ubuntu publisher IP in renderer order (reader first, publisher
+        # appended; the checkpoint sketch listed only the reader IP — the real
+        # render carries both) with exactly read+publish permissions on
+        # cam1-h264, and the transcode publisher path exists with source
+        # "publisher" and sourceOnDemand exactly False (YAML 1.1: the rendered
+        # `no` parses to False).
+        parsed = yaml.safe_load(text)
+        rule_blocks = [
+            block
+            for block in parsed["authInternalUsers"]
+            if isinstance(block, dict)
+            and any(
+                isinstance(permission, dict)
+                and permission.get("action") == "read"
+                and permission.get("path") == "cam1-h264"
+                for permission in block.get("permissions") or []
+            )
+        ]
+        self.assertEqual(len(rule_blocks), 1)
+        self.assertEqual(rule_blocks[0]["ips"], ["82.146.37.153", "10.123.239.102"])
+        self.assertEqual(
+            rule_blocks[0]["permissions"],
+            [
+                {"action": "read", "path": "cam1-h264"},
+                {"action": "publish", "path": "cam1-h264"},
+            ],
+        )
         # The transcode publisher path must exist so the Ubuntu ffmpeg transcode
         # has somewhere to publish H264 RTSP; without it the VPS relay stays empty.
-        self.assertIn("cam1-h264:", text)
-        self.assertIn('source: "publisher"', text)
-        self.assertIn("sourceOnDemand: no", text)
+        self.assertIn("cam1-h264", parsed["paths"])
+        self.assertEqual(parsed["paths"]["cam1-h264"]["source"], "publisher")
+        self.assertIs(parsed["paths"]["cam1-h264"]["sourceOnDemand"], False)
 
     def test_ensure_cam1_reader_is_subset_safe_when_adding_cam1_h264(self) -> None:
         # Adding cam1-h264 must not disturb the existing single-peer cam1 reader rule.
@@ -79,7 +110,10 @@ class ReaderRuleGeneralizationTests(unittest.TestCase):
             argparse.Namespace(config=cfg, hls_address=":18889", output=out)
         )
         text = out.read_text(encoding="utf-8")
-        self.assertIn('hlsAddress: ":18889"', text)
+        # 398-wave7: retired the raw substring pin (was the hlsAddress pin on
+        # the rendered text) — asserted on the parsed structure: the global
+        # scalar is exactly ":18889".
+        self.assertEqual(yaml.safe_load(text)["hlsAddress"], ":18889")
 
 
 class UbuntuFreshnessWatchdogTests(unittest.TestCase):
