@@ -83,10 +83,8 @@
 
 ## Requirements traceability
 
-- AC-001 | Task: T-2, T-3, T-4, T-5, T-6, T-7, T-8, T-9, T-10, T-11 | Evidence:
-  TEST-001 | Coverage: COVERED
-- AC-002 | Task: T-2, T-3, T-4, T-5, T-6, T-7, T-8, T-9, T-10, T-11, T-12 |
-  Evidence: TEST-002 | Coverage: COVERED
+- AC-001 | Task: T-2, T-3, T-4, T-5, T-6, T-7, T-8, T-9, T-10, T-11 | Evidence: TEST-001 | Coverage: COVERED
+- AC-002 | Task: T-2, T-3, T-4, T-5, T-6, T-7, T-8, T-9, T-10, T-11, T-12 | Evidence: TEST-002 | Coverage: COVERED
 - AC-003 | Task: T-12 | Evidence: TEST-003 | Coverage: COVERED
 - AC-004 | Task: T-1, T-13 | Evidence: TEST-004 | Coverage: COVERED
 - AC-005 | Task: T-13 | Evidence: TEST-004, TEST-005 | Coverage: COVERED
