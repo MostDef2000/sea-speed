@@ -27,6 +27,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[1]
 DEPLOY_WORKFLOW = Path(
     os.environ.get("SEA_SPEED_DEPLOY_FRESHNESS_WORKFLOW")
@@ -56,29 +58,19 @@ def _run_git(cwd: Path, *args: str) -> str:
 
 
 def _extract_freshness_run_block(source: str) -> str:
-    """Slice the freshness step's `run:` block between stable YAML anchors."""
-    lines = source.splitlines()
-    anchor = next((i for i, line in enumerate(lines) if line.strip() == "id: freshness"), None)
-    if anchor is None:
-        raise AssertionError("workflow YAML has no freshness step anchor 'id: freshness'")
-    run_index = None
-    for index in range(anchor, min(anchor + 8, len(lines))):
-        if re.match(r"^\s*run:\s*\|\s*$", lines[index]):
-            run_index = index
-            break
-    if run_index is None:
-        raise AssertionError("freshness step has no 'run: |' block after 'id: freshness'")
-    block: list[str] = []
-    for line in lines[run_index + 1:]:
-        if re.match(r"^      - name:", line):
-            break
-        block.append(line)
-    while block and not block[-1].strip():
-        block.pop()
-    if not block:
-        raise AssertionError("freshness run block is empty")
-    indent = min(len(line) - len(line.lstrip(" ")) for line in block if line.strip())
-    return "\n".join(line[indent:] if line.strip() else "" for line in block) + "\n"
+    """Return the freshness step's `run:` script from the parsed workflow YAML."""
+    # Issue #398 wave 8: extraction is yaml.safe_load-based (parsed step lookup) — comment-blind and reindent-safe, replacing the regex/line-scan slice.
+    # YAML clip chomping (`run: |`) preserves the single trailing newline, so
+    # the returned script is byte-identical to the retired line-scan slice.
+    data = yaml.safe_load(source) or {}
+    for job in data.get("jobs", {}).values():
+        for step in (job or {}).get("steps", []):
+            if isinstance(step, dict) and step.get("id") == "freshness":
+                run = step.get("run")
+                if not isinstance(run, str) or not run.strip():
+                    raise AssertionError("freshness step has no non-empty 'run' block")
+                return run
+    raise AssertionError("workflow YAML has no step with id 'freshness'")
 
 
 def _read_github_output_text(output_file: str) -> dict[str, str]:
@@ -226,10 +218,20 @@ class FreshnessGateBehaviorTests(unittest.TestCase):
 
 
 def _extract_sync_staging_command(source: str) -> str:
-    matches = re.findall(r"(?m)^\s*(git add\b.*)$", source)
+    """Return the sync workflow's single `git add` staging command."""
+    # Issue #398 wave 8: extraction is yaml.safe_load-based (parsed step lookup) — comment-blind and reindent-safe, replacing the regex/line-scan slice.
+    data = yaml.safe_load(source) or {}
+    matches = [
+        line.strip()
+        for job in data.get("jobs", {}).values()
+        for step in (job or {}).get("steps", [])
+        if isinstance(step, dict) and isinstance(step.get("run"), str)
+        for line in step["run"].splitlines()
+        if re.match(r"git add\b", line.strip())
+    ]
     if len(matches) != 1:
         raise AssertionError(f"expected exactly one git add staging command in sync workflow, got {matches!r}")
-    return matches[0].strip()
+    return matches[0]
 
 
 class SyncBotStagingPathspecTests(unittest.TestCase):

@@ -202,6 +202,10 @@ class QualityArchitectureTests(unittest.TestCase):
     def test_windows_package_workflow_is_retired(self) -> None:
         self.assertFalse((ROOT / ".github/workflows/package-worker.yml").exists())
         autonomous = (ROOT / ".github/workflows/deploy-runtime-autonomous.yml").read_text(encoding="utf-8")
+        # STATIC_POLICY (issue #398 wave 8): byte-absence of the retired
+        # Windows fallback markers IS the contract — parsed-structure absence
+        # would let markers survive in comments; the tombstone check above
+        # covers file absence.
         self.assertNotIn("windows_worker_required", autonomous)
         self.assertNotIn("windows-worker-fallback", autonomous)
 
