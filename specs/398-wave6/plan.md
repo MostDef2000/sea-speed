@@ -138,13 +138,13 @@ it).
 - TEST-002 | Covers: AC-002 | Level: integration | Priority: P0 | Evidence: cluster
   138/35 (10 files at 0 delta + demo +1); battery-delta ledger in tasks.md maps
   every retired assertion to its recorded twin; full battery observed 1228/2/306
-- TEST-003 | Covers: AC-003 | Level: integration | Priority: P1 | Evidence:
-  tests/test_398_wave6_demo.py — both directions with the documented 2/12
+- TEST-003 | Covers: AC-003 | Level: integration | Priority: P1 | Evidence: tests/test_398_wave6_demo.py green — both directions + inverted mutations
+  Detail: both directions with the documented 2/12
   prose-form verdict split (Direction A) and the six-placement-break run (Direction
   B fails all six twin groups), plus both in-demo inverted-mutation proofs and the
   recorded manual flip-runs
-- TEST-004 | Covers: AC-004, AC-005 | Level: integration | Priority: P0 | Evidence:
-  full battery observed 1228 passed / 2 skipped / 306 subtests in 72.25s (base
+- TEST-004 | Covers: AC-004, AC-005 | Level: integration | Priority: P0 | Evidence: full battery 1228/2/306 observed; validate_sdd green
+  Detail: full battery observed 1228 passed / 2 skipped / 306 subtests in 72.25s (base
   1227/2/306); validate_sdd informational run clean for the trio (orchestrator
   --event gate after commit)
 - TEST-005 | Covers: AC-006 | Level: integration | Priority: P1 | Evidence: git
