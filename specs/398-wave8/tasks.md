@@ -103,8 +103,8 @@ unchanged (2 / 306).
 - [x] Issue/spec/plan/tasks current
 - [x] Exact changed-file scope verified
 - [x] Required tests and evidence complete
-- [ ] Required CI green — orchestrator-owned (PR creation and exact-head CI)
-- [ ] Exact-green-head merge complete — orchestrator-owned
+- [x] Required CI green — orchestrator-owned (PR creation and exact-head CI) — auto-synced on merge to main (dfbe094b)
+- [x] Exact-green-head merge complete — orchestrator-owned — auto-synced on merge to main (dfbe094b)
 - [x] Deployment state resolved — NOT REQUIRED (tests-only + one validator line = CONTROL_PLANE; no runtime artifact changes)
 - [ ] Runtime acceptance resolved — runtime acceptance = exact-head CI green on the merge PR (RF-001)
 - [x] Deferred work recorded — the outside-D residual (14 files, ~200 candidate pins) is inventoried in plan.md pending owner decision (wave-9 candidate or documented closure); waves 1–7 NO-CHANGE records stand
