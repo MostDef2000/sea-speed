@@ -7,6 +7,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import yaml
+
 from tests.support import markdown_docs
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -367,14 +369,85 @@ class SeaSpeedAuthV1Tests(unittest.TestCase):
             nginxauth.verify_source_layout(wrong_host)
 
     def test_worker_authentik_runtime_is_pinned_loopback_and_has_no_docker_socket(self) -> None:
-        compose = COMPOSE.read_text(encoding="utf-8")
-        self.assertEqual(compose.count("ghcr.io/goauthentik/server:2026.5.6"), 2)
-        self.assertIn("docker.io/library/postgres:16-alpine", compose)
-        self.assertIn('"127.0.0.1:${AUTHENTIK_HTTP_PORT:-9000}:9000"', compose)
-        self.assertNotIn("/var/run/docker.sock", compose)
-        self.assertNotRegex(compose, r"(?m)^\s*-\s*[\"']?9000:9000")
-        self.assertNotRegex(compose, r"(?m)^\s*-\s*[\"']?5432:5432")
-        self.assertNotIn(":latest", compose)
+        # Issue #573: yaml.safe_load parsed twin — the compose pins are
+        # structural security properties of the parsed services tree, blind to
+        # comments/reordering where the raw substring/regex pins false-failed.
+        compose = yaml.safe_load(COMPOSE.read_text(encoding="utf-8"))
+        services = compose["services"]
+        images = {name: service.get("image") for name, service in services.items()}
+        self.assertEqual(
+            list(images.values()).count("ghcr.io/goauthentik/server:2026.5.6"),
+            2,
+        )
+        self.assertIn("docker.io/library/postgres:16-alpine", images.values())
+        # Same-or-stronger upgrade vs the retired raw `:latest` byte-ban: every
+        # service image must carry an explicit non-latest tag — an image with
+        # NO tag defaults to latest at pull time, which the raw ban missed.
+        # The tag check bans the "latest" SUBSTRING so an env-default like
+        # ${AUTHENTIK_TAG:-latest} cannot smuggle latest through the parsed
+        # walk (peer review finding, #573).
+        for name, image in images.items():
+            self.assertIsInstance(image, str, f"service {name} must pin an image")
+            leaf = image.rsplit("/", 1)[-1]
+            tag = leaf.rsplit(":", 1)[-1] if ":" in leaf else None
+            self.assertIsNotNone(
+                tag, f"service {name} image {image!r} has no explicit tag (defaults to latest)"
+            )
+            self.assertNotIn(
+                "latest",
+                tag.lower(),
+                f"service {name} image tag {tag!r} must not resolve to :latest",
+            )
+        # Every published port must bind 127.0.0.1 explicitly (parsed superset
+        # of the retired `9000:9000`/`5432:5432` unbound-publish regex bans).
+        published = []
+        for name, service in services.items():
+            for entry in service.get("ports") or []:
+                self.assertIsInstance(entry, str, f"service {name} port entry must be a string mapping")
+                # container port from the right (host port may embed colons via
+                # ${VAR:-default}), host ip from the left.
+                remainder, _, container_port = entry.rpartition(":")
+                host_ip = None
+                host_port = None
+                if remainder:
+                    if ":" in remainder:
+                        host_ip, _, host_port = remainder.partition(":")
+                    else:
+                        host_port = remainder
+                published.append((name, host_ip, host_port, container_port))
+        for name, host_ip, host_port, container_port in published:
+            self.assertEqual(
+                host_ip,
+                "127.0.0.1",
+                f"service {name} publishes {host_port}:{container_port} without a loopback bind",
+            )
+        # The authentik HTTP endpoint stays env-tunable on the host side and
+        # loopback-bound to container port 9000.
+        self.assertIn(
+            ("server", "127.0.0.1", "${AUTHENTIK_HTTP_PORT:-9000}", "9000"),
+            published,
+        )
+        # No service may mount the docker socket (source or target side —
+        # parsed walk, superset of the retired substring ban).
+        for name, service in services.items():
+            for volume in service.get("volumes") or []:
+                self.assertIsInstance(volume, str)
+                self.assertFalse(
+                    any("/var/run/docker.sock" in part for part in volume.split(":")),
+                    f"service {name} must not mount /var/run/docker.sock",
+                )
+        # Retained raw catch-all bans (issue #573 peer review): the parsed walks
+        # above attribute violations per service, but the socket path or a
+        # :latest reference could also appear OUTSIDE service volumes/images
+        # (build args, environment, top-level keys) — the byte-level bans stay
+        # as the global net. Together with the parsed twins this is strictly
+        # stronger than either alone.
+        compose_text = COMPOSE.read_text(encoding="utf-8")
+        self.assertNotIn("/var/run/docker.sock", compose_text)
+        self.assertNotIn(":latest", compose_text)
+        # STATIC_POLICY (issue #573): the env.example secret-key pins stay raw —
+        # presence of the keys with EMPTY values IS the dotenv security
+        # contract (byte-level), parsed-absence N/A for prose/dotenv.
         env_example = ENV_EXAMPLE.read_text(encoding="utf-8")
         for secret_key in ("PG_PASS=", "AUTHENTIK_SECRET_KEY=", "AUTHENTIK_BOOTSTRAP_PASSWORD=", "AUTHENTIK_EMAIL__PASSWORD="):
             self.assertIn(secret_key, env_example)
@@ -382,6 +455,7 @@ class SeaSpeedAuthV1Tests(unittest.TestCase):
 
     def test_worker_stage_is_one_stage_private_and_does_not_mutate_sea_speed_worker(self) -> None:
         subprocess.run(["bash", "-n", str(WORKER_STAGE)], check=True)
+        # STATIC_POLICY (issue #573): stage.sh byte-identity IS the contract — shell deploy script, any change must fail review; parsed-absence N/A for shell.
         source = WORKER_STAGE.read_text(encoding="utf-8")
         for marker in (
             "sea-speed-worker", "DOCKER_PACKAGE_CONFLICT", "download.docker.com", "docker-ce",

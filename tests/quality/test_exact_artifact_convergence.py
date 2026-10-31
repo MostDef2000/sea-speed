@@ -8,6 +8,7 @@ the other passed validation and surfaced only at deploy time (or never).
 """
 from __future__ import annotations
 
+import ast
 import json
 import subprocess
 import sys
@@ -73,9 +74,35 @@ class ExactArtifactConvergenceTests(unittest.TestCase):
         self.assertIn("api/app/ghost_module.py", str(ctx.exception))
 
     def test_validator_end_to_end_and_check_is_wired(self) -> None:
-        source = VALIDATOR.read_text(encoding="utf-8")
-        self.assertIn("validate_vps_module_convergence", source)
-        self.assertIn("deploy_app_module_targets", source)
+        # Issue #573: parsed-structure twin (ast.parse) — the wiring pins check
+        # the PARSED validator source (both helpers defined AND main() calling
+        # the convergence check), refactor-blind where the raw substring pins
+        # false-failed on comments/whitespace; the executed validator run below
+        # stays the RB leg of this test.
+        tree = ast.parse(VALIDATOR.read_text(encoding="utf-8"), filename=str(VALIDATOR))
+        top_defs = {
+            node.name
+            for node in tree.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+        self.assertIn("validate_vps_module_convergence", top_defs)
+        self.assertIn("deploy_app_module_targets", top_defs)
+        mains = [
+            node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "main"
+        ]
+        self.assertEqual(len(mains), 1)
+        convergence_calls = [
+            node
+            for node in ast.walk(mains[0])
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "validate_vps_module_convergence"
+        ]
+        self.assertEqual(
+            len(convergence_calls),
+            1,
+            "main() must invoke validate_vps_module_convergence exactly once",
+        )
         with tempfile.TemporaryDirectory() as temp_dir:
             out = Path(temp_dir)
             subprocess.run(
