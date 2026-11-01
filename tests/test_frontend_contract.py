@@ -57,6 +57,11 @@ ROOT_SOURCE = ROOT_PAGE.read_text(encoding="utf-8-sig")
 WATER_HLS_URL = "/sea-speed/media/cam1/index.m3u8"
 ROAD_HLS_URL = "/sea-speed/media/road1/index.m3u8"
 
+# Pinned hls.js CDN artifact (issue #575): the production-proven 1.5.7
+# release, loaded with Subresource Integrity on every operator page.
+HLS_PINNED_SRC = "https://cdn.jsdelivr.net/npm/hls.js@1.5.7/dist/hls.min.js"
+HLS_SRI_INTEGRITY = "sha384-1B+J55elPxu+trIhW7QThjZg3evX8C5P6zjB82Xnn46RKPAXpL+vkanRSjCidsJv"
+
 # Boot responses: the worker control GET must answer ok:true so the page
 # renders the trusted worker state instead of the control-error path.
 WATER_WORKER_RESPONSE = {"match": "/worker/control", "json": {"ok": True, "active": True}}
@@ -868,6 +873,61 @@ class StreamRetryLadderStructuralTests(unittest.TestCase):
                 strip_comments(page),
                 f"{name} page must keep the full stream retry ladder as live code",
             )
+
+
+def script_tags(text: str) -> list[dict[str, str]]:
+    """Attribute maps for every opening <script ...> tag (SS extraction:
+    markup has no AST to execute, so the CDN supply-chain contract is pinned
+    through structured attribute lookups on comment-stripped source — a
+    commented-out tag can never satisfy it)."""
+    return [
+        dict(re.findall(r'\b([a-zA-Z-]+)="([^"]*)"', tag))
+        for tag in re.findall(r"<script\b[^>]*>", text)
+    ]
+
+
+class HlsScriptPinTests(unittest.TestCase):
+    """SS twin: the hls.js supply-chain contract on all three operator pages
+    (issue #575, audit #534 P2-07). The executed stream twins above prove the
+    player wiring; this pin freezes the CDN artifact itself — every page must
+    load the exact production-proven 1.5.7 hls.min.js with its sha384
+    Subresource Integrity and a CORS-anonymous request, and the floating
+    @latest tag must stay gone."""
+
+    def test_each_operator_page_loads_the_pinned_hls_artifact_with_sri(self) -> None:
+        for page, name in ((WATER, "water"), (CAMERAS, "cameras"), (ROAD, "road")):
+            with self.subTest(page=name):
+                hls_tags = [
+                    attrs for attrs in script_tags(strip_comments(page))
+                    if "hls.js" in attrs.get("src", "")
+                ]
+                self.assertEqual(
+                    len(hls_tags), 1,
+                    f"the {name} page must load hls.js exactly once; got {len(hls_tags)}",
+                )
+                attrs = hls_tags[0]
+                self.assertEqual(
+                    attrs.get("src"), HLS_PINNED_SRC,
+                    f"the {name} page must pin the exact hls.js 1.5.7 artifact",
+                )
+                self.assertEqual(
+                    attrs.get("integrity"), HLS_SRI_INTEGRITY,
+                    f"the {name} page hls.js tag must carry the exact sha384 integrity",
+                )
+                self.assertEqual(
+                    attrs.get("crossorigin"), "anonymous",
+                    f"the {name} page hls.js tag must request CORS-anonymous for SRI",
+                )
+
+    def test_no_page_loads_hls_from_a_moving_latest_tag(self) -> None:
+        for page, name in ((WATER, "water"), (CAMERAS, "cameras"), (ROAD, "road")):
+            with self.subTest(page=name):
+                for attrs in script_tags(strip_comments(page)):
+                    if "hls.js" in attrs.get("src", ""):
+                        self.assertNotIn(
+                            "@latest", attrs["src"],
+                            f"the {name} page must never load hls.js from the floating @latest tag",
+                        )
 
 
 if __name__ == "__main__":
