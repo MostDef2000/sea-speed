@@ -526,6 +526,29 @@ class ResolverSemanticsTests(ApiHarness):
         # space-delimited junk is ONE token, never split on spaces
         self.assertEqual(self.resolve("u", "Sea Speed Admin Sea Speed Operator"), "viewer")
 
+    def test_pipe_separated_groups_production_format(self) -> None:
+        # Issue #590: the authentik proxy outpost joins multiple group values
+        # into ONE header with "|" (production caddy log 2026-11-01:
+        # "authentik Admins|Sea Speed Owner"), so the comma-only split saw a
+        # single unknown token and every user resolved viewer.
+        self.assertEqual(self.resolve("u", "authentik Admins|Sea Speed Owner"), "admin")
+
+    def test_pipe_split_highest_wins(self) -> None:
+        self.assertEqual(self.resolve("u", f"{GROUP_OPERATOR}|{GROUP_VIEWER}"), "operator")
+        self.assertEqual(self.resolve("u", f"{GROUP_VIEWER}|{GROUP_ADMIN}"), "admin")
+
+    def test_mixed_separators_split(self) -> None:
+        # Starlette joins duplicate headers with ",", the outpost joins values
+        # with "|" — both separators must split, in any mix.
+        self.assertEqual(
+            self.resolve("u", f"{GROUP_ADMIN},{GROUP_OPERATOR}|{GROUP_VIEWER}"), "admin"
+        )
+
+    def test_pipe_unknown_tokens_fail_closed(self) -> None:
+        # Fail-closed preserved: pipe-splitting grants nothing by itself —
+        # unknown tokens never match, not even known-name fragments.
+        self.assertEqual(self.resolve("u", "authentik Admins|garbage"), "viewer")
+
     def test_multiple_roles_highest_wins(self) -> None:
         self.assertEqual(self.resolve("u", f"{GROUP_VIEWER},{GROUP_OPERATOR}"), "operator")
         self.assertEqual(self.resolve("u", f"{GROUP_OPERATOR},{GROUP_ADMIN}"), "admin")
