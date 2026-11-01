@@ -103,7 +103,9 @@ _LOGGER = logging.getLogger(__name__)
 # Issue #530: authentik group names are exact, case-sensitive whole-token
 # matches against the groups defined in
 # deploy/vps/authentik/blueprints/sea-speed-auth-v1.yaml. Tokens are split on
-# commas only, trimmed, and never matched by substring, case folding or any
+# both "|" and "," (issue #590: the authentik proxy outpost joins multiple
+# group values into one header with "|", while duplicate headers are joined
+# with ","), trimmed, and never matched by substring, case folding or any
 # other delimiter; unknown tokens grant nothing. Multiple recognized
 # memberships resolve the highest role; none resolves viewer.
 AUTHENTIK_GROUP_OWNER = "Sea Speed Owner"
@@ -166,7 +168,9 @@ def resolve_role(username: str, x_authentik_groups: Optional[str]) -> str:
     (not additive): the admin list resolves admin; else the operator list
     resolves operator — an operator-list match therefore overrides admin
     group membership, and membership in both lists resolves admin. Without an
-    env match, X-Authentik-Groups is split on commas only, each token is
+    env match, X-Authentik-Groups is split on both "|" and "," (issue #590:
+    the authentik proxy outpost joins multiple group values into one header
+    with "|", while duplicate headers are joined with ","), each token is
     trimmed and matched exactly against the recognized group names, and the
     highest recognized role wins. Absent, blank or wholly unrecognized groups
     resolve viewer.
@@ -176,7 +180,7 @@ def resolve_role(username: str, x_authentik_groups: Optional[str]) -> str:
     if username in OPERATOR_USERS:
         return "operator"
     highest: Optional[str] = None
-    for token in (x_authentik_groups or "").split(","):
+    for token in (x_authentik_groups or "").replace("|", ",").split(","):
         token = token.strip()
         role = _GROUP_ROLES.get(token)
         if role is None:
