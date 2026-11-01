@@ -84,6 +84,16 @@ Quality integration gate / quality-integration
 
 It aggregates independent static/security, reliability, exact-artifact and release/deployment-evidence domains. Significant PRs must link one valid feature specification. Workflow presence does not prove branch-protection settings.
 
+## Running the tests
+
+One command installs the declared dependencies and runs the full battery reproducibly on a clean checkout (issue #578):
+
+```text
+python3 scripts/run_tests.py
+```
+
+The script gates the environment before running anything: it requires CPython 3.14 (the version pinned by CI), verifies the declared test dependencies (the battery is stdlib-only apart from the `pyyaml==6.0.3` pin, installed automatically when missing or mismatched; `--skip-install` fails closed instead of installing), scans every `tests/**/*.py` import so an undeclared third-party dependency fails closed before the battery runs, then executes the exact two `unittest` commands from `.github/workflows/quality-integration.yml`. A clean checkout plus Python 3.14 is therefore fully reproducible, and pasted output is self-describing (resolved Python and dependency versions are printed). The import scan is static (import statements in `tests/**/*.py`); dynamic `__import__`/`importlib` calls and modules loaded direct-file are enforced by the battery itself on a clean environment, not by the scan.
+
 ## Release contours and provenance
 
 - `api/**`, `frontend/**`, `deploy/vps/**`: normally VPS.
