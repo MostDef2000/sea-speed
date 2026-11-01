@@ -157,9 +157,17 @@ def optional_float(value: Any) -> Optional[float]:
     if value in (None, ""):
         return None
     try:
-        return float(value)
+        result = float(value)
     except (TypeError, ValueError):
         return None
+    # Issue #577: NaN/±inf are float-convertible but are not valid measurements —
+    # drop them exactly like non-numeric input so `if x < 0` caller guards cannot
+    # be bypassed. The chained comparison is math.isfinite(result) with a
+    # module-import-free body: the AST/exec test harnesses exec this function
+    # verbatim against stub namespaces.
+    if not (float("-inf") < result < float("inf")):
+        return None
+    return result
 
 
 def optional_int(value: Any) -> Optional[int]:
@@ -339,6 +347,8 @@ def patch_object_record(object_id: str, payload: Dict[str, Any], camera_id: Opti
                 speed_kmh = float(value)
             except (TypeError, ValueError):
                 raise HTTPException(status_code=400, detail="speed_kmh must be a number or null")
+            if not (float("-inf") < speed_kmh < float("inf")):  # == math.isfinite (issue #577)
+                raise HTTPException(status_code=400, detail="speed_kmh must be a finite number")
             if speed_kmh < 0:
                 raise HTTPException(status_code=400, detail="speed_kmh must be >= 0")
             updates["speed_kmh"] = speed_kmh
