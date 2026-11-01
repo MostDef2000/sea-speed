@@ -1019,6 +1019,8 @@ def post_analytics_speed_config(
         kmh_per_px_s = float(payload.get("kmh_per_px_s", 0.0))
     except Exception:
         raise HTTPException(status_code=400, detail="kmh_per_px_s must be a number")
+    if not (float("-inf") < kmh_per_px_s < float("inf")):  # == math.isfinite (issue #577)
+        raise HTTPException(status_code=400, detail="kmh_per_px_s must be a finite number")
     if kmh_per_px_s < 0:
         raise HTTPException(status_code=400, detail="kmh_per_px_s must be >= 0")
     config = {"ok": True, "camera_id": camera_id, "enabled": enabled and kmh_per_px_s > 0,
@@ -1094,6 +1096,8 @@ def post_analytics_speed_lines(
         distance_m = float(payload.get("distance_m", 57.0))
     except Exception:
         raise HTTPException(status_code=400, detail="distance_m must be a number")
+    if not (float("-inf") < distance_m < float("inf")):  # == math.isfinite (issue #577)
+        raise HTTPException(status_code=400, detail="distance_m must be a finite number")
     if distance_m <= 0:
         raise HTTPException(status_code=400, detail="distance_m must be > 0")
     enabled = bool(payload.get("enabled", True))

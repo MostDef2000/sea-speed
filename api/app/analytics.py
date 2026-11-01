@@ -314,6 +314,12 @@ def _clean_norm_points(raw_points: Any, max_points: int = 1000) -> List[Dict[str
             yn = float(p.get("y_norm", p.get("y", 0)))
         except Exception:
             continue
+        # Issue #577: non-finite coordinates must drop like malformed points —
+        # max/min would silently clamp NaN/+inf to 1.0 and corrupt ROI geometry.
+        # Chained comparison == math.isfinite; module-import-free body for the
+        # AST/exec test harnesses.
+        if not (float("-inf") < xn < float("inf") and float("-inf") < yn < float("inf")):
+            continue
         # if caller passed absolute x 0..1920 already treat as norm only when explicitly x_norm present
         if "x_norm" not in p and "y_norm" not in p:
             continue
