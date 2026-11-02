@@ -130,7 +130,7 @@
   rendering, recorded at resume).
 - Final tree, canonical gate: `python3 scripts/run_tests.py` → PASS 2/2 CI
   battery commands green (Python 3.14.4 cpython, deps: pyyaml==6.0.3).
-- Final tree, fastapi present (`PYTHONPATH=/tmp/opencode/582/pylibs:`):
+- Final tree, fastapi present (`PYTHONPATH=/tmp/opencode/582/pylibs:.`):
   `pytest tests/ -q` → 1289 passed / 2 skipped / 363 subtests / 0 failed
   (~84.5 s).
 - Focused: new module 15 passed + 6 subtests (fastapi present); 15 skipped
