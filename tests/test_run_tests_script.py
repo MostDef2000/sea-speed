@@ -240,7 +240,15 @@ class ImportHygieneScanTests(unittest.TestCase):
             for path, line, name, kind in records
             if kind == "guarded-optional"
         ]
-        self.assertEqual(guarded, [("test_live_envelope_validators.py", 61, "fastapi")])
+        self.assertEqual(
+            guarded,
+            [
+                ("test_api_http_integration.py", 83, "fastapi"),
+                ("test_api_http_integration.py", 84, "fastapi"),
+                ("test_api_http_integration.py", 86, "httpx"),
+                ("test_live_envelope_validators.py", 61, "fastapi"),
+            ],
+        )
 
     def test_flags_undeclared_third_party_import(self):
         records = self.scan_source("import requests\n")
