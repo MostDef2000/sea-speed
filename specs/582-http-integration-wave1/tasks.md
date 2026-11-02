@@ -65,12 +65,31 @@
 
 ## Requirements traceability
 
-- R-1 (config env overrides) → AC-003 → canonical battery + full battery.
-- R-2 (new test module) → AC-001, AC-004 → focused + full-battery runs.
-- R-3 (pin update) → AC-005 → `tests/test_run_tests_script.py` green.
-- R-4 (SDD trio) → this directory.
+- AC-001 | Task: T-2 | Evidence: focused run — new module 15 passed + 6 subtests with fastapi present (orchestrator-observed); full-battery delta is exactly the new module | Coverage: COVERED
+- AC-002 | Task: T-2+T-4 | Evidence: canonical gate `python3 scripts/run_tests.py` PASS 2/2 without fastapi; skip path observed (15 skipped without fastapi) | Coverage: COVERED
+- AC-003 | Task: T-3 | Evidence: config diff is the two env overrides; canonical battery (env unset) green on the final tree proves unset equivalence | Coverage: COVERED
+- AC-004 | Task: T-5 | Evidence: combined run and full battery with fastapi present green after the containment (CC-1) | Coverage: COVERED
+- AC-005 | Task: T-4 | Evidence: `tests/test_run_tests_script.py` 27 passed + 11 subtests; pin = scanner output (83/84/86 + live_envelope 61); RED captured before the fix | Coverage: COVERED
+- AC-006 | Task: T-6 | Evidence: both battery modes green on the final tree — canonical PASS 2/2; fastapi present 1293 passed / 2 skipped / 363 subtests / 0 failed (see Battery identity) | Coverage: COVERED
+
+Requirement-to-AC mapping: R-1 (config env overrides) → AC-003; R-2 (new
+test module) → AC-001, AC-004; R-3 (pin update) → AC-005; R-4 (SDD trio)
+→ this directory.
 
 ## Definition of Done
+
+- [x] Issue/spec/plan/tasks current
+- [x] Exact changed-file scope verified (1 api/app file + 1 new test module + 1 pin file + this trio)
+- [x] Required tests and evidence complete (Battery identity above)
+- [ ] Required CI green
+- [ ] Exact-green-head merge complete
+- [ ] Deployment state resolved (rides the autonomous post-merge VPS contour; observed, not dispatched, by this wave)
+- [ ] Runtime acceptance resolved (none required — no runtime contour mutated by this wave; autonomous pipeline evidence observed post-merge)
+- [x] Deferred work recorded (activating the HTTP tests in CI is a later #582 wave; out of scope here)
+- [x] Risks resolved or explicitly accepted (plan.md Risk profile)
+- [x] Waivers resolved or current (no waivers)
+
+Evidence notes:
 
 - Full battery green in both modes (canonical no-fastapi gate; full pytest
   with fastapi present) with the delta accounted (+15 tests / +6 subtests).
@@ -78,6 +97,8 @@
   is real cleanup; the pin matches scanner output.
 - No secrets, no local runtime state, no generated output committed; fixture
   constants are gitleaks-safe low-entropy values per repo precedent.
-- Peer review completed and findings addressed or explicitly dispositioned.
+- Peer review completed and findings addressed or explicitly dispositioned
+  (T-8: PASS, no blockers; F-1/F-2 fixed and re-verified, F-3 closed by
+  orchestrator-run batteries).
 - PR merged with exact-head required CI; issue #582 checkpoint updated with
   the wave-1 evidence cursor.

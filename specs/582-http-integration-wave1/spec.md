@@ -1,6 +1,6 @@
 # Spec: #582 wave 1 — real FastAPI HTTP integration tests for the API boundary
 
-- Issue: #582 (wave 1)
+- Issue: #582
 - Specification: specs/582-http-integration-wave1/spec.md
 - Authorization: the #582 wave-1 scope (api/app/config.py env overrides +
   tests/test_api_http_integration.py + the guarded-optional pin in
@@ -76,8 +76,8 @@ byte-for-byte identical to the previous hardcoded defaults.
   no test demands pins).
 - AC-006: full battery green in both modes — canonical
   `python3 scripts/run_tests.py` (no fastapi) PASS, and with fastapi on the
-  path 1289 passed / 2 skipped / 363 subtests / 0 failed (baseline
-  1274 / 2 / 357 + exactly the new tests).
+  path 1293 passed / 2 skipped / 363 subtests / 0 failed on the rebased
+  tree (main 349b39c baseline 1278 / 2 / 357 + exactly the new tests).
 
 ## Requirements
 

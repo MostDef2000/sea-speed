@@ -74,6 +74,8 @@
 
 ## Risk profile
 
+- Risk profile: NOT REQUIRED
+
 - R-1 (highest): one-process battery pollution — env vars and cached
   fastapi modules leaking into later test modules. Mitigation: class
   cleanups restore env (pre-existing pattern) and evict cached modules
@@ -88,6 +90,13 @@
   env set) and by the full CI battery on the merge head.
 
 ## Test design
+
+- TEST-001 | Covers: AC-001 | Level: integration | Priority: P0 | Evidence: focused run — new module 15 passed + 6 subtests with fastapi present (orchestrator-observed); full-battery delta is exactly the new module
+- TEST-002 | Covers: AC-002 | Level: integration | Priority: P0 | Evidence: canonical gate `python3 scripts/run_tests.py` PASS 2/2 without fastapi; skip path observed (15 skipped without fastapi)
+- TEST-003 | Covers: AC-003 | Level: integration | Priority: P0 | Evidence: canonical battery (env unset) green on the final tree — unset behavior byte-identical to pre-#582
+- TEST-004 | Covers: AC-004 | Level: integration | Priority: P0 | Evidence: combined run and full battery with fastapi present green after the containment (CC-1)
+- TEST-005 | Covers: AC-005 | Level: unit | Priority: P1 | Evidence: `tests/test_run_tests_script.py` 27 passed + 11 subtests; pin = scanner output (83/84/86 + live_envelope 61); RED captured before the fix
+- TEST-006 | Covers: AC-006 | Level: integration | Priority: P0 | Evidence: both battery modes green on the final tree (canonical PASS 2/2; fastapi present 1293 passed / 2 skipped / 363 subtests / 0 failed)
 
 - 15 tests / 6 subtests, one class, one temp data root per class run:
   health identity (unauthenticated), bearer boundary (missing 403, wrong
@@ -104,6 +113,17 @@
   end-to-end.
 
 ## Correct-course check
+
+- Trigger: NONE
+- Issue impact: NONE
+- Specification impact: NONE
+- Plan impact: NONE
+- Tasks impact: NONE
+- Authorization impact: NONE
+- Follow-up: NONE
+
+In-wave course corrections (no formal correct-course trigger; scope,
+authorization and SDD structure unchanged):
 
 - CC-1: the first full battery with fastapi present failed 3 roi tests
   (diagnosed above, R-1). Correct-course: containment moved into the new
@@ -124,15 +144,34 @@
   reviewer could not execute tests in its sandbox, closed by the
   orchestrator running both battery modes itself and observing the output.
 
+## Deployment transaction audit
+
+This audit models the autonomous post-merge VPS rollout of the additive
+config env overrides; it does not redeploy Ubuntu or Windows and expects
+zero operator actions.
+
+- TX-001 | Stage: ADMISSION | Mutation: NO | Failure disposition: FATAL | State after failure: main remains on the previous accepted release; the wave is not admitted | Retry: correct exact SHA/quality/authorization evidence then re-enter the PR → exact-green-head merge path | Rollback: NOT REQUIRED before mutation | Evidence: exact merged main SHA, green exact-head CI on that SHA, owner authorization `commit approved` (2026-11-02)
+- TX-002 | Stage: PRE-MUTATION | Mutation: POSSIBLE | Failure disposition: FATAL | State after failure: candidate release may be staged while the current VPS release remains active | Retry: verify staged exact release and current/previous identities then retry | Rollback: NOT REQUIRED while the active release is unchanged | Evidence: exact VPS artifact/release manifest (sea_speed_release_manifest_v3) and current/previous release markers
+- TX-003 | Stage: MUTATION | Mutation: YES | Failure disposition: FATAL | State after failure: candidate VPS release may be active but is not accepted until verification succeeds | Retry: only after the existing deploy transaction restores or proves a coherent current release | Rollback: existing VPS deploy rollback restores the previous exact release | Evidence: autonomous deploy-runtime workflow activation logs on the merged main SHA
+- TX-004 | Stage: VERIFICATION | Mutation: POSSIBLE | Failure disposition: FATAL | State after failure: candidate is not accepted | Retry: resolve health/smoke failure after the actual current release is known | Rollback: automatic previous-release verification through the accepted loopback origin and protected smoke | Evidence: origin health, smoke, exact API release identity
+- TX-005 | Stage: STATE-COMMIT | Mutation: YES | Failure disposition: FATAL | State after failure: deployment evidence is incomplete and completion is forbidden | Retry: verify actual runtime before persisting evidence | Rollback: previous exact VPS release remains the declared rollback target | Evidence: current/previous markers plus runtime-verified deployment manifest
+- TX-006 | Stage: HOUSEKEEPING | Mutation: POSSIBLE | Failure disposition: BEST-EFFORT | State after failure: verified runtime remains valid while stale release cleanup may remain pending | Retry: clean stale non-current/non-previous releases independently | Rollback: NOT REQUIRED solely for stale cleanup failure | Evidence: warning-only pruning behavior already regression-protected
+- TX-007 | Stage: EVIDENCE | Mutation: NO | Failure disposition: CONDITIONAL | State after failure: deployed runtime may be healthy but wave acceptance evidence remains incomplete | Retry: recollect evidence without redeployment when the exact runtime identity is unchanged | Rollback: decide from actual API/runtime behavior, not evidence upload alone | Evidence: deployment manifest plus the autonomous pipeline run evidence on the merged main SHA
+- TX-008 | Stage: ROLLBACK | Mutation: YES | Failure disposition: FATAL | State after failure: if the previous exact release cannot be restored/verified, stop automated mutation and recover actual VPS state | Retry: read current/previous/runtime evidence before any new mutation | Rollback: no guessed secondary target; use the protected previous exact VPS release | Evidence: existing VPS rollback logs and verified origin/public health
+
 ## Validation
 
 - Baseline on dc1e9f7: 1274 passed / 2 skipped / 357 subtests (pytest
   rendering, recorded at resume).
-- Final tree, canonical gate: `python3 scripts/run_tests.py` → PASS 2/2 CI
-  battery commands green (Python 3.14.4 cpython, deps: pyyaml==6.0.3).
-- Final tree, fastapi present (`PYTHONPATH=/tmp/opencode/582/pylibs:.`):
-  `pytest tests/ -q` → 1289 passed / 2 skipped / 363 subtests / 0 failed
-  (~84.5 s).
+- Wave tree on dc1e9f7 (pre-rebase), fastapi present: 1289 passed /
+  2 skipped / 363 subtests / 0 failed.
+- Final tree (rebased onto main 349b39c), canonical gate:
+  `python3 scripts/run_tests.py` → PASS 2/2 CI battery commands green
+  (Python 3.14.4 cpython, deps: pyyaml==6.0.3).
+- Final tree (rebased onto main 349b39c), fastapi present
+  (`PYTHONPATH=/tmp/opencode/582/pylibs:.`): `pytest tests/ -q` →
+  1293 passed / 2 skipped / 363 subtests / 0 failed (~84.5 s; main
+  baseline 1278/2/357 + exactly the new module).
 - Focused: new module 15 passed + 6 subtests (fastapi present); 15 skipped
   (fastapi absent); `tests/test_run_tests_script.py` 27 passed + 11 subtests.
 
