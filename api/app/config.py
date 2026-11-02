@@ -80,7 +80,12 @@ __all__ = [
 ]
 
 
-BASE_DIR = Path("/opt/sea-speed-api")
+# Issue #582: SEA_SPEED_BASE_DIR redirects the whole data/media tree (every
+# derived path below keeps deriving from BASE_DIR, and the import-time
+# mkdirs land in the override target). Unset behavior is byte-for-byte
+# identical to the pre-#582 hardcoded default; the override exists so the
+# HTTP-integration tests can boot the real app against a disposable root.
+BASE_DIR = Path(os.environ.get("SEA_SPEED_BASE_DIR", "/opt/sea-speed-api"))
 DATA_DIR = BASE_DIR / "data"
 MEDIA_DIR = BASE_DIR / "media"
 OVERLAY_DIR = MEDIA_DIR / "overlays"
@@ -89,7 +94,12 @@ PASSAGES_MEDIA_DIR = MEDIA_DIR / "passages"
 PASSAGE_MEDIA_DIR = PASSAGES_MEDIA_DIR
 CAMERA_PREVIEW_DIR = MEDIA_DIR / "camera-preview"
 CAMERA_SNAPSHOT_DIR = DATA_DIR / "camera-preview-snapshots"
-DEPLOYED_COMMIT_FILE = Path("/opt/sea-speed-deploy/state/current-release")
+DEPLOYED_COMMIT_FILE = Path(
+    os.environ.get(
+        "SEA_SPEED_DEPLOYED_COMMIT_FILE",
+        "/opt/sea-speed-deploy/state/current-release",
+    )
+)
 
 STATE_FILE = DATA_DIR / "cam1_state.json"
 EVENTS_FILE = DATA_DIR / "events.json"
