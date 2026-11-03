@@ -1,0 +1,28 @@
+# Ruff strict tier for the Sea Speed repository (issue #579).
+#
+# Gradual strict-lint protocol: this configuration applies ONLY to the
+# modules explicitly listed in the CI invocation
+# (`.github/workflows/quality-integration.yml`, step "Ruff lint (strict tier,
+# gradual)"). New modules are added to that list during code review, one at a
+# time, once they pass this tier. NEVER mass-enable this file over the whole
+# tree: the legacy codebase predates these rule families and a repo-wide run
+# would demand a mass rewrite no task has authorized (the same reasoning that
+# keeps scripts/quality/ruff.toml at E9+F).
+#
+# Families, and why they are practical for newly written modules:
+# - E9: syntax/runtime-level errors (also in the base tier).
+# - F: pyflakes — unused imports/variables, undefined names.
+# - W: whitespace hygiene — trivially clean in new code.
+# - I: import sorting — mechanical, enforced at authoring time.
+# - B: flake8-bugbear — catches real bug patterns (mutable defaults,
+#   assert-tuples, bare excepts); new code is written to avoid them.
+# - UP: pyupgrade — keeps new code on modern 3.14 syntax (the repo targets
+#   py314; legacy code is NOT held to this, see ruff.toml).
+#
+# fix = false: the gate must never mutate source, locally or in CI
+# (same stance as ruff.toml).
+target-version = "py314"
+fix = false
+
+[lint]
+select = ["E9", "F", "W", "I", "B", "UP"]
