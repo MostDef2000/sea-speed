@@ -66,3 +66,6 @@ jobs:
 
       - name: Audit pinned worker runtime requirements
         run: pip-audit -r deploy/worker/ubuntu/requirements-runtime.txt
+
+      - name: Audit pinned API requirements
+        run: pip-audit -r api/requirements-api.txt

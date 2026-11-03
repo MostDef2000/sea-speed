@@ -1,9 +1,11 @@
 name: resolve-runtime-lock
 
-# Resolver for the hash-locked shared worker runtime dependency graph (#392).
-# Operator-triggered resolution only: compiles requirements-runtime.txt plus
-# the pytorch cu130 pins declared in runtime-lock.json into a complete
-# --generate-hashes lock file and uploads it as a build artifact. This workflow
+# Resolver for hash-locked dependency graphs (operator-triggered only).
+# The single `resolve` job compiles (1) the shared worker runtime dependency
+# graph (#392) — requirements-runtime.txt plus the pytorch cu130 pins declared
+# in runtime-lock.json — and (2) the canonical API + test + CI tooling input
+# api/requirements-api.txt (#579, default PyPI index, no pytorch needed) into
+# --generate-hashes lock files uploaded as build artifacts. This workflow
 # performs resolution only: no repository write, no secrets, no deploy logic.
 
 on:
@@ -94,5 +96,43 @@ jobs:
         with:
           name: requirements-runtime-lock-txt
           path: requirements-runtime.lock.txt
+          if-no-files-found: error
+          retention-days: 30
+
+      # Issue #579: the same dispatch also resolves the canonical API + test
+      # + CI tooling lock. Default PyPI only — no pytorch index, no extra
+      # index strategy. Kept inside this single job: the resolver workflow is
+      # structurally pinned (tests/test_ubuntu_worker_runtime_hash_lock.py)
+      # to exactly one job.
+      - name: Compile the hash-locked API lock
+        run: |
+          python3 -m uv pip compile \
+            --generate-hashes \
+            --python-version "${{ inputs.python_version }}" \
+            api/requirements-api.txt \
+            -o api-requirements.lock.txt
+
+      - name: Prepend the API lock marker for a commit-ready artifact
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          lock_file = Path("api-requirements.lock.txt")
+          text = lock_file.read_text(encoding="utf-8")
+          if not text.startswith("# sea-speed-api-lock-v1"):
+              lock_file.write_text("# sea-speed-api-lock-v1\n" + text, encoding="utf-8")
+          print(lock_file.read_text(encoding="utf-8").splitlines()[0])
+          PY
+
+      - name: Show API lock resolution summary
+        run: |
+          echo "api lock hash pin count: $(grep -c -- '--hash=sha256:' api-requirements.lock.txt || true)"
+          head -40 api-requirements.lock.txt
+
+      - name: Upload resolved API lock
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: api-requirements-lock-txt
+          path: api-requirements.lock.txt
           if-no-files-found: error
           retention-days: 30
