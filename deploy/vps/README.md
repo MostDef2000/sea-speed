@@ -224,7 +224,7 @@ Generate the known-hosts value from a trusted network and verify the fingerprint
 ssh-keyscan -p 22 <VPS_HOST>
 ```
 
-Production deployment always remains an explicit action against an exact full `main` SHA with the required quality/production controls. Merge does not itself authorize a deployment.
+Production deployment executes against an exact full `main` SHA under the standing production delegation's policy gates (source protection, contracts, delegation) — initiated autonomously on a green quality run for `main`, or manually via `workflow_dispatch` for recovery; it is never an uncontrolled automatic action. Merge does not itself authorize a deployment.
 
 ## Manual run
 
@@ -237,7 +237,7 @@ Relevant VPS source contours include:
 - `deploy/vps/**`;
 - `.github/workflows/deploy-vps.yml`.
 
-Worker-only and documentation-only changes do not imply a normal VPS code deployment.
+Runtime impact is derived from the change-control policy by file path, not by the type of content: a documentation edit under `deploy/vps/**` still classifies as a VPS-contour change, while `docs/**` and `tests/**` edits classify as non-runtime. Worker-only changes and edits confined to such non-runtime paths do not imply a normal VPS code deployment.
 
 ## nginx / ZeroTier startup resilience
 

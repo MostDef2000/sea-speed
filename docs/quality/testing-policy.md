@@ -47,7 +47,7 @@ Merge, release, deployment and runtime acceptance are separate operations.
 - A release artifact is not installation evidence.
 - Deployment is not product acceptance.
 
-Production deployment is manual, requires an exact full commit SHA, a successful aggregate quality check for that commit, production-environment approval, validated evidence and an available rollback target.
+Production deployment runs under the standing production delegation: it is initiated autonomously when the aggregate quality check succeeds for a push to `main`, and the deterministic production policy gates execution on the exact full commit SHA, source protection, change/outcome contracts and the delegation itself, deploying only the contours the policy classifies as required. The unchanged prerequisites remain an exact full commit SHA, a successful aggregate quality check for that exact commit, validated evidence and an available rollback target; per-release human approval is not part of the standing-delegation model — the deterministic policy gate is the control.
 
 ## Delivery quality artifacts
 
