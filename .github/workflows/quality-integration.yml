@@ -53,6 +53,8 @@ jobs:
           python scripts/ci/validate_contracts.py
           python scripts/quality/validate_quality_contracts.py
           python scripts/quality/validate_workflow_policy.py
+      - name: Validate token inventory and dates
+        run: python scripts/quality/validate_token_preflight.py
       - name: Validate JSON and Python syntax
         run: |
           set -euo pipefail
@@ -65,11 +67,11 @@ jobs:
       - name: Ruff lint (strict tier, gradual)
         run: |
           set -euo pipefail
-          ruff check --config scripts/quality/ruff.strict.toml scripts/quality/validate_api_dependency_lock.py
+          ruff check --config scripts/quality/ruff.strict.toml scripts/quality/validate_api_dependency_lock.py scripts/quality/validate_token_preflight.py
       - name: Progressive mypy (strict baseline)
         run: |
           set -euo pipefail
-          mypy --config-file scripts/quality/mypy.ini scripts/quality/common.py worker/analytics_profiles.py worker/detection_performance.py scripts/release/production_policy.py scripts/ci/validate_delivery_checkpoint.py scripts/quality/validate_api_dependency_lock.py
+          mypy --config-file scripts/quality/mypy.ini scripts/quality/common.py worker/analytics_profiles.py worker/detection_performance.py scripts/release/production_policy.py scripts/ci/validate_delivery_checkpoint.py scripts/quality/validate_api_dependency_lock.py scripts/quality/validate_token_preflight.py
       - name: Run repository behavioral tests
         run: python -W error::ResourceWarning -m unittest discover -s tests -p 'test_*.py' -v
 
