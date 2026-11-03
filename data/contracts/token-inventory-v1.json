@@ -1,0 +1,8 @@
+{
+  "schema": "sea-speed-token-inventory/v1",
+  "tokens": [
+    {"name": "sea-speed-worker-quality-read", "kind": "classic", "expiry_status": "no-expiry", "expiry": null, "review_date": "2027-04-14", "probe": "none", "credential_pointer": "/etc/sea-speed/github-read-token", "expected_scopes": null, "note": "Reissued 2026-10-14 with no expiry (issue #478); semi-annual review; on-box only at /etc/sea-speed/github-read-token - CI cannot read the host file; liveness probe is the on-box GET /zen command documented in INFRASTRUCTURE.md."},
+    {"name": "sea-speed-opencode-connector", "kind": "classic", "expiry_status": "dated", "expiry": "2026-12-31", "review_date": null, "probe": "none", "credential_pointer": null, "expected_scopes": ["repo", "workflow"], "note": "Expires 2026-12-31; owner calendar rotation reminder due by 2026-12-24; storage location unverified - confirm during rotation; expiry-only coverage from CI."},
+    {"name": "SYNC_PR_TOKEN", "kind": "fine-grained", "expiry_status": "unknown", "expiry": null, "review_date": null, "probe": "none", "credential_pointer": "SYNC_PR_TOKEN", "expected_scopes": null, "note": "Repo secret (settings); kind inferred from sync-merged-tasks.yml comment, not owner-confirmed; expiry lookup pending (owner lane). REST API proven 401 with working git push (issue #558) - REST probe would be permanently red, hence probe: none; revocation is loudly surfaced by sync-merged-tasks push failures."}
+  ]
+}
