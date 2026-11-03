@@ -1,0 +1,49 @@
+# Canonical API + test + CI tooling dependency input (issue #579).
+#
+# This file is the single pinned input for everything the API boundary, its
+# HTTP integration tests and the static quality gate need. It is resolved by
+# the `resolve-api-lock` job of .github/workflows/resolve-runtime-lock.yml
+# (uv pip compile --generate-hashes) into api/requirements-api.lock.txt, which
+# CI installs (quality-integration.yml "Install canonical locked dependencies")
+# and which scripts/quality/validate_api_dependency_lock.py checks for
+# marker/coverage/hash integrity. Audit: security.yml pip-audits this file.
+#
+# Every pin below is exact (`name==version`); the validator rejects anything
+# else. Rationale per pin:
+#
+# - ruff==0.16.10 / mypy==1.18.2 / pyyaml==6.0.3 — carried over verbatim from
+#   the former inline CI pins in quality-integration.yml so the gate versions
+#   do not drift the day this lock lands. The mypy 1.18.2 rationale (last
+#   pure-Python release line; 1.19+ needs the librt C extension, 2.x the
+#   Rust ast_serialize parser) is documented in scripts/quality/mypy.ini and
+#   stays authoritative; bumps are deliberate decisions, not floating pins.
+# - fastapi — the API framework itself: api/app/main.py builds the FastAPI
+#   app (FastAPI, StaticFiles, FileResponse, StreamingResponse) and every
+#   boundary module imports fastapi.HTTPException. 0.162.0 is the latest
+#   PyPI release at resolution time (2026-11-03).
+# - httpx — the transport fastapi.testclient.TestClient requires;
+#   tests/test_api_http_integration.py drives the real app through TestClient
+#   (in-process and via its subprocess probe), so the test environment needs
+#   it declared rather than implicit. 0.28.1 is the latest PyPI release at
+#   resolution time (2026-11-03).
+# - uvicorn — the production API server: the VPS `sea-speed-api` systemd
+#   service runs api/app/main.py in direct uvicorn app-dir mode (see
+#   specs/396-wave1/plan.md); the canonical API input owns its server pin.
+#   Tests do not import it (TestClient needs no server); it is here so the
+#   API runtime dependency graph is resolved and hash-audited from one file.
+#   0.54.0 is the latest PyPI release at resolution time (2026-11-03).
+# - python-multipart — required by the API's own form/file endpoints:
+#   api/app/main.py declares Form/File/UploadFile routes, and FastAPI raises
+#   at route registration/request time when python-multipart is absent
+#   (observed: the #582 HTTP integration tests error in setUpClass without
+#   it). 0.0.33 is the latest PyPI release at resolution time (2026-11-03).
+#
+# No pytorch index: this graph resolves from default PyPI only (unlike the
+# worker runtime lock, see resolve-runtime-lock.yml).
+ruff==0.16.10
+mypy==1.18.2
+pyyaml==6.0.3
+fastapi==0.162.0
+uvicorn==0.54.0
+httpx==0.28.1
+python-multipart==0.0.33
