@@ -33,6 +33,8 @@ jobs:
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: "22"
+      - name: Install canonical locked dependencies (API + test + tooling)
+        run: pip install -r api/requirements-api.lock.txt
       - name: Validate pull request Change Contract
         if: github.event_name == 'pull_request'
         run: python scripts/ci/validate_change_contract.py --event "$GITHUB_EVENT_PATH"
@@ -59,15 +61,15 @@ jobs:
       - name: Ruff lint (non-mutating)
         run: |
           set -euo pipefail
-          pip install ruff==0.16.10
           ruff check --config scripts/quality/ruff.toml .
+      - name: Ruff lint (strict tier, gradual)
+        run: |
+          set -euo pipefail
+          ruff check --config scripts/quality/ruff.strict.toml scripts/quality/validate_api_dependency_lock.py
       - name: Progressive mypy (strict baseline)
         run: |
           set -euo pipefail
-          pip install mypy==1.18.2
-          mypy --config-file scripts/quality/mypy.ini scripts/quality/common.py worker/analytics_profiles.py worker/detection_performance.py scripts/release/production_policy.py scripts/ci/validate_delivery_checkpoint.py
-      - name: Install test-only YAML parser
-        run: pip install pyyaml==6.0.3
+          mypy --config-file scripts/quality/mypy.ini scripts/quality/common.py worker/analytics_profiles.py worker/detection_performance.py scripts/release/production_policy.py scripts/ci/validate_delivery_checkpoint.py scripts/quality/validate_api_dependency_lock.py
       - name: Run repository behavioral tests
         run: python -W error::ResourceWarning -m unittest discover -s tests -p 'test_*.py' -v
 
@@ -76,7 +78,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Check out exact source
+      - name: Check out source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
