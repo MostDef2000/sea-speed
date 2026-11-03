@@ -14,7 +14,7 @@ feature branch
   -> aggregate quality context
   -> merge to main
   -> deterministic exact artifacts and evidence
-  -> explicitly approved deployment
+  -> policy-gated deployment under standing delegation
   -> post-deploy verification
 ```
 
@@ -53,9 +53,9 @@ Physical NVIDIA/CUDA and camera runtime remain a separate post-install/self-host
 
 ## Stage 4: release and deployment evidence
 
-Quality evidence binds the exact source commit to both artifact digests, dependency inventory, contract modes, manual deployment policy and rollback instructions.
+Quality evidence binds the exact source commit to both artifact digests, dependency inventory, contract modes, standing-delegation deployment policy and rollback instructions.
 
-VPS production deployment is available only through `workflow_dispatch` and a protected `production` environment. Pushes to `main` never initiate production deployment.
+A successful aggregate quality run for a push to `main` triggers the autonomous deployment router, which re-verifies source protection and evaluates the standing production delegation before deploying only the contours that are both allowed and required. `workflow_dispatch` on the VPS workflow remains available as a manual/recovery entry with the same exact-SHA and quality controls. Both paths run in the protected `production` environment.
 
 ## Stage 5: enforcement
 
