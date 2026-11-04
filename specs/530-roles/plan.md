@@ -219,7 +219,8 @@ and membership verification), never parser relaxation or client-header
 trust. Env-list changes take effect after process restart.
 
 A rollback restores the prior authorization weakness and must be recorded
-as a security regression, not a neutral feature rollback. If live group
-format differs from the comma-separated contract, mutations deny for all
-group-based users (viewer floor); env lists remain a working elevation
-path while the discrepancy is resolved.
+as a security regression, not a neutral feature rollback. The group-header
+contract supports both delimiters: `|` (authentik outpost joins) and `,`
+(repeated header joins). Any other unknown format fails closed — mutations
+deny for all group-based users (viewer floor); env lists remain a working
+elevation path while the discrepancy is resolved.
