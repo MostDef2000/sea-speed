@@ -156,7 +156,10 @@ jobs:
           # GraphQL-backed (live, run on merge 88e54f2: "HTTP 401: Bad
           # credentials (graphql)" immediately after the push) and dies on the
           # public_repo-only classic PAT exactly like the create path.
-          number="$(gh api "repos/${GH_REPO}/pulls?head=${GH_REPO}:${BRANCH}&base=main&state=open" --jq '.[0].number // empty')"
+          # #595: GitHub's head filter is owner:branch — ${GH_REPO%%/*} yields
+          # the owner (the old owner/repo:branch filter matched nothing, so the
+          # open auto-sync PR was never found and the create died on 422).
+          number="$(gh api "repos/${GH_REPO}/pulls?head=${GH_REPO%%/*}:${BRANCH}&base=main&state=open" --jq '.[0].number // empty')"
           if [[ -n "${number}" ]]; then
             echo "reusing open auto-sync PR #${number}"
             # RF-014 (live): the gh edit command runs a GraphQL lookup that
