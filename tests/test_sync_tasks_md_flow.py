@@ -21,11 +21,20 @@ fix PR merge):
     template drift would turn every auto-sync PR red.
 (d) The synced tasks.md passes scripts/ci/validate_sdd.py --freshness
     semantics (no FRESHNESS_RE match on flipped lines).
+(e) Issue #595: the ACTUAL lookup/reuse/create shell suffix of the
+    "Push sync branch and create or reuse the auto-sync PR" step is
+    extracted from the committed workflow and executed verbatim by bash
+    against a deterministic fake gh that reproduces GitHub's head-filter
+    semantics (owner:branch) and the duplicate-create 422. The old
+    head=${GH_REPO}:${BRANCH} filter (owner/repo:branch) matches nothing,
+    so the open auto-sync PR was never detected and the flow died on the
+    duplicate-create 422.
 """
 
 from __future__ import annotations
 
 import importlib.util
+import json
 import shutil
 import subprocess
 import sys
@@ -321,7 +330,7 @@ class WorkflowStructuralPinTests(unittest.TestCase):
         # #558 (live, run on merge 88e54f2): the reuse CHECK must be REST too —
         # the CLI list path is GraphQL-backed and dies on the same classic PAT
         # right after the branch push.
-        self.assertIn('gh api "repos/${GH_REPO}/pulls?head=${GH_REPO}:${BRANCH}&base=main&state=open"', runs)
+        self.assertIn('gh api "repos/${GH_REPO}/pulls?head=${GH_REPO%%/*}:${BRANCH}&base=main&state=open"', runs)
         self.assertNotIn("gh pr list", runs)
         # RF-006 (live): GITHUB_TOKEN-created PRs emit no pull_request events, so
         # the flow must dispatch the two required-check workflows on the sync
@@ -383,6 +392,415 @@ class WorkflowStructuralPinTests(unittest.TestCase):
         # Final gate consistent with the ruleset: required contexts green on
         # the head SHA.
         self.assertIn('gh pr checks "${PR_NUMBER}" --required', runs)
+
+
+# ---------------------------------------------------------------------------
+# Issue #595: the auto-sync PR reuse lookup used head=${GH_REPO}:${BRANCH}
+# (owner/repo:branch). GitHub's head filter is owner:branch, so the
+# malformed filter matched nothing, the open auto-sync PR was never
+# detected, and the flow died on the duplicate-create 422. The cases below
+# execute the ACTUAL lookup/reuse/create shell suffix extracted from the
+# committed workflow (the conditional is NOT reimplemented in Python)
+# against a deterministic fake gh that reproduces GitHub's head-filter
+# semantics and the duplicate-create 422.
+# ---------------------------------------------------------------------------
+
+FAKE_GH_SOURCE = r'''#!/__PYTHON__
+"""Deterministic fake gh for the #595 sync-flow regression tests.
+
+Logs every invocation as a JSON argument array to
+$FAKE_GH_STATE_DIR/calls.log and serves ONLY the REST operations the sync
+PR step may perform:
+
+  GET   repos/FixtureOwner/fixture-repo/pulls?head=...&base=main&state=open
+  PATCH repos/FixtureOwner/fixture-repo/pulls/<number>
+  POST  repos/FixtureOwner/fixture-repo/pulls
+
+The lookup reproduces GitHub's head-filter semantics: the filter is
+"owner:branch"; a malformed owner (e.g. "owner/repo") matches nothing —
+exactly the #595 root cause of the old ${GH_REPO}:${BRANCH} query. A POST
+while an open PR already exists for the head branch returns the real
+GitHub 422 duplicate-create error. Anything else is rejected.
+"""
+import json
+import os
+import sys
+import urllib.parse
+
+OWNER = "FixtureOwner"
+REPO = "fixture-repo"
+BRANCH = "chore/tasks-md-auto-sync"
+BASE = "main"
+PULLS = "repos/%s/%s/pulls" % (OWNER, REPO)
+
+
+def die(msg, code=64):
+    sys.stderr.write("fake-gh: %s\n" % msg)
+    sys.exit(code)
+
+
+def read_state(name):
+    path = os.path.join(os.environ["FAKE_GH_STATE_DIR"], name)
+    if not os.path.exists(path):
+        return ""
+    with open(path, encoding="utf-8") as handle:
+        return handle.read()
+
+
+def open_prs():
+    return [line.strip() for line in read_state("open_prs.txt").splitlines() if line.strip()]
+
+
+def main():
+    if not os.environ.get("FAKE_GH_STATE_DIR"):
+        die("FAKE_GH_STATE_DIR is not set")
+    args = sys.argv[1:]
+    with open(os.path.join(os.environ["FAKE_GH_STATE_DIR"], "calls.log"), "a", encoding="utf-8") as log:
+        log.write(json.dumps(args) + "\n")
+
+    if not args or args[0] != "api":
+        die("unexpected gh call (only 'gh api' is served): %r" % (args,))
+
+    method = "GET"
+    endpoint = None
+    fields = []
+    jq = None
+    i = 1
+    while i < len(args):
+        arg = args[i]
+        if arg in ("-X", "-f", "-F", "--jq"):
+            i += 1
+            if i >= len(args):
+                die("dangling %s" % arg)
+            if arg == "-X":
+                method = args[i]
+            elif arg == "--jq":
+                jq = args[i]
+            else:
+                fields.append(args[i])
+        elif arg.startswith("-"):
+            die("unexpected flag: %s" % arg)
+        elif endpoint is not None:
+            die("unexpected positional argument: %s" % arg)
+        else:
+            endpoint = arg
+        i += 1
+    if endpoint is None:
+        die("no endpoint given")
+
+    path, _, query = endpoint.partition("?")
+    params = dict(urllib.parse.parse_qsl(query))
+    mode = read_state("mode").strip()
+
+    if path == PULLS and method == "GET":
+        if mode == "lookup-401":
+            sys.stderr.write("HTTP 401: Bad credentials (fake-gh simulated)\n")
+            sys.exit(1)
+        if mode == "lookup-network-fail":
+            sys.stderr.write(
+                "GET https://api.github.com/%s: connection reset by peer (fake-gh simulated)\n" % PULLS
+            )
+            sys.exit(1)
+        if params.get("base") != BASE or params.get("state") != "open":
+            die("unexpected lookup query params: %r" % (params,))
+        if jq != ".[0].number // empty":
+            die("unexpected lookup --jq: %r" % (jq,))
+        head = params.get("head", "")
+        owner, sep, branch = head.partition(":")
+        if not sep:
+            owner = OWNER  # a bare branch name means the head is in the base repo
+        if owner == OWNER and branch == BRANCH:
+            prs = open_prs()
+            if prs:
+                sys.stdout.write(prs[0] + "\n")
+        return
+
+    if path.startswith(PULLS + "/") and method == "PATCH":
+        number = path.rsplit("/", 1)[1]
+        if number not in open_prs():
+            die("PATCH on unknown or closed PR number: %s" % number)
+        kv = dict(field.split("=", 1) for field in fields)
+        if "title" not in kv or not kv.get("body", "").startswith("@"):
+            die("unexpected PATCH fields: %r" % (fields,))
+        body_file = kv["body"][1:]
+        if not os.path.exists(body_file) or os.path.getsize(body_file) == 0:
+            die("PATCH body file missing or empty: %s" % body_file)
+        sys.stdout.write("{}\n")
+        return
+
+    if path == PULLS and method == "POST":
+        kv = dict(field.split("=", 1) for field in fields)
+        if kv.get("head") != BRANCH or kv.get("base") != BASE:
+            die("unexpected POST fields: %r" % (fields,))
+        if "title" not in kv or not kv.get("body", "").startswith("@"):
+            die("unexpected POST fields: %r" % (fields,))
+        body_file = kv["body"][1:]
+        if not os.path.exists(body_file) or os.path.getsize(body_file) == 0:
+            die("POST body file missing or empty: %s" % body_file)
+        if jq != ".number":
+            die("unexpected POST --jq: %r" % (jq,))
+        if open_prs():
+            sys.stderr.write(
+                "HTTP 422: A pull request already exists for %s:%s (fake-gh simulated)\n" % (OWNER, BRANCH)
+            )
+            sys.exit(1)
+        counter = read_state("next_number").strip()
+        next_number = int(counter) if counter else 566
+        with open(os.path.join(os.environ["FAKE_GH_STATE_DIR"], "next_number"), "w", encoding="utf-8") as handle:
+            handle.write(str(next_number + 1))
+        with open(os.path.join(os.environ["FAKE_GH_STATE_DIR"], "open_prs.txt"), "a", encoding="utf-8") as handle:
+            handle.write(str(next_number) + "\n")
+        sys.stdout.write(str(next_number) + "\n")
+        return
+
+    die("unexpected gh api call: method=%s endpoint=%s" % (method, endpoint))
+
+
+main()
+'''
+
+FAKE_BIN_SENTINEL = r'''#!/__PYTHON__
+import sys
+sys.stderr.write("fake-bin sentinel: __NAME__ must not be used by the sync PR suffix\n")
+sys.exit(99)
+'''
+
+
+class SyncPrLookupReuseCreateTests(unittest.TestCase):
+    """#595: execute the REAL lookup/reuse/create suffix from the workflow.
+
+    The suffix is extracted verbatim from the committed step (lookup
+    assignment through the PR_NUMBER export) and run by bash under the
+    step's own strict shell options, with a fixed synthetic
+    GH_REPO/SOURCE_SHA/BRANCH/PR_BODY_FILE/GITHUB_ENV and an isolated PATH
+    whose only executables are the fake gh and fail-on-use git/curl
+    sentinels. No network, no credentials, no real git/PR mutation.
+    """
+
+    STEP_NAME = "Push sync branch and create or reuse the auto-sync PR"
+    GH_REPO = "FixtureOwner/fixture-repo"
+    SOURCE_SHA = "deadbeefcafe1234deadbeefcafe1234deadbeef"
+    BRANCH = "chore/tasks-md-auto-sync"
+    LOOKUP_URL = (
+        "repos/FixtureOwner/fixture-repo/pulls"
+        "?head=FixtureOwner:chore/tasks-md-auto-sync&base=main&state=open"
+    )
+
+    def _load_step_script(self):
+        """Parse the committed workflow, locate the real named step uniquely,
+        and return the ACTUAL shell suffix — from the lookup assignment
+        `number="$(gh api ...` through the exact
+        `echo "PR_NUMBER=${number}" >> "${GITHUB_ENV}"` — under the step's
+        own strict shell options. The conditional is NOT reimplemented in
+        Python; the extracted source is executed verbatim by bash."""
+        import yaml
+
+        path = ROOT / ".github" / "workflows" / "sync-merged-tasks.yml"
+        wf = yaml.safe_load(path.read_text(encoding="utf-8"))
+        job = wf["jobs"]["sync-merged-tasks"]
+        steps = [s for s in job["steps"] if s.get("name") == self.STEP_NAME]
+        self.assertEqual(len(steps), 1, "the sync PR step must be unique by name")
+        lines = steps[0]["run"].splitlines()
+        strict = lines[0].strip()
+        self.assertEqual(strict, "set -euo pipefail", "the step must keep its strict shell options")
+        starts = [
+            i
+            for i, line in enumerate(lines)
+            if line.strip().startswith('number="$(gh api') and "pulls?head=" in line
+        ]
+        ends = [
+            i
+            for i, line in enumerate(lines)
+            if line.strip() == 'echo "PR_NUMBER=${number}" >> "${GITHUB_ENV}"'
+        ]
+        self.assertEqual(len(starts), 1, "the lookup assignment must be unique")
+        self.assertEqual(len(ends), 1, "the PR_NUMBER export must be unique")
+        self.assertLess(starts[0], ends[0])
+        suffix = "\n".join(lines[starts[0]:ends[0] + 1])
+        return strict + "\n" + suffix
+
+    def _write_fake_bin(self, tmp):
+        bin_dir = tmp / "bin"
+        bin_dir.mkdir()
+        gh = bin_dir / "gh"
+        gh.write_text(FAKE_GH_SOURCE.replace("__PYTHON__", sys.executable), encoding="utf-8")
+        gh.chmod(0o755)
+        for name in ("git", "curl"):
+            sentinel = bin_dir / name
+            sentinel.write_text(
+                FAKE_BIN_SENTINEL.replace("__PYTHON__", sys.executable).replace("__NAME__", name),
+                encoding="utf-8",
+            )
+            sentinel.chmod(0o755)
+        return bin_dir
+
+    def _make_state(self, tmp, mode="ok", open_prs=()):
+        state = tmp / "state"
+        state.mkdir()
+        (state / "mode").write_text(mode + "\n", encoding="utf-8")
+        (state / "open_prs.txt").write_text("".join(n + "\n" for n in open_prs), encoding="utf-8")
+        return state
+
+    def _run_suffix(self, script, tmp, state):
+        env = {
+            "PATH": str(tmp / "bin"),
+            "GH_REPO": self.GH_REPO,
+            "SOURCE_SHA": self.SOURCE_SHA,
+            "BRANCH": self.BRANCH,
+            "PR_BODY_FILE": str(tmp / "pr-body.md"),
+            "GITHUB_ENV": str(tmp / "github_env"),
+            "FAKE_GH_STATE_DIR": str(state),
+            "LC_ALL": "C",
+        }
+        return subprocess.run(
+            [shutil.which("bash"), "-c", script],
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+
+    @staticmethod
+    def _calls(state):
+        log = state / "calls.log"
+        if not log.exists():
+            return []
+        return [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+    @staticmethod
+    def _github_env(tmp):
+        env_file = tmp / "github_env"
+        return env_file.read_text(encoding="utf-8") if env_file.exists() else ""
+
+    def _expected_title(self):
+        return "chore(sdd): auto-sync tasks.md completion (%s)" % self.SOURCE_SHA[:8]
+
+    def test_existing_open_pr_is_reused_via_patch_never_post(self):
+        """Case 1: an open auto-sync PR #566 exists. The suffix must find it
+        through the owner-only head filter and PATCH it — no POST — and
+        export PR_NUMBER=566."""
+        with tempfile.TemporaryDirectory(prefix="595-reuse-") as raw:
+            tmp = Path(raw)
+            (tmp / "pr-body.md").write_text("## Change\nsynthetic body\n", encoding="utf-8")
+            self._write_fake_bin(tmp)
+            state = self._make_state(tmp, mode="ok", open_prs=("566",))
+            result = self._run_suffix(self._load_step_script(), tmp, state)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            calls = self._calls(state)
+            self.assertEqual(
+                calls[0],
+                ["api", self.LOOKUP_URL, "--jq", ".[0].number // empty"],
+                "the evaluated lookup URL must use the owner-only head filter",
+            )
+            self.assertEqual(
+                calls[1],
+                [
+                    "api", "-X", "PATCH", "repos/FixtureOwner/fixture-repo/pulls/566",
+                    "-f", "title=" + self._expected_title(),
+                    "-F", "body=@" + str(tmp / "pr-body.md"),
+                ],
+            )
+            self.assertEqual(len(calls), 2, "lookup + PATCH only — no POST")
+            self.assertIn("PR_NUMBER=566", self._github_env(tmp))
+
+    def test_no_open_pr_creates_exactly_once_and_exports_number(self):
+        """Case 2: a successful empty lookup must lead to exactly one POST
+        (head branch / base main / title / body) and export the returned
+        number."""
+        with tempfile.TemporaryDirectory(prefix="595-create-") as raw:
+            tmp = Path(raw)
+            (tmp / "pr-body.md").write_text("## Change\nsynthetic body\n", encoding="utf-8")
+            self._write_fake_bin(tmp)
+            state = self._make_state(tmp, mode="ok", open_prs=())
+            result = self._run_suffix(self._load_step_script(), tmp, state)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            calls = self._calls(state)
+            self.assertEqual(
+                calls[0],
+                ["api", self.LOOKUP_URL, "--jq", ".[0].number // empty"],
+                "the evaluated lookup URL must use the owner-only head filter",
+            )
+            self.assertEqual(
+                calls[1],
+                [
+                    "api", "-X", "POST", "repos/FixtureOwner/fixture-repo/pulls",
+                    "-f", "head=chore/tasks-md-auto-sync", "-f", "base=main",
+                    "-f", "title=" + self._expected_title(),
+                    "-F", "body=@" + str(tmp / "pr-body.md"),
+                    "--jq", ".number",
+                ],
+            )
+            self.assertEqual(len(calls), 2, "lookup + one POST — no PATCH")
+            self.assertIn("PR_NUMBER=566", self._github_env(tmp))
+
+    def test_lookup_401_fails_closed_without_create_or_export(self):
+        """Case 3: a 401 lookup must abort the step (fail-closed, no
+        `|| true`) — lookup only, no POST/PATCH, no PR_NUMBER export."""
+        with tempfile.TemporaryDirectory(prefix="595-401-") as raw:
+            tmp = Path(raw)
+            (tmp / "pr-body.md").write_text("## Change\nsynthetic body\n", encoding="utf-8")
+            self._write_fake_bin(tmp)
+            state = self._make_state(tmp, mode="lookup-401", open_prs=("566",))
+            result = self._run_suffix(self._load_step_script(), tmp, state)
+            self.assertNotEqual(result.returncode, 0)
+            calls = self._calls(state)
+            self.assertEqual(len(calls), 1, "the lookup only — no POST/PATCH after a 401")
+            self.assertEqual(calls[0][0], "api")
+            self.assertIn("repos/FixtureOwner/fixture-repo/pulls?head=", calls[0][1])
+            self.assertNotIn("PR_NUMBER=", self._github_env(tmp))
+
+    def test_lookup_network_failure_fails_closed_without_create_or_export(self):
+        """Case 4: a network failure on the lookup must abort the step the
+        same way as a 401 — lookup only, no POST/PATCH, no export."""
+        with tempfile.TemporaryDirectory(prefix="595-netfail-") as raw:
+            tmp = Path(raw)
+            (tmp / "pr-body.md").write_text("## Change\nsynthetic body\n", encoding="utf-8")
+            self._write_fake_bin(tmp)
+            state = self._make_state(tmp, mode="lookup-network-fail", open_prs=("566",))
+            result = self._run_suffix(self._load_step_script(), tmp, state)
+            self.assertNotEqual(result.returncode, 0)
+            calls = self._calls(state)
+            self.assertEqual(len(calls), 1, "the lookup only — no POST/PATCH after a network failure")
+            self.assertEqual(calls[0][0], "api")
+            self.assertIn("repos/FixtureOwner/fixture-repo/pulls?head=", calls[0][1])
+            self.assertNotIn("PR_NUMBER=", self._github_env(tmp))
+
+    def test_repeated_invocation_reuses_created_pr_never_second_post(self):
+        """Case 5: stateful fake — the first run (no open PR) creates the PR
+        once; the second run must discover the same open PR and PATCH it,
+        never a second POST. The fake reproduces GitHub's head-filter
+        semantics, so the old owner/repo:branch filter finds nothing and
+        the second run dies on the duplicate-create 422 (the #595 failure)."""
+        with tempfile.TemporaryDirectory(prefix="595-repeat-") as raw:
+            tmp = Path(raw)
+            (tmp / "pr-body.md").write_text("## Change\nsynthetic body\n", encoding="utf-8")
+            self._write_fake_bin(tmp)
+            state = self._make_state(tmp, mode="ok", open_prs=())
+            script = self._load_step_script()
+            first = self._run_suffix(script, tmp, state)
+            self.assertEqual(first.returncode, 0, first.stderr)
+            self.assertIn("PR_NUMBER=566", self._github_env(tmp))
+            self.assertEqual(len(self._calls(state)), 2, "first run: lookup + one POST")
+            (tmp / "github_env").write_text("", encoding="utf-8")
+            second = self._run_suffix(script, tmp, state)
+            self.assertEqual(second.returncode, 0, second.stderr)
+            calls = self._calls(state)
+            self.assertEqual(len(calls), 4, "second run: lookup + PATCH")
+            self.assertEqual(
+                calls[2],
+                ["api", self.LOOKUP_URL, "--jq", ".[0].number // empty"],
+                "the second run's lookup must use the owner-only head filter",
+            )
+            self.assertEqual(
+                calls[3],
+                [
+                    "api", "-X", "PATCH", "repos/FixtureOwner/fixture-repo/pulls/566",
+                    "-f", "title=" + self._expected_title(),
+                    "-F", "body=@" + str(tmp / "pr-body.md"),
+                ],
+            )
+            posts = [c for c in calls if len(c) > 2 and c[1] == "-X" and c[2] == "POST"]
+            self.assertEqual(len(posts), 1, "the PR is created exactly once across both runs")
+            self.assertIn("PR_NUMBER=566", self._github_env(tmp))
 
 
 if __name__ == "__main__":
