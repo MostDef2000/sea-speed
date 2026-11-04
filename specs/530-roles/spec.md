@@ -121,15 +121,21 @@ An operator-list match overrides an admin group: the env override tier is
 authoritative, not additive. A username absent from both lists falls through
 to groups.
 
-For the comma-separated header contract, split only on commas, trim each
-token's surrounding whitespace, discard empty tokens, and perform exact
+For the group-header contract, split on both supported delimiters: the
+authentik proxy outpost joins multiple group values into one header with
+`|`, and repeated headers are joined with `,`. Trim each token's
+surrounding whitespace, discard empty tokens, and perform exact
 case-sensitive whole-group matching. Do not split group names on spaces,
-recognize substrings, decode JSON or guess alternative delimiters. Unknown
+recognize substrings, decode JSON or guess any other delimiters. Unknown
 tokens grant nothing. Absent, blank or wholly unrecognized groups resolve
 viewer when no env override matches.
 
-Live outpost emission/format is unverified. A different format must fail
-closed, not trigger permissive parsing.
+The historical claim that live outpost emission was unverified is
+superseded by issue #590: production evidence (journalctl -u caddy on
+lifesim, 2026-11-01) verified the outpost joins multiple group values
+into one header with `|` while duplicate headers join with `,` — see
+specs/590-authentik-groups-pipe-separator/spec.md. Any other unknown
+format must fail closed, not trigger permissive parsing.
 
 ## Route-to-role contract
 
