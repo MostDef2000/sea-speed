@@ -191,87 +191,359 @@ jobs:
           BRANCH: chore/tasks-md-auto-sync
         run: |
           set -euo pipefail
-          # Live finding (sync run on 9b3b873, PR #486): PR-side CI needs a
-          # nudge. RF-006's original premise ("GITHUB_TOKEN-created PRs emit
-          # no pull_request events") is OBSOLETE — live proof in run
-          # 40325903845 / PR #563 (2026-10-26): pull_request runs DO fire for
-          # a bot-authored auto-sync PR, but they are PARKED as
-          # action_required because the PR author (github-actions[bot]) is
-          # untrusted, and the ruleset's required context evaluates on those
-          # parked runs — so the merge stays blocked and `gh pr checks
-          # --required` never goes green, no matter how green the dispatched
-          # runs are. The flow therefore approves every parked run on the
-          # sync branch via the REST actions-approve endpoint (actions: write
-          # is already in the token scope) and keeps the dispatches below as
-          # defense-in-depth (if GitHub someday stops emitting pull_request
-          # events for bot PRs, the dispatched runs still provide the checks).
-          for rid in $(gh api "repos/${GH_REPO}/actions/runs?branch=${BRANCH}&status=action_required&per_page=30" --jq '.workflow_runs[].id'); do
-            gh api -X POST "repos/${GH_REPO}/actions/runs/${rid}/approve"
-            echo "approved parked workflow run ${rid}"
-          done
-          gh workflow run pr-validation.yml --ref "${BRANCH}"
-          gh workflow run quality-integration.yml --ref "${BRANCH}"
-          poll() {
-            wf="$1"
-            gh api "repos/${GH_REPO}/actions/runs?branch=${BRANCH}&per_page=30" \
-              --jq "[.workflow_runs[] | select(.name == \"${wf}\" and .conclusion != \"action_required\")] | max_by(.run_number) | .conclusion // \"pending\""
-          }
-          deadline=$(( $(date +%s) + 1800 ))
-          pr_concl="pending"; qi_concl="pending"
-          while [[ "$(date +%s)" -lt "${deadline}" ]]; do
-            pr_concl="$(poll "PR Validation")"
-            qi_concl="$(poll "Quality integration gate")"
-            echo "PR Validation=${pr_concl}; Quality integration gate=${qi_concl}"
-            if [[ "${pr_concl}" == "success" && "${qi_concl}" == "success" ]]; then
-              break
-            fi
-            case "${pr_concl}${qi_concl}" in
-              *failure*|*cancelled*|*timed_out*|*startup_failure*)
-                echo "::error::auto-sync PR #${PR_NUMBER} required checks failed (PR Validation=${pr_concl}, Quality integration gate=${qi_concl})"
-                exit 1 ;;
-            esac
-            sleep 30
-          done
-          if [[ "${pr_concl}" != "success" || "${qi_concl}" != "success" ]]; then
-            echo "::error::auto-sync PR #${PR_NUMBER} checks not green within 1800s (PR Validation=${pr_concl}, Quality integration gate=${qi_concl})"
+          # #604: exact-head / run-exact wait + safe late approval. The old
+          # revision approved EVERY parked run on the branch and polled by
+          # workflow display name + max run_number, so a stale run's conclusion
+          # could green-light (or fail) the sync and any parked run was
+          # approved regardless of which PR/head it belonged to. This revision:
+          #   1. pins EXPECTED_HEAD_SHA to the NEW local bot commit (git
+          #      rev-parse HEAD, never SOURCE_SHA) and validates the auto-sync
+          #      PR's identity against it before any approval or merge,
+          #   2. resolves the three fixed workflow identities from REST
+          #      metadata, dispatches only the two required ones, and accepts
+          #      each dispatch only with exactly one canonical run URL,
+          #   3. polls the EXACT dispatched run IDs until completed-success
+          #      (1800s/30s), re-validating their metadata on every poll, and
+          #   4. sweeps approval-eligible parked pull_request runs on every
+          #      tick (here and in the final gate): only the fixed workflow
+          #      id+path allowlist on the expected head/ref/repository with
+          #      the intended PR association is approved, each candidate is
+          #      re-fetched (run detail + PR) before its POST, and each
+          #      (run id, attempt) is approved at most once. Security stays
+          #      approval-eligible but is never dispatched.
+          EXPECTED_HEAD_SHA="$(git rev-parse HEAD)"
+          if ! [[ "${EXPECTED_HEAD_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::SYNC_IDENTITY_INVALID: git rev-parse HEAD is not a 40-hex SHA" >&2
             exit 1
           fi
-          # Final gate consistent with the ruleset: required contexts green
-          # on the PR head SHA. RF-015 (live): this gate is POLLED, not
-          # one-shot — pull_request runs (which fill the statusCheckRollup)
-          # complete later than the dispatched ones, and a one-shot call ~100 s
-          # after the ref update saw "no checks reported" and failed a healthy
-          # sync. "no checks reported" means pending registration (keep
-          # waiting); any other failure exits loudly.
+          # PR identity guard (re-run before every approval POST, every gate
+          # tick and in the merge step): open, non-draft, bot-authored, on the
+          # expected head/ref, head and base in this repo, base main. The
+          # cached base.sha is deliberately NOT compared with SOURCE_SHA.
+          validate_pr_raw() {
+            jq -e --arg branch "${BRANCH}" --arg head "${EXPECTED_HEAD_SHA}" \
+                  --arg repo "${GH_REPO}" --argjson repoid "${REPO_ID}" '
+              (type == "object")
+              and (.state == "open") and (.draft == false)
+              and (.user.login == "github-actions[bot]")
+              and (.head.ref == $branch) and (.head.sha == $head)
+              and (.base.ref == "main")
+              and (((.head.repo // {}) | type == "object") and .head.repo.full_name == $repo and .head.repo.id == $repoid)
+              and (((.base.repo // {}) | type == "object") and .base.repo.full_name == $repo and .base.repo.id == .head.repo.id)
+            ' <<<"$1" >/dev/null
+          }
+          revalidate_pr() {
+            local raw
+            raw="$(gh api "repos/${GH_REPO}/pulls/${PR_NUMBER}")" || {
+              echo "::error::SYNC_IDENTITY_INVALID: PR #${PR_NUMBER} fetch failed" >&2
+              exit 1
+            }
+            validate_pr_raw "${raw}" || {
+              echo "::error::SYNC_IDENTITY_INVALID: PR #${PR_NUMBER} is not the expected open bot PR on ${BRANCH}@${EXPECTED_HEAD_SHA}" >&2
+              exit 1
+            }
+          }
+          pr_raw="$(gh api "repos/${GH_REPO}/pulls/${PR_NUMBER}")" || {
+            echo "::error::SYNC_IDENTITY_INVALID: PR #${PR_NUMBER} fetch failed" >&2
+            exit 1
+          }
+          REPO_ID="$(jq -er '.head.repo.id | if type == "number" and . > 0 then . else error("no head repo id") end' <<<"${pr_raw}")" || {
+            echo "::error::SYNC_IDENTITY_INVALID: PR #${PR_NUMBER} has no usable head repo id" >&2
+            exit 1
+          }
+          validate_pr_raw "${pr_raw}" || {
+            echo "::error::SYNC_IDENTITY_INVALID: PR #${PR_NUMBER} is not the expected open bot PR on ${BRANCH}@${EXPECTED_HEAD_SHA}" >&2
+            exit 1
+          }
+          # Approval eligibility (shared by the sweep and the per-candidate
+          # detail revalidation): fixed workflow id+path pairs, current
+          # head/ref/repository/head_repository, completed+action_required,
+          # positive run_attempt, and a pull_requests association that names
+          # exactly this PR on this head and base repo (minimal id/name/url
+          # association — no full_name). Everything else is ignored.
+          ELIG_JQ='
+            def pr_eligible:
+              (type == "object")
+              and ((.id // 0) | type == "number")
+              and ((.run_attempt // 0) | type == "number") and .run_attempt > 0
+              and ((.pull_requests // "") | type == "array")
+              and (.event == "pull_request")
+              and (.status == "completed") and (.conclusion == "action_required")
+              and (.head_sha == $head) and (.head_branch == $branch)
+              and (((.repository // {}) | type == "object") and .repository.id == $repoid and .repository.full_name == $repofull)
+              and (((.head_repository // {}) | type == "object") and .head_repository.id == $repoid and .head_repository.full_name == $repofull)
+              and (((.workflow_id == $prid) and (.path == ".github/workflows/pr-validation.yml"))
+                or ((.workflow_id == $qiid) and (.path == ".github/workflows/quality-integration.yml"))
+                or ((.workflow_id == $secid) and (.path == ".github/workflows/security.yml")))
+              and any(.pull_requests[];
+                  ((((. // {}) | type) == "object")) and (.number == $prnum)
+                  and (((((.head // {}) | type) == "object")) and (.head.ref == $branch) and (.head.sha == $head))
+                  and ((((((.head // {}).repo // {}) | type) == "object"))) and (.head.repo.id == $repoid)
+                  and ((((((.base // {}).ref) // "") == "main")))
+                  and ((((((.base // {}).repo // {}) | type) == "object"))) and (.base.repo.id == $repoid));
+          '
+          approved_keys=" "
+          sweep_parked() {
+            local raw ids rid detail rat
+            raw="$(gh api "repos/${GH_REPO}/actions/runs?branch=${BRANCH}&status=action_required&per_page=100")" || {
+              echo "::error::SYNC_API_INVALID: parked-run sweep list failed" >&2
+              exit 1
+            }
+            # Bounded pagination: more than one full page means the sweep
+            # cannot be exhaustive — fail closed instead of guessing.
+            if ! jq -e '(.workflow_runs | type == "array") and (.total_count | type == "number" and . >= 0 and . <= 100)' <<<"${raw}" >/dev/null; then
+              echo "::error::SYNC_API_INVALID: parked-run sweep response malformed or unbounded (>100)" >&2
+              exit 1
+            fi
+            ids="$(jq -r --argjson prid "${PR_WF_ID}" --argjson qiid "${QI_WF_ID}" --argjson secid "${SEC_WF_ID}" \
+                --arg branch "${BRANCH}" --arg head "${EXPECTED_HEAD_SHA}" \
+                --arg repofull "${GH_REPO}" --argjson repoid "${REPO_ID}" --argjson prnum "${PR_NUMBER}" \
+                "${ELIG_JQ} [.workflow_runs[] | select(try pr_eligible catch false)] | .[] | .id" <<<"${raw}")" || {
+              echo "::error::SYNC_API_INVALID: parked-run sweep filter failed" >&2
+              exit 1
+            }
+            for rid in ${ids}; do
+              # The candidate id is bound into the API path and the jq
+              # predicate below — it must be a plain positive integer.
+              if ! [[ "${rid}" =~ ^[1-9][0-9]*$ ]]; then
+                echo "::error::SYNC_IDENTITY_INVALID: parked-run sweep produced invalid candidate id ${rid}" >&2
+                exit 1
+              fi
+              detail="$(gh api "repos/${GH_REPO}/actions/runs/${rid}")" || {
+                echo "::error::SYNC_API_INVALID: candidate run ${rid} detail fetch failed" >&2
+                exit 1
+              }
+              # The detail revalidation must also bind the response's own .id
+              # to the REQUESTED run id: a detail body whose id differs from
+              # the id this candidate was selected (and is being approved) by
+              # is a mismatch and fails closed before any approve POST.
+              rat="$(jq -r --argjson rid "${rid}" --argjson prid "${PR_WF_ID}" --argjson qiid "${QI_WF_ID}" --argjson secid "${SEC_WF_ID}" \
+                  --arg branch "${BRANCH}" --arg head "${EXPECTED_HEAD_SHA}" \
+                  --arg repofull "${GH_REPO}" --argjson repoid "${REPO_ID}" --argjson prnum "${PR_NUMBER}" \
+                  "${ELIG_JQ} if (try pr_eligible catch false) and (.id == $rid) then .run_attempt else error(\"candidate revalidation failed\") end" <<<"${detail}")" || {
+                echo "::error::SYNC_IDENTITY_INVALID: parked-run candidate ${rid} failed detail revalidation" >&2
+                exit 1
+              }
+              if ! [[ "${rat}" =~ ^[1-9][0-9]*$ ]]; then
+                echo "::error::SYNC_IDENTITY_INVALID: parked-run candidate ${rid} reported invalid run_attempt ${rat}" >&2
+                exit 1
+              fi
+              # Once per (run id, attempt), even when the run still reports the
+              # stale action_required state on later ticks.
+              if [[ "${approved_keys}" == *" ${rid}:${rat} "* ]]; then
+                continue
+              fi
+              revalidate_pr
+              if ! gh api -X POST "repos/${GH_REPO}/actions/runs/${rid}/approve" >/dev/null; then
+                echo "::error::SYNC_APPROVAL_FAILED: approve POST for parked run ${rid} failed" >&2
+                exit 1
+              fi
+              approved_keys+=" ${rid}:${rat} "
+              echo "approved parked workflow run ${rid} (attempt ${rat})"
+            done
+          }
+          # Resolve the three fixed workflow identities from REST metadata
+          # (ids + full paths); dispatch ONLY the two required workflows.
+          wf_meta="$(gh api "repos/${GH_REPO}/actions/workflows")" || {
+            echo "::error::SYNC_API_INVALID: workflow metadata fetch failed" >&2
+            exit 1
+          }
+          resolve_wf_id() {
+            jq -er --arg p "$1" '
+              [.workflows[] | select(.path == $p) | .id] as $hits
+              | if ($hits | length) == 1 and ($hits[0] | type == "number") and ($hits[0] > 0)
+                then $hits[0] else error("workflow metadata invalid for " + $p) end
+            ' <<<"$2"
+          }
+          PR_WF_ID="$(resolve_wf_id ".github/workflows/pr-validation.yml" "${wf_meta}")" || {
+            echo "::error::SYNC_API_INVALID: pr-validation.yml workflow metadata invalid" >&2
+            exit 1
+          }
+          QI_WF_ID="$(resolve_wf_id ".github/workflows/quality-integration.yml" "${wf_meta}")" || {
+            echo "::error::SYNC_API_INVALID: quality-integration.yml workflow metadata invalid" >&2
+            exit 1
+          }
+          SEC_WF_ID="$(resolve_wf_id ".github/workflows/security.yml" "${wf_meta}")" || {
+            echo "::error::SYNC_API_INVALID: security.yml workflow metadata invalid" >&2
+            exit 1
+          }
+          extract_run_id() {  # $1 = combined dispatch output; echoes the run id
+            # Whole-token scan: a run URL must be an ENTIRE whitespace-
+            # delimited token matching the full canonical form — a non-
+            # delimited suffix (…/runs/<id>garbage) must never be truncated
+            # into a valid run id.
+            local rest="$1" tok id_re='^https://github\.com/([^/]+)/([^/]+)/actions/runs/([1-9][0-9]*)$'
+            local -a words=() urls=()
+            read -ra words <<<"${rest//$'\n'/ }" || true
+            for tok in "${words[@]}"; do
+              if [[ "${tok}" =~ ${id_re} ]]; then
+                urls+=("${tok}")
+              fi
+            done
+            if [[ "${#urls[@]}" -ne 1 ]]; then
+              echo "::error::SYNC_DISPATCH_URL_INVALID: expected exactly one canonical run URL for the dispatch (got ${#urls[@]})" >&2
+              exit 1
+            fi
+            if ! [[ "${urls[0]}" =~ ${id_re} ]] || [[ "${BASH_REMATCH[1]}/${BASH_REMATCH[2]}" != "${GH_REPO}" ]]; then
+              echo "::error::SYNC_DISPATCH_URL_INVALID: dispatch URL is not a canonical ${GH_REPO} run URL" >&2
+              exit 1
+            fi
+            echo "${BASH_REMATCH[3]}"
+          }
+          # Validates a dispatched run's exact metadata and prints its state:
+          # success | pending. Any mismatch, fault or unknown state fails the
+          # step closed (never masked as pending).
+          dispatch_run_state() {  # $1 run id, $2 workflow id, $3 workflow path
+            local rid="$1" wfid="$2" wpath="$3" raw verdict st cl
+            raw="$(gh api "repos/${GH_REPO}/actions/runs/${rid}")" || {
+              echo "::error::SYNC_API_INVALID: dispatched run ${rid} detail fetch failed" >&2
+              exit 1
+            }
+            verdict="$(jq -r --argjson rid "${rid}" --argjson wfid "${wfid}" --arg wpath "${wpath}" \
+                --arg branch "${BRANCH}" --arg head "${EXPECTED_HEAD_SHA}" \
+                --arg repofull "${GH_REPO}" --argjson repoid "${REPO_ID}" '
+              if (type == "object")
+                 and (.id == $rid) and (.workflow_id == $wfid) and (.path == $wpath)
+                 and (.event == "workflow_dispatch")
+                 and (.head_sha == $head) and (.head_branch == $branch)
+                 and (((.repository // {}) | type == "object") and .repository.id == $repoid and .repository.full_name == $repofull)
+                 and (((.head_repository // {}) | type == "object") and .head_repository.id == $repoid and .head_repository.full_name == $repofull)
+              then ((.status // "null") + " " + (.conclusion // "null"))
+              else error("dispatched run metadata mismatch") end
+            ' <<<"${raw}")" || {
+              echo "::error::SYNC_IDENTITY_INVALID: dispatched run ${rid} metadata mismatch" >&2
+              exit 1
+            }
+            st="${verdict%% *}"; cl="${verdict#* }"
+            if [[ "${st}" == "completed" ]]; then
+              if [[ "${cl}" == "success" ]]; then
+                echo "success"
+              else
+                echo "::error::SYNC_RUN_FAILED: dispatched run ${rid} completed with conclusion ${cl}" >&2
+                exit 1
+              fi
+            elif [[ "${st}" =~ ^(queued|in_progress|requested|waiting|pending)$ ]]; then
+              echo "pending"
+            else
+              echo "::error::SYNC_API_INVALID: dispatched run ${rid} unknown status ${st}" >&2
+              exit 1
+            fi
+          }
+          pr_dispatch_rc=0
+          pr_dispatch_out="$(gh workflow run pr-validation.yml --ref "${BRANCH}" 2>&1)" || pr_dispatch_rc=$?
+          if [[ "${pr_dispatch_rc}" != "0" ]]; then
+            echo "::error::SYNC_RUN_FAILED: pr-validation.yml dispatch failed (rc=${pr_dispatch_rc})" >&2
+            exit 1
+          fi
+          PR_RUN_ID="$(extract_run_id "${pr_dispatch_out}")"
+          qi_dispatch_rc=0
+          qi_dispatch_out="$(gh workflow run quality-integration.yml --ref "${BRANCH}" 2>&1)" || qi_dispatch_rc=$?
+          if [[ "${qi_dispatch_rc}" != "0" ]]; then
+            echo "::error::SYNC_RUN_FAILED: quality-integration.yml dispatch failed (rc=${qi_dispatch_rc})" >&2
+            exit 1
+          fi
+          QI_RUN_ID="$(extract_run_id "${qi_dispatch_out}")"
+          # Poll the EXACT dispatched run IDs (never the branch history by
+          # name) until both are completed-success; identity is re-checked on
+          # every poll, and the parked-run sweep runs on every tick.
+          dispatch_deadline=$(( $(date +%s) + 1800 ))
+          pr_state="pending"; qi_state="pending"
+          while [[ "$(date +%s)" -lt "${dispatch_deadline}" ]]; do
+            sweep_parked
+            pr_state="$(dispatch_run_state "${PR_RUN_ID}" "${PR_WF_ID}" ".github/workflows/pr-validation.yml")"
+            qi_state="$(dispatch_run_state "${QI_RUN_ID}" "${QI_WF_ID}" ".github/workflows/quality-integration.yml")"
+            echo "dispatched runs: pr-validation=${pr_state} quality-integration=${qi_state}"
+            if [[ "${pr_state}" == "success" && "${qi_state}" == "success" ]]; then
+              break
+            fi
+            sleep 30
+          done
+          if [[ "${pr_state}" != "success" || "${qi_state}" != "success" ]]; then
+            echo "::error::SYNC_CHECK_TIMEOUT: dispatched checks not green within 1800s (pr-validation=${pr_state}, quality-integration=${qi_state})" >&2
+            exit 1
+          fi
+          # Final gate consistent with the ruleset: required contexts green on
+          # the PR head SHA, read as structured JSON (never a text grep, never
+          # empty-green). RF-015 (live): this gate is POLLED, not one-shot —
+          # pull_request runs complete later than the dispatched ones. The
+          # parked-run sweep and the PR identity check run on every tick.
           gate_deadline=$(( $(date +%s) + 900 ))
           gate_green=0
           while [[ "$(date +%s)" -lt "${gate_deadline}" ]]; do
-            gate_out="$(gh pr checks "${PR_NUMBER}" --required 2>&1)" && { gate_green=1; break; }
-            case "${gate_out}" in
-              *"no checks reported"*) : ;;
+            sweep_parked
+            revalidate_pr
+            gate_rc=0
+            gate_out="$(gh pr checks "${PR_NUMBER}" --required --json bucket,name,state,event,workflow,link)" || gate_rc=$?
+            # The CLI's own exit code is authoritative: only 0 (finished) and
+            # 8 (pending) are expected. Any other code is a CLI/API fault and
+            # must fail promptly — never masked as a pending wait and never
+            # interpreted via its (possibly stale) JSON payload.
+            case "${gate_rc}" in
+              0|8) ;;
               *)
-                printf '%s\n' "${gate_out}"
-                echo "::error::auto-sync PR #${PR_NUMBER} final required-checks gate failed"
-                exit 1 ;;
+                echo "::error::SYNC_API_INVALID: required-checks query failed with unexpected exit code ${gate_rc}" >&2
+                exit 1
+                ;;
             esac
+            if ! jq -e 'type == "array" and all(.[]; (type == "object") and ((.bucket // "") | type == "string") and (.bucket == "pass" or .bucket == "fail" or .bucket == "pending" or .bucket == "skipping" or .bucket == "cancel"))' <<<"${gate_out}" >/dev/null; then
+              echo "::error::SYNC_API_INVALID: required-checks query returned invalid JSON (rc=${gate_rc})" >&2
+              exit 1
+            fi
+            if jq -e 'length > 0 and any(.[]; .bucket == "fail" or .bucket == "cancel")' <<<"${gate_out}" >/dev/null; then
+              echo "::error::SYNC_REQUIRED_CHECKS_FAILED: auto-sync PR #${PR_NUMBER} required checks failed" >&2
+              exit 1
+            fi
+            if [[ "${gate_rc}" == "0" ]] && jq -e 'length > 0 and all(.[]; .bucket == "pass" or .bucket == "skipping")' <<<"${gate_out}" >/dev/null; then
+              gate_green=1
+              break
+            fi
             sleep 30
           done
           if [[ "${gate_green}" != "1" ]]; then
-            echo "::error::auto-sync PR #${PR_NUMBER} final required-checks gate not green within 900s"
+            echo "::error::SYNC_CHECK_TIMEOUT: auto-sync PR #${PR_NUMBER} required checks not green within 900s" >&2
             exit 1
           fi
+          revalidate_pr
+          echo "SYNC_EXPECTED_HEAD_SHA=${EXPECTED_HEAD_SHA}" >> "${GITHUB_ENV}"
 
       - name: Squash-merge the auto-sync PR
         if: env.HAS_DELTA == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          BRANCH: chore/tasks-md-auto-sync
           SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
+          # #604: the merge runs only on the wait step's exported expected head
+          # (SYNC_EXPECTED_HEAD_SHA reaches GITHUB_ENV only after both gates
+          # passed on that head). The PR is revalidated independently here — a
+          # head drift after the wait blocks the merge — and --match-head-commit
+          # closes the GET->merge race. Never --admin.
+          if [[ -z "${SYNC_EXPECTED_HEAD_SHA:-}" || ! "${SYNC_EXPECTED_HEAD_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::SYNC_HEAD_CHANGED: SYNC_EXPECTED_HEAD_SHA missing or not a 40-hex SHA; the wait step did not export a valid head" >&2
+            exit 1
+          fi
+          merge_pr="$(gh api "repos/${GH_REPO}/pulls/${PR_NUMBER}")" || {
+            echo "::error::SYNC_IDENTITY_INVALID: PR #${PR_NUMBER} fetch failed before merge" >&2
+            exit 1
+          }
+          if ! jq -e --arg branch "${BRANCH}" --arg head "${SYNC_EXPECTED_HEAD_SHA}" --arg repo "${GH_REPO}" '
+            (type == "object")
+            and (.state == "open") and (.draft == false)
+            and (.user.login == "github-actions[bot]")
+            and (.head.ref == $branch) and (.head.sha == $head)
+            and (.base.ref == "main")
+            and (((.head.repo // {}) | type == "object") and .head.repo.full_name == $repo)
+            and (((.base.repo // {}) | type == "object") and .base.repo.full_name == $repo and .base.repo.id == .head.repo.id)
+          ' <<<"${merge_pr}" >/dev/null; then
+            echo "::error::SYNC_HEAD_CHANGED: auto-sync PR #${PR_NUMBER} is not the expected open bot PR on ${BRANCH}@${SYNC_EXPECTED_HEAD_SHA}; refusing to merge" >&2
+            exit 1
+          fi
           gh pr merge "${PR_NUMBER}" --squash --delete-branch \
-            --subject "chore(sdd): auto-sync tasks.md completion (${SOURCE_SHA:0:8})"
-          echo "auto-sync PR #${PR_NUMBER} squash-merged; the follow-up sync run must report no delta"
+            --subject "chore(sdd): auto-sync tasks.md completion (${SOURCE_SHA:0:8})" \
+            --match-head-commit "${SYNC_EXPECTED_HEAD_SHA}"
+          echo "auto-sync PR #${PR_NUMBER} squash-merged at ${SYNC_EXPECTED_HEAD_SHA}; the follow-up sync run must report no delta"
 
       - name: Loud failure notice
         if: failure()
