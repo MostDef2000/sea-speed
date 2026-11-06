@@ -952,6 +952,23 @@ def all_runs():
     return read_json("runs.json", [])
 
 
+def pr_at(t):
+    # The PR object at fake time t. A time-indexed history (pr_history.json,
+    # a list of [at, pr_object] pairs) overrides the static pr.json so a
+    # readiness/identity update can be keyed to the fake clock. An absent or
+    # empty history serves pr.json unchanged (all pre-RF-001 behavior).
+    hist = read_json("pr_history.json", [])
+    if not hist:
+        return read_json("pr.json", {})
+    pr = hist[0][1]
+    for at, obj in sorted(hist, key=lambda e: e[0]):
+        if at <= t:
+            pr = obj
+        else:
+            break
+    return pr
+
+
 def emit(body, jq):
     if jq:
         # gh api --jq emits raw scalars (no surrounding quotes on strings).
@@ -1069,7 +1086,7 @@ def handle_api(method, endpoint, fields, jq):
         sys.exit(1)
 
     if path == BASE + "/pulls" and method == "GET":
-        pr = read_json("pr.json", {})
+        pr = pr_at(t)
         head = params.get("head", "")
         owner, sep, branch = head.partition(":")
         if sep and (owner != OWNER or branch != pr.get("head", {}).get("ref")):
@@ -1082,10 +1099,19 @@ def handle_api(method, endpoint, fields, jq):
         rest = path[len(BASE + "/pulls/"):]
         if not rest.isdigit():
             die("unexpected pulls path: %s" % path)
-        pr = read_json("pr.json", {})
+        pr = pr_at(t)
         if pr.get("number") != int(rest):
             sys.stderr.write("HTTP 404: Not found (fake-gh)\n")
             sys.exit(1)
+        # RF-001 fault fixtures: a malformed-JSON or 401 PR GET (the wait/merge
+        # steps revalidate the PR via this detail GET).
+        pmode = read("pr_get_mode", "ok").strip() or "ok"
+        if pmode == "401":
+            sys.stderr.write("HTTP 401: Bad credentials (fake-gh simulated)\n")
+            sys.exit(1)
+        if pmode == "malformed":
+            sys.stdout.write("this is not valid json at all\n")
+            sys.exit(0)
         emit(json.dumps(pr), jq)
         return
 
@@ -1318,6 +1344,13 @@ def handle_pr_checks(args):
 
 def handle_pr_merge(args):
     append("merges.log", json.dumps({"args": args, "clock": now()}) + "\n")
+    # RF-001 fault fixture: the merge API rejects the merge (e.g. base branch
+    # policy) after the PR GET. The call is logged (ONE call) and the fake
+    # returns 1 — the workflow must fail closed, not retry or echo success.
+    mmode = read("merge_mode", "ok").strip() or "ok"
+    if mmode == "reject":
+        sys.stderr.write("HTTP 405: base branch policy prohibits the merge (fake-gh simulated)\n")
+        sys.exit(1)
     sys.stdout.write("Merged PR (fake-gh)\n")
     sys.exit(0)
 
@@ -1502,6 +1535,10 @@ class SyncWaitMergeShellTests(unittest.TestCase):
                      "repo": self._repo()},
             "base": {"ref": "main", "sha": self.BASE_SHA,
                      "repo": self._repo()},
+            # RF-001 readiness fields (schema completion): a valid PR is
+            # mergeable and clean. The #604 readiness gate requires
+            # .mergeable == true && .mergeable_state == "clean".
+            "mergeable": True, "mergeable_state": "clean",
         }
 
     def _green_checks(self, done_at=1000090):
@@ -1588,6 +1625,15 @@ class SyncWaitMergeShellTests(unittest.TestCase):
         if "checks_exit_override" in scenario:
             (state / "checks_exit_override").write_text(
                 str(scenario["checks_exit_override"]) + "\n", encoding="utf-8")
+        # RF-001: PR readiness history (time-indexed) and fault modes. The
+        # defaults (empty history, ok modes) leave all pre-RF-001 behavior
+        # unchanged.
+        (state / "pr_history.json").write_text(
+            json.dumps(scenario.get("pr_history", [])), encoding="utf-8")
+        (state / "pr_get_mode").write_text(
+            scenario.get("pr_get_mode", "ok") + "\n", encoding="utf-8")
+        (state / "merge_mode").write_text(
+            scenario.get("merge_mode", "ok") + "\n", encoding="utf-8")
         return state
 
     def _run_step(self, script, tmp, state, extra_env):
@@ -2606,6 +2652,305 @@ class SyncWaitMergeShellTests(unittest.TestCase):
                 for s in sleeps:
                     self.assertEqual(s["interval"], 30,
                                      "all sleeps must be 30s (got %d)" % s["interval"])
+
+    # ------------------------------------------------------------------
+    # Scenario 15: PR readiness gate (RF-001) — .mergeable == true &&
+    # .mergeable_state == "clean" in ADDITION to the 900s/30s required gate.
+    # The pre-fix workflow does not check readiness, so the readiness-wait
+    # cases are RED until the CODE worker adds the readiness check. The PR
+    # readiness/identity updates are keyed to the fake clock (pr_history),
+    # emitted as raw JSON and filtered by the real jq.
+    # ------------------------------------------------------------------
+
+    def _pr_readiness(self, mergeable=True, mergeable_state="clean"):
+        """A valid PR with explicit readiness fields (overrides the defaults
+        from _valid_pr)."""
+        pr = self._valid_pr()
+        pr["mergeable"] = mergeable
+        pr["mergeable_state"] = mergeable_state
+        return pr
+
+    def _pr_hist(self, *entries):
+        """A time-indexed PR history from (offset_seconds, pr) pairs, keyed to
+        the fake clock (t0 = 1000000)."""
+        return [[1000000 + off, pr] for off, pr in entries]
+
+    def test_readiness_blocked_until_clean_then_merge(self):
+        """RF-001: required checks + dispatch green at 90, but PR readiness is
+        blocked until 180 then clean. The wait must NOT export/merge early at
+        90; it must hold until readiness is clean (clock >= 180), then export
+        and merge exactly once with the pinned head. RED on the pre-fix
+        workflow (which exports at 90 without checking readiness)."""
+        blocked = self._pr_readiness(mergeable=False, mergeable_state="blocked")
+        clean = self._pr_readiness(mergeable=True, mergeable_state="clean")
+        scenario = self._base_scenario()
+        scenario["pr_history"] = self._pr_hist((0, blocked), (180, clean))
+        with tempfile.TemporaryDirectory(prefix="604-ready-") as raw:
+            tmp = Path(raw)
+            self._write_fake_bin(tmp)
+            state = self._make_state(tmp, scenario)
+            r = self._run_wait(tmp, state)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            final_clock = int((state / "clock").read_text(encoding="utf-8").strip())
+            self.assertGreaterEqual(final_clock, 1000000 + 180,
+                                    "the wait must hold until PR readiness is clean (clock=%d)" % final_clock)
+            env = self._github_env(tmp)
+            self.assertEqual(env.get("SYNC_EXPECTED_HEAD_SHA"), self.EXPECTED_HEAD)
+            r2 = self._run_merge(tmp, state, env)
+            self.assertEqual(r2.returncode, 0, r2.stderr)
+            merges = self._merges(state)
+            self.assertEqual(len(merges), 1, "exactly one pinned merge after readiness")
+            self.assertIn("--match-head-commit", merges[0]["args"])
+            self.assertIn(self.EXPECTED_HEAD, merges[0]["args"])
+            self.assertGreaterEqual(merges[0]["clock"], 1000000 + 180,
+                                    "the merge must happen after readiness is clean (clock=%d)" % merges[0]["clock"])
+
+    def test_readiness_null_unknown_then_clean(self):
+        """RF-001: mergeable=null (a valid explicit null, NOT malformed) and
+        mergeable_state=unknown until 180, then clean. The wait must treat
+        null/unknown as pending (not ready) and succeed once clean."""
+        pending = self._pr_readiness(mergeable=None, mergeable_state="unknown")
+        clean = self._pr_readiness(mergeable=True, mergeable_state="clean")
+        scenario = self._base_scenario()
+        scenario["pr_history"] = self._pr_hist((0, pending), (180, clean))
+        with tempfile.TemporaryDirectory(prefix="604-ready-") as raw:
+            tmp = Path(raw)
+            self._write_fake_bin(tmp)
+            state = self._make_state(tmp, scenario)
+            r = self._run_wait(tmp, state)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            final_clock = int((state / "clock").read_text(encoding="utf-8").strip())
+            self.assertGreaterEqual(final_clock, 1000000 + 180,
+                                    "null/unknown readiness must be pending until clean (clock=%d)" % final_clock)
+            env = self._github_env(tmp)
+            self.assertEqual(env.get("SYNC_EXPECTED_HEAD_SHA"), self.EXPECTED_HEAD)
+
+    def test_readiness_combinations_nonready(self):
+        """RF-001: only mergeable==true && mergeable_state=='clean' is ready.
+        Every other schema-valid combination is conservatively non-ready: the
+        wait must not export and must not merge."""
+        combos = [
+            (True, "dirty"),
+            (True, "unknown"),
+            (True, "behind"),
+            (False, "clean"),
+            (False, "dirty"),
+            (None, "clean"),
+        ]
+        for mergeable, mstate in combos:
+            with self.subTest(mergeable=mergeable, state=mstate):
+                scenario = self._base_scenario()
+                scenario["pr"] = self._pr_readiness(mergeable=mergeable, mergeable_state=mstate)
+                with tempfile.TemporaryDirectory(prefix="604-ready-") as raw:
+                    tmp = Path(raw)
+                    self._write_fake_bin(tmp)
+                    state = self._make_state(tmp, scenario)
+                    r = self._run_wait(tmp, state)
+                    self.assertNotEqual(r.returncode, 0,
+                                        "readiness %r/%r must fail the wait (rc=%d)" % (mergeable, mstate, r.returncode))
+                    env = self._github_env(tmp)
+                    self.assertNotIn("SYNC_EXPECTED_HEAD_SHA", env,
+                                     "readiness %r/%r must be non-ready (no export)" % (mergeable, mstate))
+                    self.assertEqual(self._merges(state), [],
+                                     "no merge on non-ready readiness %r/%r" % (mergeable, mstate))
+
+    def test_readiness_persistent_blocked_900s_deadline(self):
+        """RF-001: readiness persistently blocked (never clean) => the gate
+        runs to the SAME 900s required deadline (first checks query to final
+        clock 900), no export, no merge. No extended clock budget."""
+        scenario = self._base_scenario()
+        scenario["pr"] = self._pr_readiness(mergeable=False, mergeable_state="blocked")
+        with tempfile.TemporaryDirectory(prefix="604-ready-") as raw:
+            tmp = Path(raw)
+            self._write_fake_bin(tmp)
+            state = self._make_state(tmp, scenario)
+            r = self._run_wait(tmp, state)
+            env = self._github_env(tmp)
+            self.assertNotEqual(r.returncode, 0,
+                                "persistent readiness block must fail the wait (rc=%d)" % r.returncode)
+            self.assertNotIn("SYNC_EXPECTED_HEAD_SHA", env,
+                             "no export on persistent readiness block")
+            self.assertEqual(self._merges(state), [],
+                             "no merge on persistent readiness block")
+            checks_calls = self._read_log(state, "checks_calls.log")
+            self.assertTrue(checks_calls, "the checks query must be reached")
+            first_clock = checks_calls[0]["clock"]
+            final_clock = int((state / "clock").read_text(encoding="utf-8").strip())
+            self.assertEqual(final_clock - first_clock, 900,
+                             "the gate must time out 900s from the start of the required phase "
+                             "(first=%d final=%d)" % (first_clock, final_clock))
+
+    def test_check_failure_while_waiting_readiness(self):
+        """RF-001: while waiting for readiness (blocked), a required check
+        fails => the gate must fail promptly (nonzero), not wait to the 900s
+        deadline. No export, no merge."""
+        scenario = self._base_scenario()
+        scenario["pr"] = self._pr_readiness(mergeable=False, mergeable_state="blocked")
+        scenario["checks"] = [
+            {"name": "PR Validation", "state": "IN_PROGRESS",
+             "event": "pull_request", "workflow": "pr-validation.yml",
+             "link": "https://github.com/%s/actions/runs/101" % self.GH_REPO,
+             "done_at": 1000090, "final_state": "FAILURE"},
+            {"name": "Quality integration gate", "state": "IN_PROGRESS",
+             "event": "pull_request", "workflow": "quality-integration.yml",
+             "link": "https://github.com/%s/actions/runs/102" % self.GH_REPO,
+             "done_at": 999999999, "final_state": "SUCCESS"},
+            {"name": "Security", "state": "IN_PROGRESS",
+             "event": "pull_request", "workflow": "security.yml",
+             "link": "https://github.com/%s/actions/runs/103" % self.GH_REPO,
+             "done_at": 999999999, "final_state": "SUCCESS"},
+        ]
+        with tempfile.TemporaryDirectory(prefix="604-ready-") as raw:
+            tmp = Path(raw)
+            self._write_fake_bin(tmp)
+            state = self._make_state(tmp, scenario)
+            r = self._run_wait(tmp, state)
+            env = self._github_env(tmp)
+            self.assertNotEqual(r.returncode, 0,
+                                "a check failure while waiting readiness must fail the wait (rc=%d)" % r.returncode)
+            self.assertNotIn("SYNC_EXPECTED_HEAD_SHA", env,
+                             "no export on a check failure while waiting readiness")
+            self.assertEqual(self._merges(state), [],
+                             "no merge on a check failure while waiting readiness")
+            final_clock = int((state / "clock").read_text(encoding="utf-8").strip())
+            self.assertLess(final_clock - 1000000, 900,
+                            "a check failure must fail promptly, not wait the 900s deadline (clock advanced %d)" % (final_clock - 1000000))
+
+    def test_head_drift_while_waiting_readiness(self):
+        """RF-001: while waiting for readiness (blocked), the PR head identity
+        drifts (head.sha changes, keyed to the fake clock) => the revalidate_pr
+        must fail (nonzero), no export, no merge."""
+        blocked = self._pr_readiness(mergeable=False, mergeable_state="blocked")
+        drifted = self._pr_readiness(mergeable=False, mergeable_state="blocked")
+        drifted["head"]["sha"] = self.STALE_HEAD
+        scenario = self._base_scenario()
+        scenario["pr_history"] = self._pr_hist((0, blocked), (120, drifted))
+        with tempfile.TemporaryDirectory(prefix="604-ready-") as raw:
+            tmp = Path(raw)
+            self._write_fake_bin(tmp)
+            state = self._make_state(tmp, scenario)
+            r = self._run_wait(tmp, state)
+            env = self._github_env(tmp)
+            self.assertNotEqual(r.returncode, 0,
+                                "a head drift while waiting readiness must fail the wait (rc=%d)" % r.returncode)
+            self.assertNotIn("SYNC_EXPECTED_HEAD_SHA", env,
+                             "no export on a head drift while waiting readiness")
+            self.assertEqual(self._merges(state), [],
+                             "no merge on a head drift while waiting readiness")
+
+    def test_readiness_schema_invalid(self):
+        """RF-001: an invalid PR readiness schema must fail the wait closed
+        (nonzero, no export, no merge), with the PR GET reached (no fake
+        rejection). A valid explicit null (mergeable=null) is NOT malformed
+        (covered by test_readiness_null_unknown_then_clean)."""
+        cases = []
+        pr = self._pr_readiness(); del pr["mergeable"]
+        cases.append(("mergeable-missing", pr))
+        pr = self._pr_readiness(); del pr["mergeable_state"]
+        cases.append(("mergeable_state-missing", pr))
+        cases.append(("mergeable-string", self._pr_readiness(mergeable="true", mergeable_state="clean")))
+        cases.append(("mergeable_state-empty", self._pr_readiness(mergeable=True, mergeable_state="")))
+        cases.append(("mergeable_state-number", self._pr_readiness(mergeable=True, mergeable_state=123)))
+        cases.append(("mergeable_state-null", self._pr_readiness(mergeable=True, mergeable_state=None)))
+        for name, pr in cases:
+            with self.subTest(case=name):
+                scenario = self._base_scenario()
+                scenario["pr"] = pr
+                with tempfile.TemporaryDirectory(prefix="604-ready-") as raw:
+                    tmp = Path(raw)
+                    self._write_fake_bin(tmp)
+                    state = self._make_state(tmp, scenario)
+                    r = self._run_wait(tmp, state)
+                    env = self._github_env(tmp)
+                    self.assertNotEqual(r.returncode, 0,
+                                        "readiness schema %s must fail the wait (rc=%d)" % (name, r.returncode))
+                    self.assertNotIn("SYNC_EXPECTED_HEAD_SHA", env,
+                                     "no export on readiness schema %s" % name)
+                    self.assertEqual(self._merges(state), [],
+                                     "no merge on readiness schema %s" % name)
+                    calls = self._calls(state)
+                    self.assertTrue(any(c[0] == "api" and c[1].endswith("/pulls/566") for c in calls),
+                                    "the PR GET must be reached on readiness schema %s" % name)
+                    rejected = self._read_log(state, "fake_rejected.log")
+                    self.assertEqual(rejected, [],
+                                     "the fake must not reject any call on readiness schema %s (got %s)" % (name, rejected))
+
+    def test_readiness_pr_get_faults(self):
+        """RF-001: a malformed-JSON or 401 PR GET must fail the wait closed
+        (nonzero, no export, no merge), with the PR GET reached (no fake
+        rejection)."""
+        for mode in ("malformed", "401"):
+            with self.subTest(pr_get_mode=mode):
+                scenario = self._base_scenario()
+                scenario["pr_get_mode"] = mode
+                with tempfile.TemporaryDirectory(prefix="604-ready-") as raw:
+                    tmp = Path(raw)
+                    self._write_fake_bin(tmp)
+                    state = self._make_state(tmp, scenario)
+                    r = self._run_wait(tmp, state)
+                    env = self._github_env(tmp)
+                    self.assertNotEqual(r.returncode, 0,
+                                        "a %s PR GET must fail the wait (rc=%d)" % (mode, r.returncode))
+                    self.assertNotIn("SYNC_EXPECTED_HEAD_SHA", env,
+                                     "no export on a %s PR GET" % mode)
+                    self.assertEqual(self._merges(state), [],
+                                     "no merge on a %s PR GET" % mode)
+                    calls = self._calls(state)
+                    self.assertTrue(any(c[0] == "api" and c[1].endswith("/pulls/566") for c in calls),
+                                    "the PR GET must be reached on a %s PR GET" % mode)
+                    rejected = self._read_log(state, "fake_rejected.log")
+                    self.assertEqual(rejected, [],
+                                     "the fake must not reject any call on a %s PR GET (got %s)" % (mode, rejected))
+
+    def test_readiness_mutated_before_merge(self):
+        """RF-001: after a good wait (readiness clean), the PR readiness is
+        mutated before the merge block => the merge must revalidate the PR
+        (including readiness) and fail (nonzero), with no actual gh merge
+        call. The existing head-drift case is preserved separately."""
+        scenario = self._base_scenario()
+        with tempfile.TemporaryDirectory(prefix="604-ready-") as raw:
+            tmp = Path(raw)
+            self._write_fake_bin(tmp)
+            state = self._make_state(tmp, scenario)
+            r = self._run_wait(tmp, state)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            env = self._github_env(tmp)
+            self.assertEqual(env.get("SYNC_EXPECTED_HEAD_SHA"), self.EXPECTED_HEAD)
+            # Mutate the PR readiness before the merge (readiness becomes non-clean).
+            pr = json.loads((state / "pr.json").read_text(encoding="utf-8"))
+            pr["mergeable_state"] = "dirty"
+            (state / "pr.json").write_text(json.dumps(pr), encoding="utf-8")
+            r2 = self._run_merge(tmp, state, env)
+            self.assertNotEqual(r2.returncode, 0,
+                                "a readiness mutation before the merge must block the merge (rc=%d)" % r2.returncode)
+            self.assertEqual(self._merges(state), [],
+                             "no actual gh merge call when readiness is mutated before the merge")
+
+    def test_merge_api_rejects_policy(self):
+        """RF-001: the PR GET is valid (readiness clean), but the merge API
+        rejects the merge (base branch policy) => exactly ONE pinned merge
+        call, step nonzero, no echoed squash-merged success, no retry. The
+        current code already handles the rc guard, so this regression case
+        can PASS baseline."""
+        scenario = self._base_scenario()
+        scenario["merge_mode"] = "reject"
+        with tempfile.TemporaryDirectory(prefix="604-ready-") as raw:
+            tmp = Path(raw)
+            self._write_fake_bin(tmp)
+            state = self._make_state(tmp, scenario)
+            r = self._run_wait(tmp, state)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            env = self._github_env(tmp)
+            self.assertEqual(env.get("SYNC_EXPECTED_HEAD_SHA"), self.EXPECTED_HEAD)
+            r2 = self._run_merge(tmp, state, env)
+            self.assertNotEqual(r2.returncode, 0,
+                                "a merge API policy rejection must fail the merge step (rc=%d)" % r2.returncode)
+            merges = self._merges(state)
+            self.assertEqual(len(merges), 1, "exactly ONE pinned merge call (no retry)")
+            self.assertIn("--match-head-commit", merges[0]["args"])
+            self.assertIn(self.EXPECTED_HEAD, merges[0]["args"])
+            self.assertNotIn("squash-merged", r2.stdout,
+                             "no echoed squash-merged success on a policy rejection")
 
 
 if __name__ == "__main__":

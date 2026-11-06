@@ -41,15 +41,30 @@ Two run blocks in `.github/workflows/sync-merged-tasks.yml`:
   and 8 (pending) are accepted — any other code fails promptly BEFORE the
   payload is interpreted; within rc 0/8, non-empty + all pass/skipping with
   rc 0 is the only green, rc 8 / pending / empty wait, fail/cancel wins,
-  invalid JSON fails loudly. `SYNC_EXPECTED_HEAD_SHA` is exported to
-  `GITHUB_ENV` only after both gates plus a final identity pass.
+  invalid JSON fails loudly. RF-001: on a checks-green tick the gate
+  fetches a FRESH PR raw, re-validates the same HEAD/identity, and applies
+  a schema-validating readiness oracle — `mergeable` present boolean-or-
+  explicit-null, `mergeable_state` present nonempty string, and only
+  `mergeable == true && mergeable_state == "clean"` is ready; a valid
+  non-ready state logs `SYNC_MERGE_NOT_READY` truth and waits inside the
+  SAME 900s/30s budget (no deadline reset, no extension), while
+  missing/mistyped fields, invalid JSON and API/auth faults fail closed
+  immediately. `SYNC_EXPECTED_HEAD_SHA` is exported to
+  `GITHUB_ENV` only after checks AND readiness pass on the same fresh
+  fetch (the former post-loop identity-only revalidation is subsumed — no
+  duplicate GET after the positive oracle).
 - "Squash-merge the auto-sync PR" — requires a valid 40-hex
   `SYNC_EXPECTED_HEAD_SHA` export, independently REST-revalidates the PR
   (same identity guard plus `head.sha == SYNC_EXPECTED_HEAD_SHA`), then
+  re-applies the SAME readiness oracle to that fresh pre-merge GET — a
+  readiness regression after the wait fails the step BEFORE any
+  `gh pr merge` call — then
   merges with the preserved squash/delete-branch/subject form plus
   `--match-head-commit "${SYNC_EXPECTED_HEAD_SHA}"`; never `--admin`. The
   export prevents drift between the phases; the gh flag closes the
-  GET->merge race.
+  GET->merge race (a residual race after the GET remains; an actual
+  merge-policy rejection must surface as a nonzero exit, never a success
+  claim).
 
 ## Decisions
 
@@ -81,6 +96,15 @@ Two run blocks in `.github/workflows/sync-merged-tasks.yml`:
 - **Head pin at the merge**: `SYNC_EXPECTED_HEAD_SHA` is exported only
   after both gates and revalidated by the merge step; `--match-head-commit`
   closes the residual race. No push/reuse/#595 behavior is touched.
+- **Readiness is an oracle, not authority (RF-001)**: the live 2026-11-05
+  denial (pinned merge rejected by base branch policy one second after the
+  checks exported green; PR metadata CLEAN moments later) showed
+  checks-green is not merge-ready. The correction adds a conservative
+  fresh-GET readiness oracle inside the SAME gate budget and re-applies it
+  at the merge — it can only hold or fail the flow, never force a merge;
+  the actual merge policy stays the final authority (its rejection is
+  nonzero, never a success claim). The exact live policy cause remains
+  unproven; no rollback, manual PR mutation or retry was performed.
 - **No new dependencies**: bash builtins, jq and the existing gh/git/date
   surface only; the test harness proves curl/wget sentinels stay unused.
 
@@ -121,12 +145,30 @@ Two run blocks in `.github/workflows/sync-merged-tasks.yml`:
 - Peer truth: the test peer's PASS was a READ-ONLY STATIC review only
   (shell execution denied to the peer); the peer never re-ran the suite.
   All test execution — the RED runs and the GREEN runs — was performed by
-  the delivery orchestrator / code worker.
-- GREEN (a2 review-fix round, code-worker-observed; parent re-runs): full
-  module `python3 -W error::ResourceWarning -m unittest
-  tests.test_sync_tasks_md_flow -v` — "Ran 31 tests / OK" (31/31); focused
-  class `... tests.test_sync_tasks_md_flow.SyncWaitMergeShellTests -v` —
-  "Ran 16 tests / OK" (16/16); tests byte-frozen at 6db6b1d4… before/after.
+  the delivery orchestrator / code worker. The same holds for the RF-001
+  round: the independent test peer's PASS (session
+  ses_e4ea98648ffev5YuuOPR3rSxkQ) was a READ-ONLY STATIC review — never an
+  executed run.
+- GREEN (a2 review-fix round, code-worker-observed; HISTORICAL — the
+  pre-RF-001 module): full module `python3 -W error::ResourceWarning -m
+  unittest tests.test_sync_tasks_md_flow -v` — "Ran 31 tests / OK"
+  (31/31); focused class `... tests.test_sync_tasks_md_flow.
+  SyncWaitMergeShellTests -v` — "Ran 16 tests / OK" (16/16); tests
+  byte-frozen at 6db6b1d4… before/after.
+- RF-001 RED (parent-observed, 2026-11-06, against the pre-readiness
+  workflow db28b3ef… on source 968e402…): the parent personally ran the
+  WHOLE re-frozen module (41 methods = 31 prior + 10 additive readiness
+  cases) with `python3 -W error::ResourceWarning -m unittest
+  tests.test_sync_tasks_md_flow -v`: 17 failures, ALL inside the ten new
+  readiness methods (blocked-until-clean, null/unknown, the 6 non-ready
+  combos, persistent-block 900s, head-drift-while-waiting, the 6 schema
+  cases, readiness-mutated-before-merge); the prior 31 methods green;
+  Ruff (configured) PASS and `git diff --check` clean at RED.
+- RF-001 GREEN (a2 correction round, code-worker-observed; parent re-runs):
+  full module — "Ran 41 tests in 82.232s / OK" (41/41, zero skips); focused
+  class — "Ran 26 tests / OK" (26/26); tests byte-frozen at
+  6feec92ae1f81a1398cb1a190f3c5fa8b7418644 before/after (cmp against the
+  parent's frozen copy OK); no test edits by the code worker.
 - Gates: `python3 scripts/ci/validate_sdd.py`,
   `python3 scripts/quality/validate_workflow_policy.py`,
   `ruff check --config scripts/quality/ruff.toml .`,
@@ -159,6 +201,7 @@ Two run blocks in `.github/workflows/sync-merged-tasks.yml`:
 - RISK-001 | Category: TECH | Probability: 2 | Impact: 3 | Score: 6 | Mitigation: every selection is exact (run IDs, whole-token canonical URLs, workflow id+path pairs, PR association, head SHA, detail .id == requested id) and every fault path fails closed; the 16-method class executes the real run blocks against a stateful fake REST gh with real jq | Validation: a2 review-fix round observed full module "Ran 31 tests / OK" and focused class "Ran 16 tests / OK" (parent re-run pending) | Residual risk: a GitHub API shape change outside the faked surface would fail the step loudly (fail-closed), never merge wrongly | Owner: delivery orchestrator | Status: MITIGATED
 - RISK-002 | Category: OPS | Probability: 2 | Impact: 2 | Score: 4 | Mitigation: the live wait/approve/merge path is exercised automatically by the next post-merge sync run; until then the live claim is explicitly pending, not asserted. Documented boundary (architect chain review): the merge credentials are unchanged (GITHUB_TOKEN), and push events authored by github-actions[bot] may be suppressed from triggering follow-up workflows — the follow-up no-op sync run may not fire after the automatic merge; token/trigger/env/secret behavior is out of scope for this change | Validation: PENDING — runtime acceptance must observe a fresh natural push/main Quality run on the bot merge SHA and the follow-up sync actually running its marker stage (not a stale guard) before #604/#595 close; if the no-op does not fire naturally, record the blocker and admit separate scope for transport/triggers — never fake it via ad-hoc dispatch or manual PR #566 mutation | Residual risk: until that observation, behavior is proven only against the fake harness (accepted; it reproduces the documented REST semantics) | Owner: delivery orchestrator | Status: ACCEPTED
 - RISK-003 | Category: OPS | Probability: 1 | Impact: 3 | Score: 3 | Mitigation: the sweep cannot widen authority — it only approves parked runs of the intended PR via the existing actions:write token, with the detail id bound to the requested id before each POST; a 403 fails the run promptly and no --admin path exists | Validation: 403 and detail-id-mismatch cases assert prompt failure, exact POST target and no export | Residual risk: none identified | Owner: delivery orchestrator | Status: MITIGATED
+- RISK-004 | Category: OPS | Probability: 2 | Impact: 3 | Score: 6 | Mitigation: RF-001 adds ONLY a conservative server-readiness oracle — a fresh-GET schema check (mergeable boolean-or-explicit-null, mergeable_state nonempty string) plus the affirmative mergeable==true && mergeable_state=="clean" verdict, holding inside the SAME 900s/30s gate budget and re-applied by the merge step before any gh pr merge call; no rollback was performed, no manual PR #566 mutation, no retry, no token/trigger repair — none is authorized. The triggering live failure is recorded as evidence, not explained away: natural sync run 42019841101 (job 127219543008) on source 968e402… exported the required checks green at 2026-11-05 11:35:48Z and the pinned merge was denied at 11:35:49Z ("base branch policy prohibits the merge"), with the PR-side Quality aggregate finishing 11:36:15Z and later PR metadata CLEAN | Validation: the ten additive frozen readiness cases (AC-017) execute the real run blocks against the fake harness; the live policy behavior stays PENDING the fresh natural end-to-end acceptance (AC-016) | Residual risk: the EXACT GitHub-side policy cause of the 2026-11-05 denial remains UNPROVEN — readiness convergence is consistent with it, but the oracle can only hold or fail the flow closed, never prove the policy cause or force a merge; an actual merge-policy rejection must stay a nonzero exit with no success claim | Owner: delivery orchestrator | Status: ACCEPTED
 
 ## Test design
 
@@ -172,20 +215,39 @@ Two run blocks in `.github/workflows/sync-merged-tasks.yml`:
 - TEST-008 | Covers: required gate — pending-then-pass, fail-wins, fault prompts (incl. unknown CLI rc with valid all-pass JSON failing promptly), 900s phase deadline, empty-never-green | Level: integration | Priority: P0 | Evidence: test_required_checks_gate, test_required_checks_faults, test_required_gate_900s_deadline_from_phase_start, test_fake_clock_timeouts_no_merge observed ok
 - TEST-009 | Covers: merge pinning — head drift and missing export block the merge | Level: integration | Priority: P0 | Evidence: test_merge_head_changed_and_missing_export observed ok (3 subtests)
 - TEST-010 | Covers: safety preservation — structural pins (token split, strict shell, push retry, REST-only PR lifecycle, squash merge, no name-max poll) and the generic workflow policy | Level: integration | Priority: P0 | Evidence: WorkflowStructuralPinTests observed ok + validate_workflow_policy.py exit 0
+- TEST-011 | Covers: RF-001 readiness oracle — blocked-until-clean holds past checks-green then one pinned merge after convergence; null/unknown pending then clean; six schema-valid non-ready combos never export/merge; persistent block times out at exactly 900s from the gate's own start; check failure and head drift while waiting readiness fail promptly; six invalid schema shapes and malformed/401 PR GETs fail closed with the PR GET observed; readiness mutation before the merge blocks with no merge call; actual merge-API policy rejection = exactly one pinned call, nonzero, no echoed success | Level: integration | Priority: P0 | Evidence: test_readiness_blocked_until_clean_then_merge, test_readiness_null_unknown_then_clean, test_readiness_combinations_nonready, test_readiness_persistent_blocked_900s_deadline, test_check_failure_while_waiting_readiness, test_head_drift_while_waiting_readiness, test_readiness_schema_invalid, test_readiness_pr_get_faults, test_readiness_mutated_before_merge, test_merge_api_rejects_policy observed ok (a2 correction round, whole module 41/41)
 
 ## Correct-course check
 
 - Trigger: NONE
-- Issue impact: NONE
-- Specification impact: NONE
-- Plan impact: NONE
-- Tasks impact: NONE
-- Authorization impact: NONE
-- Follow-up: none required — the security-review REQUEST_CHANGES round
-  (three workflow shell gaps + SDD truth gaps) was fixed inside the
-  admitted scope in the a2/a3 review-fix rounds with zero test edits by
-  the code worker: no production learning, architecture pivot, material
-  scope change or scope expansion surfaced (the code phase stayed inside
-  its admitted four-path file set: the two workflow run blocks plus this
-  trio, with tests/** frozen). The only open item is the pending live
-  acceptance (AC-016 / RISK-002).
+  Classification rationale: RF-001 is live control-plane CI feedback (the
+  sync workflow's own merge step denied a mergeable-looking run), not a
+  production runtime or deployment failure, so PRODUCTION_LEARNING does not
+  apply; the readiness-oracle architecture is unchanged in kind (no
+  ARCHITECTURE_PIVOT) and the admitted five-path file scope is unchanged
+  (no MATERIAL_SCOPE_CHANGE). The trigger is therefore NONE, but the live
+  failure still produced real, non-NONE impacts recorded below.
+- Issue impact: RF-001 live failure recorded as the correction cause — sync
+  run 42019841101 (job 127219543008) went checks-green at 2026-11-05
+  11:35:48Z, then the pinned merge was denied at 11:35:49Z ("base branch
+  policy prohibits the merge") while the run still exported success; the
+  gate trusted checks-green alone and never consulted PR mergeability.
+- Specification impact: RF-001 continuation block added (live base 968e402
+  vs historical 62323eea), outcome restated, SC-6, rules R-5a/R-5b, R-6
+  guard extension, R-7 frozen-test hash 6feec92, AC-017, NFR-001/003/004.
+- Plan impact: readiness-oracle architecture and decision records, Validation
+  section RF-001 RED/GREEN evidence (41/17 parent-observed RED; 41/41 module
+  plus 26/26 focused GREEN), RISK-004, TEST-011.
+- Tasks impact: T-5 marked done, T-6 added unchecked (fresh natural
+  acceptance), completion-gate RF-001 records, AC-017 traceability row, DoD
+  updated to frozen-test hash 6feec92 with counts 41/26.
+- Authorization impact: UNCHANGED — same five admitted paths; original
+  receipt issue #604 comment 6626966726 (base 62323eea); RF-001 continuation
+  receipt comment 6657166153 (base 968e402 = current origin/main, reached
+  via own prior PR #605). No new paths, no scope expansion, no new approvals.
+- Follow-up: T-6 fresh natural end-to-end acceptance is pending — RF-001
+  stays open until a live sync run converges and merges under the new
+  readiness gate. Historical note: the earlier security-review
+  REQUEST_CHANGES round (three workflow shell gaps + SDD truth gaps) was
+  already fixed inside the admitted scope in the a2/a3 review-fix rounds
+  with zero test edits by the code worker.

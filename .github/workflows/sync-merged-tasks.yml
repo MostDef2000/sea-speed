@@ -211,6 +211,16 @@ jobs:
           #      re-fetched (run detail + PR) before its POST, and each
           #      (run id, attempt) is approved at most once. Security stays
           #      approval-eligible but is never dispatched.
+          #   5. RF-001: inside the SAME 900s/30s required gate, checks-green
+          #      is only necessary — a FRESH PR GET must additionally report
+          #      server merge readiness (.mergeable == true &&
+          #      .mergeable_state == "clean", schema-validated) before the
+          #      head is exported; a valid non-ready state waits within the
+          #      same budget, schema/API faults are fatal, and the merge step
+          #      re-applies the same guard so a readiness regression after
+          #      the wait fails before any merge call. Readiness is a
+          #      conservative additional oracle, never merge authority: the
+          #      actual merge policy can still reject.
           EXPECTED_HEAD_SHA="$(git rev-parse HEAD)"
           if ! [[ "${EXPECTED_HEAD_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
             echo "::error::SYNC_IDENTITY_INVALID: git rev-parse HEAD is not a 40-hex SHA" >&2
@@ -494,16 +504,55 @@ jobs:
               exit 1
             fi
             if [[ "${gate_rc}" == "0" ]] && jq -e 'length > 0 and all(.[]; .bucket == "pass" or .bucket == "skipping")' <<<"${gate_out}" >/dev/null; then
-              gate_green=1
-              break
+              # RF-001: checks green is necessary but not sufficient — a
+              # FRESH PR GET (identity re-validated on the same fetch) must
+              # also report server-side merge readiness. Only
+              # .mergeable == true && .mergeable_state == "clean" is ready;
+              # a schema-valid explicit null / false / any non-clean state
+              # (known or unknown) is a pending wait inside the SAME
+              # 900s/30s budget (no deadline reset, no extra budget), with
+              # required checks + identity still evaluated every iteration.
+              # Missing/mistyped fields, invalid JSON or API/auth faults are
+              # fatal immediately. Readiness is a conservative additional
+              # oracle, never merge authority: the actual merge policy can
+              # still reject.
+              fresh_pr="$(gh api "repos/${GH_REPO}/pulls/${PR_NUMBER}")" || {
+                echo "::error::SYNC_IDENTITY_INVALID: PR #${PR_NUMBER} fetch failed" >&2
+                exit 1
+              }
+              validate_pr_raw "${fresh_pr}" || {
+                echo "::error::SYNC_IDENTITY_INVALID: PR #${PR_NUMBER} is not the expected open bot PR on ${BRANCH}@${EXPECTED_HEAD_SHA}" >&2
+                exit 1
+              }
+              readiness="$(jq -r '
+                if (type != "object") then error("readiness: PR response is not a JSON object")
+                elif (has("mergeable") | not) then error("readiness: .mergeable missing")
+                elif (((.mergeable | type) != "boolean") and (.mergeable != null)) then error("readiness: .mergeable must be a boolean or an explicit null")
+                elif (has("mergeable_state") | not) then error("readiness: .mergeable_state missing")
+                elif (((.mergeable_state | type) != "string") or ((.mergeable_state | length) == 0)) then error("readiness: .mergeable_state must be a nonempty string")
+                elif (.mergeable == true and .mergeable_state == "clean") then "ready"
+                else "not-ready mergeable=\(.mergeable) mergeable_state=\(.mergeable_state)"
+                end
+              ' <<<"${fresh_pr}")" || {
+                echo "::error::SYNC_API_INVALID: PR #${PR_NUMBER} readiness schema invalid" >&2
+                exit 1
+              }
+              if [[ "${readiness}" == "ready" ]]; then
+                gate_green=1
+                break
+              fi
+              echo "SYNC_MERGE_NOT_READY: PR #${PR_NUMBER} not mergeable per fresh PR GET (${readiness}); holding within the 900s gate budget" >&2
             fi
             sleep 30
           done
           if [[ "${gate_green}" != "1" ]]; then
-            echo "::error::SYNC_CHECK_TIMEOUT: auto-sync PR #${PR_NUMBER} required checks not green within 900s" >&2
+            echo "::error::SYNC_CHECK_TIMEOUT: auto-sync PR #${PR_NUMBER} required checks/readiness not green within 900s" >&2
             exit 1
           fi
-          revalidate_pr
+          # The green break above already fetched a FRESH PR and validated
+          # identity AND readiness on it in the same iteration (no latched
+          # green, no duplicate GET after the positive oracle); the merge
+          # step revalidates independently.
           echo "SYNC_EXPECTED_HEAD_SHA=${EXPECTED_HEAD_SHA}" >> "${GITHUB_ENV}"
 
       - name: Squash-merge the auto-sync PR
@@ -519,7 +568,9 @@ jobs:
           # (SYNC_EXPECTED_HEAD_SHA reaches GITHUB_ENV only after both gates
           # passed on that head). The PR is revalidated independently here — a
           # head drift after the wait blocks the merge — and --match-head-commit
-          # closes the GET->merge race. Never --admin.
+          # closes the GET->merge race. RF-001: the same conservative readiness
+          # oracle is re-applied to this fresh GET, so a readiness regression
+          # after the wait fails BEFORE any merge call. Never --admin.
           if [[ -z "${SYNC_EXPECTED_HEAD_SHA:-}" || ! "${SYNC_EXPECTED_HEAD_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
             echo "::error::SYNC_HEAD_CHANGED: SYNC_EXPECTED_HEAD_SHA missing or not a 40-hex SHA; the wait step did not export a valid head" >&2
             exit 1
@@ -538,6 +589,30 @@ jobs:
             and (((.base.repo // {}) | type == "object") and .base.repo.full_name == $repo and .base.repo.id == .head.repo.id)
           ' <<<"${merge_pr}" >/dev/null; then
             echo "::error::SYNC_HEAD_CHANGED: auto-sync PR #${PR_NUMBER} is not the expected open bot PR on ${BRANCH}@${SYNC_EXPECTED_HEAD_SHA}; refusing to merge" >&2
+            exit 1
+          fi
+          # RF-001: the same conservative readiness oracle on the SAME fresh
+          # pre-merge GET — explicit field presence/types first (missing or
+          # mistyped mergeable / mergeable_state is fatal), then the
+          # affirmative condition. A readiness regression after the wait
+          # fails the step here WITHOUT any gh pr merge call; the residual
+          # race after this GET remains, and an actual merge-policy
+          # rejection must surface as a nonzero exit, never a success claim.
+          merge_readiness="$(jq -r '
+            if (type != "object") then error("readiness: PR response is not a JSON object")
+            elif (has("mergeable") | not) then error("readiness: .mergeable missing")
+            elif (((.mergeable | type) != "boolean") and (.mergeable != null)) then error("readiness: .mergeable must be a boolean or an explicit null")
+            elif (has("mergeable_state") | not) then error("readiness: .mergeable_state missing")
+            elif (((.mergeable_state | type) != "string") or ((.mergeable_state | length) == 0)) then error("readiness: .mergeable_state must be a nonempty string")
+            elif (.mergeable == true and .mergeable_state == "clean") then "ready"
+            else "not-ready mergeable=\(.mergeable) mergeable_state=\(.mergeable_state)"
+            end
+          ' <<<"${merge_pr}")" || {
+            echo "::error::SYNC_API_INVALID: auto-sync PR #${PR_NUMBER} readiness schema invalid before merge" >&2
+            exit 1
+          }
+          if [[ "${merge_readiness}" != "ready" ]]; then
+            echo "::error::SYNC_MERGE_NOT_READY: auto-sync PR #${PR_NUMBER} readiness regressed before merge (${merge_readiness}); refusing to merge" >&2
             exit 1
           fi
           gh pr merge "${PR_NUMBER}" --squash --delete-branch \
