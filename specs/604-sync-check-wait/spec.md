@@ -19,6 +19,21 @@
   gap cases added by the test specialist), and (3-5) this SDD trio. The
   code phase edits only the two workflow run blocks and keeps the test
   module byte-identical.
+- RF-001 continuation (gen 6, 2026-11-06; receipt: issue #604 comment
+  6657166153): the same five-path scope continues after the live pinned
+  merge of the open auto-sync PR was denied by base branch policy at
+  2026-11-05 11:35:49Z ("base branch policy prohibits the merge") one
+  second after the required checks exported green (11:35:48Z), with the
+  PR-side Quality aggregate finishing at 11:36:15Z and later PR metadata
+  CLEAN — readiness convergence is consistent, but the EXACT policy cause
+  is unproven. The correction adds the conservative server-readiness oracle
+  (R-5/R-6, AC-017). Its code base is the CURRENT origin/main
+  968e402aeac8bcdc6bae90e744b341d4f4da3359 (the originally admitted base
+  62323eea is historical; the #604 trio merged to main via the prior
+  correction PR). The test module was re-frozen by the parent at git blob
+  6feec92ae1f81a1398cb1a190f3c5fa8b7418644 (the 6db6b1d review-gap freeze
+  plus ten additive RF-001 readiness cases) and stays byte-identical
+  through this code phase; no rollback, no manual PR mutation, no retry.
 
 ## Product outcome
 
@@ -39,10 +54,18 @@ EXACT dispatched run IDs until completed-success, sweeps approval-eligible
 parked `pull_request` runs on every tick of both wait phases under a fixed
 workflow id+path / head / repository / PR-association allowlist (each
 candidate re-fetched before its approve POST, once per run id+attempt),
-runs the structured required-checks gate for its own 900s budget, exports
-`SYNC_EXPECTED_HEAD_SHA` only after both gates, and the merge step
-revalidates the PR independently and pins the head with
-`--match-head-commit`. Everything else — token split, push retry, PR
+runs the structured required-checks gate for its own 900s budget, requires
+— inside that same gate, on checks-green — a fresh-GET server readiness
+oracle (`.mergeable == true` && `.mergeable_state == "clean"`,
+schema-validated; a valid explicit null / false / non-clean state waits
+within the same budget; missing/mistyped fields and API/JSON faults are
+fatal), exports `SYNC_EXPECTED_HEAD_SHA` only after checks AND readiness
+pass on the same fresh fetch, and the merge step revalidates the PR
+independently (identity AND the same readiness guard, failing before any
+merge call on a readiness regression) and pins the head with
+`--match-head-commit`. Readiness is a conservative additional oracle, never
+merge authority: the actual merge policy can still reject. Everything
+else — token split, push retry, PR
 create/reuse, permissions, concurrency — is unchanged.
 
 ## User scenarios
@@ -63,6 +86,15 @@ create/reuse, permissions, concurrency — is unchanged.
 - SC-5: a required check fails or the gates time out — the step fails
   closed before any export/merge; a 403 on an approve POST fails promptly
   instead of masquerading as a pending wait.
+- SC-6 (RF-001): the required checks are green but the server is not yet
+  ready to merge (the live 2026-11-05 denial: pinned merge rejected by
+  base branch policy one second after the checks exported green, PR
+  metadata CLEAN moments later) — the gate holds within the SAME 900s/30s
+  budget until a fresh PR GET reports `mergeable == true` &&
+  `mergeable_state == "clean"`, logging `SYNC_MERGE_NOT_READY` truth; a
+  readiness regression between the wait and the merge blocks the merge
+  with no merge call; the actual merge policy can still reject (nonzero,
+  no success claim).
 
 ## Requirements
 
@@ -117,9 +149,33 @@ create/reuse, permissions, concurrency — is unchanged.
   are all pass/skipping with rc 0 is the only green; rc 8 / pending /
   empty arrays wait bounded; fail/cancel wins over mixed pending; invalid
   JSON and API/auth errors fail loudly (never masked, never empty-green).
+  JSON and API/auth errors fail loudly (never masked, never empty-green).
   PR identity is revalidated during the gate, and
   `SYNC_EXPECTED_HEAD_SHA` is exported to `GITHUB_ENV` only after both
-  gates plus a final identity pass.
+  gates plus the fresh readiness-validated fetch of R-5a.
+- R-5a (RF-001 readiness oracle, conservative ADDITIONAL gate inside the
+  same 900s/30s phase — never merge authority): on a checks-green tick the
+  gate fetches a FRESH PR raw (`repos/${GH_REPO}/pulls/${PR_NUMBER}`,
+  the existing GET), re-validates the same HEAD/identity via the existing
+  `validate_pr_raw`, then requires explicit field presence/types —
+  `mergeable` present and a boolean OR an explicit null;
+  `mergeable_state` present, a NONEMPTY string — and the affirmative
+  `.mergeable == true && .mergeable_state == "clean"` as the only ready
+  verdict. A schema-valid explicit null / false / any non-clean state
+  (known or unknown) is a valid non-ready pending wait inside the SAME
+  budget (no deadline reset, no extra budget), logged as `SYNC_MERGE_NOT_READY`
+  truth with the observed values; required checks and identity keep being
+  evaluated every iteration (check failure/cancel stays fatal; no latched
+  old green). Missing/mistyped fields, invalid JSON and API/auth faults
+  fail immediately. The post-loop identity-only revalidation is replaced by
+  the green break's own fresh fetch (no duplicate GET after the positive
+  oracle); the pre-merge GET in the merge step stays independent. The
+  timeout message covers checks AND readiness.
+- R-5b: the readiness schema check is a jq program reused verbatim in both
+  the wait gate and the merge guard: object type, `has("mergeable")` with
+  boolean-or-explicit-null type, `mergeable_state` present nonempty
+  string, then the affirmative `mergeable == true && mergeable_state ==
+  "clean"` verdict ("ready" vs a truth-logged non-ready string).
 - R-6: the adjacent "Squash-merge the auto-sync PR" step keeps strict shell
   options, requires a valid 40-hex `SYNC_EXPECTED_HEAD_SHA` export,
   independently REST-revalidates the same PR identity including
@@ -127,8 +183,20 @@ create/reuse, permissions, concurrency — is unchanged.
   squash/delete-branch/subject form plus `--match-head-commit
   "${SYNC_EXPECTED_HEAD_SHA}"`; never `--admin`. A head drift after the
   wait produces no merge call.
+- R-6a (RF-001): the merge step's existing pre-merge REST GET guard is
+  extended with the SAME readiness presence/type checks and the SAME
+  affirmative condition (R-5b) on that fresh GET; a readiness regression
+  after the wait fails the step (`SYNC_MERGE_NOT_READY`, schema faults
+  `SYNC_API_INVALID`) WITHOUT any `gh pr merge` call. The single preserved
+  merge form stays exactly
+  `gh pr merge --squash --delete-branch --subject … --match-head-commit`;
+  never `--auto`/`--admin`, no retry, no token/trigger/settings change.
+  The residual race after the GET remains: an actual merge-policy
+  rejection must surface as a nonzero exit, never a success claim.
 - R-7: the test-protected #604 material in tests/test_sync_tasks_md_flow.py
-  (class `SyncWaitMergeShellTests`, frozen at git blob
+  (class `SyncWaitMergeShellTests`, currently frozen at git blob
+  6feec92ae1f81a1398cb1a190f3c5fa8b7418644 — the RF-001 readiness freeze;
+  historical chain: initial RED freeze d7307eec…, review-gap freeze
   6db6b1d4710c487d9add9c73456e327a2d52b488) passes unmodified during the
   code/GREEN phase, together with the structural pin and the whole module.
 
@@ -198,6 +266,29 @@ create/reuse, permissions, concurrency — is unchanged.
   merge SHA and the follow-up sync actually running its marker stage (not
   a stale guard); observed and recorded on issue #604 after merge. Not
   producible at code-worker time; never dropped and never faked.
+- AC-017: RF-001 server readiness — the wait exports/merges only after a
+  fresh-GET readiness oracle affirms `mergeable == true` &&
+  `mergeable_state == "clean"` on a checks-green tick inside the SAME
+  900s/30s budget: blocked-until-clean holds past the checks-green moment
+  and merges exactly once with the pinned head after readiness converges;
+  explicit null/unknown waits then succeeds; every other schema-valid
+  combination (true/dirty, true/unknown, true/behind, false/clean,
+  false/dirty, null/clean) never exports and never merges; persistent
+  block times out at exactly 900s from the gate's own start; a check
+  failure while waiting readiness fails promptly; a head drift while
+  waiting readiness fails via the identity guard; all six invalid schema
+  shapes (missing field, mistyped/empty/null state, string mergeable) and
+  malformed/401 PR GETs fail closed with the PR GET observed and no fake
+  rejection; a readiness mutation before the merge blocks the merge with
+  no merge call; an actual merge-API policy rejection yields exactly ONE
+  pinned merge call, nonzero, no echoed success
+  (test_readiness_blocked_until_clean_then_merge,
+  test_readiness_null_unknown_then_clean, test_readiness_combinations_nonready,
+  test_readiness_persistent_blocked_900s_deadline,
+  test_check_failure_while_waiting_readiness,
+  test_head_drift_while_waiting_readiness, test_readiness_schema_invalid,
+  test_readiness_pr_get_faults, test_readiness_mutated_before_merge,
+  test_merge_api_rejects_policy).
 
 ## Runtime feedback
 
@@ -213,8 +304,8 @@ create/reuse, permissions, concurrency — is unchanged.
 
 ## NFR assessment
 
-- NFR-001 | Area: exact-head safety | Target: approvals and the merge are bound to the NEW local bot head (git rev-parse HEAD, 40-hex validated), never to SOURCE_SHA or a name-max history pick | Validation: the #604 class executes the real run blocks against the fake harness (happy path, stale history, head-drift, metadata-mismatch cases) | Evidence: a2 review-fix round, code-worker-observed: focused class "Ran 16 tests / OK"; full module "Ran 31 tests / OK" (parent re-run pending); earlier phase counts retained in tasks.md | Status: PASS
+- NFR-001 | Area: exact-head safety | Target: approvals and the merge are bound to the NEW local bot head (git rev-parse HEAD, 40-hex validated), never to SOURCE_SHA or a name-max history pick | Validation: the #604 class executes the real run blocks against the fake harness (happy path, stale history, head-drift, metadata-mismatch cases) | Evidence: RF-001 correction round, code-worker-observed: full module "Ran 41 tests / OK" and focused class "Ran 26 tests / OK" (`python3 -W error::ResourceWarning`, frozen blob 6feec92… before/after); HISTORICAL (pre-RF-001, a2 review-fix round): focused class 16/16 OK, full module 31/31 OK | Status: PASS
 - NFR-002 | Area: narrow approval | Target: only allowlisted workflow id+path on the expected head/ref/repository with the intended PR association is approved, once per (run id, attempt), after detail+PR revalidation with the detail's own .id bound to the requested run id; ineligible runs are never approved | Validation: late-approval, 403 and detail-id-mismatch cases assert the exact approved/posted id sets and clock intervals | Evidence: test_late_approval_security_and_narrow_approve, test_approval_403_fails_closed, test_candidate_detail_id_mismatch_no_post observed ok | Status: PASS
-- NFR-003 | Area: fail-closed errors | Target: dispatch URL (incl. non-canonical suffixed tokens), metadata, run-detail, workflow-metadata, approval and required-check faults fail the step nonzero, promptly, with no export and no merge; unknown states and unknown CLI exit codes are never masked as pending | Validation: fault scenarios assert rc, no export, no merge, prompt clock advance and observed API calls | Evidence: test_dispatch_url_validation, test_dispatch_metadata_mismatch_fails_closed, test_run_detail_malformed_json_and_401, test_workflow_metadata_malformed_and_401, test_approval_403_fails_closed, test_required_checks_faults observed ok | Status: PASS
-- NFR-004 | Area: bounded waits | Target: 1800s/30s dispatch poll and a separate 900s/30s required gate measured from each phase's own start; empty checks with rc 0 never green | Validation: fake-clock timeout and 900s-deadline cases assert exact clock arithmetic and sleep intervals | Evidence: test_fake_clock_timeouts_no_merge and test_required_gate_900s_deadline_from_phase_start observed ok | Status: PASS
+- NFR-003 | Area: fail-closed errors | Target: dispatch URL (incl. non-canonical suffixed tokens), metadata, run-detail, workflow-metadata, approval, required-check and readiness-schema/readiness-GET faults fail the step nonzero, promptly, with no export and no merge; unknown states and unknown CLI exit codes are never masked as pending | Validation: fault scenarios assert rc, no export, no merge, prompt clock advance and observed API calls | Evidence: test_dispatch_url_validation, test_dispatch_metadata_mismatch_fails_closed, test_run_detail_malformed_json_and_401, test_workflow_metadata_malformed_and_401, test_approval_403_fails_closed, test_required_checks_faults, test_readiness_schema_invalid, test_readiness_pr_get_faults observed ok | Status: PASS
+- NFR-004 | Area: bounded waits | Target: 1800s/30s dispatch poll and a separate 900s/30s required gate measured from each phase's own start; empty checks with rc 0 never green; RF-001 readiness waits share the gate's own 900s budget (no deadline reset, no extra budget) | Validation: fake-clock timeout, 900s-deadline and persistent-readiness-block cases assert exact clock arithmetic and sleep intervals | Evidence: test_fake_clock_timeouts_no_merge, test_required_gate_900s_deadline_from_phase_start and test_readiness_persistent_blocked_900s_deadline observed ok | Status: PASS
 - NFR-005 | Area: minimality | Target: only the two run blocks (plus the merge step's env) change; no new helper file, module, dependency or framework; bash builtins + jq only | Validation: exact git diff inspection of the workflow; ruff and git diff --check clean | Evidence: gates observed in the completion gate; diff limited to the wait and merge steps | Status: PASS
