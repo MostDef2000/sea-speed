@@ -169,8 +169,8 @@
   focused class 26/26 OK; full module 41/41 OK, code-worker-observed;
   prior a2 round 16/16 and 31/31 HISTORICAL; SDD, workflow-policy and
   ruff gates observed; parent re-runs)
-- [ ] Required CI green — orchestrator-owned (exact PR head)
-- [ ] Exact-green-head merge complete — orchestrator-owned
+- [x] Required CI green — orchestrator-owned (exact PR head) — auto-synced on merge to main (9a5c5324)
+- [x] Exact-green-head merge complete — orchestrator-owned — auto-synced on merge to main (9a5c5324)
 - [x] Deployment state resolved — NOT REQUIRED (CONTROL_PLANE only; no VPS/Ubuntu deploy contour in this change)
 - [ ] Runtime acceptance resolved — the next real sync run with a delta exercises the new wait/sweep/gate/merge path live AND the follow-up sync on merged main is a GENUINE no-op (observe fresh natural push/main Quality on the bot merge SHA and run the marker stage; GITHUB_TOKEN push suppression may prevent it — if missing, record the blocker and admit separate scope, never fake it; evidence on issue #604)
 - [x] Deferred work recorded (no retry/fallback for dispatch or checks beyond the bounded budgets; no --admin; push/reuse/#595 behavior untouched; token/trigger behavior out of scope)
