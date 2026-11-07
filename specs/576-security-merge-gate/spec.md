@@ -176,6 +176,23 @@ existing domains — is unchanged.
   local evidence. The full-issue synthetic canary / branch-protection
   acceptance and close/delete cleanup are EXCLUDED from this source wave
   (deferred, T-7); the full #576 issue remains OPEN for them.
+- AC-009: the #576 diagnostic expansion (test-only, four admitted paths:
+  tests/test_ubuntu_worker_runtime_rebuild.py + this SDD trio) — opt-in,
+  failure-only, bounded D576 sidecar diagnostic instrumenting a GENERATED
+  COPY of the production script deploy/worker/ubuntu/prepare-runtime.sh
+  (the production script byte-identical, blob 87c7e060…; the frozen
+  Security test module e8f0504e… untouched; the 76 original assertions of
+  the instrumented module byte-identical, 10 frozen method ASTs intact);
+  whole module 21 tests 0 failures; review loop closed (same-role test
+  peer PASS with adversarial oracles; cross-family security validator
+  FAIL → bounded-read + real-stderr-re-emit fixes → CONDITION_MET).
+- AC-010: diagnostic publication + natural new-head CI observation —
+  orchestrator-owned, PENDING (never produced locally): one guarded
+  diagnostic commit onto PR #607, then the natural CI run on the new head
+  is observed; if the #514 test fails again, the published bounded D576
+  block in the job log is the RF-CI001 evidence. Stage ends at
+  observation: NO merge, NO deploy, NO old-head retry (the single
+  old-head rerun is consumed), NO speculative fix.
 
 ## Runtime feedback
 
