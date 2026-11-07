@@ -3,7 +3,6 @@
 - Issue: #576
 - Spec: specs/576-security-merge-gate/spec.md
 - Plan: specs/576-security-merge-gate/plan.md
-- Tasks: specs/576-security-merge-gate/tasks.md
 - Base: 60c17502 (origin/main); local checkout HEAD f7d485f historical and
   intentional. BEFORE implementation the three production target files were
   verified byte-identical to main 60c17502 (blob hashes equal the parent's
@@ -150,14 +149,6 @@
   marker-sync flip; issue #576 is not closed from here (no code-worker
   closure authority), and #604/#595 keep their own natural no-op
   acceptance PENDING.
-- Diagnostic delta (T-8/T-9): T-8 DONE parent-verified at blob 413506fa
-  (whole module 21 tests 0 failures; 10 frozen method ASTs + 76 original
-  asserts + published7/foreign19 baselines intact; fresh nine-gate suite
-  PASSED on the final state, /tmp/opencode/576/final-gates-diag.log);
-  T-9 PENDING orchestrator-owned (publication + natural new-head CI
-  observation; stage ends at observation — no merge/deploy/old-head
-  retry/speculative fix); RF-CI001 stays UNRESOLVED (root cause UNKNOWN;
-  no flake or pre-existing claim; local pass is not CI equivalence).
 
 ## Requirements traceability
 
