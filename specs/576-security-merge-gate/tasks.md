@@ -3,6 +3,7 @@
 - Issue: #576
 - Spec: specs/576-security-merge-gate/spec.md
 - Plan: specs/576-security-merge-gate/plan.md
+- Tasks: specs/576-security-merge-gate/tasks.md
 - Base: 60c17502 (origin/main); local checkout HEAD f7d485f historical and
   intentional. BEFORE implementation the three production target files were
   verified byte-identical to main 60c17502 (blob hashes equal the parent's
@@ -59,6 +60,17 @@
   capability; requires its own explicit scope). The full #576 issue
   remains OPEN until that later acceptance; source-wave acceptance
   (T-6/AC-008) is not full-issue closure.
+- [x] T-8 diagnostic implementation (DONE, parent-verified at blob
+  413506fa): the four-path test-only diagnostic per AC-009 (bounded D576
+  sidecar, CHILD producer, overflow characterization unit, old-#514
+  first-call wrap with real-stderr re-emit on failure, bounded 512-byte
+  reads); whole module 21 tests 0 failures; 10 frozen method ASTs + 76
+  original asserts + published7/foreign19 baselines intact.
+- [ ] T-9 diagnostic publication + CI observation (PENDING,
+  orchestrator-owned): one guarded diagnostic commit onto PR #607;
+  observe the natural new-head CI; capture the #514 outcome and (on
+  failure) the published D576 block as RF-CI001 evidence; stage ends at
+  observation (no merge/deploy/old-head retry/speculative fix).
 
 ## Completion gate
 
@@ -78,6 +90,14 @@
   observations, not expectations. Required CI on the exact PR head,
   exact-green-head merge and the post-merge actual Actions observation
   (T-6/AC-008) remain PENDING and unchecked; no publish/merge claim.
+- RF-CI001 (UNRESOLVED, root cause UNKNOWN): the mandatory Repository
+  Validation check failed twice on the old PR #607 head on
+  test_issue_514_rebaked_manifest_keys_are_canonical_and_reverify
+  (AssertionError: 1 != 0 : cp: cannot stat '': No such file or
+  directory); the single old-head rerun is CONSUMED; no flake or
+  pre-existing claim is made (local pass is not CI equivalence); the T-8
+  diagnostic exists to capture bounded D576 evidence on the next natural
+  CI run (T-9/AC-010).
 - RED (parent-executed before the code fix, against base 60c17502): the
   frozen module ran authentic RED — 6 test methods, 10 sub-failures: 6
   security non-success cases accepted by the old Quality aggregate (rc 0)
@@ -130,6 +150,14 @@
   marker-sync flip; issue #576 is not closed from here (no code-worker
   closure authority), and #604/#595 keep their own natural no-op
   acceptance PENDING.
+- Diagnostic delta (T-8/T-9): T-8 DONE parent-verified at blob 413506fa
+  (whole module 21 tests 0 failures; 10 frozen method ASTs + 76 original
+  asserts + published7/foreign19 baselines intact; fresh nine-gate suite
+  PASSED on the final state, /tmp/opencode/576/final-gates-diag.log);
+  T-9 PENDING orchestrator-owned (publication + natural new-head CI
+  observation; stage ends at observation — no merge/deploy/old-head
+  retry/speculative fix); RF-CI001 stays UNRESOLVED (root cause UNKNOWN;
+  no flake or pre-existing claim; local pass is not CI equivalence).
 
 ## Requirements traceability
 
@@ -141,6 +169,8 @@
 - AC-006 | Task: T-1, T-2 | Evidence: test_mutations_detected observed ok (14 subtests) | Coverage: COVERED
 - AC-007 | Task: T-3 | Evidence: `python3 scripts/quality/validate_workflow_policy.py` exit 0 observed | Coverage: COVERED
 - AC-008 | Task: T-6 | Evidence: post-merge actual nested reusable-workflow propagation on GitHub CI — both scanners executing inside a Quality run, inner `security-result` and outer aggregate gates on true actual results, existing check names preserved — automatic, orchestrator-owned; PENDING — to be observed and recorded on issue #576 after merge, not observed at code-worker time; the full-issue canary/protection/cleanup acceptance is deferred T-7, outside this SOURCE-wave AC set | Coverage: RUNTIME-MANUAL | Reason: live GitHub nested-Actions evidence cannot be produced locally; post-merge CI supplies it
+- AC-009 | Task: T-8 | Evidence: parent-verified at blob 413506fa — whole module 21 tests 0 failures, 10 frozen method ASTs + 76 original asserts + published7/foreign19 baselines intact; review loop closed (same-role test peer PASS with adversarial oracles; cross-family security validator FAIL → bounded-read + real-stderr-re-emit fixes → CONDITION_MET) | Coverage: COVERED
+- AC-010 | Task: T-9 | Evidence: one guarded diagnostic commit onto PR #607, then the natural new-head CI run observed; on a #514 failure the published bounded D576 block in the job log is the RF-CI001 evidence — automatic, orchestrator-owned; PENDING — never produced locally; stage ends at observation (no merge/deploy/old-head retry/speculative fix) | Coverage: RUNTIME-MANUAL | Reason: CI evidence cannot be produced locally; the natural new-head CI run supplies it
 
 ## Definition of Done
 
