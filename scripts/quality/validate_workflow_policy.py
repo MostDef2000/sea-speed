@@ -88,6 +88,7 @@ def main() -> int:
     root = repository_root()
     workflows = root / ".github/workflows"
     quality = (workflows / "quality-integration.yml").read_text(encoding="utf-8-sig")
+    security = (workflows / "security.yml").read_text(encoding="utf-8-sig")
     autonomous = (workflows / "deploy-runtime-autonomous.yml").read_text(encoding="utf-8-sig")
     sync_tasks = (workflows / "sync-merged-tasks.yml").read_text(encoding="utf-8-sig")
     deploy_vps = (workflows / "deploy-vps.yml").read_text(encoding="utf-8-sig")
@@ -100,10 +101,24 @@ def main() -> int:
             "name: Quality integration gate", "pull_request:", "push:", "workflow_dispatch:", "contents: read",
             "static-contract-security:", "property-fuzz-reliability:", "exact-artifact-e2e:",
             "release-deployment-evidence:", "quality-integration:", "if: always()", "validate_sdd.py --event",
+            "uses: ./.github/workflows/security.yml", "- security",
+            "SECURITY_RESULT: ${{ needs.security.result }}", '[[ "$SECURITY_RESULT" == success ]]',
         ),
     )
     if re.search(r"^\s+paths(?:-ignore)?:", quality, re.MULTILINE):
         fail("aggregate workflow must not use path filters")
+
+    _require_markers(
+        security,
+        "security.yml",
+        (
+            "name: Security gates", "pull_request:", "push:", "workflow_dispatch:", "workflow_call:",
+            "contents: read", "secret-scan:", "dependency-audit:", "security-result:",
+            "- secret-scan", "- dependency-audit", "if: always()",
+            "${{ needs.secret-scan.result }}", "${{ needs.dependency-audit.result }}",
+            '[[ "$SECRET_SCAN_RESULT" == success ]]', '[[ "$DEPENDENCY_AUDIT_RESULT" == success ]]',
+        ),
+    )
 
     _require_markers(
         autonomous,

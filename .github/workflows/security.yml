@@ -6,6 +6,7 @@ on:
     branches:
       - main
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
@@ -69,3 +70,22 @@ jobs:
 
       - name: Audit pinned API requirements
         run: pip-audit -r api/requirements-api.txt
+
+  security-result:
+    name: security-result
+    if: always()
+    needs:
+      - secret-scan
+      - dependency-audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require both security scanners to succeed
+        env:
+          SECRET_SCAN_RESULT: ${{ needs.secret-scan.result }}
+          DEPENDENCY_AUDIT_RESULT: ${{ needs.dependency-audit.result }}
+        run: |
+          set -euo pipefail
+          printf 'secret-scan=%s\n' "$SECRET_SCAN_RESULT"
+          printf 'dependency-audit=%s\n' "$DEPENDENCY_AUDIT_RESULT"
+          [[ "$SECRET_SCAN_RESULT" == success ]]
+          [[ "$DEPENDENCY_AUDIT_RESULT" == success ]]
