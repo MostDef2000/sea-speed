@@ -59,6 +59,34 @@ Three source files, additive only:
   action allowlist/pins, permissions, heredoc/if-expression hygiene) is
   unchanged; stdlib-only; no YAML parser.
 
+### Diagnostic delta (T-8/T-9, RF-CI001)
+
+- Scope: four admitted paths — tests/test_ubuntu_worker_runtime_rebuild.py
+  (frozen at blob 413506fa after the diagnostic) + this SDD trio;
+  owner-admitted with `commit approved` (receipt 6705035249 / gen7
+  6705861663 / fresh owner resume).
+- Design and risk profile: test-only, opt-in, failure-only, bounded D576
+  sidecar instrumenting a GENERATED COPY of
+  deploy/worker/ubuntu/prepare-runtime.sh (the production script
+  byte-identical, blob 87c7e060…; the frozen Security test e8f0504e…
+  untouched); no env dump, no xtrace, no dependency installs, no
+  assertion weakening; bounded 512-byte reads; the publisher emits to
+  parent test stderr ONLY on opt-in nonzero results and leaves the
+  original subprocess invocation and returned CompletedProcess unchanged
+  (full record format in AC-009/T-8); documented known limitation —
+  producer-side omissions are invisible to the parent (END truncated=1
+  covers parent-side omissions only).
+- Review loop: same-role test peer PASS (44/44 adversarial probes;
+  mutation-proof overflow unit); cross-family security validator first
+  verdict FAIL (S1 unbounded diagnostic reads; S2 blocking — the wrap
+  discarded the captured block so CI would never see it; S3 producer-side
+  omissions silent) → fixes (bounded reads; real-stderr re-emit before
+  the first assertion on a failing first call) → CONDITION_MET.
+- Task mapping: T-8 (implementation, DONE at blob 413506fa) / T-9
+  (publication + natural new-head CI observation, PENDING,
+  orchestrator-owned; stage ends at observation — no merge/deploy/
+  old-head retry/speculative fix).
+
 ## Decisions
 
 - **Terminal aggregate job inside Security**: a reusable workflow's own
