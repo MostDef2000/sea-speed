@@ -387,6 +387,38 @@ def event_content_fingerprint(event: Dict[str, Any]) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+def find_nonfinite_json_value(value: Any, path: str = "metadata") -> Optional[str]:
+    """First non-finite numeric leaf in a parsed JSON payload, or None.
+
+    Issue #587 boundary scan: ``json.loads`` accepts bare ``NaN``/``Infinity``
+    tokens and ``1e999``-style overflow literals (they arrive here as NaN/±inf
+    floats), and those values must never reach a persist path that serializes
+    with ``json.dumps``'s default ``allow_nan=True`` (bare NaN/Infinity tokens
+    are invalid strict JSON). Ints are always finite; numeric strings are
+    rejected by the callers' own float-conversion guards, so everything that
+    is not a float passes. Deliberately fastapi-free — the helper RETURNS the
+    offending dotted path and the API handler raises the HTTP 400 — so this
+    module stays importable in CI without fastapi installed.
+    """
+    if isinstance(value, float):
+        if not (float("-inf") < value < float("inf")):  # == math.isfinite (issue #577)
+            return path
+        return None
+    if isinstance(value, dict):
+        for key, item in value.items():
+            found = find_nonfinite_json_value(item, f"{path}.{key}")
+            if found is not None:
+                return found
+        return None
+    if isinstance(value, list):
+        for index, item in enumerate(value):
+            found = find_nonfinite_json_value(item, f"{path}[{index}]")
+            if found is not None:
+                return found
+        return None
+    return None
+
+
 def safe_event_filename(camera_id: str, event_id: str) -> str:
     """Deterministic, traversal-safe event snapshot filename (issue #537).
 

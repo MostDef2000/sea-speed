@@ -544,6 +544,12 @@ async def post_cam1_passage(
         raise HTTPException(status_code=400, detail="metadata must be valid JSON")
     if not isinstance(payload, dict):
         raise HTTPException(status_code=400, detail="metadata must be a JSON object")
+    # Issue #587: NaN/±Infinity (incl. 1e999 literals) in measurement_meta
+    # would be persisted verbatim by upsert_water_passage's json.dumps as
+    # invalid strict JSON — reject at the boundary before any read/write.
+    nonfinite_path = store.find_nonfinite_json_value(payload)
+    if nonfinite_path is not None:
+        raise HTTPException(status_code=400, detail=f"{nonfinite_path} must be a finite number")
     snapshot_bytes = await snapshot.read() if snapshot is not None else None
     try:
         passage = upsert_water_passage(payload, snapshot_bytes=snapshot_bytes)
@@ -565,6 +571,10 @@ def get_cam1_objects(
 ) -> Dict[str, Any]:
     limit = max(1, min(limit, 200))
     offset = max(0, offset)
+    if speed_min is not None and not (float("-inf") < speed_min < float("inf")):  # == math.isfinite (issue #577)
+        raise HTTPException(status_code=400, detail="speed_min must be a finite number")
+    if speed_max is not None and not (float("-inf") < speed_max < float("inf")):  # == math.isfinite (issue #577)
+        raise HTTPException(status_code=400, detail="speed_max must be a finite number")
     if speed_min is not None and speed_min < 0:
         raise HTTPException(status_code=400, detail="speed_min must be >= 0")
     if speed_max is not None and speed_max < 0:
@@ -802,6 +812,13 @@ async def post_analytics_event(
         event = json.loads(metadata)
     except Exception:
         raise HTTPException(status_code=400, detail="metadata must be valid JSON")
+    # Issue #587: deliver_event stores the event verbatim (json.dumps default
+    # allow_nan=True), so NaN/±Infinity anywhere in the payload would persist
+    # invalid strict JSON into event_feed/event_receipts — reject at the
+    # boundary before any normalization, media write or persist.
+    nonfinite_path = store.find_nonfinite_json_value(event)
+    if nonfinite_path is not None:
+        raise HTTPException(status_code=400, detail=f"{nonfinite_path} must be a finite number")
     event_id = str(event.get("event_id") or uuid.uuid4())
     event["event_id"] = event_id
     event["camera_id"] = camera_id
@@ -957,6 +974,21 @@ def post_analytics_roi(
         action="post_analytics_roi",
     )
     analytics_identity(camera_id)
+    # Issue #587: int() on a non-finite reference dimension raises
+    # ValueError/OverflowError (an unhandled 500); reject non-finite input as
+    # 400 before any branch consumes it. Falsy values fall through to the
+    # defaults in the `or`-chains below; non-floatable values keep their
+    # existing downstream failure mode.
+    for dimension_key in ("reference_width", "referenceWidth", "reference_height", "referenceHeight"):
+        raw_dimension = payload.get(dimension_key)
+        if not raw_dimension:
+            continue
+        try:
+            dimension_value = float(raw_dimension)
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if not (float("-inf") < dimension_value < float("inf")):  # == math.isfinite (issue #577)
+            raise HTTPException(status_code=400, detail=f"{dimension_key} must be a finite number")
     enabled = bool(payload.get("enabled", True))
     # accept either normalized or legacy
     norm = _clean_norm_points(payload.get("polygon_norm") or payload.get("polygon") or [], max_points=1000)
@@ -1100,6 +1132,21 @@ def post_analytics_speed_lines(
         raise HTTPException(status_code=400, detail="distance_m must be a finite number")
     if distance_m <= 0:
         raise HTTPException(status_code=400, detail="distance_m must be > 0")
+    # Issue #587: int() on a non-finite reference dimension raises
+    # ValueError/OverflowError (an unhandled 500); reject non-finite input as
+    # 400 before any branch consumes it. Falsy values fall through to the
+    # defaults in the `or`-chains below; non-floatable values keep their
+    # existing downstream failure mode.
+    for dimension_key in ("reference_width", "referenceWidth", "reference_height", "referenceHeight"):
+        raw_dimension = payload.get(dimension_key)
+        if not raw_dimension:
+            continue
+        try:
+            dimension_value = float(raw_dimension)
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if not (float("-inf") < dimension_value < float("inf")):  # == math.isfinite (issue #577)
+            raise HTTPException(status_code=400, detail=f"{dimension_key} must be a finite number")
     enabled = bool(payload.get("enabled", True))
     # accept normalized first
     la_norm = _clean_norm_points(payload.get("line_a_norm") or payload.get("line_a") or [], max_points=2)
@@ -1201,6 +1248,10 @@ def get_objects(
     offset = max(0, offset)
     if camera_id:
         analytics_identity(camera_id)
+    if speed_min is not None and not (float("-inf") < speed_min < float("inf")):  # == math.isfinite (issue #577)
+        raise HTTPException(status_code=400, detail="speed_min must be a finite number")
+    if speed_max is not None and not (float("-inf") < speed_max < float("inf")):  # == math.isfinite (issue #577)
+        raise HTTPException(status_code=400, detail="speed_max must be a finite number")
     if speed_min is not None and speed_min < 0:
         raise HTTPException(status_code=400, detail="speed_min must be >= 0")
     if speed_max is not None and speed_max < 0:
