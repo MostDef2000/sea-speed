@@ -1,0 +1,11 @@
+SYNTHETIC SECURITY CANARY — ISSUE #576 T-7 — NOT A REAL CREDENTIAL
+===================================================================
+
+This file exists only to prove the fail-closed security merge gate
+(issue #576, task T-7). It is a throwaway demonstration fixture:
+nothing below is a real secret, and the PR carrying this file must
+never be merged to main. The PR is closed after the red security
+evidence is captured.
+
+synthetic_pat = ghp_Canary576SyntheticNotRealCredential00
+deployment_token: QmFzZTY0U3ludGhldGljQ2FuYXJ5VmFsdWVOb3RSZWFsNTc2
