@@ -391,6 +391,21 @@ def get_analytics_crossing_line(camera_id: str) -> Dict[str, Any]:
 
 def post_analytics_crossing_line(camera_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     analytics_identity(camera_id)
+    # Issue #587: int() on a non-finite reference dimension raises
+    # ValueError/OverflowError (an unhandled 500); reject non-finite input as
+    # 400 before any branch consumes it. Falsy values fall through to the
+    # defaults in the `or`-chains below; non-floatable values keep their
+    # existing downstream failure mode.
+    for dimension_key in ("reference_width", "referenceWidth", "reference_height", "referenceHeight"):
+        raw_dimension = payload.get(dimension_key)
+        if not raw_dimension:
+            continue
+        try:
+            dimension_value = float(raw_dimension)
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if not (float("-inf") < dimension_value < float("inf")):  # == math.isfinite (issue #577)
+            raise HTTPException(status_code=400, detail=f"{dimension_key} must be a finite number")
     enabled = bool(payload.get("enabled", True))
     norm = _clean_norm_points(payload.get("line_norm") or payload.get("line") or [], max_points=2)
     if norm:

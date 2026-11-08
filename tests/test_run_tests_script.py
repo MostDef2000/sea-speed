@@ -243,6 +243,9 @@ class ImportHygieneScanTests(unittest.TestCase):
         self.assertEqual(
             guarded,
             [
+                ("test_587_nonfinite_residual_paths.py", 123, "fastapi"),
+                ("test_587_nonfinite_residual_paths.py", 124, "fastapi"),
+                ("test_587_nonfinite_residual_paths.py", 126, "httpx"),
                 ("test_api_http_integration.py", 83, "fastapi"),
                 ("test_api_http_integration.py", 84, "fastapi"),
                 ("test_api_http_integration.py", 86, "httpx"),
