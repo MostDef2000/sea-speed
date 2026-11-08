@@ -176,6 +176,22 @@ Three source files, additive only:
   foreign dirty/untracked working-tree paths (583/595/604/530 artifacts and
   the frozen test module) are preserved as-is.
 
+## Deployment transaction audit
+
+This audit models the Ubuntu worker rollout of the fixed
+deploy/worker/ubuntu/prepare-runtime.sh (blob 59f75f5e…); the transaction
+executes via the provisioned connector path in a separate gated task after
+this merge — no deployment transaction runs in this wave.
+
+- TX-001 | Stage: ADMISSION | Mutation: NO | Failure disposition: FATAL | State after failure: PR not admitted; production workers remain on the frozen previous script (87c7e060…) | Retry: refresh exact SHA/quality/authorization evidence and re-enter the PR gates | Rollback: NOT REQUIRED before mutation | Evidence: exact PR head SHA, green PR Validation + Quality + Security on that head, Change Contract valid
+- TX-002 | Stage: PRE-MUTATION | Mutation: POSSIBLE | Failure disposition: FATAL | State after failure: merge may land while workers still run the frozen script; no worker state changed yet | Retry: verify merged main SHA and green push/main Quality, then enter the worker rollout task | Rollback: NOT REQUIRED while no worker mutation happened | Evidence: exact merged main SHA and push/main Quality integration run
+- TX-003 | Stage: MUTATION | Mutation: YES | Failure disposition: FATAL | State after failure: a worker may be mid-provision with the new script while others remain frozen | Retry: only after the provision transaction restores or proves a coherent worker runtime state | Rollback: worker provision rollback restores the previous frozen script blob | Evidence: worker provision logs with the exact script blob identity
+- TX-004 | Stage: VERIFICATION | Mutation: POSSIBLE | Failure disposition: FATAL | State after failure: provisioned worker is not accepted | Retry: resolve prepare-runtime verification failure after the actual worker state is known | Rollback: re-provision from the previous frozen blob through the provisioned connector path | Evidence: worker runtime verification output for the new blob 59f75f5e919eaa30be6214d13c26a473409e9765
+- TX-005 | Stage: STATE-COMMIT | Mutation: YES | Failure disposition: FATAL | State after failure: worker runtime evidence is incomplete and completion is forbidden | Retry: verify actual worker runtime before persisting evidence | Rollback: previous frozen script remains the declared rollback target | Evidence: worker rollout evidence recorded on the follow-up task
+- TX-006 | Stage: HOUSEKEEPING | Mutation: POSSIBLE | Failure disposition: BEST-EFFORT | State after failure: verified worker remains valid while stale provision artifacts may remain | Retry: clean stale artifacts independently | Rollback: NOT REQUIRED solely for stale cleanup failure | Evidence: provision housekeeping logs
+- TX-007 | Stage: EVIDENCE | Mutation: NO | Failure disposition: CONDITIONAL | State after failure: worker may run the fixed script while acceptance evidence remains incomplete | Retry: recollect worker runtime evidence without re-provisioning when the exact blob identity is unchanged | Rollback: decide from actual worker runtime behavior, not evidence upload alone | Evidence: follow-up task record with provision and verification outputs
+- TX-008 | Stage: ROLLBACK | Mutation: YES | Failure disposition: FATAL | State after failure: if the previous frozen script cannot be restored/verified, stop automated mutation and recover actual worker state | Retry: read current/previous/runtime evidence before any new mutation | Rollback: no guessed secondary target; re-provision the previous frozen blob 87c7e060… | Evidence: worker provision rollback logs
+
 ## Validation
 
 - RED (parent-executed before the code fix, against base 60c17502): the
