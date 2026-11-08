@@ -2,6 +2,16 @@
 set -euo pipefail
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export PATH
+# Relay proxy env: the updater's verify_quality_status.py verifies quality via
+# python urllib, which does NOT read git-config proxy, and sudo env_reset
+# strips the caller's environment — so the root gate must export the relay
+# itself (tinyproxy on the lifesim host; production deploy-transport
+# dependency, live-validated on the worker 2026-11-08). no_proxy keeps
+# local/ZeroTier endpoints (worker control API on 10.123.239.102) direct.
+export https_proxy=http://10.123.239.29:3128
+export HTTPS_PROXY=http://10.123.239.29:3128
+export no_proxy=localhost,127.0.0.1,10.123.239.102
+export NO_PROXY=localhost,127.0.0.1,10.123.239.102
 
 readonly GATE_PATH="/usr/local/sbin/sea-speed-ubuntu-zero-touch-gate"
 readonly DEPLOY_USER="sea-speed-deploy"
@@ -32,7 +42,10 @@ execute_root() {
 
   local updater_root="$INSTALL_ROOT/updater"
   install -d -o root -g root -m 0700 "$updater_root"
-  local stage
+  # stage must stay global (never `local`): the EXIT trap runs outside this
+  # function frame, where a function-local is unbound under set -u, so
+  # cleanup aborted before rm -rf and orphaned zero-touch.* dirs in the
+  # updater root (live incident 2026-11-08: zero-touch.D7ot7v residue).
   stage="$(mktemp -d "$updater_root/zero-touch.XXXXXX")"
   cleanup() {
     local status=$?
