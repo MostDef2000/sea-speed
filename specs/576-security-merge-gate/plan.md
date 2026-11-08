@@ -158,10 +158,14 @@ Three source files, additive only:
   `scripts/quality/validate_workflow_policy.py` and this SDD trio;
   classified CONTROL_PLANE by data/contracts/change-control-policy-v1.json
   (`.github/workflows/**`, `scripts/quality/**`).
-- VPS / Ubuntu worker — NOT affected: api/**, frontend/**, deploy/**
-  untouched; no deployment transaction audit (the validator derives that
-  requirement only for deploy paths, deployment workflows or a
-  PRODUCTION_LEARNING trigger — none apply).
+- Ubuntu worker — AFFECTED by the #514 fix delta:
+  deploy/worker/ubuntu/prepare-runtime.sh is classified UBUNTU_WORKER by
+  data/contracts/change-control-policy-v1.json, so the derived impact is
+  UBUNTU_WORKER and the Ubuntu worker contour is declared (the update
+  rides the provisioned connector path at the workers' next provision — a
+  separate gated task after this merge; no operator action). No VPS
+  contour; no deployment transaction executed in this wave. api/** and
+  frontend/** are untouched.
 - tests/quality/test_security_merge_gate.py — admitted SOURCE-WAVE scope
   (seven paths) but test-protected in the code phase: authored in RED by
   the test

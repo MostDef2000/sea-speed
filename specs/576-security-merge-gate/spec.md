@@ -224,10 +224,13 @@ existing domains — is unchanged.
 
 ## Runtime feedback
 
-- CONTROL_PLANE only: api/**, worker/**, deploy/**, frontend/** untouched;
-  VPS and Ubuntu runtime contours unaffected; no deployment transaction
-  audit (the validator derives that requirement only for deploy/** paths,
-  deployment workflows, or a PRODUCTION_LEARNING trigger — none apply).
+- CONTROL_PLANE for the workflow/policy paths plus the #514 fix delta in
+  deploy/worker/ubuntu/prepare-runtime.sh, which the policy classifies
+  UBUNTU_WORKER: the derived impact is UBUNTU_WORKER and the Ubuntu worker
+  contour is declared (the fixed script reaches workers via the provisioned
+  connector path at their next provision — a separate gated task after
+  merge; no operator action, no VPS contour, no deployment transaction
+  executed in this wave). api/**, worker/** and frontend/** are untouched.
   CI is the first runtime: after merge, the next Quality run on a PR/push
   exercises the nested call live. All failure paths fail closed and loud
   (when the terminal job is scheduled, non-success scanner results fail it
