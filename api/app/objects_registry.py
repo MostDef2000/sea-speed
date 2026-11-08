@@ -173,9 +173,19 @@ def optional_float(value: Any) -> Optional[float]:
 def optional_int(value: Any) -> Optional[int]:
     if value in (None, ""):
         return None
+    # Issue #616: a JSON number like 1e999 parses to float inf and int(inf)
+    # raises OverflowError — unhandled, an HTTP 500 on the crossing ingestion
+    # path (post_analytics_crossing track_id). Drop non-finite floats exactly
+    # like non-numeric input, mirroring optional_float above; exact ints never
+    # round-trip through float(), so large values (e.g. 10**30) keep full
+    # precision. The chained comparison is math.isfinite(value) with a
+    # module-import-free body: the AST/exec test harnesses exec this function
+    # verbatim against stub namespaces.
+    if isinstance(value, float) and not (float("-inf") < value < float("inf")):
+        return None
     try:
         return int(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
 
 
