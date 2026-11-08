@@ -340,7 +340,7 @@ def _gate_execute_root_source(fixture_root: Path, repository_url: str) -> str:
       as the sandbox user and the root gate is orthogonal to the stage-
       cleanup behavior under test (same class of omission as the entrypoint
       harness's PATH-reset note).
-    Everything else is real script bytes, including the ``local stage``
+    Everything else is real script bytes, including the global ``stage``
     declaration, the in-function ``cleanup()`` definition, and the
     ``trap cleanup EXIT`` wiring.
     """
@@ -517,15 +517,17 @@ class GateForcedCommandExecutedTests(unittest.TestCase):
 class GateExecuteRootErrorPathExecutedTests(unittest.TestCase):
     """execute_root()'s stage-cleanup error path, executed (issue #398 wave 5).
 
-    The gate's ``cleanup()`` EXIT trap references the function-local
-    ``stage``. When the script exits from within ``execute_root`` (here: a
-    failing ``git fetch`` under ``set -e``), the EXIT trap runs outside the
-    function frame, where ``stage`` is unbound; ``set -u`` then aborts
-    ``cleanup`` before ``rm -rf "$stage"`` can run, orphaning the
-    ``zero-touch.XXXXXX`` stage dir in the updater root. This test executes
-    the real ``execute_root()`` + ``fail()`` + ``validate_request()`` bytes
-    against a fixture updater root and a nonexistent local repository, and
-    asserts the stage is cleaned up on the error path.
+    The gate's ``cleanup()`` EXIT trap removes the ``zero-touch.XXXXXX``
+    stage dir when the script exits from within ``execute_root`` (here: a
+    failing ``git fetch`` under ``set -e``). The trap runs outside the
+    function frame, so ``stage`` must be visible there: on the pre-fix base
+    it was a function-local, ``set -u`` aborted ``cleanup`` before
+    ``rm -rf "$stage"`` could run, and the stage dir was orphaned in the
+    updater root (live incident 2026-11-08; the wave-5 fix made ``stage``
+    global). This test executes the real ``execute_root()`` + ``fail()`` +
+    ``validate_request()`` bytes against a fixture updater root and a
+    nonexistent local repository, and asserts the stage is cleaned up on
+    the error path.
     """
 
     def setUp(self) -> None:
