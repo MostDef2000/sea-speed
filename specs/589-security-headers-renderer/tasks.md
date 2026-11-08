@@ -55,8 +55,8 @@ below.
 - [x] Required tests and evidence complete
 - [x] Required CI green — pending exact-head CI on the merge PR
 - [x] Exact-green-head merge complete — pending squash merge to main
-- [ ] Deployment state resolved (lane-A VPS release contour delivers the updated renderer file; production nginx apply is a separate lane-B/C operation with its own gates — out of scope here)
-- [ ] Runtime acceptance resolved (renderer delivered on VPS + CI green on the exact merged SHA; header visibility on live responses deferred to the lane-B/C nginx apply)
+- [ ] Deployment state resolved (CONTROL_PLANE contour — no runtime deployment occurs; the renderer reaches operators through the repository; production nginx apply is a separate lane-B/C operation with its own gates — out of scope here)
+- [ ] Runtime acceptance resolved (exact-head CI green on the merge PR; header visibility on live responses deferred to the lane-B/C nginx apply)
 - [x] Deferred work recorded (#618 — basic-auth mode HSTS inheritance loss on /sea-speed* paths; outside this fix's frozen design)
 - [x] Risks resolved or explicitly accepted
 - [x] Waivers resolved or current (no waivers)

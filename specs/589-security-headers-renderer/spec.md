@@ -120,40 +120,20 @@ requirement) — this change ships the renderer only.
 
 ## Runtime feedback
 
-- RF-001: Operator actions expected: 0 — the renderer file rides the normal
-  VPS release artifact, so the lane-A deploy delivers the updated renderer
-  to the VPS, but it does NOT regenerate or apply the nginx vhost config:
-  production nginx apply is a separate lane-B/C operation with its own gates
-  (explicit issue requirement). Runtime acceptance for THIS issue = the
-  deploy delivers the renderer (artifact/file updated on VPS) + CI battery
-  green on the exact merged SHA; header visibility on live responses is
-  deferred to the lane-B/C apply and explicitly out of scope here.
-- RF-002: behavior note — renderer output changes, so an old pre-#589
-  rendered config fails the new verify() pins (ConfigError, both modes —
-  fail-closed by design) and render()'s canonical early-return breaks for
-  it, forcing the full re-render path that regenerates the config with the
-  header set; already-canonical post-fix configs keep the early-return; no
-  production nginx config is touched by this change.
+- RF-001: Operator actions expected: 0 — scripts/operations/** is a
+  CONTROL_PLANE contour per change-control-policy-v1: the renderer is an
+  operator tool delivered through the repository, no runtime deployment
+  occurs (VPS deployment NOT REQUIRED). Runtime acceptance for this issue =
+  exact-head CI green on the merge PR. Header visibility on live responses
+  is deferred to the separate lane-B/C production nginx apply (explicit
+  issue requirement) and is out of scope here.
+- RF-002: no production nginx config is touched by this change; old
+  pre-#589 rendered configs fail the new verify() pins and re-render fully
+  (fail-closed, intentional) whenever the updated renderer is next run on
+  them.
 
 ## NFR assessment
 
-- NFR-001 | Area: security headers coverage | Target: the rendered edge
-  vhost carries X-Content-Type-Options "nosniff", Referrer-Policy
-  "strict-origin-when-cross-origin" and a CSP with frame-ancestors 'none'
-  (jsdelivr only in script-src for hls.js), emitted with `always;` at every
-  inheritance-relevant site | Validation:
-  tests/test_589_security_headers_renderer.py (8 test methods; RED on base
-  ab901e06 — 36 failures — and GREEN with the fix; stash differential
-  verified) | Evidence: focused run + RED differential recorded in plan.md |
-  Status: PASS
-- NFR-002 | Area: compatibility | Target: zero behavior change for
-  already-canonical post-fix configs except the intentional fail-closed
-  migration of old configs; existing renderer pins (outage headers, auth
-  wiring, secret-literal ban) intact | Validation: full battery 1398 OK
-  (skipped=2) incl. tests/test_sea_speed_edge_vhost_renderer.py; ruff clean |
-  Evidence: observed runs recorded in plan.md and tasks.md | Status: PASS
-- NFR-003 | Area: performance | Target: negligible — three static string
-  constants emitted at render time and substring checks in verify(); the
-  headers are static nginx config lines, no per-request runtime cost |
-  Validation: code review; no hot-loop additions | Evidence: diff inspection
-  (+28/−3 renderer, +21 golden lines) | Status: PASS
+- NFR-001 | Area: security headers coverage | Target: the rendered edge vhost carries X-Content-Type-Options "nosniff", Referrer-Policy "strict-origin-when-cross-origin" and a CSP with frame-ancestors 'none' (jsdelivr only in script-src for hls.js), emitted with `always;` at every inheritance-relevant site | Validation: tests/test_589_security_headers_renderer.py (8 test methods; RED on base ab901e06 — 36 failures — and GREEN with the fix; stash differential verified) | Evidence: focused run + RED differential recorded in plan.md | Status: PASS
+- NFR-002 | Area: compatibility | Target: zero behavior change for already-canonical post-fix configs except the intentional fail-closed migration of old configs; existing renderer pins (outage headers, auth wiring, secret-literal ban) intact | Validation: full battery 1398 OK (skipped=2) incl. tests/test_sea_speed_edge_vhost_renderer.py; ruff clean | Evidence: observed runs recorded in plan.md and tasks.md | Status: PASS
+- NFR-003 | Area: performance | Target: negligible — three static string constants emitted at render time and substring checks in verify(); the headers are static nginx config lines, no per-request runtime cost | Validation: code review; no hot-loop additions | Evidence: diff inspection (+28/−3 renderer, +21 golden lines) | Status: PASS

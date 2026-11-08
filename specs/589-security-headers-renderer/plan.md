@@ -56,77 +56,33 @@ locations), which get the set without duplication.
 
 ## Affected contours
 
-- Operations/renderer (rides the normal VPS release artifact):
-  scripts/operations/nginx_sea_speed_auth.py (+28/−3).
-- Control plane: tests/test_sea_speed_edge_vhost_renderer.py (+21 golden
-  lines), tests/test_589_security_headers_renderer.py (new, 8 methods), this
-  SDD trio. Nothing else — no api/, worker/, frontend/, deploy/, .github/
-  changes and no production nginx config change (the lane-B/C apply is a
-  separate gated operation per the issue).
+- CONTROL_PLANE (per change-control-policy-v1: scripts/operations/**):
+  scripts/operations/nginx_sea_speed_auth.py (+28/−3) — an operator tool
+  delivered through the repository; no runtime deployment occurs.
+- No runtime contour: tests/test_sea_speed_edge_vhost_renderer.py (+21
+  golden lines), tests/test_589_security_headers_renderer.py (new, 8
+  methods), this SDD trio classify NONE. Nothing else — no api/, worker/,
+  frontend/, deploy/, .github/ changes and no production nginx config
+  change (the lane-B/C apply is a separate gated operation per the issue).
 
 ## Risk profile
 
 - Risk profile: REQUIRED
-- RISK-001 | Category: TECH | Probability: 1 | Impact: 2 | Score: 2 |
-  Mitigation: the new location-level add_header lines in basic-auth mode
-  cancel server-level add_header inheritance for the protected /sea-speed*
-  locations — the operator's server-level HSTS no longer reaches them;
-  filed as follow-up #618 (outside this fix's frozen design), mitigated by
-  browser HSTS stickiness and by basic-auth not being the current production
-  mode | Validation: follow-up #618 tracks the fix; the frozen design is
-  pinned byte-exactly by the oracle | Residual risk: accepted for this
-  scope, owned by #618 | Owner: delivery orchestrator | Status: ACCEPTED
-- RISK-002 | Category: TECH | Probability: 1 | Impact: 1 | Score: 1 |
-  Mitigation: verify() pins are substring checks, so a header line pasted
-  into a comment or another directive's argument could theoretically
-  false-pass; unreachable through the renderer (it emits whole marked lines
-  at fixed positions) and the marked-block slice bounds (count==1 guards +
-  GLOBAL_BEGIN..GLOBAL_END slice) keep the server-level pin scoped |
-  Validation: tests/test_589_security_headers_renderer.py (strip-based
-  negative tests remove whole lines, not substrings) | Residual risk:
-  theoretical, hand-crafted configs only | Owner: delivery orchestrator |
-  Status: MITIGATED
-- RISK-003 | Category: OPS | Probability: 1 | Impact: 2 | Score: 2 |
-  Mitigation: the lane-A deploy delivers the renderer file only — it does
-  not regenerate or apply the nginx vhost config, so no production nginx
-  mutation happens in this scope; production apply is a separate lane-B/C
-  operation with its own gates (explicit issue requirement); old configs on
-  the VPS are only re-rendered if/when the renderer is actually run there,
-  and then fail closed into a full re-render | Validation: full battery +
-  ruff + validate_sdd green before merge; deploy probe limited to renderer
-  delivery | Residual risk: standard release-contour deploy risk | Owner:
-  delivery orchestrator | Status: MITIGATED
+- RISK-001 | Category: TECH | Probability: 1 | Impact: 2 | Score: 2 | Mitigation: the new location-level add_header lines in basic-auth mode cancel server-level add_header inheritance for the protected /sea-speed* locations — the operator's server-level HSTS no longer reaches them; filed as follow-up #618 (outside this fix's frozen design), mitigated by browser HSTS stickiness and by basic-auth not being the current production mode | Validation: follow-up #618 tracks the fix; the frozen design is pinned byte-exactly by the oracle | Residual risk: accepted for this scope, owned by #618 | Owner: delivery orchestrator | Status: ACCEPTED
+- RISK-002 | Category: TECH | Probability: 1 | Impact: 1 | Score: 1 | Mitigation: verify() pins are substring checks, so a header line pasted into a comment or another directive's argument could theoretically false-pass; unreachable through the renderer (it emits whole marked lines at fixed positions) and the marked-block slice bounds (count==1 guards + GLOBAL_BEGIN..GLOBAL_END slice) keep the server-level pin scoped | Validation: tests/test_589_security_headers_renderer.py (strip-based negative tests remove whole lines, not substrings) | Residual risk: theoretical, hand-crafted configs only | Owner: delivery orchestrator | Status: MITIGATED
+- RISK-003 | Category: OPS | Probability: 1 | Impact: 2 | Score: 2 | Mitigation: this change ships the renderer only — it does not regenerate or apply the nginx vhost config and no runtime deployment occurs (CONTROL_PLANE contour), so no production nginx mutation happens in this scope; production apply is a separate lane-B/C operation with its own gates (explicit issue requirement); old configs are only re-rendered if/when the renderer is actually run on them, and then fail closed into a full re-render | Validation: full battery + ruff + validate_sdd green before merge; no deploy step exists in this scope | Residual risk: none from this change; the lane-B/C apply carries its own gates | Owner: delivery orchestrator | Status: MITIGATED
 
 ## Test design
 
-- TEST-001 | Covers: AC-001 | Level: integration | Priority: P0 | Evidence:
-  tests/test_589_security_headers_renderer.py::
-  test_authentik_render_emits_security_headers_server_level — global-block
-  body contains all three header lines
-- TEST-002 | Covers: AC-002 | Level: integration | Priority: P0 | Evidence:
-  same file::test_authentik_render_repeats_headers_in_every_sea_speed_location
-  — 2 protected locations × 3 headers
-- TEST-003 | Covers: AC-003 | Level: integration | Priority: P0 | Evidence:
-  same file::test_authentik_render_repeats_headers_in_fallback_location
-- TEST-004 | Covers: AC-004 | Level: integration | Priority: P0 | Evidence:
-  same file::test_basic_auth_render_repeats_headers_in_every_sea_speed_location
-  — 3 protected locations × 3 headers
-- TEST-005 | Covers: AC-005 | Level: integration | Priority: P0 | Evidence:
-  same file::test_verify_rejects_missing_server_level_headers — header lines
-  stripped from the global block → ConfigError
-- TEST-006 | Covers: AC-006 | Level: integration | Priority: P0 | Evidence:
-  same file::test_verify_rejects_missing_location_repeat — one header line
-  removed from one protected location → ConfigError, both modes
-- TEST-007 | Covers: AC-007 | Level: integration | Priority: P0 | Evidence:
-  same file::test_headers_carry_always_flag_and_no_secret_literals — every
-  emitted line ends with `always;`; CSP value free of secret-shaped literals
-- TEST-008 | Covers: AC-008 | Level: integration | Priority: P0 | Evidence:
-  same file::test_render_idempotent_with_headers_both_modes —
-  render(render(x)) == render(x), both modes
-- TEST-009 | Covers: AC-009 | Level: integration | Priority: P1 | Evidence:
-  RED differential (36 failures on base ab901e06 with scripts/ stashed; 8/8
-  OK with the fix) + full battery 1398 OK (skipped=2) + ruff clean
-  (observed, see Validation)
+- TEST-001 | Covers: AC-001 | Level: integration | Priority: P0 | Evidence: tests/test_589_security_headers_renderer.py::test_authentik_render_emits_security_headers_server_level — global-block body contains all three header lines
+- TEST-002 | Covers: AC-002 | Level: integration | Priority: P0 | Evidence: same file::test_authentik_render_repeats_headers_in_every_sea_speed_location — 2 protected locations × 3 headers
+- TEST-003 | Covers: AC-003 | Level: integration | Priority: P0 | Evidence: same file::test_authentik_render_repeats_headers_in_fallback_location
+- TEST-004 | Covers: AC-004 | Level: integration | Priority: P0 | Evidence: same file::test_basic_auth_render_repeats_headers_in_every_sea_speed_location — 3 protected locations × 3 headers
+- TEST-005 | Covers: AC-005 | Level: integration | Priority: P0 | Evidence: same file::test_verify_rejects_missing_server_level_headers — header lines stripped from the global block → ConfigError
+- TEST-006 | Covers: AC-006 | Level: integration | Priority: P0 | Evidence: same file::test_verify_rejects_missing_location_repeat — one header line removed from one protected location → ConfigError, both modes
+- TEST-007 | Covers: AC-007 | Level: integration | Priority: P0 | Evidence: same file::test_headers_carry_always_flag_and_no_secret_literals — every emitted line ends with `always;`; CSP value free of secret-shaped literals
+- TEST-008 | Covers: AC-008 | Level: integration | Priority: P0 | Evidence: same file::test_render_idempotent_with_headers_both_modes — render(render(x)) == render(x), both modes
+- TEST-009 | Covers: AC-009 | Level: integration | Priority: P1 | Evidence: RED differential (36 failures on base ab901e06 with scripts/ stashed; 8/8 OK with the fix) + full battery 1398 OK (skipped=2) + ruff clean (observed, see Validation)
 
 ## Correct-course check
 
@@ -136,69 +92,17 @@ locations), which get the set without duplication.
 - Plan impact: NONE
 - Tasks impact: NONE
 - Authorization impact: NONE
-- Follow-up: #618 (basic-auth mode HSTS inheritance loss on /sea-speed*
-  paths — outside this fix's frozen design; recorded in RISK-001 and the
-  Definition of Done)
+- Follow-up: #618 (basic-auth mode HSTS inheritance loss on /sea-speed* paths — outside this fix's frozen design; recorded in RISK-001 and the Definition of Done)
 
 ## Deployment transaction audit
 
-Lane-A VPS release rollout delivers the updated renderer file inside the
-normal release artifact; it does NOT regenerate or apply the nginx vhost
-config — production nginx apply is a separate lane-B/C operation with its
-own gates (explicit issue requirement). It does not redeploy Ubuntu or
-Windows.
-
-- TX-001 | Stage: ADMISSION | Mutation: NO | Failure disposition: FATAL |
-  State after failure: production VPS remains on the accepted previous
-  release | Retry: correct exact SHA/quality/authorization evidence then
-  re-enter the protected VPS deploy workflow | Rollback: NOT REQUIRED before
-  mutation | Evidence: exact merged main SHA, push/main Quality
-  integration, wave-1 owner authorization (2026-11-08 continuation
-  instruction)
-- TX-002 | Stage: PRE-MUTATION | Mutation: POSSIBLE | Failure disposition:
-  FATAL | State after failure: candidate release may be staged while current
-  VPS release remains active | Retry: verify staged exact release and
-  previous/current identities then retry | Rollback: NOT REQUIRED while
-  active release is unchanged | Evidence: exact VPS artifact/release
-  manifest and current/previous release markers
-- TX-003 | Stage: MUTATION | Mutation: YES | Failure disposition: FATAL |
-  State after failure: candidate VPS release may be active but is not
-  accepted until verification succeeds | Retry: only after existing deploy
-  transaction restores or proves a coherent current release | Rollback:
-  existing VPS deploy rollback restores previous exact release | Evidence:
-  repository-owned deploy-vps activation logs
-- TX-004 | Stage: VERIFICATION | Mutation: POSSIBLE | Failure disposition:
-  FATAL | State after failure: candidate is not accepted | Retry: resolve
-  health/public-smoke failure after actual current release is known |
-  Rollback: automatic previous-release verification through accepted
-  loopback origin and protected public smoke | Evidence: origin health,
-  public smoke, exact API release identity
-- TX-005 | Stage: STATE-COMMIT | Mutation: YES | Failure disposition: FATAL |
-  State after failure: deployment evidence is incomplete and completion is
-  forbidden | Retry: verify actual runtime before persisting evidence |
-  Rollback: previous exact VPS release remains the declared rollback target |
-  Evidence: current/previous markers plus runtime-verified deployment
-  manifest
-- TX-006 | Stage: HOUSEKEEPING | Mutation: POSSIBLE | Failure disposition:
-  BEST-EFFORT | State after failure: verified runtime remains valid while
-  stale release cleanup may remain pending | Retry: clean stale
-  non-current/non-previous releases independently | Rollback: NOT REQUIRED
-  solely for stale cleanup failure | Evidence: warning-only pruning behavior
-  already regression-protected
-- TX-007 | Stage: EVIDENCE | Mutation: NO | Failure disposition: CONDITIONAL |
-  State after failure: deployed runtime may be healthy but validation
-  acceptance remains incomplete | Retry: verify the renderer file identity on
-  the VPS without redeployment when exact runtime identity is unchanged |
-  Rollback: decide from actual runtime state, not evidence upload alone |
-  Evidence: deployment manifest plus renderer-file delivery on the VPS; live
-  header probes are NOT part of this issue's acceptance — they belong to the
-  separate lane-B/C nginx apply
-- TX-008 | Stage: ROLLBACK | Mutation: YES | Failure disposition: FATAL |
-  State after failure: if previous exact release cannot be restored/verified,
-  stop automated mutation and recover actual VPS state | Retry: read
-  current/previous/runtime evidence before any new mutation | Rollback: no
-  guessed secondary target; use the protected previous exact VPS release |
-  Evidence: existing VPS rollback logs and verified origin/public health
+NOT REQUIRED for this change: CONTROL_PLANE contour (scripts/operations/**
+per change-control-policy-v1), no deploy/** or scripts/release/** files
+changed, and the PR declares VPS deployment NOT REQUIRED — no runtime
+deployment transaction occurs. The renderer reaches operators through the
+repository; production nginx apply remains a separate lane-B/C operation
+with its own gates (explicit issue requirement) and carries its own
+transaction audit at that time.
 
 ## Validation
 
@@ -226,11 +130,11 @@ Windows.
 
 ## Runtime feedback
 
-- RF-001: Operator actions expected: 0 — the renderer rides the normal VPS
-  release artifact; runtime acceptance for this issue = renderer delivered
-  on the VPS + exact-head CI green. Header visibility on live responses is
-  deferred to the separate lane-B/C production nginx apply (explicit issue
-  requirement) and is out of scope here.
+- RF-001: Operator actions expected: 0 — CONTROL_PLANE contour, no runtime
+  deployment occurs; runtime acceptance for this issue = exact-head CI green
+  on the merge PR. Header visibility on live responses is deferred to the
+  separate lane-B/C production nginx apply (explicit issue requirement) and
+  is out of scope here.
 - RF-002: no production nginx config is touched by this change; old
   pre-#589 rendered configs fail the new verify() pins and re-render fully
   (fail-closed, intentional) whenever the updated renderer is next run on
