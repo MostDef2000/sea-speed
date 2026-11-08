@@ -74,6 +74,9 @@ AUTHENTIK_GOLDEN = '''server {
     listen 443 ssl;
     server_name mostdef.ru www.mostdef.ru;
 # SEA-SPEED-AUTH-V1-BEGIN
+add_header X-Content-Type-Options "nosniff" always;
+add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+add_header Content-Security-Policy "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; connect-src 'self'; media-src 'self' blob:; img-src 'self' data:; frame-ancestors 'none'" always;
 if ($host = www.mostdef.ru) {
     return 308 https://mostdef.ru$request_uri;
 }
@@ -104,6 +107,9 @@ location = /sea-speed-unavailable.html {
     root /var/www/mostdef.ru;
     add_header Cache-Control "no-store" always;
     add_header Retry-After "30" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; connect-src 'self'; media-src 'self' blob:; img-src 'self' data:; frame-ancestors 'none'" always;
 }
 # SEA-SPEED-FALLBACK-V1-END
 
@@ -128,6 +134,9 @@ location = /sea-speed-unavailable.html {
     proxy_set_header X-authentik-email $authentik_email;
     proxy_set_header X-authentik-name $authentik_name;
     proxy_set_header X-authentik-uid $authentik_uid;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; connect-src 'self'; media-src 'self' blob:; img-src 'self' data:; frame-ancestors 'none'" always;
     # SEA-SPEED-AUTH-V1-LOCATION-END
         try_files $uri $uri/ =404;
     }
@@ -153,6 +162,9 @@ location = /sea-speed-unavailable.html {
     proxy_set_header X-authentik-email $authentik_email;
     proxy_set_header X-authentik-name $authentik_name;
     proxy_set_header X-authentik-uid $authentik_uid;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; connect-src 'self'; media-src 'self' blob:; img-src 'self' data:; frame-ancestors 'none'" always;
     # SEA-SPEED-AUTH-V1-LOCATION-END
         proxy_pass http://127.0.0.1:8000/api/;
     }
@@ -177,6 +189,9 @@ BASIC_AUTH_GOLDEN_FRONT = '''server {
     proxy_set_header X-authentik-email "";
     proxy_set_header X-authentik-name "";
     proxy_set_header X-authentik-uid "";
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; connect-src 'self'; media-src 'self' blob:; img-src 'self' data:; frame-ancestors 'none'" always;
     # SEA-SPEED-AUTH-V1-LOCATION-END
         try_files $uri $uri/ =404;
     }
@@ -193,6 +208,9 @@ BASIC_AUTH_GOLDEN_FRONT = '''server {
     proxy_set_header X-authentik-email "";
     proxy_set_header X-authentik-name "";
     proxy_set_header X-authentik-uid "";
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; connect-src 'self'; media-src 'self' blob:; img-src 'self' data:; frame-ancestors 'none'" always;
     # SEA-SPEED-AUTH-V1-LOCATION-END
         proxy_pass http://127.0.0.1:8000/api/;
     }
@@ -209,6 +227,9 @@ BASIC_AUTH_GOLDEN_FRONT = '''server {
     proxy_set_header X-authentik-email "";
     proxy_set_header X-authentik-name "";
     proxy_set_header X-authentik-uid "";
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; connect-src 'self'; media-src 'self' blob:; img-src 'self' data:; frame-ancestors 'none'" always;
     # SEA-SPEED-AUTH-V1-LOCATION-END
         alias /opt/sea-speed-api/media/;
     }

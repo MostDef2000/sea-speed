@@ -72,6 +72,21 @@ INCLUDE_DIRECTIVE_RE = re.compile(
     r"(?m)^(?P<indent>[ \t]*)include[ \t]+(?P<path>[^; \t\r\n]+)[ \t]*;[ \t]*(?:#.*)?$"
 )
 SEA_SPEED_INCLUDE_NAME_RE = re.compile(r"^sea-speed-[A-Za-z0-9._-]+\.conf$")
+# Issue #589: security-header set for the Sea Speed edge vhost. nginx
+# add_header inheritance is broken by any location-level add_header, so the
+# set is emitted at server level (authentik-mode global block) AND repeated
+# inside every protected /sea-speed* location and the fallback outage
+# location. Static public header strings — never any secret value.
+SECURITY_HEADER_XCTO = 'add_header X-Content-Type-Options "nosniff" always;'
+SECURITY_HEADER_REFERRER = 'add_header Referrer-Policy "strict-origin-when-cross-origin" always;'
+SECURITY_HEADER_CSP = (
+    "add_header Content-Security-Policy "
+    "\"default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; "
+    "style-src 'self' 'unsafe-inline'; connect-src 'self'; "
+    "media-src 'self' blob:; img-src 'self' data:; frame-ancestors 'none'\" "
+    "always;"
+)
+SECURITY_HEADERS = (SECURITY_HEADER_XCTO, SECURITY_HEADER_REFERRER, SECURITY_HEADER_CSP)
 
 
 class ConfigError(RuntimeError):
@@ -294,7 +309,7 @@ def _strip_basic_auth(body: str) -> str:
 def _auth_location_snippet(indent: str, edge_auth_include: str) -> str:
     inner = indent + "    "
     include_line, edge_header_line = _edge_injection_lines(edge_auth_include)
-    lines = [inner + LOCATION_BEGIN, inner + include_line, inner + f"auth_request {AUTH_URI};", inner + "error_page 401 = @goauthentik_proxy_signin;", inner + f"error_page 500 =503 {FALLBACK_URI};", inner + "auth_request_set $auth_cookie $upstream_http_set_cookie;", inner + "add_header Set-Cookie $auth_cookie;", inner + "auth_request_set $authentik_username $upstream_http_x_authentik_username;", inner + "auth_request_set $authentik_groups $upstream_http_x_authentik_groups;", inner + "auth_request_set $authentik_entitlements $upstream_http_x_authentik_entitlements;", inner + "auth_request_set $authentik_email $upstream_http_x_authentik_email;", inner + "auth_request_set $authentik_name $upstream_http_x_authentik_name;", inner + "auth_request_set $authentik_uid $upstream_http_x_authentik_uid;", inner + edge_header_line, inner + "proxy_set_header X-authentik-username $authentik_username;", inner + "proxy_set_header X-authentik-groups $authentik_groups;", inner + "proxy_set_header X-authentik-entitlements $authentik_entitlements;", inner + "proxy_set_header X-authentik-email $authentik_email;", inner + "proxy_set_header X-authentik-name $authentik_name;", inner + "proxy_set_header X-authentik-uid $authentik_uid;", inner + LOCATION_END]
+    lines = [inner + LOCATION_BEGIN, inner + include_line, inner + f"auth_request {AUTH_URI};", inner + "error_page 401 = @goauthentik_proxy_signin;", inner + f"error_page 500 =503 {FALLBACK_URI};", inner + "auth_request_set $auth_cookie $upstream_http_set_cookie;", inner + "add_header Set-Cookie $auth_cookie;", inner + "auth_request_set $authentik_username $upstream_http_x_authentik_username;", inner + "auth_request_set $authentik_groups $upstream_http_x_authentik_groups;", inner + "auth_request_set $authentik_entitlements $upstream_http_x_authentik_entitlements;", inner + "auth_request_set $authentik_email $upstream_http_x_authentik_email;", inner + "auth_request_set $authentik_name $upstream_http_x_authentik_name;", inner + "auth_request_set $authentik_uid $upstream_http_x_authentik_uid;", inner + edge_header_line, inner + "proxy_set_header X-authentik-username $authentik_username;", inner + "proxy_set_header X-authentik-groups $authentik_groups;", inner + "proxy_set_header X-authentik-entitlements $authentik_entitlements;", inner + "proxy_set_header X-authentik-email $authentik_email;", inner + "proxy_set_header X-authentik-name $authentik_name;", inner + "proxy_set_header X-authentik-uid $authentik_uid;", *(inner + line for line in SECURITY_HEADERS), inner + LOCATION_END]
     return "\n" + "\n".join(lines) + "\n"
 
 
@@ -304,13 +319,14 @@ def _basic_auth_location_snippet(indent: str, edge_auth_include: str) -> str:
     lines = [inner + LOCATION_BEGIN, inner + f'auth_basic "{BASIC_AUTH_REALM}";', inner + f"auth_basic_user_file {BASIC_AUTH_USER_FILE};", inner + include_line, inner + edge_header_line]
     for field in AUTHENTIK_IDENTITY_FIELDS:
         lines.append(inner + f'proxy_set_header X-authentik-{field} "";')
+    lines.extend(inner + line for line in SECURITY_HEADERS)
     lines.append(inner + LOCATION_END)
     return "\n" + "\n".join(lines) + "\n"
 
 
 def _fallback_block(indent: str) -> str:
     inner = indent + "    "
-    lines = [indent + FALLBACK_BEGIN, indent + f"location = {FALLBACK_URI} {{", inner + "internal;", inner + f"root {FALLBACK_ROOT};", inner + 'add_header Cache-Control "no-store" always;', inner + 'add_header Retry-After "30" always;', indent + "}", indent + FALLBACK_END, ""]
+    lines = [indent + FALLBACK_BEGIN, indent + f"location = {FALLBACK_URI} {{", inner + "internal;", inner + f"root {FALLBACK_ROOT};", inner + 'add_header Cache-Control "no-store" always;', inner + 'add_header Retry-After "30" always;', *(inner + line for line in SECURITY_HEADERS), indent + "}", indent + FALLBACK_END, ""]
     return "\n".join(lines)
 
 
@@ -352,7 +368,7 @@ def _authentik_upstream(value: str) -> str:
 def _global_block(indent: str, authentik_upstream: str, host: str) -> str:
     inner = indent + "    "
     origin = _authentik_upstream(authentik_upstream)
-    lines = [indent + GLOBAL_BEGIN, indent + f"if ($host = www.{host}) {{", inner + f"return 308 https://{host}$request_uri;", indent + "}", indent + "location = /cams {", inner + "return 404;", indent + "}", indent + "location ^~ /cams/ {", inner + "return 404;", indent + "}", indent + f"location ^~ {OUTPOST_PREFIX} {{", inner + f"proxy_pass {origin}{OUTPOST_PREFIX};", inner + "proxy_set_header Host $host;", inner + "proxy_set_header X-Original-URL $scheme://$http_host$request_uri;", inner + "add_header Set-Cookie $auth_cookie;", inner + "auth_request_set $auth_cookie $upstream_http_set_cookie;", inner + "proxy_pass_request_body off;", inner + 'proxy_set_header Content-Length "";', indent + "}", indent + "location @goauthentik_proxy_signin {", inner + "internal;", inner + "add_header Set-Cookie $auth_cookie;", inner + "return 302 /outpost.goauthentik.io/start?rd=$scheme://$http_host$request_uri;", indent + "}", indent + GLOBAL_END, ""]
+    lines = [indent + GLOBAL_BEGIN, *(indent + line for line in SECURITY_HEADERS), indent + f"if ($host = www.{host}) {{", inner + f"return 308 https://{host}$request_uri;", indent + "}", indent + "location = /cams {", inner + "return 404;", indent + "}", indent + "location ^~ /cams/ {", inner + "return 404;", indent + "}", indent + f"location ^~ {OUTPOST_PREFIX} {{", inner + f"proxy_pass {origin}{OUTPOST_PREFIX};", inner + "proxy_set_header Host $host;", inner + "proxy_set_header X-Original-URL $scheme://$http_host$request_uri;", inner + "add_header Set-Cookie $auth_cookie;", inner + "auth_request_set $auth_cookie $upstream_http_set_cookie;", inner + "proxy_pass_request_body off;", inner + 'proxy_set_header Content-Length "";', indent + "}", indent + "location @goauthentik_proxy_signin {", inner + "internal;", inner + "add_header Set-Cookie $auth_cookie;", inner + "return 302 /outpost.goauthentik.io/start?rd=$scheme://$http_host$request_uri;", indent + "}", indent + GLOBAL_END, ""]
     return "\n".join(lines)
 
 
@@ -459,6 +475,9 @@ def verify(text: str, host: str = "mostdef.ru", worker_private_listen: str | Non
     server_text = text[server_start : server_close + 1]
     if mode == MODE_AUTHENTIK:
         if server_text.count(GLOBAL_BEGIN) != 1 or server_text.count(GLOBAL_END) != 1: raise ConfigError("global Sea Speed Auth v1 block missing or duplicated")
+        global_body = server_text[server_text.index(GLOBAL_BEGIN) : server_text.index(GLOBAL_END)]
+        missing_server_headers = [line for line in SECURITY_HEADERS if line not in global_body]
+        if missing_server_headers: raise ConfigError("server-level security headers missing from the global Sea Speed Auth v1 block: " + ", ".join(missing_server_headers))
         if server_text.count(FALLBACK_BEGIN) != 1 or server_text.count(FALLBACK_END) != 1: raise ConfigError("fallback Sea Speed outage page block missing or duplicated")
         canonical_if = f"if ($host = www.{host}) {{"; canonical_return = f"return 308 https://{host}$request_uri;"
         if server_text.count(canonical_if) != 1 or server_text.count(canonical_return) != 1: raise ConfigError("canonical www host redirect missing or duplicated")
@@ -474,6 +493,8 @@ def verify(text: str, host: str = "mostdef.ru", worker_private_listen: str | Non
         uri = _location_uri(spec); body = server_text[open_index + 1 : close_index]
         if mode == MODE_AUTHENTIK and uri == FALLBACK_URI:
             if "internal;" not in body: raise ConfigError("fallback outage location must be internal")
+            for line in SECURITY_HEADERS:
+                if line not in body: raise ConfigError(f"fallback outage location must emit security headers: missing {line}")
             continue
         if mode == MODE_AUTHENTIK and uri == OUTPOST_PREFIX:
             outpost_count += 1
@@ -489,6 +510,7 @@ def verify(text: str, host: str = "mostdef.ru", worker_private_listen: str | Non
                 required += tuple(f'proxy_set_header X-authentik-{field} "";' for field in AUTHENTIK_IDENTITY_FIELDS)
                 if "auth_request " in body: raise ConfigError(f"basic-auth Sea Speed location {spec} must not use auth_request")
             required += _edge_injection_lines(edge)
+            required += SECURITY_HEADERS
             for marker in required:
                 if marker not in body: raise ConfigError(f"unprotected Sea Speed location {spec}: missing {marker}")
             if mode == MODE_AUTHENTIK and ("auth_basic " in body or "auth_basic_user_file " in body): raise ConfigError(f"legacy Basic Auth remains in Sea Speed location {spec}")
