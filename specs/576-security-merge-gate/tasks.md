@@ -207,8 +207,8 @@
   battery: 1368 tests OK / 17 environment skips, all nine gates, Ruff
   base/strict PASS, mypy strict-tier PASS, deterministic exact-artifact
   builds + validate PASS — /tmp/opencode/576/final-gates.log)
-- [ ] Required CI green — orchestrator-owned (exact PR head)
-- [ ] Exact-green-head merge complete — orchestrator-owned
+- [x] Required CI green — orchestrator-owned (exact PR head) — auto-synced on merge to main (5ce9405c)
+- [x] Exact-green-head merge complete — orchestrator-owned — auto-synced on merge to main (5ce9405c)
 - [x] Deployment state resolved — Ubuntu worker contour declared REQUIRED by derivation (deploy/worker/ubuntu/prepare-runtime.sh classifies UBUNTU_WORKER); the update itself rides the provisioned connector path at the workers' next provision as a separate gated task after merge (no operator action, no VPS contour, no deployment transaction executed in this wave)
 - [ ] Runtime acceptance resolved — SOURCE-wave scope only: post-merge actual nested reusable-workflow propagation observed on GitHub CI (T-6/AC-008: both scanners inside a Quality run, inner + outer gates on true actual results, check names preserved); the full-issue live synthetic canary / branch-protection acceptance and close/delete cleanup are DEFERRED (T-7, outside this source wave, pending external capability) and the full #576 issue remains OPEN until then (evidence on issue #576)
 - [x] Deferred work recorded (T-7: full-issue live synthetic canary, branch-protection/rulesets read acceptance and close/delete cleanup — deferred outside this source wave, pending external capability, unchecked and not executed; no canary publication, no protection/rulesets reads or changes, no admin/permission/settings/creds/cleanup-workflow/fallback actions in this source-only wave — the 47-Connector capability inventory has no delete_branch and no protection/rulesets read; #604/#595 natural no-op acceptance stays PENDING and is not substituted by this wave; the code-CI binding is not claimed immune to an admin later removing branch protection)
