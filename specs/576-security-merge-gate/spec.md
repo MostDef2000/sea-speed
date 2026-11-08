@@ -26,6 +26,16 @@
   wave (deferred, T-7 in tasks.md) and the issue remains OPEN for them.
   Source-only outcome: no deploy, no settings, no canary publication, no
   issue closure in this wave.
+  Scope expansion (owner approval: `commit approved`, 2026-11-08): the
+  declared set grows to NINE changed paths — the previous eight (the seven
+  SOURCE-WAVE paths plus the #576 diagnostic's
+  tests/test_ubuntu_worker_runtime_rebuild.py) plus
+  deploy/worker/ubuntu/prepare-runtime.sh — for the #514 fix delta
+  (variant a; AC-011/T-10): both `"${candidates[@]:-}"` occurrences in the
+  script become `"${candidates[@]}"` (new blob 59f75f5e…, previously
+  87c7e060…), pinned by ONE new deterministic regression test in
+  tests/test_ubuntu_worker_runtime_rebuild.py; every other admitted file
+  keeps its frozen bytes.
 
 ## Product outcome
 
@@ -180,7 +190,8 @@ existing domains — is unchanged.
   tests/test_ubuntu_worker_runtime_rebuild.py + this SDD trio) — opt-in,
   failure-only, bounded D576 sidecar diagnostic instrumenting a GENERATED
   COPY of the production script deploy/worker/ubuntu/prepare-runtime.sh
-  (the production script byte-identical, blob 87c7e060…; the frozen
+  (the production script byte-identical, blob 59f75f5e… after the #514
+  fix delta, previously 87c7e060… at the diagnostic freeze; the frozen
   Security test module e8f0504e… untouched; the 76 original assertions of
   the instrumented module byte-identical, 10 frozen method ASTs intact);
   whole module 21 tests 0 failures; review loop closed (same-role test
@@ -193,6 +204,23 @@ existing domains — is unchanged.
   block in the job log is the RF-CI001 evidence. Stage ends at
   observation: NO merge, NO deploy, NO old-head retry (the single
   old-head rerun is consumed), NO speculative fix.
+- AC-011: the #514 fix delta (variant a; owner approval `commit approved`,
+  2026-11-08) — deploy/worker/ubuntu/prepare-runtime.sh replaces BOTH
+  `"${candidates[@]:-}"` occurrences with `"${candidates[@]}"` (inner
+  dedup loop, behavior-neutral; outer legacy-adopt loop — the actual fix:
+  with an empty candidates array the `[@]:-` form expands to ONE empty
+  element under bash 5.x, the legacy-adopt guard could then pass system
+  python, and `cp -a --reflink=auto ""` died under `set -euo pipefail` —
+  the deterministic PR Validation #514 failure; on boxes where
+  /usr/bin/python matches the lock's python section the script would
+  ADOPT system python instead of building the hash-locked venv); new
+  script blob 59f75f5e919eaa30be6214d13c26a473409e9765 (previously
+  87c7e060…); pinned by exactly ONE new deterministic structural test
+  (test_no_quoted_empty_default_array_expansion_in_repo_script) asserting
+  the trap core `[@]:-` absent from the script text — RED-verified
+  (restoring `:-` at the outer loop fails the pin) and GREEN-verified;
+  all pre-existing assertions byte-identical; whole module 22 tests
+  0 failures 0 skips; `bash -n` exit 0.
 
 ## Runtime feedback
 

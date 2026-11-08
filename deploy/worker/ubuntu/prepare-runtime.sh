@@ -498,7 +498,7 @@ fi
 if [[ -d "$install_root/releases" ]]; then
   while IFS= read -r candidate; do
     duplicate=false
-    for existing in "${candidates[@]:-}"; do
+    for existing in "${candidates[@]}"; do
       if [[ "$candidate" == "$existing" ]]; then
         duplicate=true
         break
@@ -510,7 +510,7 @@ if [[ -d "$install_root/releases" ]]; then
   done < <(find "$install_root/releases" -mindepth 2 -maxdepth 2 -type d -name venv -print | sort)
 fi
 
-for candidate in "${candidates[@]:-}"; do
+for candidate in "${candidates[@]}"; do
   [[ -x "$candidate/bin/python" ]] || continue
   if verify_python "$candidate/bin/python" >/dev/null 2>&1; then
     candidate_release="$(basename "$(dirname "$candidate")")"

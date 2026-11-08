@@ -70,6 +70,20 @@
   observe the natural new-head CI; capture the #514 outcome and (on
   failure) the published D576 block as RF-CI001 evidence; stage ends at
   observation (no merge/deploy/old-head retry/speculative fix).
+- [x] T-10 #514 fix delta (variant a, DONE; owner approval `commit
+  approved`, 2026-11-08): deploy/worker/ubuntu/prepare-runtime.sh — both
+  `"${candidates[@]:-}"` occurrences (inner dedup loop, behavior-neutral;
+  outer legacy-adopt loop, the actual fix) become `"${candidates[@]}"`,
+  so an empty candidates array yields zero loop iterations instead of
+  one empty element (the deterministic PR Validation #514 failure and
+  the system-python adoption risk); new script blob
+  59f75f5e919eaa30be6214d13c26a473409e9765 (previously 87c7e060…);
+  pinned by ONE new deterministic structural test
+  (test_no_quoted_empty_default_array_expansion_in_repo_script, trap
+  core `[@]:-` absent) — RED-verified (restoring `:-` at the outer loop
+  fails the pin) and GREEN-verified; all pre-existing assertions
+  byte-identical; whole module 22 tests 0 failures 0 skips; `bash -n`
+  exit 0. Declared set now NINE changed paths (see Definition of Done).
 
 ## Completion gate
 
@@ -97,6 +111,14 @@
   pre-existing claim is made (local pass is not CI equivalence); the T-8
   diagnostic exists to capture bounded D576 evidence on the next natural
   CI run (T-9/AC-010).
+  Root-cause update 2026-11-08 (owner-approved fix delta, T-10/AC-011):
+  the deterministic mechanism is now verified — with an empty candidates
+  array the bash 5.x `"${candidates[@]:-}"` expansion yields ONE empty
+  element, the legacy-adopt guard can pass system python, and
+  `cp -a --reflink=auto ""` dies under `set -euo pipefail`; fixed in this
+  PR (plain `"${candidates[@]}"`, new blob 59f75f5e…) with a RED-verified
+  structural pin; CI confirmation on the new head remains pending (no
+  flake or pre-existing claim is made).
 - RED (parent-executed before the code fix, against base 60c17502): the
   frozen module ran authentic RED — 6 test methods, 10 sub-failures: 6
   security non-success cases accepted by the old Quality aggregate (rc 0)
@@ -162,19 +184,22 @@
 - AC-008 | Task: T-6 | Evidence: post-merge actual nested reusable-workflow propagation on GitHub CI — both scanners executing inside a Quality run, inner `security-result` and outer aggregate gates on true actual results, existing check names preserved — automatic, orchestrator-owned; PENDING — to be observed and recorded on issue #576 after merge, not observed at code-worker time; the full-issue canary/protection/cleanup acceptance is deferred T-7, outside this SOURCE-wave AC set | Coverage: RUNTIME-MANUAL | Reason: live GitHub nested-Actions evidence cannot be produced locally; post-merge CI supplies it
 - AC-009 | Task: T-8 | Evidence: parent-verified at blob 413506fa — whole module 21 tests 0 failures, 10 frozen method ASTs + 76 original asserts + published7/foreign19 baselines intact; review loop closed (same-role test peer PASS with adversarial oracles; cross-family security validator FAIL → bounded-read + real-stderr-re-emit fixes → CONDITION_MET) | Coverage: COVERED
 - AC-010 | Task: T-9 | Evidence: one guarded diagnostic commit onto PR #607, then the natural new-head CI run observed; on a #514 failure the published bounded D576 block in the job log is the RF-CI001 evidence — automatic, orchestrator-owned; PENDING — never produced locally; stage ends at observation (no merge/deploy/old-head retry/speculative fix) | Coverage: RUNTIME-MANUAL | Reason: CI evidence cannot be produced locally; the natural new-head CI run supplies it
+- AC-011 | Task: T-10 | Evidence: `bash -n` exit 0; trap pattern `[@]:-` absent from the script (grep exit 1); new blob 59f75f5e919eaa30be6214d13c26a473409e9765 (previously 87c7e060…); RED authenticity observed (restoring `:-` at the outer loop → pin FAILED "'[@]:-' unexpectedly found"; fix restored → pin OK); whole module `python3 -m unittest tests.test_ubuntu_worker_runtime_rebuild -v` — "Ran 22 tests … OK" 0 skips; all pre-existing assertions byte-identical | Coverage: COVERED
 
 ## Definition of Done
 
 - [x] Issue/spec/plan/tasks current
-- [x] Exact changed-file scope verified — admitted SOURCE-WAVE SEVEN-path
-  accounting:
+- [x] Exact changed-file scope verified — declared set now NINE changed
+  paths: the previous eight (admitted SOURCE-WAVE SEVEN-path accounting:
   .github/workflows/security.yml, .github/workflows/quality-integration.yml,
   scripts/quality/validate_workflow_policy.py (code worker),
   tests/quality/test_security_merge_gate.py (test worker RED phase; frozen
   at e8f0504ee515296e75036651193aee8718b77fd0 and byte-identical through
   the code phase), and specs/576-security-merge-gate/{spec,plan,tasks}.md;
-  the code worker's writable set is the SIX paths source + trio; all OTHER
-  tests, scripts, workflows and specs untouched; the 19 foreign
+  plus the #576 diagnostic's tests/test_ubuntu_worker_runtime_rebuild.py)
+  plus deploy/worker/ubuntu/prepare-runtime.sh (#514 fix delta variant a,
+  owner approval `commit approved` 2026-11-08, T-10/AC-011); all OTHER
+  tests, scripts, workflows and specs untouched; the foreign
   dirty/untracked files preserved untouched
 - [x] Required tests and evidence complete (code-worker-observed: frozen
   module 6/6 OK, zero skips, 14/14 mutants; workflow-policy validator,

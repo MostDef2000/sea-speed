@@ -68,7 +68,8 @@ Three source files, additive only:
 - Design and risk profile: test-only, opt-in, failure-only, bounded D576
   sidecar instrumenting a GENERATED COPY of
   deploy/worker/ubuntu/prepare-runtime.sh (the production script
-  byte-identical, blob 87c7e060…; the frozen Security test e8f0504e…
+  byte-identical, blob 59f75f5e… after the #514 fix delta, previously
+  87c7e060… at the diagnostic freeze; the frozen Security test e8f0504e…
   untouched); no env dump, no xtrace, no dependency installs, no
   assertion weakening; bounded 512-byte reads; the publisher emits to
   parent test stderr ONLY on opt-in nonzero results and leaves the
@@ -86,6 +87,39 @@ Three source files, additive only:
   (publication + natural new-head CI observation, PENDING,
   orchestrator-owned; stage ends at observation — no merge/deploy/
   old-head retry/speculative fix).
+
+### #514 fix delta (variant a, T-10)
+
+- Scope: the declared set grows to NINE changed paths — the previous
+  eight (the seven SOURCE-WAVE paths plus the #576 diagnostic's
+  tests/test_ubuntu_worker_runtime_rebuild.py) plus
+  deploy/worker/ubuntu/prepare-runtime.sh; owner-admitted with
+  `commit approved` (2026-11-08). The script edit is exactly two
+  occurrences of the bash empty-array trap: both `"${candidates[@]:-}"`
+  become `"${candidates[@]}"` (new blob
+  59f75f5e919eaa30be6214d13c26a473409e9765, previously 87c7e060…);
+  nothing else in the script changes.
+- Root cause (verified 2026-11-08): with an empty candidates array the
+  bash 5.x `"${arr[@]:-}"` expansion yields ONE empty element (the plain
+  `"${arr[@]}"` yields zero iterations), so the outer legacy-adopt loop
+  executed once with candidate=""; the guard could then pass on system
+  python (CI runners where setup-python's 3.14 matches system python and
+  a synthetic fixture dist is visible via PYTHONPATH), and the script
+  ran `cp -a --reflink=auto ""` which died under `set -euo pipefail` —
+  the deterministic PR Validation #514 failure. Production risk: on
+  boxes where /usr/bin/python matches the lock's python section the
+  script would ADOPT system python instead of building the hash-locked
+  venv. The inner dedup-loop occurrence is behavior-neutral; the outer
+  loop is the actual bug fix.
+- Pin: exactly ONE new deterministic structural regression test in
+  tests/test_ubuntu_worker_runtime_rebuild.py
+  (test_no_quoted_empty_default_array_expansion_in_repo_script,
+  PrepareRuntimeRebuildContractTests) asserts the trap core `[@]:-` is
+  absent from the script text (it subsumes the quoted idiom for every
+  array name); RED-verified (restoring `:-` at the outer loop fails the
+  pin with "'[@]:-' unexpectedly found") and GREEN-verified after the
+  fix; all pre-existing assertions byte-identical; whole module 22 tests
+  0 failures 0 skips; `bash -n` exit 0.
 
 ## Decisions
 
@@ -249,6 +283,11 @@ Three source files, additive only:
 - Authorization impact: UNCHANGED — same seven admitted paths; canonical
   receipt issue #576 comment 6700510324 + gen-2 comment 6701988555; no new
   paths, no scope expansion, no new approvals.
+  Update 2026-11-08: the declared set expanded to NINE changed paths
+  (+#514 fix delta variant a: deploy/worker/ubuntu/prepare-runtime.sh +
+  the regression pin in tests/test_ubuntu_worker_runtime_rebuild.py) with
+  a fresh owner approval (`commit approved`, 2026-11-08) — see the #514
+  fix delta section; this bullet records the original source-wave state.
 - Follow-up: post-merge, the orchestrator verifies real nested Actions
   propagation on actual CI (AC-008) and later owns the full-issue live
   canary/protection acceptance; no fictitious outcome values are recorded

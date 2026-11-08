@@ -535,6 +535,19 @@ class PrepareRuntimeRebuildContractTests(unittest.TestCase):
         verify_block = self.source[self.source.index("verify_python() {") : self.source.index("write_manifest() {")]
         self.assertNotIn(".lower()", verify_block)
 
+    def test_no_quoted_empty_default_array_expansion_in_repo_script(self) -> None:
+        """Issue #514 regression pin (PR #607 fix delta): the bash
+        quoted-empty-default array idiom must never reappear in the repo
+        script. With an empty candidates array, `"${candidates[@]:-}"`
+        expands to ONE empty element under bash 5.x (while
+        `"${candidates[@]}"` yields zero iterations), so the legacy-adopt
+        loop executed once with candidate="" — the guard could then pass
+        system python, and the subsequent `cp -a --reflink=auto ""` died
+        under `set -euo pipefail`. The asserted trap core subsumes the
+        quoted idiom for every array name.
+        """
+        self.assertNotIn("[@]:-", self.source)
+
 
 class PrepareRuntimeRebuildExecutedTests(unittest.TestCase):
     """Executed end-to-end scenarios (a)-(d) against the real script."""
