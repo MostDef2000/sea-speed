@@ -327,6 +327,83 @@ def _gate_helpers_source() -> str:
     return "set -euo pipefail\n" + readonly_block + "\n" + helpers
 
 
+def _gate_execute_root_source(fixture_root: Path, repository_url: str) -> str:
+    """The real gate script's constants + fail()/validate_request()/execute_root().
+
+    Executed to drive the stage-cleanup error path (issue #398 wave 5
+    hardening). Documented sandbox adaptations (mechanical, behavior-
+    preserving):
+    - INSTALL_ROOT is redirected into the fixture tree and REPOSITORY_URL to
+      a nonexistent local path, so ``git fetch`` fails deterministically as
+      the sandbox user (no network, no root).
+    - The ``[[ "$EUID" -eq 0 ]]`` root-check line is dropped: the test runs
+      as the sandbox user and the root gate is orthogonal to the stage-
+      cleanup behavior under test (same class of omission as the entrypoint
+      harness's PATH-reset note).
+    Everything else is real script bytes, including the ``local stage``
+    declaration, the in-function ``cleanup()`` definition, and the
+    ``trap cleanup EXIT`` wiring.
+    """
+    source = GATE_SCRIPT.read_text(encoding="utf-8")
+    readonly_block = "\n".join(
+        line for line in source[:source.index("fail() {")].splitlines()
+        if line.startswith("readonly ")
+    )
+    readonly_block = re.sub(
+        r'readonly REPOSITORY_URL="[^"]*"',
+        f'readonly REPOSITORY_URL="{repository_url}"',
+        readonly_block,
+    )
+    readonly_block = re.sub(
+        r'readonly INSTALL_ROOT="[^"]*"',
+        f'readonly INSTALL_ROOT="{fixture_root}"',
+        readonly_block,
+    )
+    helpers = source[source.index("fail() {"):source.index("execute_root() {")]
+    start = source.index("execute_root() {")
+    end = source.index('\n}\n\nif [[ "${1:-}" == "--execute" ]]', start)
+    execute_root = source[start:end + 2]  # include the function's closing }
+    execute_root = "\n".join(
+        line for line in execute_root.splitlines()
+        if '[[ "$EUID" -eq 0 ]] || fail "--execute requires root"' not in line
+    )
+    return "set -euo pipefail\n" + readonly_block + "\n" + helpers + execute_root
+
+
+def _gate_top_block_source() -> str:
+    """The real gate script's top-of-file block: from the ``PATH=`` reset
+    through the last proxy ``export`` (i.e. everything before
+    ``readonly GATE_PATH``).
+
+    Executed to pin the relay proxy-env contract (issue #398 wave 5
+    hardening): the updater's ``verify_quality_status.py`` uses python
+    urllib, which does NOT read git-config proxy, and sudo env_reset strips
+    external env — so the gate must export the VPS-side relay proxy itself.
+    On the current base the block carries only the PATH reset (no proxy
+    exports); the fix inserts the four relay exports after ``export PATH``.
+    """
+    source = GATE_SCRIPT.read_text(encoding="utf-8")
+    start = source.index("PATH=")
+    end = source.index("readonly GATE_PATH")
+    return source[start:end]
+
+
+INSTALL_STUB = """#!/bin/sh
+# stub install: honor -d by creating the target directory; ignore -o/-g/-m
+# ownership/mode flags (the sandbox user cannot chown to root).
+target=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -o|-g|-m) shift 2 ;;
+    -d) shift ;;
+    *) target="$1"; shift ;;
+  esac
+done
+mkdir -p "$target"
+exit 0
+"""
+
+
 class GateForcedCommandExecutedTests(unittest.TestCase):
     """The forced-command entrypoint, executed (issue #398 wave 5)."""
 
@@ -435,6 +512,119 @@ class GateForcedCommandExecutedTests(unittest.TestCase):
                 result = self._run_function("validate_request", target, issue, artifact)
                 self.assertEqual(result.returncode, 1, result.stderr)
                 self.assertIn(message, result.stderr)
+
+
+class GateExecuteRootErrorPathExecutedTests(unittest.TestCase):
+    """execute_root()'s stage-cleanup error path, executed (issue #398 wave 5).
+
+    The gate's ``cleanup()`` EXIT trap references the function-local
+    ``stage``. When the script exits from within ``execute_root`` (here: a
+    failing ``git fetch`` under ``set -e``), the EXIT trap runs outside the
+    function frame, where ``stage`` is unbound; ``set -u`` then aborts
+    ``cleanup`` before ``rm -rf "$stage"`` can run, orphaning the
+    ``zero-touch.XXXXXX`` stage dir in the updater root. This test executes
+    the real ``execute_root()`` + ``fail()`` + ``validate_request()`` bytes
+    against a fixture updater root and a nonexistent local repository, and
+    asserts the stage is cleaned up on the error path.
+    """
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp(prefix="398-w5-execroot."))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.fixture_root = self.tmp / "root"
+        (self.fixture_root / "updater").mkdir(parents=True)
+        self.stub_dir = self.tmp / "stubs"
+        self.stub_dir.mkdir()
+        _write_executable(self.stub_dir / "install", INSTALL_STUB)
+        self.script = self.tmp / "gate_execroot.sh"
+        self.script.write_text(
+            _gate_execute_root_source(self.fixture_root, str(self.tmp / "nonexistent-repo")),
+            encoding="utf-8",
+        )
+
+    def _run_execute_root(self, target: str, issue: str, artifact: str) -> subprocess.CompletedProcess[str]:
+        driver = self.tmp / "execroot_driver.sh"
+        driver.write_text(f'source "{self.script}"\nexecute_root "$@"\n', encoding="utf-8")
+        env = {
+            **os.environ,
+            "PATH": f"{self.stub_dir}:{os.environ['PATH']}",
+        }
+        return subprocess.run(
+            ["bash", str(driver), target, issue, artifact],
+            capture_output=True, text=True, env=env,
+        )
+
+    def _stage_residue(self) -> list[str]:
+        updater = self.fixture_root / "updater"
+        if not updater.exists():
+            return []
+        return sorted(
+            entry.name for entry in updater.iterdir()
+            if entry.name.startswith("zero-touch.")
+        )
+
+    def test_error_path_cleans_local_stage_before_exit(self):
+        # A failing git fetch (nonexistent local repository) makes execute_root
+        # exit under set -e AFTER the stage dir is created. The EXIT trap must
+        # still remove the stage; on the buggy base it cannot (stage is a
+        # function-local, unbound in the trap frame), so a zero-touch.* orphan
+        # remains — that orphan is the RED this test pins.
+        result = self._run_execute_root("a" * 40, "7", "b" * 64)
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            self._stage_residue(), [],
+            "orphan zero-touch.* stage left in updater root",
+        )
+
+
+class GateProxyEnvExecutedTests(unittest.TestCase):
+    """The gate's top-of-file proxy-env block, executed (issue #398 wave 5).
+
+    The updater's ``verify_quality_status.py`` uses python urllib, which does
+    NOT read git-config proxy, and sudo env_reset strips external env — so the
+    gate must export the VPS-side relay proxy itself. This test executes the
+    real top block (from the ``PATH=`` reset through the last proxy
+    ``export``) and asserts the relay env contract. On the current base the
+    block carries only the PATH reset (no proxy exports), so the contract is
+    unmet — that is the RED this test pins; the fix inserts the four relay
+    exports after ``export PATH``.
+    """
+
+    RELAY = "http://10.123.239.29:3128"
+    NO_PROXY = "localhost,127.0.0.1,10.123.239.102"
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp(prefix="398-w5-proxyenv."))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.driver = self.tmp / "proxy_driver.sh"
+        self.driver.write_text(
+            "unset https_proxy HTTPS_PROXY no_proxy NO_PROXY\n"
+            + _gate_top_block_source()
+            + 'echo "https_proxy=${https_proxy:-}"\n'
+            + 'echo "HTTPS_PROXY=${HTTPS_PROXY:-}"\n'
+            + 'echo "no_proxy=${no_proxy:-}"\n'
+            + 'echo "NO_PROXY=${NO_PROXY:-}"\n',
+            encoding="utf-8",
+        )
+
+    def _proxy_env(self) -> dict[str, str]:
+        result = subprocess.run(
+            ["bash", str(self.driver)], capture_output=True, text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        values: dict[str, str] = {}
+        for line in result.stdout.splitlines():
+            if "=" in line:
+                key, _, value = line.partition("=")
+                values[key] = value
+        return values
+
+    def test_top_block_exports_relay_proxy_contract(self):
+        env = self._proxy_env()
+        self.assertEqual(env.get("https_proxy"), self.RELAY)
+        self.assertEqual(env.get("HTTPS_PROXY"), self.RELAY)
+        self.assertIn(self.NO_PROXY, env.get("no_proxy", ""))
+        self.assertIn(self.NO_PROXY, env.get("NO_PROXY", ""))
 
 
 def _bootstrap_machinery_source(fixture: Path) -> str:
