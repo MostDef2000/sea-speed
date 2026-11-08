@@ -100,6 +100,26 @@ def require_auth(authorization: Optional[str]) -> None:
 # Issue #520: module logger. Private: never part of __all__.
 _LOGGER = logging.getLogger(__name__)
 
+# Issue #591: under default startup (uvicorn 0.54.0 app-dir mode) nothing
+# configures logging, so this logger's effective level is WARNING and the
+# INFO-level audit record in require_role() is dropped by lastResort before
+# reaching any handler. Wire a dedicated stderr handler on THIS logger
+# object — never by name, because __name__ differs between import modes
+# (bare ``identity`` under uvicorn app-dir vs ``api.app.identity`` in
+# package context) — and raise its level to INFO so the audit record is
+# emitted. Idempotent across importlib.reload(): logging.getLogger returns
+# the same singleton logger object, whose handlers survive the reload, so
+# the marked-handler check below keeps repeated module init from attaching
+# a second handler (and duplicating the audit line).
+if not any(
+    getattr(handler, "_sea_speed_591_stderr_handler", False)
+    for handler in _LOGGER.handlers
+):
+    _audit_stderr_handler = logging.StreamHandler(sys.stderr)
+    _audit_stderr_handler._sea_speed_591_stderr_handler = True
+    _LOGGER.addHandler(_audit_stderr_handler)
+    _LOGGER.setLevel(logging.INFO)
+
 # Issue #530: authentik group names are exact, case-sensitive whole-token
 # matches against the groups defined in
 # deploy/vps/authentik/blueprints/sea-speed-auth-v1.yaml. Tokens are split on
@@ -288,6 +308,7 @@ def call_worker_control(method: str, path: str) -> Dict[str, Any]:
         raise HTTPException(status_code=503, detail="Worker control agent is unavailable") from exc
     finally:
         connection.close()
+
 def analytics_identity(camera_id: str) -> Dict[str, str]:
     identity = ANALYTICS_IDENTITIES.get(camera_id)
     if identity is None:
