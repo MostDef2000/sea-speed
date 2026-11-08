@@ -56,8 +56,8 @@ below.
 - [x] Issue/spec/plan/tasks current
 - [x] Exact changed-file scope verified (api/app/{store,main,analytics}.py + tests/test_587_nonfinite_residual_paths.py + tests/test_run_tests_script.py + this trio)
 - [x] Required tests and evidence complete
-- [ ] Required CI green — pending exact-head CI on the merge PR
-- [ ] Exact-green-head merge complete — pending squash merge to main
+- [x] Required CI green — pending exact-head CI on the merge PR — auto-synced on merge to main (f7bba87c)
+- [x] Exact-green-head merge complete — pending squash merge to main — auto-synced on merge to main (f7bba87c)
 - [ ] Deployment state resolved (lane-A VPS API contour)
 - [ ] Runtime acceptance resolved (non-finite replay probe post-deploy)
 - [x] Deferred work recorded (none — no deferred work)
