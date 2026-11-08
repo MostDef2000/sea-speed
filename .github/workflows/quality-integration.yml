@@ -169,6 +169,10 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
+  security:
+    name: security
+    uses: ./.github/workflows/security.yml
+
   quality-integration:
     name: quality-integration
     if: always()
@@ -177,6 +181,7 @@ jobs:
       - property-fuzz-reliability
       - exact-artifact-e2e
       - release-deployment-evidence
+      - security
     runs-on: ubuntu-latest
     steps:
       - name: Aggregate independent quality domains
@@ -185,13 +190,16 @@ jobs:
           RELIABILITY_RESULT: ${{ needs.property-fuzz-reliability.result }}
           ARTIFACT_RESULT: ${{ needs.exact-artifact-e2e.result }}
           EVIDENCE_RESULT: ${{ needs.release-deployment-evidence.result }}
+          SECURITY_RESULT: ${{ needs.security.result }}
         run: |
           set -euo pipefail
           printf 'static-contract-security=%s\n' "$STATIC_RESULT"
           printf 'property-fuzz-reliability=%s\n' "$RELIABILITY_RESULT"
           printf 'exact-artifact-e2e=%s\n' "$ARTIFACT_RESULT"
           printf 'release-deployment-evidence=%s\n' "$EVIDENCE_RESULT"
+          printf 'security=%s\n' "$SECURITY_RESULT"
           [[ "$STATIC_RESULT" == success ]]
           [[ "$RELIABILITY_RESULT" == success ]]
           [[ "$ARTIFACT_RESULT" == success ]]
           [[ "$EVIDENCE_RESULT" == success ]]
+          [[ "$SECURITY_RESULT" == success ]]
