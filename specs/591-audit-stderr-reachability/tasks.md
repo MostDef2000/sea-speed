@@ -44,8 +44,8 @@ tests/test_591_audit_stderr_reachability.py — expected 1382 passed /
 - [x] Issue/spec/plan/tasks current
 - [x] Exact changed-file scope verified (api/app/identity.py + 1 test file + this trio)
 - [x] Required tests and evidence complete
-- [ ] Required CI green
-- [ ] Exact-green-head merge complete
+- [x] Required CI green — auto-synced on merge to main (ef01fa80)
+- [x] Exact-green-head merge complete — auto-synced on merge to main (ef01fa80)
 - [ ] Deployment state resolved (lane-A VPS API contour)
 - [ ] Runtime acceptance resolved (journalctl probe post-deploy)
 - [x] Deferred work recorded (none — no deferred work)
