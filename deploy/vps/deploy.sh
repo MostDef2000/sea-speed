@@ -42,6 +42,12 @@ OBJECTS_FRONTEND_URL="${SEA_SPEED_OBJECTS_FRONTEND_URL:-https://mostdef.ru/sea-s
 CAMERAS_FRONTEND_URL="${SEA_SPEED_CAMERAS_FRONTEND_URL:-https://mostdef.ru/sea-speed/cameras/}"
 ROAD_FRONTEND_URL="${SEA_SPEED_ROAD_FRONTEND_URL:-https://mostdef.ru/sea-speed/road/}"
 LIVE_SYNC_URL="${SEA_SPEED_LIVE_SYNC_URL:-https://mostdef.ru/sea-speed/live-sync.js}"
+CROSSING_LINE_URL="${SEA_SPEED_CROSSING_LINE_URL:-https://mostdef.ru/sea-speed/crossing-line.js}"
+MAIN_JS_URL="${SEA_SPEED_MAIN_JS_URL:-https://mostdef.ru/sea-speed/main.js}"
+CAMERAS_JS_URL="${SEA_SPEED_CAMERAS_JS_URL:-https://mostdef.ru/sea-speed/cameras/cameras.js}"
+ROAD_CONFIG_URL="${SEA_SPEED_ROAD_CONFIG_URL:-https://mostdef.ru/sea-speed/road/config.js}"
+ROAD_MAIN_URL="${SEA_SPEED_ROAD_MAIN_URL:-https://mostdef.ru/sea-speed/road/main.js}"
+UNAVAILABLE_JS_URL="${SEA_SPEED_UNAVAILABLE_JS_URL:-https://mostdef.ru/unavailable.js}"
 ROOT_FRONTEND_URL="${SEA_SPEED_ROOT_FRONTEND_URL:-https://mostdef.ru/}"
 AUTH_BOUNDARY_REQUIRED="${SEA_SPEED_REQUIRE_AUTH_BOUNDARY:-0}"
 AUTHENTIK_UPSTREAM="${SEA_SPEED_AUTHENTIK_UPSTREAM:-}"
@@ -643,6 +649,12 @@ install_release() {
   [[ -f "$release_dir/frontend/sea-speed/road/index.html" || -f "$release_dir/frontend/sea-speed/road/.absent" ]] || { echo "Release ${release_name} has no road frontend state" >&2; return 1; }
   [[ -f "$release_dir/frontend/sea-speed/live-sync.js" || -f "$release_dir/frontend/sea-speed/live-sync.js.absent" ]] || { echo "Release ${release_name} has no live-sync module state" >&2; return 1; }
   [[ -f "$release_dir/frontend/sea-speed/overlay-canvas.js" || -f "$release_dir/frontend/sea-speed/overlay-canvas.js.absent" ]] || { echo "Release ${release_name} has no overlay-canvas module state" >&2; return 1; }
+  [[ -f "$release_dir/frontend/sea-speed/crossing-line.js" || -f "$release_dir/frontend/sea-speed/crossing-line.js.absent" ]] || { echo "Release ${release_name} has no crossing-line module state" >&2; return 1; }
+  [[ -f "$release_dir/frontend/sea-speed/main.js" || -f "$release_dir/frontend/sea-speed/main.js.absent" ]] || { echo "Release ${release_name} has no main module state" >&2; return 1; }
+  [[ -f "$release_dir/frontend/sea-speed/cameras/cameras.js" || -f "$release_dir/frontend/sea-speed/cameras/cameras.js.absent" ]] || { echo "Release ${release_name} has no cameras module state" >&2; return 1; }
+  [[ -f "$release_dir/frontend/sea-speed/road/config.js" || -f "$release_dir/frontend/sea-speed/road/config.js.absent" ]] || { echo "Release ${release_name} has no road config module state" >&2; return 1; }
+  [[ -f "$release_dir/frontend/sea-speed/road/main.js" || -f "$release_dir/frontend/sea-speed/road/main.js.absent" ]] || { echo "Release ${release_name} has no road main module state" >&2; return 1; }
+  [[ -f "$release_dir/frontend/sea-speed/unavailable.js" || -f "$release_dir/frontend/sea-speed/unavailable.js.absent" ]] || { echo "Release ${release_name} has no unavailable module state" >&2; return 1; }
   [[ -f "$release_dir/frontend/root/index.html" ]] || { echo "Release ${release_name} has no root frontend file" >&2; return 1; }
   [[ -f "$release_dir/frontend/sea-speed/unavailable.html" || -f "$release_dir/frontend/sea-speed/unavailable.html.absent" ]] || { echo "Release ${release_name} has no fallback frontend state" >&2; return 1; }
 
@@ -928,6 +940,42 @@ verify_frontends() {
     verify_public_url "Live sync module" "$LIVE_SYNC_URL"
   else
     log "Live sync module is absent in this rollback release"
+  fi
+  if [[ -f "$CROSSING_LINE_TARGET" ]]; then
+    [[ -s "$CROSSING_LINE_TARGET" ]] || { echo "Crossing line module file is empty: ${CROSSING_LINE_TARGET}" >&2; return 1; }
+    verify_public_url "Crossing line module" "$CROSSING_LINE_URL"
+  else
+    log "Crossing line module is absent in this rollback release"
+  fi
+  if [[ -f "$MAIN_JS_TARGET" ]]; then
+    [[ -s "$MAIN_JS_TARGET" ]] || { echo "Main module file is empty: ${MAIN_JS_TARGET}" >&2; return 1; }
+    verify_public_url "Main module" "$MAIN_JS_URL"
+  else
+    log "Main module is absent in this rollback release"
+  fi
+  if [[ -f "$CAMERAS_JS_TARGET" ]]; then
+    [[ -s "$CAMERAS_JS_TARGET" ]] || { echo "Cameras module file is empty: ${CAMERAS_JS_TARGET}" >&2; return 1; }
+    verify_public_url "Cameras module" "$CAMERAS_JS_URL"
+  else
+    log "Cameras module is absent in this rollback release"
+  fi
+  if [[ -f "$ROAD_CONFIG_TARGET" ]]; then
+    [[ -s "$ROAD_CONFIG_TARGET" ]] || { echo "Road config module file is empty: ${ROAD_CONFIG_TARGET}" >&2; return 1; }
+    verify_public_url "Road config module" "$ROAD_CONFIG_URL"
+  else
+    log "Road config module is absent in this rollback release"
+  fi
+  if [[ -f "$ROAD_MAIN_TARGET" ]]; then
+    [[ -s "$ROAD_MAIN_TARGET" ]] || { echo "Road main module file is empty: ${ROAD_MAIN_TARGET}" >&2; return 1; }
+    verify_public_url "Road main module" "$ROAD_MAIN_URL"
+  else
+    log "Road main module is absent in this rollback release"
+  fi
+  if [[ -f "$UNAVAILABLE_JS_TARGET" ]]; then
+    [[ -s "$UNAVAILABLE_JS_TARGET" ]] || { echo "Unavailable module file is empty: ${UNAVAILABLE_JS_TARGET}" >&2; return 1; }
+    verify_public_url "Unavailable module" "$UNAVAILABLE_JS_URL"
+  else
+    log "Unavailable module is absent in this rollback release"
   fi
   verify_public_url "Root frontend" "$ROOT_FRONTEND_URL"
 }

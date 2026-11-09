@@ -150,9 +150,13 @@ class AuthSessionFrontendContractTests(unittest.TestCase):
                     )
                     self.assertNotIn("outpost.goauthentik.io", url)
                 # The identity comes from the session payload, never from a
-                # spoofable request header.
-                scripts = "\n".join(frontend_html.extract_inline_scripts(path.read_text(encoding="utf-8-sig")))
-                self.assertNotIn("X-authentik-username", scripts)
+                # spoofable request header. Issue #626: the pages carry their
+                # wiring in shipped external .js files, so the scan surface is
+                # the live page source — HTML plus every connected local
+                # external .js body — keeping this assertion load-bearing for
+                # a spoofable-header read smuggled into any shipped script.
+                live_source = frontend_html.page_live_source(path)
+                self.assertNotIn("X-authentik-username", live_source)
 
     def test_logout_and_lighthouse_contract_is_preserved(self) -> None:
         for path in FRONTENDS:
