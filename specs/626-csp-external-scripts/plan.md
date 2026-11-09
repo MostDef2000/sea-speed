@@ -88,7 +88,7 @@ Extraction map (base 8f409d2, verified positions):
 
 - TX-001 | Stage: ADMISSION | Mutation: NO | Failure disposition: FATAL | State after failure: no change lands | Retry: correct authorization/scope evidence then re-enter | Rollback: NOT REQUIRED before mutation | Evidence: owner `commit approved` (2026-11-09, full chain), base 8f409d2
 - TX-002 | Stage: VERIFICATION | Mutation: NO | Failure disposition: FATAL | State after failure: PR not mergeable | Retry: fix CI/validator failures on the branch | Rollback: NOT REQUIRED | Evidence: CI green on exact head, validate_sdd + validate_change_contract green
-- TX-003 | Stage: STATE-COMMIT | Mutation: YES (repository only) | Failure disposition: FATAL | State after failure: merge incomplete or CI red | Retry: only with green CI on the exact head | Rollback: revert the merge commit | Evidence: squash merge record
+- TX-003 | Stage: STATE-COMMIT | Mutation: YES | Failure disposition: FATAL | State after failure: merge incomplete or CI red | Retry: only with green CI on the exact head | Rollback: revert the merge commit | Evidence: squash merge record (repository state only; the VPS front mutation is TX-004)
 - TX-004 | Stage: PRODUCTION-APPLY | Mutation: YES (VPS front) | Failure disposition: FATAL | State after failure: previous front remains served | Retry: re-dispatch deploy-vps.yml after fixing | Rollback: redeploy previous main SHA via deploy-vps.yml | Evidence: deploy-vps.yml run on the merged main SHA (full 40-hex), acceptance probes after
 
 ## Validation
