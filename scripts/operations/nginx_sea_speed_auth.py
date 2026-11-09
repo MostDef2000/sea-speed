@@ -87,6 +87,13 @@ SECURITY_HEADER_CSP = (
     "always;"
 )
 SECURITY_HEADERS = (SECURITY_HEADER_XCTO, SECURITY_HEADER_REFERRER, SECURITY_HEADER_CSP)
+# Issue #618: basic-auth mode only. The 3d.mostdef.ru vhost carries HSTS at
+# server level, but any location-level add_header cancels nginx's add_header
+# inheritance — the basic-auth location snippet re-emits the #589 header set,
+# so it must also re-emit HSTS or protected /sea-speed* responses drop it.
+# Authentik mode is untouched (different server-level HSTS story); extending
+# SECURITY_HEADERS itself would change authentik-mode output.
+SECURITY_HEADER_HSTS = 'add_header Strict-Transport-Security "max-age=31536000" always;'
 
 
 class ConfigError(RuntimeError):
@@ -320,6 +327,10 @@ def _basic_auth_location_snippet(indent: str, edge_auth_include: str) -> str:
     for field in AUTHENTIK_IDENTITY_FIELDS:
         lines.append(inner + f'proxy_set_header X-authentik-{field} "";')
     lines.extend(inner + line for line in SECURITY_HEADERS)
+    # Issue #618: the location-level add_header set above cancels nginx's
+    # inheritance of the server-level HSTS line, so basic-auth locations
+    # must re-emit it (authentik-mode snippets deliberately do not).
+    lines.append(inner + SECURITY_HEADER_HSTS)
     lines.append(inner + LOCATION_END)
     return "\n" + "\n".join(lines) + "\n"
 
@@ -508,6 +519,9 @@ def verify(text: str, host: str = "mostdef.ru", worker_private_listen: str | Non
             else:
                 required = (f'auth_basic "{BASIC_AUTH_REALM}";', f"auth_basic_user_file {BASIC_AUTH_USER_FILE};")
                 required += tuple(f'proxy_set_header X-authentik-{field} "";' for field in AUTHENTIK_IDENTITY_FIELDS)
+                # Issue #618: fail-closed pin — a basic-auth location that
+                # lost the re-emitted HSTS line must fail verification.
+                required += (SECURITY_HEADER_HSTS,)
                 if "auth_request " in body: raise ConfigError(f"basic-auth Sea Speed location {spec} must not use auth_request")
             required += _edge_injection_lines(edge)
             required += SECURITY_HEADERS

@@ -192,6 +192,7 @@ BASIC_AUTH_GOLDEN_FRONT = '''server {
     add_header X-Content-Type-Options "nosniff" always;
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
     add_header Content-Security-Policy "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; connect-src 'self'; media-src 'self' blob:; img-src 'self' data:; frame-ancestors 'none'" always;
+    add_header Strict-Transport-Security "max-age=31536000" always;
     # SEA-SPEED-AUTH-V1-LOCATION-END
         try_files $uri $uri/ =404;
     }
@@ -211,6 +212,7 @@ BASIC_AUTH_GOLDEN_FRONT = '''server {
     add_header X-Content-Type-Options "nosniff" always;
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
     add_header Content-Security-Policy "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; connect-src 'self'; media-src 'self' blob:; img-src 'self' data:; frame-ancestors 'none'" always;
+    add_header Strict-Transport-Security "max-age=31536000" always;
     # SEA-SPEED-AUTH-V1-LOCATION-END
         proxy_pass http://127.0.0.1:8000/api/;
     }
@@ -230,6 +232,7 @@ BASIC_AUTH_GOLDEN_FRONT = '''server {
     add_header X-Content-Type-Options "nosniff" always;
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
     add_header Content-Security-Policy "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; connect-src 'self'; media-src 'self' blob:; img-src 'self' data:; frame-ancestors 'none'" always;
+    add_header Strict-Transport-Security "max-age=31536000" always;
     # SEA-SPEED-AUTH-V1-LOCATION-END
         alias /opt/sea-speed-api/media/;
     }
