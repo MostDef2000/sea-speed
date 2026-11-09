@@ -60,8 +60,8 @@ Delta: +5 test methods in tests/test_618_basic_auth_hsts.py — expected
 - [x] Issue/spec/plan/tasks current
 - [x] Exact changed-file scope verified (scripts/operations/nginx_sea_speed_auth.py + tests/test_618_basic_auth_hsts.py + tests/test_sea_speed_edge_vhost_renderer.py golden regeneration + this trio)
 - [x] Required tests and evidence complete
-- [ ] Required CI green — pending exact-head CI on the merge PR — auto-synced on merge to main
-- [ ] Exact-green-head merge complete — pending squash merge to main — auto-synced on merge to main
+- [x] Required CI green — pending exact-head CI on the merge PR — auto-synced on merge to main
+- [x] Exact-green-head merge complete — pending squash merge to main — auto-synced on merge to main
 - [ ] Deployment state resolved (CONTROL_PLANE contour — no runtime deployment occurs; the renderer reaches operators through the repository; production nginx apply is a separate lane-B/C operation with its own gates — out of scope here)
 - [ ] Runtime acceptance resolved (exact-head CI green on the merge PR; live HSTS visibility on 3d.mostdef.ru responses deferred to the lane-B/C nginx apply)
 - [x] Deferred work recorded (production nginx apply on 3d.mostdef.ru — lane-B/C operation with its own gates; live HSTS probe deferred to that apply)
