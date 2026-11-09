@@ -292,6 +292,14 @@ printf 'LISTEN 0 128 %s 0.0.0.0:*\n' "$SEA_SPEED_WORKER_PRIVATE_LISTEN"
                 "SEA_SPEED_CAMERAS_FRONTEND_URL": "https://example.invalid/sea-speed/cameras/",
                 "SEA_SPEED_ROAD_FRONTEND_URL": "https://example.invalid/sea-speed/road/",
                 "SEA_SPEED_LIVE_SYNC_URL": "https://example.invalid/sea-speed/live-sync.js",
+                # Issue #629: the #626 external scripts are smoke-verified
+                # post-activation, so their public URLs are overridable too.
+                "SEA_SPEED_CROSSING_LINE_URL": "https://example.invalid/sea-speed/crossing-line.js",
+                "SEA_SPEED_MAIN_JS_URL": "https://example.invalid/sea-speed/main.js",
+                "SEA_SPEED_CAMERAS_JS_URL": "https://example.invalid/sea-speed/cameras/cameras.js",
+                "SEA_SPEED_ROAD_CONFIG_URL": "https://example.invalid/sea-speed/road/config.js",
+                "SEA_SPEED_ROAD_MAIN_URL": "https://example.invalid/sea-speed/road/main.js",
+                "SEA_SPEED_UNAVAILABLE_JS_URL": "https://example.invalid/unavailable.js",
                 "SEA_SPEED_ROOT_FRONTEND_URL": "https://example.invalid/",
                 "SEA_SPEED_REQUIRE_AUTH_BOUNDARY": "1",
                 "SEA_SPEED_AUTHENTIK_UPSTREAM": "http://10.123.239.102:19000",
@@ -568,6 +576,96 @@ printf 'LISTEN 0 128 %s 0.0.0.0:*\n' "$SEA_SPEED_WORKER_PRIVATE_LISTEN"
         store_target = self.live / "api/app/store.py"
         self.assertEqual(store_target.read_text(), f"# store fixture {CANDIDATE}\n")
         self.assertFalse((self.live / "api/app/store.py.next").exists())
+
+    # Issue #629 — the #626 external scripts carry an explicit release module
+    # state (file or .absent marker) through install_release and are
+    # smoke-verified after activation, in both the present-file and the
+    # absent-in-rollback shapes.
+
+    def test_rollback_to_release_without_csp_module_state_fails_closed(self) -> None:
+        # A rollback release carrying neither the file nor its .absent marker
+        # is malformed: install_release must reject it before any activation
+        # instead of silently degrading the live tree.
+        modules = (
+            ("crossing-line.js", "crossing-line"),
+            ("main.js", "main"),
+            ("cameras/cameras.js", "cameras"),
+            ("road/config.js", "road config"),
+            ("road/main.js", "road main"),
+            ("unavailable.js", "unavailable"),
+        )
+        for relative, label in modules:
+            with self.subTest(module=relative):
+                module = self.releases / OLD / "frontend/sea-speed" / relative
+                content = module.read_text(encoding="utf-8")
+                module.unlink()
+                try:
+                    result = self.run_deploy(mode="fail-candidate")
+                    self.assertEqual(result.returncode, 1, result.stdout)
+                    self.assertIn(
+                        f"Release {OLD} has no {label} module state",
+                        result.stdout,
+                    )
+                    self.assertEqual(self.current(), OLD)
+                    self.assertFalse((self.state / "deployment-manifest.json").exists())
+                finally:
+                    module.write_text(content, encoding="utf-8")
+
+    def test_rollback_to_pre_626_release_tolerates_absent_modules(self) -> None:
+        # A pre-#626 rollback release records .absent markers for the #626
+        # external scripts instead of the files (the bootstrap capture creates
+        # them when the live tree lacks the modules); the install_release
+        # validation must accept that state (marker without file) and the
+        # post-rollback verification must log the modules as absent instead
+        # of failing the rollback re-activation.
+        old_modules = self.releases / OLD / "frontend/sea-speed"
+        for relative in (
+            "crossing-line.js",
+            "main.js",
+            "cameras/cameras.js",
+            "road/config.js",
+            "road/main.js",
+            "unavailable.js",
+        ):
+            (old_modules / relative).unlink()
+            (old_modules / (relative + ".absent")).touch()
+
+        result = self.run_deploy(mode="fail-candidate")
+
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertEqual(self.current(), OLD)
+        self.assertIn(OLD, self.api.read_text(), "rollback must restore the pre-#626 release")
+        self.assertFalse(self.crossing_line.exists())
+        self.assertFalse(self.unavailable_js.exists())
+        for label in (
+            "Crossing line module",
+            "Main module",
+            "Cameras module",
+            "Road config module",
+            "Road main module",
+            "Unavailable module",
+        ):
+            self.assertIn(f"{label} is absent in this rollback release", result.stdout)
+        self.assertEqual(self.manifest()["state"], "rolled_back")
+
+    def test_success_smoke_checks_csp_external_scripts(self) -> None:
+        # Healthy deploy: after activation the six #626 external scripts are
+        # live, so the post-activation verification smoke-checks each of them
+        # through its public URL.
+        result = self.run_deploy()
+        self.assertEqual(result.returncode, 0, result.stdout)
+        for label in (
+            "Crossing line module",
+            "Main module",
+            "Cameras module",
+            "Road config module",
+            "Road main module",
+            "Unavailable module",
+        ):
+            self.assertIn(
+                f"{label} public smoke check passed with HTTP 200",
+                result.stdout,
+            )
 
 
 if __name__ == "__main__":

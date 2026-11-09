@@ -209,9 +209,16 @@ def external_local_scripts(source: Path, html: str) -> list[str]:
 
 def page_live_source(source: Path) -> str:
     """Issue #626 scan surface for structural pins: page HTML plus the
-    shipped local external .js bodies, in document order."""
+    shipped local external .js bodies, in document order. A page that still
+    ships only inline scripts (objects) scans as its HTML; a referenced but
+    missing local script still fails closed."""
     html = source.read_text(encoding="utf-8-sig")
-    return html + "".join(external_local_scripts(source, html))
+    try:
+        return html + "".join(external_local_scripts(source, html))
+    except AssertionError as exc:
+        if "no inline or local external scripts" not in str(exc):
+            raise
+        return html
 
 
 # Browser shim installed before the page script: element stubs for every id,
