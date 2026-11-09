@@ -765,6 +765,11 @@ async def post_analytics_state(
     data.setdefault("worker_source_commit", None)
     data["updated_at"] = now_iso()
     data["worker_online"] = True
+    # Issue #617: early #587-style scan rejects before the overlay media
+    # write, so a rejected request writes nothing.
+    nonfinite_path = store.find_nonfinite_json_value(data)
+    if nonfinite_path is not None:
+        raise HTTPException(status_code=400, detail=f"{nonfinite_path} must be a finite number")
     if overlay is not None:
         overlay_path = OVERLAY_DIR / f"{camera_id}_latest_overlay.jpg"
         overlay_bytes = await overlay.read()
@@ -787,6 +792,11 @@ async def post_analytics_state(
         data["last_overlay_url"] = old_state.get("last_overlay_url")
         if data.get("overlay_rev") is None:
             data["overlay_rev"] = old_state.get("overlay_rev", old_state.get("frame_no", 0))
+    # Final scan before the verbatim persist: the no-overlay branch merges
+    # overlay_rev from old_state, which can carry NaN from pre-fix rows.
+    nonfinite_path = store.find_nonfinite_json_value(data)
+    if nonfinite_path is not None:
+        raise HTTPException(status_code=400, detail=f"{nonfinite_path} must be a finite number")
     store.upsert_camera_state(STATE_DB_FILE, camera_id, data)
     return {"ok": True, "state": data}
 
