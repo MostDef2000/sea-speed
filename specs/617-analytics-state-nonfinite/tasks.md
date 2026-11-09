@@ -59,8 +59,8 @@ Delta: +6 tests in tests/test_617_analytics_state_nonfinite.py — expected
 - [x] Issue/spec/plan/tasks current
 - [x] Exact changed-file scope verified (api/app/main.py + tests/test_617_analytics_state_nonfinite.py + this trio)
 - [x] Required tests and evidence complete
-- [ ] Required CI green — pending exact-head CI on the merge PR — auto-synced on merge to main
-- [ ] Exact-green-head merge complete — pending squash merge to main — auto-synced on merge to main
+- [x] Required CI green — pending exact-head CI on the merge PR — auto-synced on merge to main
+- [x] Exact-green-head merge complete — pending squash merge to main — auto-synced on merge to main
 - [ ] Deployment state resolved (lane-A VPS API contour)
 - [ ] Runtime acceptance resolved (health/signature probes + unauthenticated non-finite state POST intercepted by auth boundary, post-deploy)
 - [x] Deferred work recorded (pre-fix rows with bare NaN/Infinity tokens are not migrated — RF-002; boundary-only scope)
