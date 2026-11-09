@@ -10,19 +10,21 @@ LIVE_SYNC_SOURCE = FRONTEND / "live-sync.js"
 OVERLAY_MODULE = FRONTEND / "overlay-canvas.js"
 
 try:
-    from tests.support import frontend_node
+    from tests.support import frontend_html, frontend_node
 except ModuleNotFoundError:  # direct file execution: put the repo root on sys.path
     import sys
 
     if str(ROOT) not in sys.path:
         sys.path.insert(0, str(ROOT))
-    from tests.support import frontend_node
+    from tests.support import frontend_html, frontend_node
 
 
 class WaterLiveSyncGuardTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.source = WATER_SOURCE.read_text(encoding="utf-8-sig")
+        # Issue #626: the page's wiring moved into shipped external .js files,
+        # so the structural scan surface is the HTML plus those .js bodies.
+        cls.source = frontend_html.page_live_source(WATER_SOURCE)
         cls.live_sync = LIVE_SYNC_SOURCE.read_text(encoding="utf-8-sig")
         cls.overlay = OVERLAY_MODULE.read_text(encoding="utf-8-sig")
 

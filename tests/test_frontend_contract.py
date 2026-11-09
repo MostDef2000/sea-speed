@@ -867,10 +867,14 @@ class StreamRetryLadderStructuralTests(unittest.TestCase):
     shortening it must fail the scan on both pages."""
 
     def test_water_and_road_pages_carry_the_full_stream_retry_ladder(self) -> None:
-        for page, name in ((WATER, "water"), (ROAD, "road")):
+        # Issue #626: the ladder literal moved from the inline script blocks
+        # into the shipped external .js files, so the scanned live-code text
+        # is the page HTML plus the page's connected local external scripts.
+        for page_path, name in ((WATER_PAGE, "water"), (ROAD_PAGE, "road")):
+            html = page_path.read_text(encoding="utf-8-sig")
             self.assertIn(
                 "STREAM_RETRY_DELAYS_MS=[1000,2000,4000,8000]",
-                strip_comments(page),
+                strip_comments(html + "".join(frontend_html.external_local_scripts(page_path, html))),
                 f"{name} page must keep the full stream retry ladder as live code",
             )
 

@@ -38,6 +38,11 @@ sys.path.insert(0, str(ROOT))
 from tests.support import frontend_html
 
 WATER_PAGE = ROOT / "frontend/sea-speed/index.html"
+# Issue #626: the page wiring the demos mutate (the HLS wiring) moved out of
+# the HTML into the shipped external script, so the mutation surface is the
+# .js bytes written next to the tmp HTML copy (the harness resolves relative
+# src= targets source-dir-first).
+WATER_MAIN_JS = ROOT / "frontend/sea-speed/main.js"
 
 RETIRED_TEXT_PINS = (
     "instance.attachMedia(waterMainVideo)",
@@ -76,32 +81,37 @@ EXECUTED_HLS_SCENARIO = (
 )
 
 
-def _refactored_page(source: str) -> str:
-    """Rewrite the wiring idioms; identical boot/connect/fallback behavior."""
-    source = source.replace(
+def _refactored_page(html: str, main_js: str) -> tuple[str, str]:
+    """Rewrite the wiring idioms; identical boot/connect/fallback behavior.
+
+    Applies to the page HTML and the shipped main.js wiring (issue #626
+    moved the water page's wiring out of the HTML into external/main.js).
+    """
+    main_js = main_js.replace(
         "instance.attachMedia(waterMainVideo)",
         "instance.attachMedia( waterMainVideo )",
     )
-    source = source.replace(
+    main_js = main_js.replace(
         "window.hls=instance;window.waterHls=instance",
         "window.hls = instance; window.waterHls = instance",
     )
-    source = source.replace(
+    main_js = main_js.replace(
         "if(s.last_overlay_url&&!playbackIsAdvancing(STREAM_RECOVERY_GRACE_MS))",
         "if (s.last_overlay_url && !playbackIsAdvancing(STREAM_RECOVERY_GRACE_MS))",
     )
-    source = source.replace("connectStream", "openMediaStream")
-    source = source.replace("notePlaybackProgress", "noteMediaProgress")
-    return source
+    main_js = main_js.replace("connectStream", "openMediaStream")
+    main_js = main_js.replace("notePlaybackProgress", "noteMediaProgress")
+    return html, main_js
 
 
-def _marker_only_broken_page(source: str) -> str:
+def _marker_only_broken_page(html: str, main_js: str) -> tuple[str, str]:
     """Keep ALL retired marker text verbatim but break the player binding.
 
     A stray second attach right after the (verbatim) main-video attach binds
     the HLS player to the overlay image as well. The retired text pins pass —
     every marker survives byte-for-byte — while the executed check fails
-    because the player is attached to two elements.
+    because the player is attached to two elements. The stray attach installs
+    into the shipped main.js bytes (issue #626).
     """
     anchor = "instance.attachMedia(waterMainVideo)"
     replacement = (
@@ -109,14 +119,20 @@ def _marker_only_broken_page(source: str) -> str:
         + ';instance.attachMedia(document.getElementById("overlayImg"))'
         + "/* demo interceptor: stray second attach while keeping every marker */"
     )
-    assert anchor in source, "water attach anchor changed; demo needs an update"
-    return source.replace(anchor, replacement, 1)
+    assert anchor in main_js, "water attach anchor changed; demo needs an update"
+    return html, main_js.replace(anchor, replacement, 1)
 
 
-def _run_executed_hls_check(page_text: str, tmp: Path) -> tuple[bool, str]:
-    """Run the converted behavioral check against a page copy in tmp."""
+def _run_executed_hls_check(page_text: str, main_js_text: str, tmp: Path) -> tuple[bool, str]:
+    """Run the converted behavioral check against a page copy in tmp.
+
+    Issue #626: the copy's wiring ships as main.js next to it (the harness
+    resolves relative src= targets source-dir-first); each call writes both
+    files so a direction never inherits the previous direction's .js.
+    """
     copy = tmp / "index.html"
     copy.write_text(page_text, encoding="utf-8")
+    (tmp / "main.js").write_text(main_js_text, encoding="utf-8")
     try:
         frontend_html.run_inline_scripts(source=copy, scenario=EXECUTED_HLS_SCENARIO)
     except AssertionError as exc:
@@ -124,21 +140,30 @@ def _run_executed_hls_check(page_text: str, tmp: Path) -> tuple[bool, str]:
     return True, ""
 
 
-def _run_retired_text_pins(page_text: str) -> tuple[bool, list[str]]:
-    """Run the RETIRED raw-text pins against a page copy (demo only)."""
-    failed = [marker for marker in RETIRED_TEXT_PINS if marker not in page_text]
+def _run_retired_text_pins(page_text: str, main_js_text: str) -> tuple[bool, list[str]]:
+    """Run the RETIRED raw-text pins against a page copy (demo only).
+
+    Issue #626: the pinned code moved into the shipped external main.js, so
+    the scan surface is the page HTML plus the .js bytes being executed.
+    """
+    failed = [
+        marker
+        for marker in RETIRED_TEXT_PINS
+        if marker not in page_text + main_js_text
+    ]
     return (not failed), failed
 
 
 class Test398Wave4Demo(unittest.TestCase):
     def test_refactor_tolerance_and_dead_marker_intolerance(self) -> None:
         real_page = WATER_PAGE.read_text(encoding="utf-8-sig")
+        real_js = WATER_MAIN_JS.read_text(encoding="utf-8")
         with tempfile.TemporaryDirectory() as raw:
             tmp = Path(raw)
             # Direction A: behavior-preserving refactor.
-            refactored = _refactored_page(real_page)
-            refactored_ok, refactored_error = _run_executed_hls_check(refactored, tmp)
-            retired_ok, retired_failed = _run_retired_text_pins(refactored)
+            refactored_html, refactored_js = _refactored_page(real_page, real_js)
+            refactored_ok, refactored_error = _run_executed_hls_check(refactored_html, refactored_js, tmp)
+            retired_ok, retired_failed = _run_retired_text_pins(refactored_html, refactored_js)
             self.assertTrue(
                 refactored_ok,
                 f"executed check must tolerate a pure refactor: {refactored_error}",
@@ -148,9 +173,9 @@ class Test398Wave4Demo(unittest.TestCase):
                 f"retired text pins would fail the refactor (expected): {retired_failed}",
             )
             # Direction B: markers kept, wiring broken.
-            broken = _marker_only_broken_page(real_page)
-            broken_ok, broken_error = _run_executed_hls_check(broken, tmp)
-            broken_retired_ok, _ = _run_retired_text_pins(broken)
+            broken_html, broken_js = _marker_only_broken_page(real_page, real_js)
+            broken_ok, broken_error = _run_executed_hls_check(broken_html, broken_js, tmp)
+            broken_retired_ok, _ = _run_retired_text_pins(broken_html, broken_js)
             self.assertFalse(
                 broken_ok,
                 "executed check must fail a page whose player binding is broken "
@@ -163,7 +188,7 @@ class Test398Wave4Demo(unittest.TestCase):
             )
             # Sanity: the real page satisfies the executed check (tmp copy —
             # no repo mutation).
-            real_ok, real_error = _run_executed_hls_check(real_page, tmp)
+            real_ok, real_error = _run_executed_hls_check(real_page, real_js, tmp)
             self.assertTrue(real_ok, f"real page must satisfy the executed check: {real_error}")
 
 

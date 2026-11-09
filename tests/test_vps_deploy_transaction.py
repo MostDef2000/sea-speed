@@ -33,6 +33,14 @@ class VpsDeployTransactionTests(unittest.TestCase):
         self.road = self.live / "frontend/sea-speed/road/index.html"
         self.live_sync = self.live / "frontend/sea-speed/live-sync.js"
         self.overlay_canvas = self.live / "frontend/sea-speed/overlay-canvas.js"
+        # Issue #626: the CSP external scripts deploy like the other frontend
+        # assets, so their targets must point into the sandbox live tree too.
+        self.crossing_line = self.live / "frontend/sea-speed/crossing-line.js"
+        self.main_js = self.live / "frontend/sea-speed/main.js"
+        self.cameras_js = self.live / "frontend/sea-speed/cameras/cameras.js"
+        self.road_config = self.live / "frontend/sea-speed/road/config.js"
+        self.road_main = self.live / "frontend/sea-speed/road/main.js"
+        self.unavailable_js = self.live / "frontend/sea-speed/unavailable.js"
         self.root_frontend = self.live / "frontend/root/index.html"
         self.fallback = self.live / "frontend/sea-speed-unavailable.html"
         for sha in (OLD, CANDIDATE, OLDER):
@@ -71,6 +79,14 @@ class VpsDeployTransactionTests(unittest.TestCase):
             "frontend/sea-speed/road/index.html": f"road {sha}\n",
             "frontend/sea-speed/live-sync.js": f"live-sync {sha}\n",
             "frontend/sea-speed/overlay-canvas.js": f"overlay-canvas {sha}\n",
+            # Issue #626: release_complete requires the CSP external scripts,
+            # so synthetic releases carry them like the real tree does.
+            "frontend/sea-speed/crossing-line.js": f"crossing-line {sha}\n",
+            "frontend/sea-speed/main.js": f"main {sha}\n",
+            "frontend/sea-speed/cameras/cameras.js": f"cameras-js {sha}\n",
+            "frontend/sea-speed/road/config.js": f"road-config {sha}\n",
+            "frontend/sea-speed/road/main.js": f"road-main {sha}\n",
+            "frontend/sea-speed/unavailable.js": f"unavailable-js {sha}\n",
             "frontend/root/index.html": f"root {sha}\n",
             "frontend/sea-speed/unavailable.html": f"fallback {sha}\n",
             "deploy/vps/sea-speed-auth-cutover.sh": "#!/usr/bin/env bash\nexit 0\n",
@@ -260,6 +276,12 @@ printf 'LISTEN 0 128 %s 0.0.0.0:*\n' "$SEA_SPEED_WORKER_PRIVATE_LISTEN"
                 "SEA_SPEED_ROAD_FRONTEND_TARGET": str(self.road),
                 "SEA_SPEED_LIVE_SYNC_TARGET": str(self.live_sync),
                 "SEA_SPEED_OVERLAY_CANVAS_TARGET": str(self.overlay_canvas),
+                "SEA_SPEED_CROSSING_LINE_TARGET": str(self.crossing_line),
+                "SEA_SPEED_MAIN_JS_TARGET": str(self.main_js),
+                "SEA_SPEED_CAMERAS_JS_TARGET": str(self.cameras_js),
+                "SEA_SPEED_ROAD_CONFIG_TARGET": str(self.road_config),
+                "SEA_SPEED_ROAD_MAIN_TARGET": str(self.road_main),
+                "SEA_SPEED_UNAVAILABLE_JS_TARGET": str(self.unavailable_js),
                 "SEA_SPEED_ROOT_FRONTEND_TARGET": str(self.root_frontend),
                 "SEA_SPEED_FALLBACK_FRONTEND_TARGET": str(self.fallback),
                 "SEA_SPEED_SYSTEMCTL_BIN": str(self.systemctl),

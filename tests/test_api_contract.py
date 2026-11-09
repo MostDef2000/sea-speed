@@ -17,13 +17,13 @@ from typing import Any, Dict, List, Optional
 ROOT = Path(__file__).resolve().parents[1]
 
 try:
-    from tests.support import worker_source
+    from tests.support import frontend_html, worker_source
 except ModuleNotFoundError:  # direct file execution: put the repo root on sys.path
     import sys
 
     if str(ROOT) not in sys.path:
         sys.path.insert(0, str(ROOT))
-    from tests.support import worker_source
+    from tests.support import frontend_html, worker_source
 
 SOURCE = ROOT / "api" / "app" / "main.py"
 # Issue #396 wave 1: the shared kernel lives in its own modules; the harness
@@ -313,7 +313,9 @@ class ApiContractTests(unittest.TestCase):
         self.assertNotIn('/v1/{', source)
 
     def test_operator_water_state_counters_are_freshness_aware(self) -> None:
-        source = FRONTEND.read_text(encoding="utf-8")
+        # Issue #626: the analytics wiring moved into shipped external .js
+        # files, so the scan surface is the HTML plus those .js bodies.
+        source = frontend_html.page_live_source(FRONTEND)
         for marker in (
             "function renderAnalyticsState(s)",
             "const fresh=s.worker_online!==false",
