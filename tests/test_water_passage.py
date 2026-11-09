@@ -24,11 +24,11 @@ FRONTEND_SOURCE = ROOT / "frontend" / "sea-speed" / "index.html"
 ARTIFACT_SOURCE = ROOT / "scripts" / "quality" / "build_exact_artifacts.py"
 
 try:
-    from tests.support import worker_source
+    from tests.support import frontend_html, worker_source
 except ModuleNotFoundError:  # direct file execution: put the repo root on sys.path
     if str(ROOT) not in sys.path:
         sys.path.insert(0, str(ROOT))
-    from tests.support import worker_source
+    from tests.support import frontend_html, worker_source
 sys.path.insert(0, str(ROOT / "worker"))
 from water_passage import (
     MeasurementResult,
@@ -621,7 +621,9 @@ class IntegrationContractTests(unittest.TestCase):
         )
 
     def test_frontend_renders_passage_lifecycle(self) -> None:
-        source = FRONTEND_SOURCE.read_text(encoding="utf-8")
+        # Issue #626: the passages wiring moved into shipped external .js
+        # files, so the scan surface is the HTML plus those .js bodies.
+        source = frontend_html.page_live_source(FRONTEND_SOURCE)
         for marker in (
             "/sea-speed/api/cam1/passages?limit=3",
             "Последние проходы",

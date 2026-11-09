@@ -6,7 +6,10 @@ the pages' real inline scripts. The HTML under frontend/ is a READ-ONLY
 input: the inline <script> blocks are extracted from the real bytes (never
 copied into the tests), concatenated in document order, and executed in one
 node scope under the smallest browser shim that lets the page's module level
-run:
+run. Since issue #626 the protected pages carry their wiring in shipped
+external .js files; when a page has no inline blocks left, the harness
+executes those real .js bytes instead (same contract, see
+``external_local_scripts``):
 
 - a memoizing ``document.getElementById`` stub that fabricates a full element
   stub for any id (textContent/className/classList/style/handlers/2d context,
@@ -156,6 +159,59 @@ def extract_inline_scripts(html: str) -> list[str]:
             r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", html, re.DOTALL | re.IGNORECASE
         )
     ]
+
+
+# Real page path per page_key() classification: the #626 fallback resolves a
+# page's relative external-script src= targets against the page's REAL
+# frontend directory, because the wave demos run mutated page copies from tmp
+# dirs where the shipped .js files do not exist.
+PAGE_PATHS_BY_KEY = {
+    "water": WATER_PAGE,
+    "road": ROAD_PAGE,
+    "cameras": CAMERAS_PAGE,
+    "objects": OBJECTS_PAGE,
+}
+
+
+def external_local_scripts(source: Path, html: str) -> list[str]:
+    """Bodies of the page's connected LOCAL external scripts, document order.
+
+    Issue #626 fallback: when a page has no inline <script> blocks left (the
+    wiring moved into shipped .js files), the harness executes those real .js
+    bytes instead — equivalent-or-stronger versus inline extraction, same
+    return contract. Relative src= targets resolve against the source's own
+    directory FIRST (a tmp copy may carry its own mutated .js next to it —
+    the wave demos), falling back to the page's real frontend directory
+    (page_key's content markers) only when the file is absent there. Remote
+    (CDN) and absolute /sea-speed/... sources stay excluded: the shim stubs
+    those browser-level collaborators (HLS, SeaSpeedOverlayCanvas) and
+    live-sync.js was already external before #626, so the recorded-evidence
+    contract is unchanged.
+    """
+    real_base = PAGE_PATHS_BY_KEY.get(page_key(source), source).parent
+    scripts = []
+    for match in re.finditer(r'<script\b[^>]*\bsrc\s*=\s*"([^"]+)"[^>]*>', html, re.IGNORECASE):
+        src = match.group(1).strip()
+        if not src or src.startswith(("http://", "https://", "//")) or src.startswith("/"):
+            continue
+        path = (source.parent / src).resolve()
+        if not path.is_file():
+            path = (real_base / src).resolve()
+        if not path.is_file():
+            raise AssertionError(
+                f"external script not found: {path} (referenced by {source})"
+            )
+        scripts.append(path.read_text(encoding="utf-8"))
+    if not scripts:
+        raise AssertionError(f"no inline or local external scripts found in {source}")
+    return scripts
+
+
+def page_live_source(source: Path) -> str:
+    """Issue #626 scan surface for structural pins: page HTML plus the
+    shipped local external .js bodies, in document order."""
+    html = source.read_text(encoding="utf-8-sig")
+    return html + "".join(external_local_scripts(source, html))
 
 
 # Browser shim installed before the page script: element stubs for every id,
@@ -471,7 +527,10 @@ def run_inline_scripts(
     html = source.read_text(encoding="utf-8-sig")
     scripts = extract_inline_scripts(html)
     if not scripts:
-        raise AssertionError(f"no inline scripts found in {source}")
+        # Issue #626: pages whose wiring moved into shipped external .js
+        # files execute those real bytes instead (same contract, see
+        # external_local_scripts).
+        scripts = external_local_scripts(source, html)
     bootstrap = (
         f"const __WATCHDOG_MS = {json.dumps(WATCHDOG_MS)};\n"
         f"const __SESSION_PATH = {json.dumps(SESSION_PATH)};\n"

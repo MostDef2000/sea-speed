@@ -32,28 +32,37 @@ sys.path.insert(0, str(ROOT))
 from tests.support import frontend_html
 
 ROAD_PAGE = ROOT / "frontend/sea-speed/road/index.html"
+# Issue #626: the page wiring the demos mutate (the session watchdog) moved
+# out of the HTML into the shipped external script, so the mutation surface
+# is the .js bytes written next to the tmp HTML copy (the harness resolves
+# relative src= targets source-dir-first).
+ROAD_MAIN_JS = ROOT / "frontend/sea-speed/road/main.js"
 
 
-def _refactored_page(html: str) -> str:
+def _refactored_page(html: str, main_js: str) -> tuple[str, str]:
     """Reformat the watchdog const and rename the page internals.
 
     Pure formatting/renaming refactor: same behavior (15 s interval on the
-    identity loader, same redirect), different bytes.
+    identity loader, same redirect), different bytes. Applies to the page
+    HTML and the shipped road/main.js wiring (issue #626 moved it there).
     """
     html = html.replace("const SESSION_WATCHDOG_MS=15000;", "const SESSION_WATCHDOG_MS = 15000;")
     html = html.replace("loadSessionIdentity", "refreshTrustedIdentity")
-    return html
+    main_js = main_js.replace("const SESSION_WATCHDOG_MS=15000;", "const SESSION_WATCHDOG_MS = 15000;")
+    main_js = main_js.replace("loadSessionIdentity", "refreshTrustedIdentity")
+    return html, main_js
 
 
-def _marker_only_broken_page(html: str) -> str:
+def _marker_only_broken_page(html: str, main_js: str) -> tuple[str, str]:
     """Keep ALL historical marker text verbatim but break the wiring.
 
     An interceptor installed right after the (verbatim) watchdog const silently
     re-cadences every SESSION_WATCHDOG_MS interval to 60000 ms. The retired
     text pins pass — every marker survives byte-for-byte — while the executed
-    check fails because the effective cadence is no longer 15000 ms.
+    check fails because the effective cadence is no longer 15000 ms. The
+    interceptor installs into the shipped road/main.js bytes (issue #626).
     """
-    return html.replace(
+    return html, main_js.replace(
         "const SESSION_WATCHDOG_MS=15000;",
         "const SESSION_WATCHDOG_MS=15000;"
         "const __retiredPinsSetInterval=setInterval;"
@@ -72,8 +81,15 @@ def _run_converted_check(source: Path) -> tuple[bool, str]:
 
 
 def _run_retired_text_pins(source: Path) -> tuple[bool, list[str]]:
-    """Run the RETIRED raw-text pins against a page copy (for the demo only)."""
-    text = source.read_text(encoding="utf-8-sig")
+    """Run the RETIRED raw-text pins against a page copy (for the demo only).
+
+    Issue #626: the pinned code moved into the page's shipped external .js
+    files, so the scan surface is the HTML plus the same local .js bodies the
+    harness executes (resolved source-dir-first, so a mutated .js written
+    next to the tmp copy is what gets scanned).
+    """
+    html = source.read_text(encoding="utf-8-sig")
+    text = html + "".join(frontend_html.external_local_scripts(source, html))
     failed = [
         marker
         for marker in (
@@ -90,10 +106,15 @@ def _run_retired_text_pins(source: Path) -> tuple[bool, list[str]]:
 class Test398Wave2Demo(unittest.TestCase):
     def test_refactor_tolerance_and_dead_marker_intolerance(self) -> None:
         real_html = ROAD_PAGE.read_text(encoding="utf-8-sig")
+        real_js = ROAD_MAIN_JS.read_text(encoding="utf-8")
         with tempfile.TemporaryDirectory() as raw:
             # Direction A: behavior-preserving refactor.
             refactored = Path(raw) / "refactored.html"
-            refactored.write_text(_refactored_page(real_html), encoding="utf-8")
+            refactored_html, refactored_js = _refactored_page(real_html, real_js)
+            refactored.write_text(refactored_html, encoding="utf-8")
+            # Issue #626: the mutated wiring ships next to the tmp copy so the
+            # harness's source-dir-first src= resolution executes it.
+            refactored.with_name("main.js").write_text(refactored_js, encoding="utf-8")
             converted_ok, converted_error = _run_converted_check(refactored)
             retired_ok, retired_failed = _run_retired_text_pins(refactored)
             self.assertTrue(
@@ -106,7 +127,9 @@ class Test398Wave2Demo(unittest.TestCase):
             )
             # Direction B: markers kept, wiring broken.
             broken = Path(raw) / "broken.html"
-            broken.write_text(_marker_only_broken_page(real_html), encoding="utf-8")
+            broken_html, broken_js = _marker_only_broken_page(real_html, real_js)
+            broken.write_text(broken_html, encoding="utf-8")
+            broken.with_name("main.js").write_text(broken_js, encoding="utf-8")
             broken_converted_ok, broken_error = _run_converted_check(broken)
             broken_retired_ok, _ = _run_retired_text_pins(broken)
             self.assertFalse(

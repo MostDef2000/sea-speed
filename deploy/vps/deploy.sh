@@ -25,6 +25,12 @@ CAMERAS_FRONTEND_TARGET="${SEA_SPEED_CAMERAS_FRONTEND_TARGET:-/var/www/mostdef.r
 ROAD_FRONTEND_TARGET="${SEA_SPEED_ROAD_FRONTEND_TARGET:-/var/www/mostdef.ru/sea-speed/road/index.html}"
 LIVE_SYNC_TARGET="${SEA_SPEED_LIVE_SYNC_TARGET:-/var/www/mostdef.ru/sea-speed/live-sync.js}"
 OVERLAY_CANVAS_TARGET="${SEA_SPEED_OVERLAY_CANVAS_TARGET:-/var/www/mostdef.ru/sea-speed/overlay-canvas.js}"
+CROSSING_LINE_TARGET="${SEA_SPEED_CROSSING_LINE_TARGET:-/var/www/mostdef.ru/sea-speed/crossing-line.js}"
+MAIN_JS_TARGET="${SEA_SPEED_MAIN_JS_TARGET:-/var/www/mostdef.ru/sea-speed/main.js}"
+CAMERAS_JS_TARGET="${SEA_SPEED_CAMERAS_JS_TARGET:-/var/www/mostdef.ru/sea-speed/cameras/cameras.js}"
+ROAD_CONFIG_TARGET="${SEA_SPEED_ROAD_CONFIG_TARGET:-/var/www/mostdef.ru/sea-speed/road/config.js}"
+ROAD_MAIN_TARGET="${SEA_SPEED_ROAD_MAIN_TARGET:-/var/www/mostdef.ru/sea-speed/road/main.js}"
+UNAVAILABLE_JS_TARGET="${SEA_SPEED_UNAVAILABLE_JS_TARGET:-/var/www/mostdef.ru/unavailable.js}"
 ROOT_FRONTEND_TARGET="${SEA_SPEED_ROOT_FRONTEND_TARGET:-/var/www/mostdef.ru/index.html}"
 FALLBACK_FRONTEND_TARGET="${SEA_SPEED_FALLBACK_FRONTEND_TARGET:-/var/www/mostdef.ru/sea-speed-unavailable.html}"
 SERVICE_NAME="sea-speed-api"
@@ -224,6 +230,12 @@ release_complete() {
      -f "$root/frontend/sea-speed/road/index.html" && \
      -f "$root/frontend/sea-speed/live-sync.js" && \
      -f "$root/frontend/sea-speed/overlay-canvas.js" && \
+     -f "$root/frontend/sea-speed/crossing-line.js" && \
+     -f "$root/frontend/sea-speed/main.js" && \
+     -f "$root/frontend/sea-speed/cameras/cameras.js" && \
+     -f "$root/frontend/sea-speed/road/config.js" && \
+     -f "$root/frontend/sea-speed/road/main.js" && \
+     -f "$root/frontend/sea-speed/unavailable.js" && \
      -f "$root/frontend/root/index.html" && \
      -f "$root/frontend/sea-speed/unavailable.html" && \
      -f "$root/deploy/vps/sea-speed-auth-cutover.sh" && \
@@ -269,6 +281,12 @@ download_release() {
     frontend/sea-speed/road/index.html \
     frontend/sea-speed/live-sync.js \
     frontend/sea-speed/overlay-canvas.js \
+    frontend/sea-speed/crossing-line.js \
+    frontend/sea-speed/main.js \
+    frontend/sea-speed/cameras/cameras.js \
+    frontend/sea-speed/road/config.js \
+    frontend/sea-speed/road/main.js \
+    frontend/sea-speed/unavailable.js \
     frontend/root/index.html \
     frontend/sea-speed/unavailable.html \
     deploy/vps/sea-speed-auth-cutover.sh \
@@ -304,6 +322,12 @@ download_release() {
   install -m 0644 "$extracted/frontend/sea-speed/road/index.html" "$TARGET_RELEASE/frontend/sea-speed/road/index.html"
   install -m 0644 "$extracted/frontend/sea-speed/live-sync.js" "$TARGET_RELEASE/frontend/sea-speed/live-sync.js"
   install -m 0644 "$extracted/frontend/sea-speed/overlay-canvas.js" "$TARGET_RELEASE/frontend/sea-speed/overlay-canvas.js"
+  install -m 0644 "$extracted/frontend/sea-speed/crossing-line.js" "$TARGET_RELEASE/frontend/sea-speed/crossing-line.js"
+  install -m 0644 "$extracted/frontend/sea-speed/main.js" "$TARGET_RELEASE/frontend/sea-speed/main.js"
+  install -m 0644 "$extracted/frontend/sea-speed/cameras/cameras.js" "$TARGET_RELEASE/frontend/sea-speed/cameras/cameras.js"
+  install -m 0644 "$extracted/frontend/sea-speed/road/config.js" "$TARGET_RELEASE/frontend/sea-speed/road/config.js"
+  install -m 0644 "$extracted/frontend/sea-speed/road/main.js" "$TARGET_RELEASE/frontend/sea-speed/road/main.js"
+  install -m 0644 "$extracted/frontend/sea-speed/unavailable.js" "$TARGET_RELEASE/frontend/sea-speed/unavailable.js"
   install -m 0644 "$extracted/frontend/root/index.html" "$TARGET_RELEASE/frontend/root/index.html"
   install -m 0644 "$extracted/frontend/sea-speed/unavailable.html" "$TARGET_RELEASE/frontend/sea-speed/unavailable.html"
   install -m 0755 "$extracted/deploy/vps/sea-speed-auth-cutover.sh" "$TARGET_RELEASE/deploy/vps/sea-speed-auth-cutover.sh"
@@ -495,6 +519,36 @@ bootstrap_current_release() {
   else
     touch "$bootstrap_release/frontend/sea-speed/live-sync.js.absent"
   fi
+  if [[ -f "$CROSSING_LINE_TARGET" ]]; then
+    install -m 0644 "$CROSSING_LINE_TARGET" "$bootstrap_release/frontend/sea-speed/crossing-line.js"
+  else
+    touch "$bootstrap_release/frontend/sea-speed/crossing-line.js.absent"
+  fi
+  if [[ -f "$MAIN_JS_TARGET" ]]; then
+    install -m 0644 "$MAIN_JS_TARGET" "$bootstrap_release/frontend/sea-speed/main.js"
+  else
+    touch "$bootstrap_release/frontend/sea-speed/main.js.absent"
+  fi
+  if [[ -f "$CAMERAS_JS_TARGET" ]]; then
+    install -m 0644 "$CAMERAS_JS_TARGET" "$bootstrap_release/frontend/sea-speed/cameras/cameras.js"
+  else
+    touch "$bootstrap_release/frontend/sea-speed/cameras/cameras.js.absent"
+  fi
+  if [[ -f "$ROAD_CONFIG_TARGET" ]]; then
+    install -m 0644 "$ROAD_CONFIG_TARGET" "$bootstrap_release/frontend/sea-speed/road/config.js"
+  else
+    touch "$bootstrap_release/frontend/sea-speed/road/config.js.absent"
+  fi
+  if [[ -f "$ROAD_MAIN_TARGET" ]]; then
+    install -m 0644 "$ROAD_MAIN_TARGET" "$bootstrap_release/frontend/sea-speed/road/main.js"
+  else
+    touch "$bootstrap_release/frontend/sea-speed/road/main.js.absent"
+  fi
+  if [[ -f "$UNAVAILABLE_JS_TARGET" ]]; then
+    install -m 0644 "$UNAVAILABLE_JS_TARGET" "$bootstrap_release/frontend/sea-speed/unavailable.js"
+  else
+    touch "$bootstrap_release/frontend/sea-speed/unavailable.js.absent"
+  fi
   install -m 0644 "$ROOT_FRONTEND_TARGET" "$bootstrap_release/frontend/root/index.html"
   if [[ -f "$FALLBACK_FRONTEND_TARGET" ]]; then
     install -m 0644 "$FALLBACK_FRONTEND_TARGET" "$bootstrap_release/frontend/sea-speed/unavailable.html"
@@ -637,6 +691,24 @@ install_release() {
   if [[ -f "$release_dir/frontend/sea-speed/overlay-canvas.js" ]]; then
     install -m 0644 "$release_dir/frontend/sea-speed/overlay-canvas.js" "${OVERLAY_CANVAS_TARGET}.next"
   fi
+  if [[ -f "$release_dir/frontend/sea-speed/crossing-line.js" ]]; then
+    install -m 0644 "$release_dir/frontend/sea-speed/crossing-line.js" "${CROSSING_LINE_TARGET}.next"
+  fi
+  if [[ -f "$release_dir/frontend/sea-speed/main.js" ]]; then
+    install -m 0644 "$release_dir/frontend/sea-speed/main.js" "${MAIN_JS_TARGET}.next"
+  fi
+  if [[ -f "$release_dir/frontend/sea-speed/cameras/cameras.js" ]]; then
+    install -m 0644 "$release_dir/frontend/sea-speed/cameras/cameras.js" "${CAMERAS_JS_TARGET}.next"
+  fi
+  if [[ -f "$release_dir/frontend/sea-speed/road/config.js" ]]; then
+    install -m 0644 "$release_dir/frontend/sea-speed/road/config.js" "${ROAD_CONFIG_TARGET}.next"
+  fi
+  if [[ -f "$release_dir/frontend/sea-speed/road/main.js" ]]; then
+    install -m 0644 "$release_dir/frontend/sea-speed/road/main.js" "${ROAD_MAIN_TARGET}.next"
+  fi
+  if [[ -f "$release_dir/frontend/sea-speed/unavailable.js" ]]; then
+    install -m 0644 "$release_dir/frontend/sea-speed/unavailable.js" "${UNAVAILABLE_JS_TARGET}.next"
+  fi
   if [[ -f "$release_dir/frontend/sea-speed/unavailable.html" ]]; then
     install -m 0644 "$release_dir/frontend/sea-speed/unavailable.html" "${FALLBACK_FRONTEND_TARGET}.next"
   fi
@@ -740,6 +812,36 @@ install_release() {
     mv -f "${OVERLAY_CANVAS_TARGET}.next" "$OVERLAY_CANVAS_TARGET"
   else
     rm -f "$OVERLAY_CANVAS_TARGET" "${OVERLAY_CANVAS_TARGET}.next"
+  fi
+  if [[ -f "$release_dir/frontend/sea-speed/crossing-line.js" ]]; then
+    mv -f "${CROSSING_LINE_TARGET}.next" "$CROSSING_LINE_TARGET"
+  else
+    rm -f "$CROSSING_LINE_TARGET" "${CROSSING_LINE_TARGET}.next"
+  fi
+  if [[ -f "$release_dir/frontend/sea-speed/main.js" ]]; then
+    mv -f "${MAIN_JS_TARGET}.next" "$MAIN_JS_TARGET"
+  else
+    rm -f "$MAIN_JS_TARGET" "${MAIN_JS_TARGET}.next"
+  fi
+  if [[ -f "$release_dir/frontend/sea-speed/cameras/cameras.js" ]]; then
+    mv -f "${CAMERAS_JS_TARGET}.next" "$CAMERAS_JS_TARGET"
+  else
+    rm -f "$CAMERAS_JS_TARGET" "${CAMERAS_JS_TARGET}.next"
+  fi
+  if [[ -f "$release_dir/frontend/sea-speed/road/config.js" ]]; then
+    mv -f "${ROAD_CONFIG_TARGET}.next" "$ROAD_CONFIG_TARGET"
+  else
+    rm -f "$ROAD_CONFIG_TARGET" "${ROAD_CONFIG_TARGET}.next"
+  fi
+  if [[ -f "$release_dir/frontend/sea-speed/road/main.js" ]]; then
+    mv -f "${ROAD_MAIN_TARGET}.next" "$ROAD_MAIN_TARGET"
+  else
+    rm -f "$ROAD_MAIN_TARGET" "${ROAD_MAIN_TARGET}.next"
+  fi
+  if [[ -f "$release_dir/frontend/sea-speed/unavailable.js" ]]; then
+    mv -f "${UNAVAILABLE_JS_TARGET}.next" "$UNAVAILABLE_JS_TARGET"
+  else
+    rm -f "$UNAVAILABLE_JS_TARGET" "${UNAVAILABLE_JS_TARGET}.next"
   fi
   if [[ -f "$release_dir/frontend/sea-speed/unavailable.html" ]]; then
     mv -f "${FALLBACK_FRONTEND_TARGET}.next" "$FALLBACK_FRONTEND_TARGET"

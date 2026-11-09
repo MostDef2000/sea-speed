@@ -753,16 +753,15 @@ class CrossingPanelDomGuardTests(unittest.TestCase):
         # listener fires. The road page's crossingCard script block is a
         # deliberate DOM-contract stub (the real road handlers live in the
         # main script and are proven by the executed toggle/delete twins), so
-        # its guard markers stay a structural scan.
+        # its guard markers stay a structural scan; since #626 the stub block
+        # lives in the external road/config.js, which the scan reads directly.
         frontend_html.run_inline_scripts(
             source=ROOT / "frontend/sea-speed/index.html",
             scenario=CROSSING_DOM_GUARD_SCENARIO,
             responses=[CROSSING_PANEL_BOOT_RESPONSE],
             ready_state="loading",
         )
-        text = (ROOT / "frontend/sea-speed/road/index.html").read_text(encoding="utf-8")
-        start = text.index('id="crossingCard"')
-        block = text[start:text.index("</script>", start)]
+        block = (ROOT / "frontend/sea-speed/road/config.js").read_text(encoding="utf-8")
         self.assertIn('document.readyState==="loading"', block)
         self.assertIn('addEventListener("DOMContentLoaded",init)', block)
         self.assertIn("function init(){", block)
