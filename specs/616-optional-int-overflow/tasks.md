@@ -46,8 +46,8 @@ passed / 2 skipped. Observed: recorded in the completion gate below.
 - [x] Issue/spec/plan/tasks current
 - [x] Exact changed-file scope verified (api/app/objects_registry.py + tests/test_616_optional_int_overflow.py + this trio)
 - [x] Required tests and evidence complete
-- [ ] Required CI green — pending exact-head CI on the merge PR
-- [ ] Exact-green-head merge complete — pending squash merge to main
+- [x] Required CI green — pending exact-head CI on the merge PR — auto-synced on merge to main (064575b0)
+- [x] Exact-green-head merge complete — pending squash merge to main — auto-synced on merge to main (064575b0)
 - [ ] Deployment state resolved (lane-A VPS API contour)
 - [ ] Runtime acceptance resolved (health/signature probes + unauthenticated 1e999 POST intercepted by auth boundary, post-deploy)
 - [x] Deferred work recorded (none — no deferred work)
