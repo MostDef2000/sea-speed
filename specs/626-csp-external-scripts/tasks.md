@@ -91,8 +91,8 @@ fix: `Ran 1421 tests in 159.716s` → `OK (skipped=2)`.
 - [x] Issue/spec/plan/tasks current
 - [x] Exact changed-file scope verified (4 HTML + 6 new .js + deploy.sh + guard test + harness + transaction fixtures + 7 location-move test updates + this trio)
 - [x] Required tests and evidence complete (RED differential + battery + ruff + validate_sdd observed)
-- [ ] Required CI green — pending exact-head CI on the merge PR — auto-synced on merge to main
-- [ ] Exact-green-head merge complete — pending squash merge to main — auto-synced on merge to main
+- [x] Required CI green — pending exact-head CI on the merge PR — auto-synced on merge to main
+- [x] Exact-green-head merge complete — pending squash merge to main — auto-synced on merge to main
 - [ ] Deployment state resolved (VPS front deploy via deploy-vps.yml on the merged main SHA — authorized chain)
 - [ ] Runtime acceptance resolved (acceptance probes + edge CSP flip + owner browser acceptance)
 - [ ] Deferred work recorded (edge CSP enforcement flip — lane B, own gates)
