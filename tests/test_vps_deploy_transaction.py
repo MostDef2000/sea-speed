@@ -292,6 +292,9 @@ printf 'LISTEN 0 128 %s 0.0.0.0:*\n' "$SEA_SPEED_WORKER_PRIVATE_LISTEN"
                 "SEA_SPEED_CAMERAS_FRONTEND_URL": "https://example.invalid/sea-speed/cameras/",
                 "SEA_SPEED_ROAD_FRONTEND_URL": "https://example.invalid/sea-speed/road/",
                 "SEA_SPEED_LIVE_SYNC_URL": "https://example.invalid/sea-speed/live-sync.js",
+                # Issue #631: overlay-canvas.js is smoke-verified post-activation
+                # too, so its public URL is overridable like the other modules.
+                "SEA_SPEED_OVERLAY_CANVAS_URL": "https://example.invalid/sea-speed/overlay-canvas.js",
                 # Issue #629: the #626 external scripts are smoke-verified
                 # post-activation, so their public URLs are overridable too.
                 "SEA_SPEED_CROSSING_LINE_URL": "https://example.invalid/sea-speed/crossing-line.js",
@@ -666,6 +669,56 @@ printf 'LISTEN 0 128 %s 0.0.0.0:*\n' "$SEA_SPEED_WORKER_PRIVATE_LISTEN"
                 f"{label} public smoke check passed with HTTP 200",
                 result.stdout,
             )
+
+    def test_success_smoke_checks_overlay_canvas_module(self) -> None:
+        # Issue #631: the healthy deploy also smoke-checks the live
+        # overlay-canvas.js module through its public URL, like the other
+        # frontend modules.
+        result = self.run_deploy()
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn(
+            "Overlay canvas module public smoke check passed with HTTP 200",
+            result.stdout,
+        )
+
+    # Issue #631 — the bootstrap capture must record an explicit overlay-canvas
+    # module state (file or .absent marker) in the captured rollback release,
+    # so a later re-activation of that release passes install_release's
+    # module-state validation instead of failing with "has no overlay-canvas
+    # module state".
+
+    def test_bootstrap_capture_records_overlay_canvas_module_state(self) -> None:
+        # A fresh VPS tree has no current-release state: the first deploy
+        # captures the live code as the bootstrap rollback release. When the
+        # live tree lacks overlay-canvas.js, the capture must record the
+        # .absent marker — otherwise re-activating the bootstrap release as a
+        # rollback target fails closed with "has no overlay-canvas module
+        # state" and the rollback path is dead on arrival.
+        (self.state / "current-release").unlink()
+        self.overlay_canvas.unlink()
+
+        result = self.run_deploy(mode="fail-candidate")
+
+        bootstraps = sorted(
+            path.name for path in self.releases.iterdir() if path.name.startswith("bootstrap-")
+        )
+        self.assertEqual(len(bootstraps), 1, result.stdout)
+        bootstrap_name = bootstraps[0]
+        self.assertTrue(
+            (self.releases / bootstrap_name / "frontend/sea-speed/overlay-canvas.js.absent").is_file(),
+            result.stdout,
+        )
+        # The candidate deploy fails post-mutation and rolls back to the
+        # bootstrap release: the re-activation must succeed end-to-end.
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("Rollback successful", result.stdout, result.stdout)
+        self.assertNotIn("has no overlay-canvas module state", result.stdout)
+        self.assertEqual(self.current(), bootstrap_name)
+        self.assertIn(
+            "Overlay canvas module is absent in this rollback release",
+            result.stdout,
+        )
+        self.assertEqual(self.manifest()["state"], "rolled_back")
 
 
 if __name__ == "__main__":
