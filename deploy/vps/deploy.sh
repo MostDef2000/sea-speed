@@ -42,6 +42,7 @@ OBJECTS_FRONTEND_URL="${SEA_SPEED_OBJECTS_FRONTEND_URL:-https://mostdef.ru/sea-s
 CAMERAS_FRONTEND_URL="${SEA_SPEED_CAMERAS_FRONTEND_URL:-https://mostdef.ru/sea-speed/cameras/}"
 ROAD_FRONTEND_URL="${SEA_SPEED_ROAD_FRONTEND_URL:-https://mostdef.ru/sea-speed/road/}"
 LIVE_SYNC_URL="${SEA_SPEED_LIVE_SYNC_URL:-https://mostdef.ru/sea-speed/live-sync.js}"
+OVERLAY_CANVAS_URL="${SEA_SPEED_OVERLAY_CANVAS_URL:-https://mostdef.ru/sea-speed/overlay-canvas.js}"
 CROSSING_LINE_URL="${SEA_SPEED_CROSSING_LINE_URL:-https://mostdef.ru/sea-speed/crossing-line.js}"
 MAIN_JS_URL="${SEA_SPEED_MAIN_JS_URL:-https://mostdef.ru/sea-speed/main.js}"
 CAMERAS_JS_URL="${SEA_SPEED_CAMERAS_JS_URL:-https://mostdef.ru/sea-speed/cameras/cameras.js}"
@@ -550,6 +551,11 @@ bootstrap_current_release() {
   else
     touch "$bootstrap_release/frontend/sea-speed/road/main.js.absent"
   fi
+  if [[ -f "$OVERLAY_CANVAS_TARGET" ]]; then
+    install -m 0644 "$OVERLAY_CANVAS_TARGET" "$bootstrap_release/frontend/sea-speed/overlay-canvas.js"
+  else
+    touch "$bootstrap_release/frontend/sea-speed/overlay-canvas.js.absent"
+  fi
   if [[ -f "$UNAVAILABLE_JS_TARGET" ]]; then
     install -m 0644 "$UNAVAILABLE_JS_TARGET" "$bootstrap_release/frontend/sea-speed/unavailable.js"
   else
@@ -970,6 +976,12 @@ verify_frontends() {
     verify_public_url "Road main module" "$ROAD_MAIN_URL"
   else
     log "Road main module is absent in this rollback release"
+  fi
+  if [[ -f "$OVERLAY_CANVAS_TARGET" ]]; then
+    [[ -s "$OVERLAY_CANVAS_TARGET" ]] || { echo "Overlay canvas module file is empty: ${OVERLAY_CANVAS_TARGET}" >&2; return 1; }
+    verify_public_url "Overlay canvas module" "$OVERLAY_CANVAS_URL"
+  else
+    log "Overlay canvas module is absent in this rollback release"
   fi
   if [[ -f "$UNAVAILABLE_JS_TARGET" ]]; then
     [[ -s "$UNAVAILABLE_JS_TARGET" ]] || { echo "Unavailable module file is empty: ${UNAVAILABLE_JS_TARGET}" >&2; return 1; }
