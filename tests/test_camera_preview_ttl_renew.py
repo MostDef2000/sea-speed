@@ -602,8 +602,7 @@ class CameraPreviewTtlRenewTests(unittest.TestCase):
         self._patch_const("CAMERA_PREVIEW_SWEEP_INTERVAL_SEC", TEST_SWEEP_INTERVAL_SEC)
         state_file = self.config.CAMERA_PREVIEW_STATE_FILE
         with self.client() as client:
-            preview = self.start_preview(client)
-            session_id = preview["session_id"]
+            self.start_preview(client)
             t0 = shim.now
             pid = self.read_state()["pid"]
             self._track_pid(pid)
@@ -625,7 +624,7 @@ class CameraPreviewTtlRenewTests(unittest.TestCase):
             self.assertFalse(self.process_alive(pid))
 
     def test_shutdown_terminates_the_active_preview(self):
-        shim = self._install_clock()
+        self._install_clock()
         self._patch_const("CAMERA_PREVIEW_TTL_SEC", TEST_TTL_SEC)
         self._patch_const("CAMERA_PREVIEW_SWEEP_INTERVAL_SEC", TEST_SWEEP_INTERVAL_SEC)
         with self.client() as client:
@@ -643,12 +642,11 @@ class CameraPreviewTtlRenewTests(unittest.TestCase):
     # -- T-6: binding / 404 / no leak (AC-004) -------------------------------
 
     def test_media_route_binding_404s_without_renewal_or_leak(self):
-        shim = self._install_clock()
+        self._install_clock()
         self._patch_const("CAMERA_PREVIEW_TTL_SEC", TEST_TTL_SEC)
         with self.client() as client:
             preview = self.start_preview(client)
             session_id = preview["session_id"]
-            t0 = shim.now
             self._track_pid(self.read_state()["pid"])
             baseline = self.read_state()["expires_epoch"]
             session_dir = self.config.CAMERA_PREVIEW_DIR / session_id
@@ -663,7 +661,7 @@ class CameraPreviewTtlRenewTests(unittest.TestCase):
                 "#EXTM3U\nsibling-secret-635\n", encoding="utf-8"
             )
             cases = (
-                ("wrong-session", f"/media/camera-preview/deadbeef0002/index.m3u8"),
+                ("wrong-session", "/media/camera-preview/deadbeef0002/index.m3u8"),
                 ("malformed-session", "/media/camera-preview/notasession/index.m3u8"),
                 ("traversal-dotdot", f"/media/camera-preview/{session_id}/.."),
                 ("traversal-encoded", f"/media/camera-preview/{session_id}/..%2Fsibling%2Findex.m3u8"),
@@ -687,7 +685,7 @@ class CameraPreviewTtlRenewTests(unittest.TestCase):
     # -- T-7: no-store on 200/206/404 (R-6) ----------------------------------
 
     def test_media_responses_carry_no_store(self):
-        shim = self._install_clock()
+        self._install_clock()
         self._patch_const("CAMERA_PREVIEW_TTL_SEC", TEST_TTL_SEC)
         with self.client() as client:
             preview = self.start_preview(client)
@@ -720,7 +718,7 @@ class CameraPreviewTtlRenewTests(unittest.TestCase):
     # -- T-10: terminate-first / stale id (AC-005) ----------------------------
 
     def test_stale_session_cannot_renew_after_terminate_first(self):
-        shim = self._install_clock()
+        self._install_clock()
         self._patch_const("CAMERA_PREVIEW_TTL_SEC", TEST_TTL_SEC)
         with self.client() as client:
             first = self.start_preview(client, "cam-a")
