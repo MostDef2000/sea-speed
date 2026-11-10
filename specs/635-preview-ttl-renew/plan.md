@@ -51,6 +51,13 @@ path while all other media paths still hit the mount.
   segment, or media segment through the new route. Status polling, snapshot
   reads/commits, HEAD and unknown paths never renew (the cameras gallery
   polls status every 3 s and must not keep an abandoned session alive).
+  HEAD note (peer-verified 2026-11-10): FastAPI's APIRoute does not auto-add
+  HEAD, so HEAD requests to the preview media path fall through to the
+  StaticFiles mount exactly as on base — "HEAD never renews" holds by
+  construction; the no-store scope is GET responses (the CF-caching
+  rationale targets GET bytes; hls.js fetches with GET only). Adding HEAD
+  to the route would make HEAD execute the handler and renew, contradicting
+  this decision — left as base behavior deliberately.
 - D-2: Serving point = decorator-visible `@app.get` route + mount moved
   below all routes. Rejected: narrowing the mount into sub-mounts (wider
   compatibility surface for zero benefit); programmatic Route insertion
@@ -144,8 +151,17 @@ path while all other media paths still hit the mount.
 
 ## Validation
 
-- RED authenticity (new/updated tests against base): PENDING — to be
-  observed by the test phase before implementation.
-- Full battery after implementation: PENDING.
-- validate_sdd / validate_repo / validate_contracts /
-  validate_change_contract: PENDING.
+- RED authenticity (new/updated tests against base): OBSERVED — 11 ran /
+  8 failures (3 guards green), route-table 2/2, gallery pins 2/2; battery
+  on base+tests 1441 ran, failures=12 = exactly the new/updated tests
+  (test worker + orchestrator re-observation).
+- Full battery after implementation: OBSERVED — 1441 ran, OK (skipped=2)
+  + quality 8 OK (implementation worker, peer verifier, orchestrator).
+- validate_sdd / validate_repo / validate_contracts: OBSERVED green by the
+  orchestrator; validate_change_contract runs in CI on the PR.
+- Peer verification: OBSERVED — independent read-only audit (Qwen3.8
+  family): lock handling, time/constant patchability, traversal, route/
+  mount ordering, test integrity (git diff 02b3cd9 -- tests/ specs/ empty),
+  RED authenticity per-test analysis, battery green. One LOW finding
+  (HEAD fall-through to mount, base-identical) accepted and documented in
+  D-1.

@@ -1,15 +1,19 @@
+import asyncio
+import contextlib
 import json
+import logging
 import os
+import re
 import sys
 import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, AsyncIterator, Dict, Optional
 
 from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 
 try:  # package context (api.app.main) and direct-file load both supported
     from . import store
@@ -67,6 +71,9 @@ try:  # package context (api.app.main) and direct-file load both supported
         CAMERA_SNAPSHOT_MIN_LUMA_SPREAD,
         WORKER_CONTROL_TIMEOUT_SEC,
         CAMERA_PREVIEW_TTL_SEC,
+        CAMERA_PREVIEW_MAX_LIFETIME_SEC,
+        CAMERA_PREVIEW_RENEW_MIN_INTERVAL_SEC,
+        CAMERA_PREVIEW_SWEEP_INTERVAL_SEC,
     )
     from . import identity  # noqa: F401  # explicit re-export seam (issue #396 wave 1)
     from .identity import (  # noqa: F401  # explicit re-export seam (issue #396 wave 1)
@@ -128,6 +135,9 @@ except ImportError:  # direct uvicorn app-dir / spec_from_file_location executio
         CAMERA_SNAPSHOT_MIN_LUMA_SPREAD,
         WORKER_CONTROL_TIMEOUT_SEC,
         CAMERA_PREVIEW_TTL_SEC,
+        CAMERA_PREVIEW_MAX_LIFETIME_SEC,
+        CAMERA_PREVIEW_RENEW_MIN_INTERVAL_SEC,
+        CAMERA_PREVIEW_SWEEP_INTERVAL_SEC,
     )
     import identity  # noqa: F401  # explicit re-export seam (issue #396 wave 1)
     from identity import (  # noqa: F401  # explicit re-export seam (issue #396 wave 1)
@@ -241,6 +251,8 @@ try:  # package context (api.app.main) and direct-file load both supported
         cleanup_camera_preview_media,
         terminate_camera_preview_locked,
         active_camera_preview_locked,
+        renew_camera_preview_locked,
+        sweep_camera_preview,
         build_camera_preview_ffmpeg_args,
         start_camera_preview_locked,
     )
@@ -262,6 +274,8 @@ except ImportError:  # direct uvicorn app-dir / spec_from_file_location executio
         cleanup_camera_preview_media,
         terminate_camera_preview_locked,
         active_camera_preview_locked,
+        renew_camera_preview_locked,
+        sweep_camera_preview,
         build_camera_preview_ffmpeg_args,
         start_camera_preview_locked,
     )
@@ -365,8 +379,56 @@ except ImportError:  # direct uvicorn app-dir / spec_from_file_location executio
     )
 
 
-app = FastAPI(title="Sea Speed API")
-app.mount("/media", StaticFiles(directory=str(MEDIA_DIR)), name="media")
+# Issue #635: the session-bound preview media route serves only the ACTIVE
+# session's generated HLS artifacts; the filename allowlist is one regex
+# (playlist, fMP4 init segment, numbered media segments).
+CAMERA_PREVIEW_MEDIA_FILENAME_RE = re.compile(r"^(?:index\.m3u8|init\.mp4|segment_[0-9]{5}\.m4s)$")
+
+_LOGGER = logging.getLogger(__name__)
+
+
+def _camera_preview_media_not_found() -> Response:
+    return Response(status_code=404, headers={"Cache-Control": "no-store"})
+
+
+async def _camera_preview_sweep_loop() -> None:
+    while True:
+        await asyncio.sleep(CAMERA_PREVIEW_SWEEP_INTERVAL_SEC)
+        try:
+            await asyncio.to_thread(sweep_camera_preview)
+        except Exception:
+            _LOGGER.exception("Camera preview sweep iteration failed")
+
+
+def _terminate_active_camera_preview() -> None:
+    with CAMERA_PREVIEW_LOCK:
+        terminate_camera_preview_locked()
+
+
+@contextlib.asynccontextmanager
+async def _camera_preview_lifespan(app: FastAPI) -> AsyncIterator[None]:
+    # Issue #635: the codebase's first background task — the preview sweeper.
+    # The synchronous sweep runs off the event loop; a failed startup sweep
+    # must not keep the API from booting.
+    try:
+        await asyncio.to_thread(sweep_camera_preview)
+    except Exception:
+        _LOGGER.exception("Camera preview startup sweep failed")
+    task = asyncio.create_task(_camera_preview_sweep_loop())
+    app.state.camera_preview_sweep_task = task
+    try:
+        yield
+    finally:
+        app.state.camera_preview_sweep_task = None
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        await asyncio.to_thread(_terminate_active_camera_preview)
+
+
+app = FastAPI(title="Sea Speed API", lifespan=_camera_preview_lifespan)
 
 
 # passage_mirrors resolves open_passages_db through this binding: the factory
@@ -485,6 +547,25 @@ def stop_camera_preview(
     with CAMERA_PREVIEW_LOCK:
         stopped_camera_id = terminate_camera_preview_locked()
     return {"ok": True, "stopped_camera_id": stopped_camera_id, "active": None}
+
+
+@app.get("/media/camera-preview/{session_id}/{filename}")
+def camera_preview_media(session_id: str, filename: str):
+    try:
+        with CAMERA_PREVIEW_LOCK:
+            if not CAMERA_PREVIEW_SESSION_RE.fullmatch(session_id) or not CAMERA_PREVIEW_MEDIA_FILENAME_RE.fullmatch(filename):
+                return _camera_preview_media_not_found()
+            state = active_camera_preview_locked()
+            if not state or state.get("session_id") != session_id:
+                return _camera_preview_media_not_found()
+            session_dir = CAMERA_PREVIEW_DIR / session_id
+            resolved_path = (session_dir / filename).resolve()
+            if resolved_path.parent != session_dir.resolve() or not resolved_path.is_file():
+                return _camera_preview_media_not_found()
+            renew_camera_preview_locked(session_id)
+    except Exception:
+        return _camera_preview_media_not_found()
+    return FileResponse(resolved_path, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/cam1/state")
@@ -1509,3 +1590,9 @@ def water_live_stream():
 def health() -> Dict[str, Any]:
     return {"ok": True, "service": "sea-speed-api", "api_schema": API_SCHEMA,
             "source_commit": deployed_source_commit(), "time": now_iso()}
+
+
+# Issue #635: the /media StaticFiles mount sits BELOW every explicit route so
+# the session-bound preview media route wins for its path; all other media
+# (events/passages/overlays) keeps flowing through the mount unchanged.
+app.mount("/media", StaticFiles(directory=str(MEDIA_DIR)), name="media")
