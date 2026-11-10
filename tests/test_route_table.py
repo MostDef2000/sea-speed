@@ -24,6 +24,8 @@ MAIN_SOURCE = Path(__file__).resolve().parent.parent / "api" / "app" / "main.py"
 # Frozen at 38595d3245d53729568c7557ea6ba46c536e3ec0 (issue #396 wave 3 base):
 # 61 @app.* endpoints, parsed with the same walker as the test below. Each
 # entry is "<METHOD> <path>" -> "handler_name" (wave-3 route-name pinning).
+# Issue #635 (conscious update, base 450b317d): the session-bound preview
+# media route is added — 62 endpoints.
 EXPECTED_ROUTE_FINGERPRINTS = {
     "DELETE /api/cam1/objects/{object_id}": "delete_cam1_object",
     "DELETE /api/objects/{object_id}": "delete_object",
@@ -58,6 +60,7 @@ EXPECTED_ROUTE_FINGERPRINTS = {
     "GET /api/session": "get_session_identity",
     "GET /api/worker/control": "get_worker_control",
     "GET /api/worker/control/road1": "get_road_worker_control",
+    "GET /media/camera-preview/{session_id}/{filename}": "camera_preview_media",
     "GET /sea-speed/api/analytics/road1/live/stream": "road_live_stream",
     "GET /sea-speed/api/cam1/live/stream": "water_live_stream",
     "PATCH /api/cam1/objects/{object_id}": "patch_cam1_object",
@@ -135,7 +138,46 @@ class RouteTableFingerprintTest(unittest.TestCase):
         # Wave-3 route-name pinning: method/path AND the bound handler name
         # must both match the frozen fingerprint.
         self.assertEqual(found, EXPECTED_ROUTE_FINGERPRINTS)
-        self.assertEqual(len(EXPECTED_ROUTE_FINGERPRINTS), 61)
+        self.assertEqual(len(EXPECTED_ROUTE_FINGERPRINTS), 62)
+
+    def test_preview_media_route_is_registered_before_media_mount(self):
+        # Issue #635: the session-bound preview media route must be declared
+        # BEFORE the /media StaticFiles mount, or the mount swallows the path
+        # and the route (with its session binding, allowlist, renewal and
+        # no-store) never runs.
+        source = MAIN_SOURCE.read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        route_line = None
+        mount_line = None
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and node.name == "camera_preview_media"
+            ):
+                route_line = node.lineno
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "mount"
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "app"
+                and node.args
+                and isinstance(node.args[0], ast.Constant)
+                and node.args[0].value == "/media"
+            ):
+                mount_line = node.lineno
+        self.assertIsNotNone(
+            route_line, "camera_preview_media handler not found in main.py"
+        )
+        self.assertIsNotNone(
+            mount_line, "app.mount('/media', ...) not found in main.py"
+        )
+        self.assertLess(
+            route_line,
+            mount_line,
+            "the preview media route must be registered before the /media "
+            "StaticFiles mount",
+        )
 
 
 if __name__ == "__main__":

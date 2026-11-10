@@ -47,10 +47,14 @@ try:  # package context (api.app.camera_preview) and direct-file load both suppo
         CAMERA_PREVIEW_DIR,
         CAMERA_PREVIEW_FFMPEG_BIN,
         CAMERA_PREVIEW_ID_RE,
+        CAMERA_PREVIEW_LOCK,
+        CAMERA_PREVIEW_MAX_LIFETIME_SEC,
+        CAMERA_PREVIEW_RENEW_MIN_INTERVAL_SEC,
         CAMERA_PREVIEW_RFC1918,
         CAMERA_PREVIEW_SESSION_RE,
         CAMERA_PREVIEW_START_TIMEOUT_SEC,
         CAMERA_PREVIEW_STATE_FILE,
+        CAMERA_PREVIEW_SWEEP_INTERVAL_SEC,
         CAMERA_PREVIEW_TTL_SEC,
         CAMERA_SNAPSHOT_DIR,
         CAMERA_SNAPSHOT_EXTRACT_TIMEOUT_SEC,
@@ -69,10 +73,14 @@ except ImportError:  # direct uvicorn app-dir / spec_from_file_location executio
         CAMERA_PREVIEW_DIR,
         CAMERA_PREVIEW_FFMPEG_BIN,
         CAMERA_PREVIEW_ID_RE,
+        CAMERA_PREVIEW_LOCK,
+        CAMERA_PREVIEW_MAX_LIFETIME_SEC,
+        CAMERA_PREVIEW_RENEW_MIN_INTERVAL_SEC,
         CAMERA_PREVIEW_RFC1918,
         CAMERA_PREVIEW_SESSION_RE,
         CAMERA_PREVIEW_START_TIMEOUT_SEC,
         CAMERA_PREVIEW_STATE_FILE,
+        CAMERA_PREVIEW_SWEEP_INTERVAL_SEC,
         CAMERA_PREVIEW_TTL_SEC,
         CAMERA_SNAPSHOT_DIR,
         CAMERA_SNAPSHOT_EXTRACT_TIMEOUT_SEC,
@@ -96,6 +104,8 @@ __all__ = [
     "cleanup_camera_preview_media",
     "terminate_camera_preview_locked",
     "active_camera_preview_locked",
+    "renew_camera_preview_locked",
+    "sweep_camera_preview",
     "build_camera_preview_ffmpeg_args",
     "start_camera_preview_locked",
 ]
@@ -335,13 +345,52 @@ def active_camera_preview_locked() -> Optional[Dict[str, Any]]:
     return state
 
 
+def renew_camera_preview_locked(session_id: str) -> bool:
+    """Slide the active session's expiry forward (issue #635).
+
+    Caller holds ``CAMERA_PREVIEW_LOCK``. Validates the session through the
+    existing expiry/pid primitive (an expired session is terminated, not
+    renewed), then persists ``now + CAMERA_PREVIEW_TTL_SEC`` only when it
+    exceeds the persisted expiry by at least
+    ``CAMERA_PREVIEW_RENEW_MIN_INTERVAL_SEC`` (write debounce).
+    ``session_id``/``started_at``/``pid`` are never mutated.
+    """
+    state = active_camera_preview_locked()
+    if not state or state.get("session_id") != session_id:
+        return False
+    try:
+        persisted_expires_epoch = float(state.get("expires_epoch") or 0)
+    except (TypeError, ValueError):
+        persisted_expires_epoch = 0.0
+    proposed_expires_epoch = time.time() + CAMERA_PREVIEW_TTL_SEC
+    if proposed_expires_epoch < persisted_expires_epoch + CAMERA_PREVIEW_RENEW_MIN_INTERVAL_SEC:
+        return True
+    expires_at = datetime.fromtimestamp(proposed_expires_epoch, timezone.utc).isoformat()
+    write_json_file(
+        CAMERA_PREVIEW_STATE_FILE,
+        {**state, "expires_epoch": proposed_expires_epoch, "expires_at": expires_at},
+    )
+    return True
+
+
+def sweep_camera_preview() -> None:
+    """Terminate the expired active session, if any (issue #635 sweeper).
+
+    Synchronous and lock-internal: safe to offload to a worker thread. A
+    missing state file is a no-op; an unreadable state surface raises (the
+    lifespan loop logs and retries on the next tick).
+    """
+    with CAMERA_PREVIEW_LOCK:
+        active_camera_preview_locked()
+
+
 def build_camera_preview_ffmpeg_args(source: str, output_dir: Path) -> List[str]:
     return [
         CAMERA_PREVIEW_FFMPEG_BIN, "-nostdin", "-hide_banner", "-loglevel", "error",
         "-rtsp_transport", "tcp", "-i", source, "-map", "0:v:0", "-an",
         "-vf", "scale=640:-2,fps=8", "-c:v", "libx264", "-preset", "veryfast",
         "-tune", "zerolatency", "-profile:v", "baseline", "-pix_fmt", "yuv420p",
-        "-g", "16", "-keyint_min", "16", "-sc_threshold", "0", "-t", str(CAMERA_PREVIEW_TTL_SEC),
+        "-g", "16", "-keyint_min", "16", "-sc_threshold", "0", "-t", str(CAMERA_PREVIEW_MAX_LIFETIME_SEC),
         "-f", "hls", "-hls_time", "1", "-hls_list_size", "4",
         "-hls_flags", "delete_segments+independent_segments+omit_endlist+program_date_time", "-hls_segment_type", "fmp4",
         "-hls_fmp4_init_filename", "init.mp4", "-hls_segment_filename", str(output_dir / "segment_%05d.m4s"),

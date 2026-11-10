@@ -77,6 +77,9 @@ __all__ = [
     "CAMERA_SNAPSHOT_MIN_LUMA_SPREAD",
     "WORKER_CONTROL_TIMEOUT_SEC",
     "CAMERA_PREVIEW_TTL_SEC",
+    "CAMERA_PREVIEW_MAX_LIFETIME_SEC",
+    "CAMERA_PREVIEW_RENEW_MIN_INTERVAL_SEC",
+    "CAMERA_PREVIEW_SWEEP_INTERVAL_SEC",
 ]
 
 
@@ -180,6 +183,18 @@ try:
     )
 except ValueError:
     CAMERA_PREVIEW_TTL_SEC = 120
+# Issue #635: hard ffmpeg backstop (-t) bounding the worst-case encode
+# lifetime even if the sweeper or the whole API misbehaves; the API-side
+# sliding expiry (CAMERA_PREVIEW_TTL_SEC) is the primary life control.
+try:
+    CAMERA_PREVIEW_MAX_LIFETIME_SEC = max(
+        300,
+        min(int(os.environ.get("SEA_SPEED_CAMERA_PREVIEW_MAX_LIFETIME_SEC", "3600")), 21600),
+    )
+except ValueError:
+    CAMERA_PREVIEW_MAX_LIFETIME_SEC = 3600
+CAMERA_PREVIEW_RENEW_MIN_INTERVAL_SEC = 5
+CAMERA_PREVIEW_SWEEP_INTERVAL_SEC = 5
 CAMERA_PREVIEW_START_TIMEOUT_SEC = 12
 CAMERA_SNAPSHOT_EXTRACT_TIMEOUT_SEC = 8
 CAMERA_SNAPSHOT_MIN_BYTES = 4096
