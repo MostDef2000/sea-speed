@@ -934,5 +934,48 @@ class HlsScriptPinTests(unittest.TestCase):
                         )
 
 
+class StreamReconnectSemanticsStructuralTests(unittest.TestCase):
+    """SS twin: the water page's stream reconnect retries forever with a
+    capped delay (issue #633). The executed stream twins prove only the first
+    1000 ms rung and never reach the exhaustion boundary, so the reconnect
+    semantics are pinned on comment-stripped live code: the delay index must
+    be capped at the last ladder rung, and the terminal exhaustion branch
+    (which used to give up after the ladder ran out) must stay gone. The road
+    page's symmetric forever-retry cap is pinned too."""
+
+    def _live_source(self, page_path: Path, html: str) -> str:
+        return strip_comments(
+            page_path.read_text(encoding="utf-8-sig")
+            + "".join(frontend_html.external_local_scripts(page_path, html))
+        )
+
+    def test_water_reconnect_caps_the_delay_index_at_the_last_ladder_rung(self) -> None:
+        live = self._live_source(WATER_PAGE, WATER)
+        self.assertIn(
+            "STREAM_RETRY_DELAYS_MS[Math.min(reconnectAttempt,STREAM_RETRY_DELAYS_MS.length-1)]",
+            live,
+            "water scheduleStreamReconnect must cap the delay index at the last ladder rung",
+        )
+
+    def test_water_reconnect_has_no_terminal_exhaustion(self) -> None:
+        live = self._live_source(WATER_PAGE, WATER)
+        self.assertNotIn(
+            "HLS reconnect exhausted", live,
+            "water scheduleStreamReconnect must not give up after the ladder is exhausted",
+        )
+        self.assertNotIn(
+            "reconnectAttempt>=STREAM_RETRY_DELAYS_MS.length", live,
+            "water scheduleStreamReconnect must not treat ladder exhaustion as terminal",
+        )
+
+    def test_road_reconnect_keeps_the_capped_forever_retry(self) -> None:
+        live = self._live_source(ROAD_PAGE, ROAD)
+        self.assertIn(
+            "STREAM_RETRY_DELAYS_MS[Math.min(reconnectAttempt,STREAM_RETRY_DELAYS_MS.length-1)]",
+            live,
+            "road scheduleReconnect must keep the capped forever-retry delay",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
