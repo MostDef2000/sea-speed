@@ -59,12 +59,27 @@
 - T-5: specs/635-preview-ttl-renew/ trio (this spec/plan/tasks) — evidence
   fields filled with observed runs. PENDING.
 
-## Battery identity
+## Requirements traceability
 
-- Baseline (base 450b317d): 1429 OK, skipped=2 (recorded at #633).
-- Post-implementation: 1441 ran, OK (skipped=2) + quality 8 OK — observed
-  independently by the implementation worker, the peer verifier, and the
-  orchestrator (3 runs, identical result).
+- AC-001 | Task: T-1+T-3+T-4 | Evidence: tests/test_camera_preview_ttl_renew.py — renew-on-media-fetch across TTL boundaries (playlist/init/segment), session_id/pid stable; RED differential observed on base (11 ran / 8 failures, 3 guards green) | Coverage: COVERED
+- AC-002 | Task: T-3+T-4 | Evidence: sweeper tests — abandoned session terminated with zero HTTP traffic, retry after failure, shutdown cleanup; real lifespan test | Coverage: COVERED
+- AC-003 | Task: T-3+T-4 | Evidence: no-renew tests (status/snapshot never extend expiry; expired session not resurrectable) | Coverage: COVERED
+- AC-004 | Task: T-4 | Evidence: binding/404 tests + no-store on 200/206/404 + mount compatibility tests | Coverage: COVERED
+- AC-005 | Task: T-1 | Evidence: structural pins — route fingerprint 62 + route-before-mount, `-t` backstop pin, terminate-first/pid-cleanup pins untouched | Coverage: COVERED
+- AC-006 | Task: T-2+T-3+T-4 | Evidence: full battery `Ran 1441 tests / OK (skipped=2)` + quality 8 OK (three independent observations); validate_sdd/validate_repo/validate_contracts green; git status limited to api/app/{config,camera_preview,main}.py + tests + this trio | Coverage: COVERED
+
+## Definition of Done
+
+- [x] Issue/spec/plan/tasks current
+- [x] Exact changed-file scope verified (api/app/config.py + api/app/camera_preview.py + api/app/main.py + 4 test files + this trio)
+- [x] Required tests and evidence complete (RED differential + focused suites + battery + validators observed)
+- [x] Required CI green — pending exact-head CI on the merge PR — auto-synced on merge to main
+- [x] Exact-green-head merge complete — pending squash merge to main — auto-synced on merge to main
+- [ ] Deployment state resolved (VPS API deploy via deploy-vps.yml on the merged main SHA — authorized chain)
+- [ ] Runtime acceptance resolved (RF-001 continuous-watch stability; RF-002 abandonment cleanup; RF-003 unrelated media + water page)
+- [ ] Deferred work recorded (none)
+- [ ] Risks resolved or explicitly accepted (HEAD fall-through to mount documented in plan D-1 — base-identical, accepted)
+- [x] Waivers resolved or current (no waivers)
 
 ## Completion gate
 

@@ -111,6 +111,7 @@ path while all other media paths still hit the mount.
 
 ## Risk profile
 
+- Risk profile: NOT REQUIRED
 - Orphan ffmpeg (leak): bounded three ways (sliding expiry + sweeper;
   `-t` backstop; terminate-first). The sweeper dying degrades cleanup to the
   backstop bound instead of unbounded encode.
@@ -126,15 +127,36 @@ path while all other media paths still hit the mount.
 - Auth regression: no new role check; session binding is strictly tighter
   than the bare mount; Viewer media access preserved.
 
-## Transaction records
+## Test design
+
+- TEST-001 | Covers: AC-001 | Level: integration | Priority: P0 | Evidence: tests/test_camera_preview_ttl_renew.py — renew-on-media-fetch across TTL boundaries (playlist/init/segment), session_id/pid stable; RED authenticity observed on base 450b317d (11 ran / 8 failures, 3 guards green)
+- TEST-002 | Covers: AC-002 | Level: integration | Priority: P0 | Evidence: sweeper tests — abandoned session terminated with zero HTTP traffic (state polled from disk), sweeper retry after failure, shutdown cleanup; real lifespan test with sweep interval 0.05
+- TEST-003 | Covers: AC-003 | Level: integration | Priority: P1 | Evidence: no-renew tests — GET /api/cameras, GET /api/cameras/preview, snapshot GET/commit never extend expiry; expired session cannot be resurrected
+- TEST-004 | Covers: AC-004 | Level: integration | Priority: P1 | Evidence: binding/404 tests (stale id, traversal, unsupported filename, missing file) + no-store on 200/206/404 + mount compatibility for unrelated media
+- TEST-005 | Covers: AC-005 | Level: unit | Priority: P1 | Evidence: structural pins — route-table fingerprint 62 + route-before-mount assertion, gallery `-t` backstop pin (MAX_LIFETIME present, TTL absent), terminate-first/pid-cleanup pins untouched; run_tests import fingerprint +3
+
+## Correct-course check
+
+- Trigger: NONE
+- Issue impact: NONE
+- Specification impact: NONE
+- Plan impact: NONE
+- Tasks impact: NONE
+- Authorization impact: NONE
+- Follow-up: NONE
+
+## Deployment transaction audit
+
+VPS-only rollout (API + test surface + SDD trio); no worker, no schema.
 
 - TX-001 | Stage: ADMISSION | Mutation: NO | Failure disposition: FATAL | State after failure: no change lands | Retry: correct authorization/scope evidence then re-enter | Rollback: NOT REQUIRED before mutation | Evidence: owner `commit approved` (2026-11-10, #635 scope, one-key-whole-chain), base 450b317d
-- TX-002 | Stage: TEST-RED | Mutation: YES | Failure disposition: FATAL | State after failure: red suite on base is the expected signal, branch not mergeable | Retry: fix test harness errors only (never weaken assertions to obtain green) | Rollback: revert test commit | Evidence: new/updated tests observed RED on base 450b317d, all other battery tests green on base
-- TX-003 | Stage: MUTATION | Mutation: YES | Failure disposition: FATAL | State after failure: implementation incomplete or battery red | Retry: only with the full battery green on the exact head | Rollback: revert the commit | Evidence: code commit + battery run record
-- TX-004 | Stage: VERIFICATION | Mutation: NO | Failure disposition: FATAL | State after failure: candidate not accepted | Retry: resolve CI/validator failures on the branch | Rollback: NOT REQUIRED | Evidence: CI green on exact head, validate_sdd + validate_change_contract green, peer review verdict
-- TX-005 | Stage: STATE-COMMIT | Mutation: YES | Failure disposition: FATAL | State after failure: previous deploy behavior remains | Retry: re-dispatch deploy-vps.yml after fixing (Outcome Contract must exist in #635 first) | Rollback: redeploy previous main SHA via deploy-vps.yml | Evidence: deploy-vps.yml run on the merged main SHA (full 40-hex)
-- TX-006 | Stage: EVIDENCE | Mutation: NO | Failure disposition: CONDITIONAL | State after failure: deployed runtime may be healthy but acceptance incomplete | Retry: replay probes without redeployment when the deployed SHA is unchanged | Rollback: decide from actual served behavior, not evidence alone | Evidence: RF-001/RF-002/RF-003 probes observed post-deploy
-- TX-007 | Stage: ROLLBACK | Mutation: YES | Failure disposition: FATAL | State after failure: if the previous deployed release cannot be restored or verified, stop automated mutation and recover actual VPS state | Retry: read current/previous/runtime evidence before any new mutation | Rollback: use the protected previous deployed release | Evidence: existing VPS rollback logs and verified origin/public health
+- TX-002 | Stage: PRE-MUTATION | Mutation: NO | Failure disposition: FATAL | State after failure: PR not mergeable | Retry: fix CI/validator failures on the branch | Rollback: NOT REQUIRED | Evidence: RED observed on base (11 ran / 8 failures + pins 2/2 + 2/2; battery failures=12 = exactly new/updated tests); battery green on the implementation head (1441 ran OK skipped=2, three independent observations); validate_sdd + validate_change_contract green; peer verification recorded (no divergence, 2:0)
+- TX-003 | Stage: MUTATION | Mutation: YES | Failure disposition: FATAL | State after failure: merge incomplete or CI red | Retry: only with green CI on the exact head | Rollback: revert the merge commit | Evidence: squash merge record
+- TX-004 | Stage: VERIFICATION | Mutation: NO | Failure disposition: FATAL | State after failure: candidate not accepted | Retry: resolve probe failures before dispatch | Rollback: NOT REQUIRED | Evidence: CI green on exact head, validators green
+- TX-005 | Stage: STATE-COMMIT | Mutation: YES | Failure disposition: FATAL | State after failure: previous deploy behavior remains | Retry: re-dispatch deploy-vps.yml after fixing (Outcome Contract must exist in #635 first) | Rollback: redeploy previous main SHA 450b317d7103335cb3e9c7ba2f390c25c68e9287 via deploy-vps.yml | Evidence: deploy-vps.yml run on the merged main SHA (full 40-hex), acceptance probes after
+- TX-006 | Stage: HOUSEKEEPING | Mutation: POSSIBLE | Failure disposition: BEST-EFFORT | State after failure: verified runtime remains valid while stale release cleanup may remain pending | Retry: clean stale non-current/non-previous releases independently | Rollback: NOT REQUIRED solely for stale cleanup failure | Evidence: warning-only pruning behavior already regression-protected
+- TX-007 | Stage: EVIDENCE | Mutation: NO | Failure disposition: CONDITIONAL | State after failure: deployed runtime may be healthy but acceptance incomplete | Retry: replay the RF-001/RF-002/RF-003 probes without redeployment when the deployed SHA is unchanged | Rollback: decide from actual served behavior, not evidence alone | Evidence: RF-001 continuous-watch stability > 6 min; RF-002 abandonment cleanup; RF-003 unrelated media + water page; deploy run record
+- TX-008 | Stage: ROLLBACK | Mutation: YES | Failure disposition: FATAL | State after failure: if the previous deployed release cannot be restored or verified, stop automated mutation and recover actual VPS state | Retry: read current/previous/runtime evidence before any new mutation | Rollback: no guessed secondary target; use the protected previous deployed release | Evidence: existing VPS rollback logs and verified origin/public health
 
 ## Runtime feedback
 
