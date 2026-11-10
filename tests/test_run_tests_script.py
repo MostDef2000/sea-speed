@@ -249,6 +249,12 @@ class ImportHygieneScanTests(unittest.TestCase):
                 ("test_api_http_integration.py", 83, "fastapi"),
                 ("test_api_http_integration.py", 84, "fastapi"),
                 ("test_api_http_integration.py", 86, "httpx"),
+                # Issue #635 (conscious update): the preview TTL-renew
+                # behavioral suite reuses the guarded-optional TestClient
+                # harness pattern.
+                ("test_camera_preview_ttl_renew.py", 114, "fastapi"),
+                ("test_camera_preview_ttl_renew.py", 115, "fastapi"),
+                ("test_camera_preview_ttl_renew.py", 117, "httpx"),
                 ("test_live_envelope_validators.py", 61, "fastapi"),
             ],
         )

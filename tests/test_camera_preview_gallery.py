@@ -599,6 +599,9 @@ class CameraPreviewGalleryTests(unittest.TestCase):
             "/api/cameras/preview",
             "/api/cameras/{camera_id}/preview/start",
             "/api/cameras/preview/stop",
+            # Issue #635 (conscious update): the session-bound preview media
+            # route serving the active session's HLS artifacts.
+            "/media/camera-preview/{session_id}/{filename}",
         ):
             self.assertIn(route, routes)
         self.assertTrue(api_has_expr('entry["camera_id"] == camera_id'))
@@ -687,7 +690,11 @@ class CameraPreviewGalleryTests(unittest.TestCase):
         constants = fn_strings(ffmpeg)
         for constant in ("scale=640:-2,fps=8", "-an", "libx264", "baseline", "-hls_segment_type", "fmp4"):
             self.assertIn(constant, constants)
-        self.assertTrue(any(isinstance(n, ast.Name) and n.id == "CAMERA_PREVIEW_TTL_SEC" for n in ast.walk(ffmpeg)))
+        # Issue #635 (conscious update): the ffmpeg `-t` backstop binds to the
+        # new CAMERA_PREVIEW_MAX_LIFETIME_SEC hard lifetime, NOT to the sliding
+        # inactivity TTL (CAMERA_PREVIEW_TTL_SEC must not appear in the args).
+        self.assertTrue(any(isinstance(n, ast.Name) and n.id == "CAMERA_PREVIEW_MAX_LIFETIME_SEC" for n in ast.walk(ffmpeg)))
+        self.assertFalse(any(isinstance(n, ast.Name) and n.id == "CAMERA_PREVIEW_TTL_SEC" for n in ast.walk(ffmpeg)))
         self.assertTrue(api_has_expr('f"/sea-speed/media/camera-preview/{session_id}/index.m3u8"'))
         self.assertTrue(api_has_expr("output_dir.mkdir(mode=0o755, parents=False, exist_ok=False)"))
         self.assertFalse(api_has_expr("output_dir.mkdir(mode=0o700, parents=False, exist_ok=False)"))
