@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import ast
 import importlib.util
-import json
 import os
 import re
 import stat
@@ -316,11 +315,12 @@ class AnalyticsProfilesTests(unittest.TestCase):
         # DOM + executed twins (issue #398 wave 4): the road navigation is
         # asserted on parsed anchor attributes (class/href/text), the road
         # page's camera wiring is proven by its executed boot (the recorded
-        # fetch calls must address the road1 analytics API, POST the road1
-        # preview start endpoint and hit the worker control endpoint exactly
-        # once), and the objects registry page must boot-fetch the objects
-        # API and expose camera_id/domain filter fields. The rtsp credential
-        # ban stays a source regex (SP: security ban, regex IS the artifact).
+        # fetch calls must address the road1 analytics API, never POST any
+        # camera endpoint — the stream is permanent (issue #637) — and hit
+        # the worker control endpoint exactly once), and the objects registry
+        # page must boot-fetch the objects API and expose camera_id/domain
+        # filter fields. The rtsp credential ban stays a source regex (SP:
+        # security ban, regex IS the artifact).
         for path in FRONTEND_PATHS:
             with self.subTest(page=path.parent.name):
                 html = path.read_text(encoding="utf-8")
@@ -360,10 +360,11 @@ class AnalyticsProfilesTests(unittest.TestCase):
         self.assertTrue(analytics_calls, "road boot must address the road1 analytics API")
         self.assertTrue(
             any(
-                call["url"] == "/sea-speed/api/cameras/road1/preview/start" and call["method"] == "POST"
+                call["url"].startswith("/sea-speed/api/cameras") and call["method"] == "POST"
                 for call in evidence["fetchCalls"]
-            ),
-            "road boot must POST the road1 preview start endpoint",
+            )
+            is False,
+            "road boot must not call any camera preview endpoint (permanent stream, issue #637)",
         )
         worker_control = [
             call for call in evidence["fetchCalls"] if call["url"] == "/sea-speed/api/worker/control/road1"
@@ -401,10 +402,10 @@ class AnalyticsProfilesTests(unittest.TestCase):
             self.assertNotRegex(text, r"rtsp://[^\s\"']+:[^\s\"']+@")
         configure_tree = parse(files[1])
         self.assertTrue(
-            worker_source.contains_expr(configure_tree, 'item.get("camera_id") == "road1"'),
-            "configure must select the road1 catalog entry by camera_id comparison",
+            worker_source.contains_expr(configure_tree, 'parsed.scheme != "rtsp"'),
+            "configure must validate the road relay URL scheme by comparison",
         )
-        self.assertIn("/preview_road1", worker_source.string_constants(configure_tree))
+        self.assertIn("/road1", worker_source.string_constants(configure_tree))
         self.assertTrue(
             any("worker.env must be mode 600" in constant for constant in worker_source.string_constants(configure_tree))
         )
@@ -446,29 +447,14 @@ class AnalyticsProfilesTests(unittest.TestCase):
                 encoding="utf-8",
             )
             os.chmod(worker_env, 0o600)
-            catalog = root / "camera-preview-catalog.json"
-            catalog.write_text(
-                json.dumps(
-                    {
-                        "schema": "sea_speed_camera_preview_catalog_v1",
-                        "cameras": [
-                            {
-                                "camera_id": "road1",
-                                "source": "rtsp://10.123.239.102:8555/preview_road1",
-                            }
-                        ],
-                    }
-                ),
-                encoding="utf-8",
-            )
             result = subprocess.run(
                 [
                     sys.executable,
                     str(CONFIGURE),
                     "--install-root",
                     str(install_root),
-                    "--preview-catalog",
-                    str(catalog),
+                    "--road-relay-url",
+                    "rtsp://10.123.239.102:8554/road1",
                 ],
                 check=True,
                 text=True,
@@ -486,7 +472,7 @@ class AnalyticsProfilesTests(unittest.TestCase):
             self.assertEqual(road_values["YOLO_IMAGE_SIZE"], "960")
             self.assertEqual(road_values["SEA_SPEED_API_URL"], "http://10.123.239.101:18080/api/analytics/road1/state")
             self.assertEqual(road_values["SEA_SPEED_EVENT_API_URL"], "http://10.123.239.101:18080/api/analytics/road1/events")
-            self.assertEqual(road_values["HLS_URL"], "rtsp://10.123.239.102:8555/preview_road1")
+            self.assertEqual(road_values["HLS_URL"], "rtsp://10.123.239.102:8554/road1")
             self.assertEqual(stat.S_IMODE(road_env.stat().st_mode), 0o600)
             self.assertNotIn("mostdef.ru", road_env.read_text(encoding="utf-8"))
 

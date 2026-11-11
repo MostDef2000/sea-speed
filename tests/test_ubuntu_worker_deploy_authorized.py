@@ -159,7 +159,8 @@ class UbuntuAuthorizedDeploymentTests(unittest.TestCase):
         self.assertIn("road_worker_api_urls", configure)
         self.assertIn("/api/cam1/state", configure)
         self.assertIn('road_env="$install_root/shared/config/road-worker.env"', self.source)
-        self.assertIn('preview_catalog="/var/lib/sea-speed-camera-preview/active/camera-preview-catalog.json"', self.source)
+        self.assertIn('road_relay_url="rtsp://10.123.239.102:8554/road1"', self.source)
+        self.assertIn('--road-relay-url "$road_relay_url"', self.source)
         self.assertIn('configure-analytics-profiles.py', self.source)
         public = "https://mostdef.ru/sea-speed/api/analytics/road1"
         self.assertNotIn(public, configure)

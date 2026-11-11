@@ -618,8 +618,10 @@ class ActivateIdentityContractTests(unittest.TestCase):
         # three digest-emitting blocks; prepare/sanitize/remediate twins live
         # in the sibling suites).
         self.assertEqual(source.count("verify-reader-auth"), 5)
-        self.assertEqual(source.count("CANDIDATE_SHA256=%s"), 3)
-        self.assertEqual(source.count("MUTATIONS=PROTECTED_CANDIDATE_ONLY"), 3)
+        self.assertEqual(source.count("CANDIDATE_SHA256=%s"), 4)
+        # Issue #637: extra-path-prepare is the fourth digest-emitting,
+        # candidate-only flow (prepare/sanitize/remediate/extra-path-prepare).
+        self.assertEqual(source.count("MUTATIONS=PROTECTED_CANDIDATE_ONLY"), 4)
 
     def test_offline_branch_does_not_call_systemctl_cat(self) -> None:
         # #449 AC-1 (productivity): the bus-dependent `systemctl cat` is the

@@ -40,7 +40,7 @@ class ExactArtifactConvergenceTests(unittest.TestCase):
         mirrored = deploy_app_module_targets(text)
         required = vps_required_app_modules()
         self.assertEqual(
-            len(mirrored), 10, f"unexpected api/app TARGET mirror set: {sorted(mirrored)}"
+            len(mirrored), 9, f"unexpected api/app TARGET mirror set: {sorted(mirrored)}"
         )
         self.assertEqual(mirrored, required)
 

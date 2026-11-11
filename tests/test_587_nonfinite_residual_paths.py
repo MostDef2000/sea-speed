@@ -105,7 +105,6 @@ API_APP_MODULE_NAMES = (
     "api",
     "api.app",
     "api.app.analytics",
-    "api.app.camera_preview",
     "api.app.config",
     "api.app.identity",
     "api.app.live_feeds",

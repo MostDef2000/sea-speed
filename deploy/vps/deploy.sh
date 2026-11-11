@@ -16,7 +16,6 @@ IDENTITY_TARGET="$(dirname "$API_TARGET")/identity.py"
 OBJECTS_REGISTRY_TARGET="$(dirname "$API_TARGET")/objects_registry.py"
 PASSAGE_MIRRORS_TARGET="$(dirname "$API_TARGET")/passage_mirrors.py"
 WATER_PASSAGES_TARGET="$(dirname "$API_TARGET")/water_passages.py"
-CAMERA_PREVIEW_TARGET="$(dirname "$API_TARGET")/camera_preview.py"
 ANALYTICS_TARGET="$(dirname "$API_TARGET")/analytics.py"
 LIVE_FEEDS_TARGET="$(dirname "$API_TARGET")/live_feeds.py"
 FRONTEND_TARGET="${SEA_SPEED_FRONTEND_TARGET:-/var/www/mostdef.ru/sea-speed/index.html}"
@@ -228,7 +227,6 @@ release_complete() {
      -f "$root/api/app/objects_registry.py" && \
      -f "$root/api/app/passage_mirrors.py" && \
      -f "$root/api/app/water_passages.py" && \
-     -f "$root/api/app/camera_preview.py" && \
      -f "$root/api/app/analytics.py" && \
      -f "$root/api/app/live_feeds.py" && \
      -f "$root/frontend/sea-speed/index.html" && \
@@ -279,7 +277,6 @@ download_release() {
     api/app/objects_registry.py \
     api/app/passage_mirrors.py \
     api/app/water_passages.py \
-    api/app/camera_preview.py \
     api/app/analytics.py \
     api/app/live_feeds.py \
     frontend/sea-speed/index.html \
@@ -320,7 +317,6 @@ download_release() {
   install -m 0644 "$extracted/api/app/objects_registry.py" "$TARGET_RELEASE/api/app/objects_registry.py"
   install -m 0644 "$extracted/api/app/passage_mirrors.py" "$TARGET_RELEASE/api/app/passage_mirrors.py"
   install -m 0644 "$extracted/api/app/water_passages.py" "$TARGET_RELEASE/api/app/water_passages.py"
-  install -m 0644 "$extracted/api/app/camera_preview.py" "$TARGET_RELEASE/api/app/camera_preview.py"
   install -m 0644 "$extracted/api/app/analytics.py" "$TARGET_RELEASE/api/app/analytics.py"
   install -m 0644 "$extracted/api/app/live_feeds.py" "$TARGET_RELEASE/api/app/live_feeds.py"
   install -m 0644 "$extracted/frontend/sea-speed/index.html" "$TARGET_RELEASE/frontend/sea-speed/index.html"
@@ -489,11 +485,6 @@ bootstrap_current_release() {
     # Same for water_passages.py (issue #396 wave 3): the captured main.py
     # imports it at boot, so the bootstrap baseline must stay bootable.
     install -m 0644 "$WATER_PASSAGES_TARGET" "$bootstrap_release/api/app/water_passages.py"
-  fi
-  if [[ -f "$CAMERA_PREVIEW_TARGET" ]]; then
-    # Same for camera_preview.py (issue #396 wave 4): the captured main.py
-    # imports it at boot, so the bootstrap baseline must stay bootable.
-    install -m 0644 "$CAMERA_PREVIEW_TARGET" "$bootstrap_release/api/app/camera_preview.py"
   fi
   if [[ -f "$ANALYTICS_TARGET" ]]; then
     # Same for analytics.py (issue #396 wave 5): the captured main.py
@@ -683,9 +674,6 @@ install_release() {
   if [[ -f "$release_dir/api/app/water_passages.py" ]]; then
     install -m 0644 "$release_dir/api/app/water_passages.py" "${WATER_PASSAGES_TARGET}.next"
   fi
-  if [[ -f "$release_dir/api/app/camera_preview.py" ]]; then
-    install -m 0644 "$release_dir/api/app/camera_preview.py" "${CAMERA_PREVIEW_TARGET}.next"
-  fi
   if [[ -f "$release_dir/api/app/analytics.py" ]]; then
     install -m 0644 "$release_dir/api/app/analytics.py" "${ANALYTICS_TARGET}.next"
   fi
@@ -782,13 +770,9 @@ install_release() {
   else
     rm -f "$WATER_PASSAGES_TARGET" "${WATER_PASSAGES_TARGET}.next"
   fi
-  if [[ -f "$release_dir/api/app/camera_preview.py" ]]; then
-    # camera_preview.py must also land before main.py: the new main imports
-    # it through the wave-4 seam at boot (issue #396 wave 4).
-    mv -f "${CAMERA_PREVIEW_TARGET}.next" "$CAMERA_PREVIEW_TARGET"
-  else
-    rm -f "$CAMERA_PREVIEW_TARGET" "${CAMERA_PREVIEW_TARGET}.next"
-  fi
+  # camera_preview.py died with the session preview contour (issue #637);
+  # drop any stale copy left by earlier releases.
+  rm -f "$(dirname "$API_TARGET")/camera_preview.py" "$(dirname "$API_TARGET")/camera_preview.py.next"
   if [[ -f "$release_dir/api/app/analytics.py" ]]; then
     # analytics.py must also land before main.py: the new main imports
     # it through the wave-5 seam at boot (issue #396 wave 5).

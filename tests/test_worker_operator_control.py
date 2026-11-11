@@ -11,7 +11,9 @@ ROOT = Path(__file__).resolve().parents[1]
 AGENT_PATH = ROOT / "deploy" / "worker" / "ubuntu" / "worker-control-agent.py"
 API_PATH = ROOT / "api" / "app" / "main.py"
 FRONTEND_PATH = ROOT / "frontend" / "sea-speed" / "index.html"
+WATER_MAIN_JS_PATH = ROOT / "frontend" / "sea-speed" / "main.js"
 ROAD_FRONTEND_PATH = ROOT / "frontend" / "sea-speed" / "road" / "index.html"
+ROAD_MAIN_JS_PATH = ROOT / "frontend" / "sea-speed" / "road" / "main.js"
 
 
 def api_source() -> str:
@@ -208,11 +210,14 @@ def test_worker_control_protocol_is_fixed_and_mismatch_fails_closed():
 def test_worker_control_never_owns_camera_hls_or_preview():
     agent = AGENT_PATH.read_text(encoding="utf-8").lower()
     api = api_source().lower()
-    frontend = FRONTEND_PATH.read_text(encoding="utf-8")
-    road = ROAD_FRONTEND_PATH.read_text(encoding="utf-8")
+    frontend = WATER_MAIN_JS_PATH.read_text(encoding="utf-8")
+    road = ROAD_MAIN_JS_PATH.read_text(encoding="utf-8")
     assert "mediamtx" not in agent
     assert "camera-relay" not in agent
     assert 'const HLS_URL = "/sea-speed/media/cam1/index.m3u8";' in frontend
-    assert 'const PREVIEW_START_URL="/sea-speed/api/cameras/road1/preview/start"' in road
+    # Issue #637: the road stream is a permanent protected HLS relay — the
+    # page never starts/stops a preview session anymore.
+    assert "preview/start" not in road
+    assert 'const HLS_URL="/sea-speed/media/road1/index.m3u8"' in road
     assert 'const WORKER_CONTROL_URL="/sea-speed/api/worker/control/road1"' in road
     assert "systemctl" not in api

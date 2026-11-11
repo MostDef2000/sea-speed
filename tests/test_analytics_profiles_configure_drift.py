@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import ast
 import importlib.util
-import json
 import os
 import stat
 import subprocess
@@ -115,29 +114,14 @@ class ConfigureDerivesFromCanonicalProfilesTests(unittest.TestCase):
                 encoding="utf-8",
             )
             os.chmod(worker_env, 0o600)
-            catalog = root / "camera-preview-catalog.json"
-            catalog.write_text(
-                json.dumps(
-                    {
-                        "schema": "sea_speed_camera_preview_catalog_v1",
-                        "cameras": [
-                            {
-                                "camera_id": "road1",
-                                "source": "rtsp://10.123.239.102:8555/preview_road1",
-                            }
-                        ],
-                    }
-                ),
-                encoding="utf-8",
-            )
             subprocess.run(
                 [
                     sys.executable,
                     str(CONFIGURE),
                     "--install-root",
                     str(install_root),
-                    "--preview-catalog",
-                    str(catalog),
+                    "--road-relay-url",
+                    "rtsp://10.123.239.102:8554/road1",
                 ],
                 check=True,
                 text=True,
@@ -170,29 +154,14 @@ class ConfigureDerivesFromCanonicalProfilesTests(unittest.TestCase):
             road_env = config_root / "road-worker.env"
             road_env.write_text("SAMPLE_FPS=12.5\n", encoding="utf-8")
             os.chmod(road_env, 0o600)
-            catalog = root / "camera-preview-catalog.json"
-            catalog.write_text(
-                json.dumps(
-                    {
-                        "schema": "sea_speed_camera_preview_catalog_v1",
-                        "cameras": [
-                            {
-                                "camera_id": "road1",
-                                "source": "rtsp://10.123.239.102:8555/preview_road1",
-                            }
-                        ],
-                    }
-                ),
-                encoding="utf-8",
-            )
             subprocess.run(
                 [
                     sys.executable,
                     str(CONFIGURE),
                     "--install-root",
                     str(install_root),
-                    "--preview-catalog",
-                    str(catalog),
+                    "--road-relay-url",
+                    "rtsp://10.123.239.102:8554/road1",
                 ],
                 check=True,
                 text=True,

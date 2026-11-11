@@ -69,10 +69,6 @@ ROAD_WORKER_RESPONSE = {
     "match": "/worker/control",
     "json": {"ok": True, "active": True, "target": "road1"},
 }
-ROAD_PREVIEW_RESPONSE = {
-    "match": "/cameras/road1/preview/start",
-    "json": {"preview": {"session_id": "sess-contract", "hls_url": ROAD_HLS_URL}},
-}
 
 SCENARIO_PREAMBLE = """
   const assert = (cond, msg) => { if (!cond) { console.error("FAIL: " + msg); process.exit(1); } };
@@ -244,17 +240,17 @@ WATER_STATS_SCENARIO = (
 )
 
 # Executed road stream twin (drain_timeouts=True: the auto-connect timer
-# POSTs preview/start and attachHls runs before the scenario). The preview
-# HLS URL must be loaded and attached to roadMainVideo only; the manifest,
-# media-error and network-error paths arm the recorded watchdog/recovery/
-# retry timers; the stream toggle stops the preview server and tears the
-# instance down.
+# runs attachHls before the scenario). The permanent protected HLS URL must
+# be loaded and attached to roadMainVideo only — no preview session is
+# started or stopped anymore (issue #637); the manifest, media-error and
+# network-error paths arm the recorded watchdog/recovery/retry timers; the
+# stream toggle tears the instance down without any API call.
 ROAD_HLS_SCENARIO = (
     ";(async () => {\n"
     + SCENARIO_PREAMBLE
     + """
-  const starts = __record.fetch.filter((c) => c.url === "/sea-speed/api/cameras/road1/preview/start" && (c.options.method || "GET") === "POST");
-  assert(starts.length === 1, "connect must POST the road preview start endpoint exactly once");
+  const starts = __record.fetch.filter((c) => c.url.includes("/cameras/") && (c.options.method || "GET") === "POST");
+  assert(starts.length === 0, "connect must not call any camera preview endpoint: " + JSON.stringify(starts.map((s) => s.url)));
   const instances = __record.hlsInstances;
   assert(instances.length === 1, "the road page must create exactly one HLS instance; got " + instances.length);
   const inst = instances[0];
@@ -264,7 +260,7 @@ ROAD_HLS_SCENARIO = (
   );
   assert(
     JSON.stringify(inst.sources) === JSON.stringify(["/sea-speed/media/road1/index.m3u8"]),
-    "the preview HLS URL must be loaded: " + JSON.stringify(inst.sources)
+    "the permanent HLS URL must be loaded: " + JSON.stringify(inst.sources)
   );
   assert(window.hls === inst, "the live instance must be published as window.hls");
   let before = __record.timeouts.length;
@@ -286,7 +282,7 @@ ROAD_HLS_SCENARIO = (
   assert(__record.elements.debugLog.textContent.includes("HLS network recovery"), "the network recovery must be logged");
   await __record.elements.streamControlBtn.onclick();
   await settle();
-  assert(__record.fetch.some((c) => c.url === "/sea-speed/api/cameras/preview/stop" && (c.options.method || "GET") === "POST"), "disconnect must POST the preview stop endpoint");
+  assert(!__record.fetch.some((c) => (c.options.method || "GET") === "POST" && c.url.includes("/cameras")), "disconnect must not call any camera endpoint");
   assert(inst.destroyed === true && window.hls === null, "disconnect must tear the HLS instance down");
   assert(__record.elements.debugLog.textContent.includes("Road HLS stopped; AI worker state unchanged"), "disconnect must log worker independence");
   console.log("###" + JSON.stringify({ sources: inst.sources }));
@@ -316,7 +312,7 @@ ROAD_WORKER_SCENARIO = (
   const inst = __record.hlsInstances[__record.hlsInstances.length - 1];
   assert(inst && inst.destroyed === false && window.hls === inst, "the worker toggle must not touch the live stream");
   assert(!__record.elements.debugLog.textContent.includes("Road HLS stopped"), "the worker toggle must not stop the stream");
-  assert(!__record.fetch.some((c) => c.url.includes("/cameras/preview/stop")), "the worker toggle must not stop the preview server");
+  assert(!__record.fetch.some((c) => c.url.includes("/api/cameras")), "the worker toggle must not touch the camera API");
   __responses.length = 0;
   __setResponse("/worker/control/road1/start", { ok: true, active: true, target: "road1" });
   await __record.elements.workerControlBtn.onclick();
@@ -604,7 +600,7 @@ class RoadStreamContractTests(unittest.TestCase):
         evidence = frontend_html.run_inline_scripts(
             source=ROAD_PAGE,
             scenario=ROAD_HLS_SCENARIO,
-            responses=[ROAD_PREVIEW_RESPONSE],
+            responses=[],
             drain_timeouts=True,
         )
         self.assertEqual(evidence["sources"], [ROAD_HLS_URL])
@@ -613,7 +609,7 @@ class RoadStreamContractTests(unittest.TestCase):
         evidence = frontend_html.run_inline_scripts(
             source=ROAD_PAGE,
             scenario=ROAD_WORKER_SCENARIO,
-            responses=[ROAD_PREVIEW_RESPONSE, ROAD_WORKER_RESPONSE],
+            responses=[ROAD_WORKER_RESPONSE],
             drain_timeouts=True,
         )
         self.assertEqual(evidence["workerActive"], [True, False, True])
@@ -633,7 +629,7 @@ class RoadStreamContractTests(unittest.TestCase):
             # The boot refresh() awaits BOTH state and events; without an
             # events reply the Promise.all rejects and renderState (which
             # applies the fallback overlay) never runs.
-            responses=[ROAD_PREVIEW_RESPONSE, ROAD_STATE_FALLBACK_RESPONSE, ROAD_EVENTS_RESPONSE],
+            responses=[ROAD_STATE_FALLBACK_RESPONSE, ROAD_EVENTS_RESPONSE],
         )
         self.assertEqual(evidence["sets"], 1)
 

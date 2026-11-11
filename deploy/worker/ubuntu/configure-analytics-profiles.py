@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import ipaddress
-import json
 import os
 import re
 import sys
@@ -59,25 +58,25 @@ def write_env(path: Path, values: dict[str, str]) -> None:
     os.replace(temp, path)
 
 
-def road_relay_source(catalog_path: Path) -> str:
-    payload = json.loads(catalog_path.read_text(encoding="utf-8"))
-    if payload.get("schema") != "sea_speed_camera_preview_catalog_v1":
-        raise SystemExit("ERROR unsupported camera preview catalog schema")
-    entry = next((item for item in payload.get("cameras", []) if item.get("camera_id") == "road1"), None)
-    if not isinstance(entry, dict):
-        raise SystemExit("ERROR logical road1 is absent from protected preview catalog")
-    source = str(entry.get("source") or "").strip()
+def road_relay_source(road_relay_url: str) -> str:
+    """Validate the operator-supplied permanent road1 relay URL (issue #637).
+
+    The road worker pulls the permanent relay path directly: scheme rtsp,
+    private RFC1918 IPv4 host with explicit port, no credentials (reader
+    authorization is IP-based on the relay), exact /road1 path.
+    """
+    source = str(road_relay_url or "").strip()
     parsed = urlsplit(source)
     try:
         address = ipaddress.ip_address(parsed.hostname or "")
         port = parsed.port
     except (TypeError, ValueError) as exc:
-        raise SystemExit("ERROR road1 catalog source must use a private IPv4 relay") from exc
+        raise SystemExit("ERROR road relay URL must use a private IPv4 relay") from exc
     private = any(address in network for network in PRIVATE_NETWORKS)
     if parsed.scheme != "rtsp" or address.version != 4 or not private or port is None or parsed.username is not None or parsed.password is not None:
-        raise SystemExit("ERROR road1 catalog source must use a sanitized private RTSP relay URL")
-    if parsed.path.rstrip("/") != "/preview_road1" or parsed.query or parsed.fragment:
-        raise SystemExit("ERROR road1 catalog source path mismatch")
+        raise SystemExit("ERROR road relay URL must be a sanitized private RTSP relay URL")
+    if parsed.path.rstrip("/") != "/road1" or parsed.query or parsed.fragment:
+        raise SystemExit("ERROR road relay URL path mismatch")
     return source
 
 
@@ -122,11 +121,7 @@ def derived_profile_defaults() -> dict[str, dict[str, str]]:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--install-root", type=Path, default=Path("/opt/sea-speed-worker"))
-    parser.add_argument(
-        "--preview-catalog",
-        type=Path,
-        default=Path("/var/lib/sea-speed-camera-preview/active/camera-preview-catalog.json"),
-    )
+    parser.add_argument("--road-relay-url", required=True)
     args = parser.parse_args()
 
     config_root = args.install_root / "shared/config"
@@ -136,14 +131,12 @@ def main() -> int:
         raise SystemExit("ERROR protected worker.env is missing")
     if worker_env.stat().st_mode & 0o777 != 0o600:
         raise SystemExit("ERROR worker.env must be mode 600")
-    if not args.preview_catalog.is_file() or args.preview_catalog.is_symlink():
-        raise SystemExit("ERROR protected preview catalog is missing")
 
     water = read_env(worker_env)
     token = water.get("SEA_SPEED_API_TOKEN", "")
     if not token:
         raise SystemExit("ERROR protected SEA_SPEED_API_TOKEN is missing")
-    road_source = road_relay_source(args.preview_catalog)
+    road_source = road_relay_source(args.road_relay_url)
     road_state_url, road_event_url = road_worker_api_urls(water)
     # Preserve allowlisted tuning knobs already present in protected env
     def _preserve_int(key: str, default: str) -> str:
@@ -237,7 +230,7 @@ def main() -> int:
     write_env(worker_env, water)
     print("ANALYTICS_PROFILES_CONFIGURED=YES")
     print("WATER_PROFILE=water-v1 CAMERA_ID=cam1")
-    print("ROAD_PROFILE=road-v1 CAMERA_ID=road1 SOURCE=protected_preview_relay")
+    print("ROAD_PROFILE=road-v1 CAMERA_ID=road1 SOURCE=permanent_relay_road1")
     print("ROAD_API=protected_private_worker_ingress")
     print("SECRETS_DISPLAYED=NO")
     return 0

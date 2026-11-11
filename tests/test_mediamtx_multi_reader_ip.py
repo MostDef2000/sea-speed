@@ -393,11 +393,13 @@ class CameraRelayForwardingTests(unittest.TestCase):
         # is retired: the executed prepare twins above prove repeatable and
         # comma-separated occurrences reach the renderer in input order,
         # and the bad-IP twin proves validation precedes any render.
-        self.assertEqual(ubuntu.count('"${reader_ip_args[@]}"'), 6)
+        self.assertEqual(ubuntu.count('"${reader_ip_args[@]}"'), 7)
         self.assertIn("verify-reader-auth", ubuntu)
-        self.assertIn("printf 'cam1-single-rfc1918-peer'", ubuntu)
-        self.assertIn("cam1-multi-rfc1918-peer-count-", ubuntu)
-        self.assertEqual(ubuntu.count("READER_AUTH_SCOPE=%s"), 2)
+        # Issue #637: the scope-evidence token is relay-path parameterized
+        # (cam1 keeps the historical literal shape via %s substitution).
+        self.assertIn("printf '%s-single-rfc1918-peer' \"$relay_path\"", ubuntu)
+        self.assertIn("-multi-rfc1918-peer-count-", ubuntu)
+        self.assertEqual(ubuntu.count("READER_AUTH_SCOPE=%s"), 3)
 
 
 if __name__ == "__main__":

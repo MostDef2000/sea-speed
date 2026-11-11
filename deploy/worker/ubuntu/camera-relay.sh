@@ -9,12 +9,18 @@ Usage:
   camera-relay.sh activate --config PATH --private-rtsp-address IPv4:PORT --reader-ip IPv4 [--reader-ip IPv4 ...] --expected-sha256 SHA256 [options]
   camera-relay.sh sanitize --config PATH --private-rtsp-address IPv4:PORT --reader-ip IPv4 [--reader-ip IPv4 ...] [options]
   camera-relay.sh remediate --config PATH --private-rtsp-address IPv4:PORT --reader-ip IPv4 [--reader-ip IPv4 ...] [options]
+  camera-relay.sh extra-path-prepare --config PATH --inventory PATH [--path NAME] --reader-ip IPv4 [--reader-ip IPv4 ...] [options]
   camera-relay.sh status [--private-rtsp-address IPv4:PORT] [options]
 
 Options:
   --reader-ip IPv4         Exact RFC1918 VPS ZeroTier reader IP allowed to read cam1;
                            repeatable or comma-separated for multi-reader deployments
                            (issue #372); all occurrences render in the given order
+  --path NAME              Relay path for extra-path-prepare (default: road1, issue #637)
+  --inventory PATH         Protected camera inventory (root-owned 0600) supplying the
+                           extra path's credential-bearing RTSP source (issue #637)
+  --relay-path NAME        activate: which prepared path's candidate to install
+                           (default cam1; issue #637 adds road1)
   --prune-declared SPEC    sanitize only (issue #444): explicit opt-in prune
                            declaration for a dead legacy auth rule
                            path=NAME,ips=IPv4[,IPv4...],actions=read|publish|api[, ...];
@@ -69,7 +75,7 @@ EOF
 
 command="${1:-}"
 case "$command" in
-  prepare|activate|sanitize|remediate|status) shift ;;
+  prepare|activate|sanitize|remediate|extra-path-prepare|status) shift ;;
   -h|--help|"") usage; exit 0 ;;
   *) echo "ERROR unknown command: $command" >&2; usage >&2; exit 2 ;;
 esac
@@ -83,6 +89,9 @@ service_name="sea-speed-stream.service"
 worker_service="sea-speed-worker.service"
 state_root="/var/lib/sea-speed-camera-relay"
 expected_sha256=""
+inventory_file=""
+relay_path="cam1"
+extra_path="road1"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -109,6 +118,9 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     --source-env-file) [[ $# -ge 2 ]] || { echo "ERROR --source-env-file requires a path" >&2; exit 2; }; source_env_file="$2"; shift 2 ;;
+    --inventory) [[ $# -ge 2 ]] || { echo "ERROR --inventory requires a path" >&2; exit 2; }; inventory_file="$2"; shift 2 ;;
+    --path) [[ $# -ge 2 ]] || { echo "ERROR --path requires a value" >&2; exit 2; }; extra_path="$2"; shift 2 ;;
+    --relay-path) [[ $# -ge 2 ]] || { echo "ERROR --relay-path requires a value" >&2; exit 2; }; relay_path="$2"; shift 2 ;;
     --service) [[ $# -ge 2 ]] || { echo "ERROR --service requires a name" >&2; exit 2; }; service_name="$2"; shift 2 ;;
     --worker-service) [[ $# -ge 2 ]] || { echo "ERROR --worker-service requires a name" >&2; exit 2; }; worker_service="$2"; shift 2 ;;
     --state-root) [[ $# -ge 2 ]] || { echo "ERROR --state-root requires a path" >&2; exit 2; }; state_root="$2"; shift 2 ;;
@@ -121,8 +133,8 @@ done
 script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 repo_root="$(CDPATH= cd -- "$script_dir/../../.." && pwd)"
 renderer="$repo_root/scripts/operations/mediamtx_path_config.py"
-candidate="$state_root/cam1-mediamtx.candidate.yml"
-candidate_sha_file="$state_root/cam1-mediamtx.candidate.sha256"
+candidate="$state_root/${relay_path}-mediamtx.candidate.yml"
+candidate_sha_file="$state_root/${relay_path}-mediamtx.candidate.sha256"
 backup_root="$state_root/backups"
 
 service_value() {
@@ -170,9 +182,9 @@ reader_auth_scope() {
   # Deterministic evidence token (issue #372); single reader keeps the
   # historical literal so single-IP output stays byte-identical.
   if [[ ${#reader_ips[@]} -eq 1 ]]; then
-    printf 'cam1-single-rfc1918-peer'
+    printf '%s-single-rfc1918-peer' "$relay_path"
   else
-    printf 'cam1-multi-rfc1918-peer-count-%s' "${#reader_ips[@]}"
+    printf '%s-multi-rfc1918-peer-count-%s' "$relay_path" "${#reader_ips[@]}"
   fi
 }
 
@@ -345,6 +357,42 @@ if [[ "$command" == "prepare" ]]; then
   exit 0
 fi
 
+if [[ "$command" == "extra-path-prepare" ]]; then
+  # Issue #637: bounded permanent-path addition (road1) sourced from the
+  # protected camera inventory. Same transaction discipline as `prepare`:
+  # render a 0600 candidate, emit its digest, touch nothing live. The
+  # inventory must be a root-owned 0600 regular file (same protection class
+  # as the worker env file — it carries camera credentials).
+  [[ -n "$inventory_file" ]] || { echo "ERROR --inventory is required for extra-path-prepare" >&2; exit 2; }
+  [[ -f "$inventory_file" && ! -L "$inventory_file" ]] || { echo "ERROR protected inventory file is unavailable" >&2; exit 6; }
+  [[ "$(stat -c '%a' "$inventory_file")" == "600" ]] || { echo "ERROR protected inventory file mode must be 600" >&2; exit 6; }
+  [[ "$extra_path" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "ERROR extra path must be a simple literal name" >&2; exit 3; }
+
+  python3 "$renderer" ubuntu-relay-extra-path \
+    --config "$config" \
+    --inventory "$inventory_file" \
+    --path "$extra_path" \
+    "${reader_ip_args[@]}" \
+    --output "$candidate"
+
+  digest="$(sha256sum "$candidate" | awk '{print $1}')"
+  printf '%s\n' "$digest" > "$candidate_sha_file"
+  chown root:root "$candidate" "$candidate_sha_file"
+  chmod 0600 "$candidate" "$candidate_sha_file"
+
+  printf 'PREPARED_EXTRA_PATH_CANDIDATE=YES\n'
+  printf 'CANDIDATE_SHA256=%s\n' "$digest"
+  printf 'RELAY_PATH=%s\n' "$extra_path"
+  printf 'READER_AUTH_SCOPE=%s\n' "$(reader_auth_scope)"
+  printf 'READER_AUTH_PERMISSION=read-only\n'
+  printf 'RELAY_ENABLED=%s\n' "$(service_value is-enabled "$service_name")"
+  printf 'RELAY_ACTIVE=%s\n' "$(service_value is-active "$service_name")"
+  printf 'MUTATIONS=PROTECTED_CANDIDATE_ONLY\n'
+  printf 'SERVICE_RESTARTED=NO\n'
+  printf 'SECRETS_DISPLAYED=NO\n'
+  exit 0
+fi
+
 if [[ "$command" == "sanitize" ]]; then
   # Issue #436: bounded auth-sanitize transaction. Verify-before on the LIVE
   # config (canonical reader rule), then the renderer mode verifies the
@@ -458,7 +506,7 @@ actual_sha256="$(sha256sum "$candidate" | awk '{print $1}')"
 python3 "$renderer" verify-reader-auth \
   --config "$candidate" \
   "${reader_ip_args[@]}" \
-  --path cam1 >/dev/null
+  --path "$relay_path" >/dev/null
 
 if systemctl is-active --quiet "$worker_service"; then
   echo "ERROR AI worker must remain stopped during live-relay activation" >&2
@@ -500,7 +548,7 @@ if systemctl is-active --quiet "$worker_service"; then
 fi
 
 printf 'ACTIVATED_RELAY=YES\n'
-printf 'RELAY_PATH=cam1\n'
+printf 'RELAY_PATH=%s\n' "$relay_path"
 printf 'PRIVATE_RELAY_TCP=PASS\n'
 printf 'READER_AUTH_SCOPE=%s\n' "$(reader_auth_scope)"
 printf 'READER_AUTH_PERMISSION=read-only\n'
