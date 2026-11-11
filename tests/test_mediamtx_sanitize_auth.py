@@ -493,8 +493,8 @@ class SanitizeShellContractTests(unittest.TestCase):
         subprocess.run(["bash", "-n", str(UBUNTU)], check=True)
         ubuntu = UBUNTU.read_text(encoding="utf-8")
         self.assertEqual(ubuntu.count("verify-reader-auth"), 5)
-        self.assertEqual(ubuntu.count("CANDIDATE_SHA256=%s"), 3)
-        self.assertEqual(ubuntu.count("MUTATIONS=PROTECTED_CANDIDATE_ONLY"), 3)
+        self.assertEqual(ubuntu.count("CANDIDATE_SHA256=%s"), 4)
+        self.assertEqual(ubuntu.count("MUTATIONS=PROTECTED_CANDIDATE_ONLY"), 4)
         self.assertIn("--expected-sha256", ubuntu)
         self.assertIn("automatic rollback is not authorized", ubuntu)
         self.assertNotIn('systemctl restart "$worker_service"', ubuntu)
@@ -933,8 +933,8 @@ class DeclaredPruneShellTests(unittest.TestCase):
         # negative-space discipline as the #436 shell test above).
         self.assertIn("--prune-declared", ubuntu)
         self.assertEqual(ubuntu.count("verify-reader-auth"), 5)
-        self.assertEqual(ubuntu.count("CANDIDATE_SHA256=%s"), 3)
-        self.assertEqual(ubuntu.count("MUTATIONS=PROTECTED_CANDIDATE_ONLY"), 3)
+        self.assertEqual(ubuntu.count("CANDIDATE_SHA256=%s"), 4)
+        self.assertEqual(ubuntu.count("MUTATIONS=PROTECTED_CANDIDATE_ONLY"), 4)
         self.assertIn("automatic rollback is not authorized", ubuntu)
 
 

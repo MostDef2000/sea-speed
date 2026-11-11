@@ -64,6 +64,7 @@ General delivery gates follow the global contract `~/.config/opencode/AGENTS.md`
 28. Every startup status block and every user-visible wait, blocker, decision or terminal result includes a concise todo summary: current item, items completed since the prior visible transition, remaining/waiting items, `Model / orchestrator` and `Model / active worker` directly under the todo lines.
 29. At startup and before depending on CI/runtime continuation, verify the official GitHub Connector exposes `actions_list`, `actions_get`, `get_job_logs`, and `actions_run_trigger`; do not infer Actions capability from generic Issue/PR tools.
 30. GitHub Actions reads and the exact `run_workflow`, `rerun_workflow_run`, or `rerun_failed_jobs` continuation recorded by the checkpoint use the Connector. `cancel_workflow_run` and `delete_workflow_run_logs` are destructive and forbidden without a fresh Scope that explicitly authorizes that method.
+31. Minimum code (issue #637, owner decision 2026-11-11): every change is the smallest complete change that fully solves the task. Do not add abstractions, config knobs, compatibility shims, or "while we're here" refactors the need does not justify. Deleting a dead mechanism means deleting it entirely — no orphaned constants, routes, docs or tests left behind.
 
 ## Resumable delivery contract
 

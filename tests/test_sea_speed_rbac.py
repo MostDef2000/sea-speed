@@ -23,7 +23,6 @@ import hmac
 import logging
 import os
 import re
-import threading
 import unittest
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -37,8 +36,6 @@ CONFIG_SOURCE = ROOT / "api/app/config.py"
 EDGE_AUTH_ENV = "SEA_SPEED_EDGE_AUTH_SECRET"
 STRICT_EDGE_FIXTURE = "edge-fixture-530"
 RBAC_TEST_LOGGER_NAME = "sea_speed_rbac_under_test"
-
-SESSION_ID = "abcdef012345"  # matches config's CAMERA_PREVIEW_SESSION_RE
 
 # Recognized authentik group names (deploy/vps/authentik/blueprints/
 # sea-speed-auth-v1.yaml, mirrored by identity.py).
@@ -175,9 +172,6 @@ MUTATION_MATRIX: dict[str, tuple[str, str, str, str, tuple[str, ...]]] = {
     "patch_object": ("PATCH", "/api/objects/{object_id}", "operator", "objects", ("objects",)),
     "delete_cam1_object": ("DELETE", "/api/cam1/objects/{object_id}", "admin", "objects", ("objects",)),
     "delete_object": ("DELETE", "/api/objects/{object_id}", "admin", "objects", ("objects",)),
-    "commit_camera_snapshot": ("POST", "/api/cameras/{camera_id}/snapshot/commit", "operator", "preview", ("preview",)),
-    "start_camera_preview": ("POST", "/api/cameras/{camera_id}/preview/start", "operator", "preview", ("preview",)),
-    "stop_camera_preview": ("POST", "/api/cameras/preview/stop", "operator", "preview", ("preview",)),
     "post_cam1_roi": ("POST", "/api/cam1/roi", "admin", "calibration", ("writes",)),
     "post_cam1_speed_config": ("POST", "/api/cam1/speed-config", "admin", "calibration", ("writes",)),
     "post_cam1_speed_lines": ("POST", "/api/cam1/speed-lines", "admin", "calibration", ("writes",)),
@@ -216,12 +210,6 @@ def _invoke_handler(api_ns: dict[str, Any], handler: str, invoke: str, headers: 
         return call("obj-530", dict(OBJECT_PATCH_PAYLOAD), **headers)
     if invoke == "objects":
         return call("obj-530", **headers)
-    if invoke == "preview":
-        if handler == "commit_camera_snapshot":
-            return call("cam1", SESSION_ID, **headers)
-        if handler == "start_camera_preview":
-            return call("cam1", **headers)
-        return call(**headers)
     if invoke == "calibration":
         if handler == "post_cam1_roi":
             return call(dict(ROI_PAYLOAD), **headers)
@@ -252,7 +240,6 @@ class ApiHarness(unittest.TestCase):
         )
         effects: dict[str, list] = {
             "objects": [],
-            "preview": [],
             "writes": [],
             "worker": [],
             "crossing": [],
@@ -270,28 +257,6 @@ class ApiHarness(unittest.TestCase):
         def call_worker_control(method, path):
             effects["worker"].append((method, path))
             return {"ok": True, "protocol": "sea_speed_worker_control_v1", "active": True}
-
-        def load_camera_preview_catalog():
-            effects["identity_reads"].append("catalog")
-            return [{"camera_id": "cam1", "label": "Cam 1"}]
-
-        def active_camera_preview_locked():
-            return {"camera_id": "cam1", "session_id": SESSION_ID, "pid": 4242}
-
-        def commit_camera_snapshot_locked(state):
-            effects["preview"].append(("commit", state["camera_id"]))
-            return {"path": f"/media/camera-preview/{state['session_id']}/last-good.jpg", "updated_at": "x"}
-
-        def start_camera_preview_locked(camera):
-            effects["preview"].append(("start", camera["camera_id"]))
-            return {"camera_id": camera["camera_id"], "session_id": SESSION_ID, "pid": 4242}
-
-        def terminate_camera_preview_locked():
-            effects["preview"].append(("terminate", None))
-            return "cam1"
-
-        def camera_preview_public_state(state):
-            return state
 
         def analytics_identity(camera_id):
             effects["identity_reads"].append(("analytics_identity", camera_id))
@@ -325,8 +290,6 @@ class ApiHarness(unittest.TestCase):
             "re": re,
             "json": __import__("json"),
             "store": type("store", (), {"JSON_READ_ERRORS": (OSError, ValueError)})(),
-            "CAMERA_PREVIEW_LOCK": threading.Lock(),
-            "CAMERA_PREVIEW_SESSION_RE": re.compile(r"^[0-9a-f]{12}$"),
             "DEFAULT_ROI_REF_W": 1920,
             "DEFAULT_ROI_REF_H": 1080,
             "LEGACY_ROI_W": 704,
@@ -334,12 +297,6 @@ class ApiHarness(unittest.TestCase):
             "patch_object_record": patch_object_record,
             "delete_object_record": delete_object_record,
             "call_worker_control": call_worker_control,
-            "load_camera_preview_catalog": load_camera_preview_catalog,
-            "active_camera_preview_locked": active_camera_preview_locked,
-            "commit_camera_snapshot_locked": commit_camera_snapshot_locked,
-            "start_camera_preview_locked": start_camera_preview_locked,
-            "terminate_camera_preview_locked": terminate_camera_preview_locked,
-            "camera_preview_public_state": camera_preview_public_state,
             "analytics_identity": analytics_identity,
             "analytics_data_file": analytics_data_file,
             "write_json_file": write_json_file,
@@ -373,7 +330,7 @@ class ApiHarness(unittest.TestCase):
 
     def assert_no_effects(self, effects: dict[str, list]) -> None:
         """AC-003: a denial must not reach ANY side-effect collaborator."""
-        for bucket in ("objects", "preview", "writes", "worker", "crossing"):
+        for bucket in ("objects", "writes", "worker", "crossing"):
             self.assertEqual(effects[bucket], [], f"denied mutation recorded {bucket} effects")
 
 
@@ -405,12 +362,11 @@ class RbacMatrixTests(ApiHarness):
                         self.assert_no_effects(effects)
 
     def test_guards_run_before_any_side_effect(self) -> None:
-        # A viewer denial on commit_camera_snapshot must not even read the
-        # catalog/lock collaborators (plan: guard first, before catalog access,
-        # locks, validation helpers with side effects, persistence).
+        # A viewer denial on patch_cam1_object must not reach any side-effect
+        # collaborator (plan: guard first, before persistence).
         _policy, api_ns, effects = self.build_api()
         with self.assertRaises(HTTPExceptionStub) as raised:
-            api_ns["commit_camera_snapshot"]("cam1", SESSION_ID, **_headers_for("viewer"))
+            api_ns["patch_cam1_object"]("obj-530", dict(OBJECT_PATCH_PAYLOAD), **_headers_for("viewer"))
         self.assertEqual(raised.exception.status_code, 403)
         self.assertEqual(effects["identity_reads"], [])
         self.assert_no_effects(effects)
@@ -715,9 +671,6 @@ class AuditRecordTests(ApiHarness):
         authorized = {
             "patch_cam1_object": "operator",
             "patch_object": "operator",
-            "commit_camera_snapshot": "operator",
-            "start_camera_preview": "operator",
-            "stop_camera_preview": "operator",
             "delete_cam1_object": "admin",
             "delete_object": "admin",
             "post_cam1_roi": "admin",

@@ -40,7 +40,9 @@ control_service="sea-speed-worker-control.service"
 test_mode="${SEA_SPEED_DEPLOY_TEST_MODE:-0}"
 systemd_unit_root="${SEA_SPEED_SYSTEMD_UNIT_ROOT:-/etc/systemd/system}"
 authentik_runtime_root="${SEA_SPEED_AUTHENTIK_RUNTIME_ROOT:-/opt/sea-speed-auth}"
-preview_catalog="/var/lib/sea-speed-camera-preview/active/camera-preview-catalog.json"
+# Issue #637: permanent road1 relay path on the main mediamtx (RTSP, IP-based
+# reader authorization — credential-free for the worker).
+road_relay_url="rtsp://10.123.239.102:8554/road1"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -392,7 +394,7 @@ fi
 
 if ! python3 "$stage/deploy/worker/ubuntu/configure-analytics-profiles.py" \
     --install-root "$install_root" \
-    --preview-catalog "$preview_catalog"; then
+    --road-relay-url "$road_relay_url"; then
   echo "ERROR protected analytics profile reconciliation failed" >&2
   if restore_protected_config; then
     echo "DEPLOY_CONFIG_ROLLED_BACK reason=configure_failed" >&2

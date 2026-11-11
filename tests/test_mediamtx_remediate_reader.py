@@ -472,10 +472,10 @@ class RemediateShellExecutedTests(unittest.TestCase):
         # test_mediamtx_activate_identity), the rollback warning and the
         # worker-service start/enable bans (no executed surface for the
         # negative space).
-        self.assertIn("prepare|activate|sanitize|remediate|status", ubuntu)
+        self.assertIn("prepare|activate|sanitize|remediate|extra-path-prepare|status", ubuntu)
         self.assertEqual(ubuntu.count("verify-reader-auth"), 5)
-        self.assertEqual(ubuntu.count("CANDIDATE_SHA256=%s"), 3)
-        self.assertEqual(ubuntu.count("MUTATIONS=PROTECTED_CANDIDATE_ONLY"), 3)
+        self.assertEqual(ubuntu.count("CANDIDATE_SHA256=%s"), 4)
+        self.assertEqual(ubuntu.count("MUTATIONS=PROTECTED_CANDIDATE_ONLY"), 4)
         self.assertIn("--expected-sha256", ubuntu)
         self.assertIn("automatic rollback is not authorized", ubuntu)
         self.assertNotIn('systemctl restart "$worker_service"', ubuntu)

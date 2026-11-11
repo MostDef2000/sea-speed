@@ -139,7 +139,7 @@ def api_namespace(control_token: str, ingestion_token: str) -> dict[str, Any]:
         "WORKER_CONTROL_URL": "http://10.123.239.102:19001",
         "WORKER_CONTROL_TIMEOUT_SEC": 1.0,
         "WORKER_CONTROL_PROTOCOL": "sea_speed_worker_control_v1",
-        "CAMERA_PREVIEW_RFC1918": tuple(
+        "RFC1918_NETWORKS": tuple(
             ipaddress.ip_network(value) for value in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
         ),
     }

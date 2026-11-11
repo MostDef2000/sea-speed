@@ -1,19 +1,16 @@
-import asyncio
-import contextlib
 import json
 import logging
 import os
-import re
 import sys
 import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, AsyncIterator, Dict, Optional
+from typing import Any, Dict, Optional
 
 from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, Response, StreamingResponse
+from fastapi.responses import StreamingResponse
 
 try:  # package context (api.app.main) and direct-file load both supported
     from . import store
@@ -34,17 +31,13 @@ try:  # package context (api.app.main) and direct-file load both supported
         EVENTS_MEDIA_DIR,
         PASSAGES_MEDIA_DIR,
         PASSAGE_MEDIA_DIR,
-        CAMERA_PREVIEW_DIR,
-        CAMERA_SNAPSHOT_DIR,
         DEPLOYED_COMMIT_FILE,
         OBJECTS_DB_FILE,
         PASSAGES_DB_FILE,
         STATE_DB_FILE,
         EVENTS_FEED_LIMIT,
         ANALYTICS_IDENTITIES,
-        CAMERA_PREVIEW_CATALOG_FILE,
-        CAMERA_PREVIEW_STATE_FILE,
-        CAMERA_PREVIEW_FFMPEG_BIN,
+        CAMERA_CATALOG_SCHEMA,
         API_TOKEN,
         WORKER_CONTROL_TOKEN,
         WORKER_CONTROL_URL,
@@ -53,7 +46,6 @@ try:  # package context (api.app.main) and direct-file load both supported
         WORKER_STATE_SCHEMA,
         VEHICLE_EVENT_SCHEMA,
         TELEMETRY_SCHEMA,
-        CAMERA_PREVIEW_CATALOG_SCHEMA,
         OBJECT_STATUSES,
         OBJECTS_RETENTION_LIMIT,
         PASSAGES_RETENTION_LIMIT,
@@ -61,19 +53,7 @@ try:  # package context (api.app.main) and direct-file load both supported
         PASSAGE_SPEED_STATUSES,
         PASSAGE_ID_RE,
         SHA_RE,
-        CAMERA_PREVIEW_ID_RE,
-        CAMERA_PREVIEW_SESSION_RE,
-        CAMERA_PREVIEW_RFC1918,
-        CAMERA_PREVIEW_LOCK,
-        CAMERA_PREVIEW_START_TIMEOUT_SEC,
-        CAMERA_SNAPSHOT_EXTRACT_TIMEOUT_SEC,
-        CAMERA_SNAPSHOT_MIN_BYTES,
-        CAMERA_SNAPSHOT_MIN_LUMA_SPREAD,
         WORKER_CONTROL_TIMEOUT_SEC,
-        CAMERA_PREVIEW_TTL_SEC,
-        CAMERA_PREVIEW_MAX_LIFETIME_SEC,
-        CAMERA_PREVIEW_RENEW_MIN_INTERVAL_SEC,
-        CAMERA_PREVIEW_SWEEP_INTERVAL_SEC,
     )
     from . import identity  # noqa: F401  # explicit re-export seam (issue #396 wave 1)
     from .identity import (  # noqa: F401  # explicit re-export seam (issue #396 wave 1)
@@ -98,17 +78,13 @@ except ImportError:  # direct uvicorn app-dir / spec_from_file_location executio
         EVENTS_MEDIA_DIR,
         PASSAGES_MEDIA_DIR,
         PASSAGE_MEDIA_DIR,
-        CAMERA_PREVIEW_DIR,
-        CAMERA_SNAPSHOT_DIR,
         DEPLOYED_COMMIT_FILE,
         OBJECTS_DB_FILE,
         PASSAGES_DB_FILE,
         STATE_DB_FILE,
         EVENTS_FEED_LIMIT,
         ANALYTICS_IDENTITIES,
-        CAMERA_PREVIEW_CATALOG_FILE,
-        CAMERA_PREVIEW_STATE_FILE,
-        CAMERA_PREVIEW_FFMPEG_BIN,
+        CAMERA_CATALOG_SCHEMA,
         API_TOKEN,
         WORKER_CONTROL_TOKEN,
         WORKER_CONTROL_URL,
@@ -117,7 +93,6 @@ except ImportError:  # direct uvicorn app-dir / spec_from_file_location executio
         WORKER_STATE_SCHEMA,
         VEHICLE_EVENT_SCHEMA,
         TELEMETRY_SCHEMA,
-        CAMERA_PREVIEW_CATALOG_SCHEMA,
         OBJECT_STATUSES,
         OBJECTS_RETENTION_LIMIT,
         PASSAGES_RETENTION_LIMIT,
@@ -125,19 +100,7 @@ except ImportError:  # direct uvicorn app-dir / spec_from_file_location executio
         PASSAGE_SPEED_STATUSES,
         PASSAGE_ID_RE,
         SHA_RE,
-        CAMERA_PREVIEW_ID_RE,
-        CAMERA_PREVIEW_SESSION_RE,
-        CAMERA_PREVIEW_RFC1918,
-        CAMERA_PREVIEW_LOCK,
-        CAMERA_PREVIEW_START_TIMEOUT_SEC,
-        CAMERA_SNAPSHOT_EXTRACT_TIMEOUT_SEC,
-        CAMERA_SNAPSHOT_MIN_BYTES,
-        CAMERA_SNAPSHOT_MIN_LUMA_SPREAD,
         WORKER_CONTROL_TIMEOUT_SEC,
-        CAMERA_PREVIEW_TTL_SEC,
-        CAMERA_PREVIEW_MAX_LIFETIME_SEC,
-        CAMERA_PREVIEW_RENEW_MIN_INTERVAL_SEC,
-        CAMERA_PREVIEW_SWEEP_INTERVAL_SEC,
     )
     import identity  # noqa: F401  # explicit re-export seam (issue #396 wave 1)
     from identity import (  # noqa: F401  # explicit re-export seam (issue #396 wave 1)
@@ -232,52 +195,6 @@ except ImportError:  # direct uvicorn app-dir / spec_from_file_location executio
         passage_row_to_dict,
         upsert_water_passage,
         list_water_passages,
-    )
-
-
-try:  # package context (api.app.main) and direct-file load both supported
-    from . import camera_preview  # noqa: F401  # explicit re-export seam (issue #396 wave 4)
-    from .camera_preview import (  # noqa: F401  # explicit re-export seam (issue #396 wave 4)
-        validate_camera_preview_source,
-        load_camera_preview_catalog,
-        camera_snapshot_path,
-        camera_snapshot_public_metadata,
-        build_camera_snapshot_extract_args,
-        camera_snapshot_luma_spread,
-        camera_snapshot_candidate_is_usable,
-        commit_camera_snapshot_locked,
-        camera_preview_public_state,
-        camera_preview_pid_matches,
-        cleanup_camera_preview_media,
-        terminate_camera_preview_locked,
-        active_camera_preview_locked,
-        renew_camera_preview_locked,
-        sweep_camera_preview,
-        build_camera_preview_ffmpeg_args,
-        start_camera_preview_locked,
-    )
-except ImportError:  # direct uvicorn app-dir / spec_from_file_location execution
-    if str(Path(__file__).resolve().parent) not in sys.path:
-        sys.path.insert(0, str(Path(__file__).resolve().parent))
-    import camera_preview  # noqa: F401  # explicit re-export seam (issue #396 wave 4)
-    from camera_preview import (  # noqa: F401  # explicit re-export seam (issue #396 wave 4)
-        validate_camera_preview_source,
-        load_camera_preview_catalog,
-        camera_snapshot_path,
-        camera_snapshot_public_metadata,
-        build_camera_snapshot_extract_args,
-        camera_snapshot_luma_spread,
-        camera_snapshot_candidate_is_usable,
-        commit_camera_snapshot_locked,
-        camera_preview_public_state,
-        camera_preview_pid_matches,
-        cleanup_camera_preview_media,
-        terminate_camera_preview_locked,
-        active_camera_preview_locked,
-        renew_camera_preview_locked,
-        sweep_camera_preview,
-        build_camera_preview_ffmpeg_args,
-        start_camera_preview_locked,
     )
 
 
@@ -379,56 +296,10 @@ except ImportError:  # direct uvicorn app-dir / spec_from_file_location executio
     )
 
 
-# Issue #635: the session-bound preview media route serves only the ACTIVE
-# session's generated HLS artifacts; the filename allowlist is one regex
-# (playlist, fMP4 init segment, numbered media segments).
-CAMERA_PREVIEW_MEDIA_FILENAME_RE = re.compile(r"^(?:index\.m3u8|init\.mp4|segment_[0-9]{5}\.m4s)$")
-
 _LOGGER = logging.getLogger(__name__)
 
 
-def _camera_preview_media_not_found() -> Response:
-    return Response(status_code=404, headers={"Cache-Control": "no-store"})
-
-
-async def _camera_preview_sweep_loop() -> None:
-    while True:
-        await asyncio.sleep(CAMERA_PREVIEW_SWEEP_INTERVAL_SEC)
-        try:
-            await asyncio.to_thread(sweep_camera_preview)
-        except Exception:
-            _LOGGER.exception("Camera preview sweep iteration failed")
-
-
-def _terminate_active_camera_preview() -> None:
-    with CAMERA_PREVIEW_LOCK:
-        terminate_camera_preview_locked()
-
-
-@contextlib.asynccontextmanager
-async def _camera_preview_lifespan(app: FastAPI) -> AsyncIterator[None]:
-    # Issue #635: the codebase's first background task — the preview sweeper.
-    # The synchronous sweep runs off the event loop; a failed startup sweep
-    # must not keep the API from booting.
-    try:
-        await asyncio.to_thread(sweep_camera_preview)
-    except Exception:
-        _LOGGER.exception("Camera preview startup sweep failed")
-    task = asyncio.create_task(_camera_preview_sweep_loop())
-    app.state.camera_preview_sweep_task = task
-    try:
-        yield
-    finally:
-        app.state.camera_preview_sweep_task = None
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
-        await asyncio.to_thread(_terminate_active_camera_preview)
-
-
-app = FastAPI(title="Sea Speed API", lifespan=_camera_preview_lifespan)
+app = FastAPI(title="Sea Speed API")
 
 
 # passage_mirrors resolves open_passages_db through this binding: the factory
@@ -451,121 +322,14 @@ initialize_water_passages_db()
 
 @app.get("/api/cameras")
 def get_cameras() -> Dict[str, Any]:
-    cameras = load_camera_preview_catalog()
-    with CAMERA_PREVIEW_LOCK:
-        active = camera_preview_public_state(active_camera_preview_locked())
+    # Issue #637: the catalog is static — both cameras play permanent
+    # protected HLS streams served by the mediamtx relay; there is no
+    # on-demand preview state, snapshot metadata or TTL anymore.
     public_cameras = [
-        {"camera_id": camera["camera_id"], "display_name": camera["display_name"], "available": True,
-         "snapshot": camera_snapshot_public_metadata(camera["camera_id"])} for camera in cameras
+        {"camera_id": camera_id, "display_name": camera_id, "available": True}
+        for camera_id in sorted(ANALYTICS_IDENTITIES)
     ]
-    return {"ok": True, "schema": CAMERA_PREVIEW_CATALOG_SCHEMA, "count": len(public_cameras), "cameras": public_cameras,
-            "active": active, "preview_policy": {"max_active": 1, "ttl_sec": CAMERA_PREVIEW_TTL_SEC}}
-
-
-@app.get("/api/cameras/{camera_id}/snapshot")
-def get_camera_snapshot(camera_id: str):
-    cameras = load_camera_preview_catalog()
-    if not any(entry["camera_id"] == camera_id for entry in cameras):
-        raise HTTPException(status_code=404, detail="Camera is not present in the preview catalog")
-    path = camera_snapshot_path(camera_id)
-    if not path.is_file():
-        raise HTTPException(status_code=404, detail="Camera snapshot is not available")
-    return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": "no-store, max-age=0", "Pragma": "no-cache"})
-
-
-@app.post("/api/cameras/{camera_id}/snapshot/commit")
-def commit_camera_snapshot(
-    camera_id: str,
-    session_id: str,
-    x_authentik_username: Optional[str] = Header(None),
-    x_sea_speed_edge_auth: Optional[str] = Header(None),
-    x_authentik_groups: Optional[str] = Header(None),
-) -> Dict[str, Any]:
-    require_role(
-        x_authentik_username,
-        x_sea_speed_edge_auth,
-        x_authentik_groups,
-        minimum="operator",
-        action="commit_camera_snapshot",
-    )
-    cameras = load_camera_preview_catalog()
-    if not any(entry["camera_id"] == camera_id for entry in cameras):
-        raise HTTPException(status_code=404, detail="Camera is not present in the preview catalog")
-    if not CAMERA_PREVIEW_SESSION_RE.fullmatch(session_id):
-        raise HTTPException(status_code=409, detail="Camera preview session is stale")
-    with CAMERA_PREVIEW_LOCK:
-        state = active_camera_preview_locked()
-        if not state or state.get("camera_id") != camera_id or state.get("session_id") != session_id:
-            raise HTTPException(status_code=409, detail="Camera preview session is stale")
-        snapshot = commit_camera_snapshot_locked(state)
-    return {"ok": True, "camera_id": camera_id, "snapshot": snapshot}
-
-
-@app.get("/api/cameras/preview")
-def get_camera_preview() -> Dict[str, Any]:
-    with CAMERA_PREVIEW_LOCK:
-        active = camera_preview_public_state(active_camera_preview_locked())
-    return {"ok": True, "active": active}
-
-
-@app.post("/api/cameras/{camera_id}/preview/start")
-def start_camera_preview(
-    camera_id: str,
-    x_authentik_username: Optional[str] = Header(None),
-    x_sea_speed_edge_auth: Optional[str] = Header(None),
-    x_authentik_groups: Optional[str] = Header(None),
-) -> Dict[str, Any]:
-    require_role(
-        x_authentik_username,
-        x_sea_speed_edge_auth,
-        x_authentik_groups,
-        minimum="operator",
-        action="start_camera_preview",
-    )
-    cameras = load_camera_preview_catalog()
-    camera = next((entry for entry in cameras if entry["camera_id"] == camera_id), None)
-    if camera is None:
-        raise HTTPException(status_code=404, detail="Camera is not present in the preview catalog")
-    with CAMERA_PREVIEW_LOCK:
-        state = start_camera_preview_locked(camera)
-    return {"ok": True, "preview": camera_preview_public_state(state)}
-
-
-@app.post("/api/cameras/preview/stop")
-def stop_camera_preview(
-    x_authentik_username: Optional[str] = Header(None),
-    x_sea_speed_edge_auth: Optional[str] = Header(None),
-    x_authentik_groups: Optional[str] = Header(None),
-) -> Dict[str, Any]:
-    require_role(
-        x_authentik_username,
-        x_sea_speed_edge_auth,
-        x_authentik_groups,
-        minimum="operator",
-        action="stop_camera_preview",
-    )
-    with CAMERA_PREVIEW_LOCK:
-        stopped_camera_id = terminate_camera_preview_locked()
-    return {"ok": True, "stopped_camera_id": stopped_camera_id, "active": None}
-
-
-@app.get("/media/camera-preview/{session_id}/{filename}")
-def camera_preview_media(session_id: str, filename: str):
-    try:
-        with CAMERA_PREVIEW_LOCK:
-            if not CAMERA_PREVIEW_SESSION_RE.fullmatch(session_id) or not CAMERA_PREVIEW_MEDIA_FILENAME_RE.fullmatch(filename):
-                return _camera_preview_media_not_found()
-            state = active_camera_preview_locked()
-            if not state or state.get("session_id") != session_id:
-                return _camera_preview_media_not_found()
-            session_dir = CAMERA_PREVIEW_DIR / session_id
-            resolved_path = (session_dir / filename).resolve()
-            if resolved_path.parent != session_dir.resolve() or not resolved_path.is_file():
-                return _camera_preview_media_not_found()
-            renew_camera_preview_locked(session_id)
-    except Exception:
-        return _camera_preview_media_not_found()
-    return FileResponse(resolved_path, headers={"Cache-Control": "no-store"})
+    return {"ok": True, "schema": CAMERA_CATALOG_SCHEMA, "count": len(public_cameras), "cameras": public_cameras}
 
 
 @app.get("/api/cam1/state")

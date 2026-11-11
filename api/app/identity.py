@@ -33,7 +33,7 @@ try:  # package context (api.app.identity) and direct-file load both supported
         ADMIN_USERS,
         ANALYTICS_IDENTITIES,
         API_TOKEN,
-        CAMERA_PREVIEW_RFC1918,
+        RFC1918_NETWORKS,
         DEPLOYED_COMMIT_FILE,
         EDGE_AUTH_SECRET,
         OPERATOR_USERS,
@@ -50,7 +50,7 @@ except ImportError:  # direct uvicorn app-dir / spec_from_file_location executio
         ADMIN_USERS,
         ANALYTICS_IDENTITIES,
         API_TOKEN,
-        CAMERA_PREVIEW_RFC1918,
+        RFC1918_NETWORKS,
         DEPLOYED_COMMIT_FILE,
         EDGE_AUTH_SECRET,
         OPERATOR_USERS,
@@ -262,7 +262,7 @@ def worker_control_origin() -> tuple[str, int]:
     if (
         address.version != 4
         or address.is_loopback
-        or not any(address in network for network in CAMERA_PREVIEW_RFC1918)
+        or not any(address in network for network in RFC1918_NETWORKS)
         or not 1024 <= parsed.port <= 65535
     ):
         raise HTTPException(status_code=503, detail="Worker control origin is invalid")

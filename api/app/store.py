@@ -3,8 +3,8 @@
 Two complementary layers:
 
 1. Hardened JSON file IO for the rarely-edited operator config files
-   (roi / speed-config / speed-lines / crossing-line) and the camera-preview
-   state: every write takes a per-file advisory lock on a ``<name>.lock``
+   (roi / speed-config / speed-lines / crossing-line): every write takes a
+   per-file advisory lock on a ``<name>.lock``
    sibling and lands through a uuid-unique temporary file plus
    ``os.replace`` (no fixed-sibling tmp race); reads are fail-loud — a
    missing file yields the caller's default, a corrupt or unreadable file

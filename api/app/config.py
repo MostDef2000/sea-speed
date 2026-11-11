@@ -20,7 +20,6 @@ module instances with two independent sets of module globals.
 import ipaddress
 import os
 import re
-import threading
 from pathlib import Path
 
 __all__ = [
@@ -31,8 +30,6 @@ __all__ = [
     "EVENTS_MEDIA_DIR",
     "PASSAGES_MEDIA_DIR",
     "PASSAGE_MEDIA_DIR",
-    "CAMERA_PREVIEW_DIR",
-    "CAMERA_SNAPSHOT_DIR",
     "DEPLOYED_COMMIT_FILE",
     "STATE_FILE",
     "EVENTS_FILE",
@@ -45,9 +42,7 @@ __all__ = [
     "SPEED_CONFIG_FILE",
     "SPEED_LINES_FILE",
     "ANALYTICS_IDENTITIES",
-    "CAMERA_PREVIEW_CATALOG_FILE",
-    "CAMERA_PREVIEW_STATE_FILE",
-    "CAMERA_PREVIEW_FFMPEG_BIN",
+    "CAMERA_CATALOG_SCHEMA",
     "API_TOKEN",
     "EDGE_AUTH_SECRET",
     "ADMIN_USERS",
@@ -59,7 +54,6 @@ __all__ = [
     "WORKER_STATE_SCHEMA",
     "VEHICLE_EVENT_SCHEMA",
     "TELEMETRY_SCHEMA",
-    "CAMERA_PREVIEW_CATALOG_SCHEMA",
     "OBJECT_STATUSES",
     "OBJECTS_RETENTION_LIMIT",
     "PASSAGES_RETENTION_LIMIT",
@@ -67,19 +61,8 @@ __all__ = [
     "PASSAGE_SPEED_STATUSES",
     "PASSAGE_ID_RE",
     "SHA_RE",
-    "CAMERA_PREVIEW_ID_RE",
-    "CAMERA_PREVIEW_SESSION_RE",
-    "CAMERA_PREVIEW_RFC1918",
-    "CAMERA_PREVIEW_LOCK",
-    "CAMERA_PREVIEW_START_TIMEOUT_SEC",
-    "CAMERA_SNAPSHOT_EXTRACT_TIMEOUT_SEC",
-    "CAMERA_SNAPSHOT_MIN_BYTES",
-    "CAMERA_SNAPSHOT_MIN_LUMA_SPREAD",
+    "RFC1918_NETWORKS",
     "WORKER_CONTROL_TIMEOUT_SEC",
-    "CAMERA_PREVIEW_TTL_SEC",
-    "CAMERA_PREVIEW_MAX_LIFETIME_SEC",
-    "CAMERA_PREVIEW_RENEW_MIN_INTERVAL_SEC",
-    "CAMERA_PREVIEW_SWEEP_INTERVAL_SEC",
 ]
 
 
@@ -95,8 +78,6 @@ OVERLAY_DIR = MEDIA_DIR / "overlays"
 EVENTS_MEDIA_DIR = MEDIA_DIR / "events"
 PASSAGES_MEDIA_DIR = MEDIA_DIR / "passages"
 PASSAGE_MEDIA_DIR = PASSAGES_MEDIA_DIR
-CAMERA_PREVIEW_DIR = MEDIA_DIR / "camera-preview"
-CAMERA_SNAPSHOT_DIR = DATA_DIR / "camera-preview-snapshots"
 DEPLOYED_COMMIT_FILE = Path(
     os.environ.get(
         "SEA_SPEED_DEPLOYED_COMMIT_FILE",
@@ -118,14 +99,9 @@ ANALYTICS_IDENTITIES = {
     "cam1": {"analytics_profile": "water-v1", "domain": "water"},
     "road1": {"analytics_profile": "road-v1", "domain": "road"},
 }
-CAMERA_PREVIEW_CATALOG_FILE = Path(
-    os.environ.get(
-        "SEA_SPEED_CAMERA_PREVIEW_CATALOG",
-        str(DATA_DIR / "camera-preview-catalog.json"),
-    )
-)
-CAMERA_PREVIEW_STATE_FILE = DATA_DIR / "camera-preview-state.json"
-CAMERA_PREVIEW_FFMPEG_BIN = os.environ.get("SEA_SPEED_CAMERA_PREVIEW_FFMPEG", "/usr/bin/ffmpeg")
+# Issue #637: the camera catalog is static — both cameras play permanent
+# protected HLS streams; the on-demand preview catalog file is gone.
+CAMERA_CATALOG_SCHEMA = "sea_speed_camera_catalog_v1"
 
 
 def _parse_user_set(env_name: str) -> frozenset:
@@ -161,7 +137,6 @@ API_SCHEMA = "sea_speed_api_v1"
 WORKER_STATE_SCHEMA = "sea_speed_worker_state_v1"
 VEHICLE_EVENT_SCHEMA = "sea_speed_vehicle_event_v1"
 TELEMETRY_SCHEMA = "sea_speed_telemetry_v1"
-CAMERA_PREVIEW_CATALOG_SCHEMA = "sea_speed_camera_preview_catalog_v1"
 OBJECT_STATUSES = {"new", "reviewed", "ignored"}
 OBJECTS_RETENTION_LIMIT = 100
 PASSAGES_RETENTION_LIMIT = 300
@@ -169,39 +144,13 @@ PASSAGE_STATUSES = {"tracking", "measuring", "measured", "completed"}
 PASSAGE_SPEED_STATUSES = {"unknown", "measuring", "measured", "incomplete"}
 PASSAGE_ID_RE = re.compile(r"^P-[A-Za-z0-9][A-Za-z0-9._-]{1,78}$")
 SHA_RE = re.compile(r"^[0-9a-fA-F]{40}$")
-CAMERA_PREVIEW_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
-CAMERA_PREVIEW_SESSION_RE = re.compile(r"^[0-9a-f]{12}$")
-CAMERA_PREVIEW_RFC1918 = tuple(
+# Worker-control origin validation (identity.py): the worker control URL host
+# must be a private RFC1918 IPv4 address. Formerly CAMERA_PREVIEW_RFC1918.
+RFC1918_NETWORKS = tuple(
     ipaddress.ip_network(value)
     for value in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
 )
-CAMERA_PREVIEW_LOCK = threading.Lock()
-try:
-    CAMERA_PREVIEW_TTL_SEC = max(
-        30,
-        min(int(os.environ.get("SEA_SPEED_CAMERA_PREVIEW_TTL_SEC", "120")), 600),
-    )
-except ValueError:
-    CAMERA_PREVIEW_TTL_SEC = 120
-# Issue #635: hard ffmpeg backstop (-t) bounding the worst-case encode
-# lifetime even if the sweeper or the whole API misbehaves; the API-side
-# sliding expiry (CAMERA_PREVIEW_TTL_SEC) is the primary life control.
-try:
-    CAMERA_PREVIEW_MAX_LIFETIME_SEC = max(
-        300,
-        min(int(os.environ.get("SEA_SPEED_CAMERA_PREVIEW_MAX_LIFETIME_SEC", "3600")), 21600),
-    )
-except ValueError:
-    CAMERA_PREVIEW_MAX_LIFETIME_SEC = 3600
-CAMERA_PREVIEW_RENEW_MIN_INTERVAL_SEC = 5
-CAMERA_PREVIEW_SWEEP_INTERVAL_SEC = 5
-CAMERA_PREVIEW_START_TIMEOUT_SEC = 12
-CAMERA_SNAPSHOT_EXTRACT_TIMEOUT_SEC = 8
-CAMERA_SNAPSHOT_MIN_BYTES = 4096
-CAMERA_SNAPSHOT_MIN_LUMA_SPREAD = 12.0
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 OVERLAY_DIR.mkdir(parents=True, exist_ok=True)
 EVENTS_MEDIA_DIR.mkdir(parents=True, exist_ok=True)
 PASSAGES_MEDIA_DIR.mkdir(parents=True, exist_ok=True)
-CAMERA_PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
-CAMERA_SNAPSHOT_DIR.mkdir(mode=0o755, parents=True, exist_ok=True)

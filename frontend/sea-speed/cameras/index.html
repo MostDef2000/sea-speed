@@ -23,36 +23,24 @@
     .subtitle,.muted{color:var(--muted);font-size:.78rem;line-height:1.5}
     .nav{display:flex;flex-wrap:wrap;gap:8px}
     .nav a{display:inline-flex;align-items:center;min-height:40px;padding:7px 12px;border:1px solid var(--strong);border-radius:999px;background:#0b3144c9;color:var(--text);font-size:.75rem;font-weight:800;text-decoration:none}
-    .summary{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 12px}
-    .pill{padding:8px 11px;border:1px solid var(--border);border-radius:999px;background:#041826d1;color:var(--muted);font-size:.72rem;font-weight:700}
-    .pill strong{color:var(--text)}
-    .batchbar{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:0 0 16px;padding:10px;border:1px solid var(--border);border-radius:16px;background:#041826b8}
-    .batchbar button{padding:8px 14px;font-size:.76rem;font-weight:850}
-    .batch-start{color:var(--good);border-color:#4ade8050}.batch-stop{color:var(--bad);border-color:#fb718550}
-    .batch-progress{margin-left:auto;color:var(--muted);font-size:.72rem;font-weight:750}
     .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(275px,1fr));gap:12px}
     .card{overflow:hidden;border:1px solid var(--border);border-radius:20px;background:linear-gradient(155deg,#092334e8,#041421f2);box-shadow:0 18px 46px #00060b66}
     .frame{position:relative;display:grid;place-items:center;width:100%;aspect-ratio:16/9;background:#01060a;border-bottom:1px solid var(--border);overflow:hidden}
-    .frame video,.frame img{display:none;width:100%;height:100%;object-fit:contain;background:#000}
-    .frame.live video{display:block}.frame.snapshot img{display:block}
+    .frame video{display:none;width:100%;height:100%;object-fit:contain;background:#000}
+    .frame.live video{display:block}
     .placeholder{display:grid;place-items:center;gap:8px;padding:20px;text-align:center;color:#6e9aaa}
-    .frame.live .placeholder,.frame.snapshot .placeholder{display:none}
+    .frame.live .placeholder{display:none}
     .placeholder svg{width:38px;height:38px;fill:#5eead477}
     .frame-badge{display:none;position:absolute;z-index:2;top:10px;left:10px;padding:5px 8px;border-radius:999px;font-size:.62rem;font-weight:900;text-transform:uppercase;letter-spacing:.08em}
     .frame.live .live-badge{display:block;border:1px solid #4ade8050;background:#052714e8;color:var(--good)}
-    .frame.snapshot .snapshot-badge{display:block;border:1px solid #62b6ff55;background:#071f34e8;color:var(--blue)}
     .body{padding:12px}
     .head{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
     .name{margin:0;font-size:.95rem;font-weight:850;overflow-wrap:anywhere}
-    .id{margin-top:3px;color:var(--muted);font:.68rem ui-monospace,Consolas,monospace}.snapshot-time{margin-top:4px;color:var(--muted);font-size:.62rem}
+    .id{margin-top:3px;color:var(--muted);font:.68rem ui-monospace,Consolas,monospace}
     .state{flex:0 0 auto;font-size:.68rem;font-weight:800;color:var(--muted)}
-    .state.good{color:var(--good)}.state.bad{color:var(--bad)}.state.warn{color:var(--warn)}.state.snapshot{color:var(--blue)}
-    .actions{display:flex;gap:8px;margin-top:12px}
-    .actions button{flex:1;padding:8px 10px;font-size:.74rem;font-weight:800}
-    .play{color:var(--good);border-color:#4ade8050}.stop{color:var(--bad);border-color:#fb718550}
+    .state.good{color:var(--good)}.state.bad{color:var(--bad)}.state.warn{color:var(--warn)}
     .error{min-height:1.2em;margin-top:8px;color:var(--bad);font-size:.68rem;line-height:1.45;overflow-wrap:anywhere}
-    .empty{padding:28px;border:1px dashed var(--border);border-radius:20px;background:#041421aa;color:var(--muted);text-align:center}
-    @media(max-width:760px){.top{display:grid}.header-brand{gap:10px}.project-home{width:44px;height:44px;border-radius:13px}.project-lighthouse{width:31px;height:31px}.header-actions{justify-items:start;width:100%}.session-bar{width:100%;align-items:stretch}.session-login{min-width:0;flex:1}.logout-link{flex:0 0 auto}.grid{grid-template-columns:1fr}.page{padding-left:max(10px,env(safe-area-inset-left));padding-right:max(10px,env(safe-area-inset-right))}.batch-progress{width:100%;margin-left:0}}
+    @media(max-width:760px){.top{display:grid}.header-brand{gap:10px}.project-home{width:44px;height:44px;border-radius:13px}.project-lighthouse{width:31px;height:31px}.header-actions{justify-items:start;width:100%}.session-bar{width:100%;align-items:stretch}.session-login{min-width:0;flex:1}.logout-link{flex:0 0 auto}.grid{grid-template-columns:1fr}.page{padding-left:max(10px,env(safe-area-inset-left));padding-right:max(10px,env(safe-area-inset-right))}}
     @media(max-width:390px){.session-label{display:none}}
     @media(prefers-reduced-motion:reduce){*{transition:none!important}}
   </style>
@@ -65,7 +53,7 @@
         <div class="header-copy">
           <p class="eyebrow">Vladivostok maritime monitoring</p>
           <h1>Камеры</h1>
-          <div class="subtitle">Предпросмотр найденных потоков. Последний хороший кадр сохраняется на VPS и доступен на всех устройствах до следующего успешного обновления.</div>
+          <div class="subtitle">Постоянные защищённые потоки обеих камер (LL-HLS через mediamtx).</div>
         </div>
       </div>
       <div class="header-actions">
@@ -79,21 +67,29 @@
       </div>
     </header>
 
-    <section class="summary" aria-label="Preview status">
-      <div class="pill">Камер: <strong id="cameraCount">0</strong></div>
-      <div class="pill">Активный preview: <strong id="activeCamera">нет</strong></div>
-      <div class="pill">Режим: <strong>1 поток по запросу</strong></div>
-      <div class="pill">TTL: <strong id="previewTtl">—</strong></div>
-    </section>
-
-    <section class="batchbar" aria-label="Batch preview controls">
-      <button id="previewAllButton" class="batch-start" type="button">▶ Предпросмотр всех</button>
-      <button id="stopAllButton" class="batch-stop" type="button" disabled>■ Остановить все</button>
-      <div id="batchProgress" class="batch-progress" aria-live="polite">Обход не запущен</div>
-    </section>
-
     <section id="cameraGrid" class="grid" aria-live="polite">
-      <div class="empty">Загрузка каталога камер…</div>
+      <article class="card" data-camera-id="cam1">
+        <div class="frame" id="frame-cam1">
+          <div class="frame-badge live-badge">live</div>
+          <div class="placeholder"><svg viewBox="0 0 24 24"><path d="M3 5h13a2 2 0 0 1 2 2v2.2l3-1.7v9l-3-1.7V17a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2zm0 2v10h13V7H3z"/></svg><span>Подключение…</span></div>
+          <video id="video-cam1" controls playsinline muted autoplay></video>
+        </div>
+        <div class="body">
+          <div class="head"><div><h2 class="name">Камера 1 · Причал</h2><div class="id">cam1</div></div><div class="state" id="state-cam1">подключение</div></div>
+          <div class="error" id="error-cam1"></div>
+        </div>
+      </article>
+      <article class="card" data-camera-id="road1">
+        <div class="frame" id="frame-road1">
+          <div class="frame-badge live-badge">live</div>
+          <div class="placeholder"><svg viewBox="0 0 24 24"><path d="M3 5h13a2 2 0 0 1 2 2v2.2l3-1.7v9l-3-1.7V17a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2zm0 2v10h13V7H3z"/></svg><span>Подключение…</span></div>
+          <video id="video-road1" controls playsinline muted autoplay></video>
+        </div>
+        <div class="body">
+          <div class="head"><div><h2 class="name">Дорога · Трасса</h2><div class="id">road1</div></div><div class="state" id="state-road1">подключение</div></div>
+          <div class="error" id="error-road1"></div>
+        </div>
+      </article>
     </section>
   </main>
 
