@@ -21,3 +21,18 @@ Frontend JS (`frontend/sea-speed/road/main.js`) served via Caddy to mostdef.ru/s
 - hls.js v1.5.7 cannot decode mediamtx fMP4 stream (readyState 0, waiting timeout loop).
 - Native browser HLS decodes fMP4 fine (readyState 4, 1920x1080).
 - `removeAttribute("src")` does not release old MediaSource/blob URL; `src=""` + `load()` does.
+
+## Risk profile
+- Risk profile: NOT REQUIRED
+
+## Test design
+- TEST-001: Covers: AC-001, AC-002 | Level: end-to-end | Priority: P0 | Evidence: Playwright verification: readyState 4, 12/12 segments 200, zero 404
+
+## Correct-course check
+- Trigger: NONE
+- Issue impact: NONE
+- Specification impact: NONE
+- Plan impact: NONE
+- Tasks impact: NONE
+- Authorization impact: NONE
+- Follow-up: NONE
