@@ -9,6 +9,7 @@ Frontend JS served via Caddy to mostdef.ru/sea-speed/*. `attachHls()` in road/ma
 - hls.js branch first in road attachHls(): Chrome's canPlayType('application/vnd.apple.mpegurl') lies with 'maybe' while unable to demux native HLS, so native-first (PR #655) stalls forever at readyState 0.
 - enableWorker:false in all three Hls configs: the CSP blocks blob: workers before any segment fetch.
 - Native playback stays as the no-MSE fallback (iOS Safari).
+- Startup grace ~15s from MANIFEST_PARSED in road and water: the playlist is regular HLS (2s segments, TARGETDURATION 4) and hls.js needs ~5–8s to first frame, so the old watchdogs (road 1s polling requiring readyState>=2; water 2500ms armed on `waiting` with an empty buffer) doom-looped. Strict post-start stall detection arms on first `playing` of the generation; waiting/stalled are gated during startup; startup state resets per generation in destroyMedia()/destroyStreamMedia(). cameras/cameras.js stays watchdog-free (control group).
 
 ## Affected contours
 - `frontend/sea-speed/road/main.js` (VPS contour: mostdef.ru/sea-speed/road/)
@@ -18,6 +19,7 @@ Frontend JS served via Caddy to mostdef.ru/sea-speed/*. `attachHls()` in road/ma
 
 ## Validation
 - Executed frontend twins (unittest): Chrome-lie reconnect stays on hls.js with enableWorker:false; no-MSE fallback sets native src; water worker-off config; source scan of all three pages.
+- Watchdog twins: startup grace survives live-sync startup; startup timeout reconnects exactly once after the ~15s budget; post-start strict stall detection still reconnects. Proven RED on base SHA 133a4a7 (road reconnect ~2s, water ~3.5s without the fix), green with the fix: 38 passed, 9 subtests.
 - Full suite: 1380 tests OK; new twins proven RED on the base JS (fail without the fix).
 - Post-deploy Playwright on prod as an authenticated viewer: readyState 4, currentTime advancing, segments 200 / zero 404, console clean.
 
@@ -34,13 +36,16 @@ Frontend JS served via Caddy to mostdef.ru/sea-speed/*. `attachHls()` in road/ma
 - TEST-002 | Covers: AC-002 | Level: unit | Priority: P0 | Evidence: ROAD_NO_MSE_SCENARIO executed twin (native src set, zero Hls instances)
 - TEST-003 | Covers: AC-003 | Level: unit | Priority: P1 | Evidence: source-scan twin of all three operator pages (new Hls config carries enableWorker:false)
 - TEST-004 | Covers: AC-004 | Level: runtime-manual | Priority: P0 | Evidence: post-deploy Playwright on prod as authenticated viewer | Reason: production-only visual acceptance
+- TEST-005 | Covers: AC-005 | Level: unit | Priority: P0 | Evidence: ROAD_STARTUP_GRACE_SCENARIO + WATER_STARTUP_GRACE_SCENARIO executed twins (no reconnect during ~15s startup despite live-sync buffering)
+- TEST-006 | Covers: AC-005 | Level: unit | Priority: P0 | Evidence: ROAD_STARTUP_TIMEOUT / WATER_STARTUP_TIMEOUT twins (exactly one "startup timeout" reconnect after the budget)
+- TEST-007 | Covers: AC-006 | Level: unit | Priority: P0 | Evidence: ROAD_POST_START_STALL / WATER_POST_START_STALL regression guards (strict stall watchdog still reconnects after first playback)
 
 ## Correct-course check
 - Trigger: PRODUCTION_LEARNING
-- Issue impact: issue #656 opened for the corrected diagnosis
-- Specification impact: specs/656-road-hls-chrome-worker-off created; supersedes the PR #655 runtime-feedback claim
-- Plan impact: NONE
-- Tasks impact: NONE
+- Issue impact: issue #656 opened for the corrected diagnosis; post-deploy acceptance of deploy #53 found the third blocker — road/water startup watchdog doom-loop (issue comment 6815532835, control-group proof via cameras)
+- Specification impact: specs/656-road-hls-chrome-worker-off created; supersedes the PR #655 runtime-feedback claim; requirement 4 (startup grace) + AC-005/AC-006 + NFR-006 added
+- Plan impact: startup-grace decision added; TEST-005/006/007 added
+- Tasks impact: watchdog twins, fix and re-acceptance tasks added
 - Authorization impact: NONE
 - Follow-up: CSP worker-src 'self' blob: on the Caddy edge (lane B/C, #656); main.js crossing handler {enabled:true,line} bug and dual panel ownership (#656)
 
@@ -54,5 +59,5 @@ Frontend JS served via Caddy to mostdef.ru/sea-speed/*. `attachHls()` in road/ma
 - TX-007 | Stage: EVIDENCE | Mutation: NO | Failure disposition: BEST-EFFORT | State after failure: Probe logs missing | Retry: Re-run probes | Rollback: N/A | Evidence: Playwright console and network logs, acceptance screenshot
 - TX-008 | Stage: ROLLBACK | Mutation: YES | Failure disposition: CONDITIONAL | State after failure: Previous SHA restored on server | Retry: Re-attempt rollback | Rollback: N/A | Evidence: Rollback commit SHA
 - Adjacent-stage review: COMPLETE
-- Production-learning root cause: Chrome canPlayType('application/vnd.apple.mpegurl') lies 'maybe' while unable to demux native HLS, and the site CSP lacks worker-src so hls.js blob: workers are blocked; the PR #655 native-first diagnosis was wrong
-- Production-learning adjacent-stage findings: water and cameras pages shared the worker blocker (fixed here); main.js crossing handler {enabled:true,line} bug and dual panel ownership recorded as follow-up (#656)
+- Production-learning root cause: Chrome canPlayType('application/vnd.apple.mpegurl') lies 'maybe' while unable to demux native HLS, and the site CSP lacks worker-src so hls.js blob: workers are blocked; the PR #655 native-first diagnosis was wrong. Second learning (deploy #53 acceptance): the streams are regular HLS and hls.js needs ~5–8s to first frame — the road/water startup watchdogs killed the stream during that window (doom-loop); cameras without a watchdog plays the same streams (control group)
+- Production-learning adjacent-stage findings: water and cameras pages shared the worker blocker (fixed here); main.js crossing handler {enabled:true,line} bug and dual panel ownership recorded as follow-up (#656); water page HLS_URL points at cam1 (oddity, out of scope)
