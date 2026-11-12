@@ -36,3 +36,13 @@ Frontend JS (`frontend/sea-speed/road/main.js`) served via Caddy to mostdef.ru/s
 - Tasks impact: NONE
 - Authorization impact: NONE
 - Follow-up: NONE
+
+## Deployment transaction audit
+- TX-001: Stage: ADMISSION | Mutation: NO | Failure disposition: FATAL | State after failure: PR not merged, no changes applied | Retry: N/A | Rollback: N/A | Evidence: CI green on PR #653
+- TX-002: Stage: PRE-MUTATION | Mutation: NO | Failure disposition: FATAL | State after failure: Server config unchanged, old JS still served | Retry: N/A | Rollback: N/A | Evidence: Pre-deploy config verified on server
+- TX-003: Stage: MUTATION | Mutation: YES | Failure disposition: CONDITIONAL | State after failure: New JS served via Caddy, previous config intact | Retry: Re-deploy previous SHA | Rollback: Revert to 6020fc400f43ff5b6638ed8bb63538393ce59514 | Evidence: Lane-A deploy workflow artifacts
+- TX-004: Stage: VERIFICATION | Mutation: NO | Failure disposition: FATAL | State after failure: Acceptance probes fail, video not playing | Retry: Re-run probes | Rollback: Revert to previous SHA | Evidence: Probe results (readyState 4, segments 200)
+- TX-005: Stage: STATE-COMMIT | Mutation: NO | Failure disposition: BEST-EFFORT | State after failure: Merge commit recorded in git | Retry: Re-merge | Rollback: Revert merge commit | Evidence: Merge commit SHA on main
+- TX-006: Stage: HOUSEKEEPING | Mutation: NO | Failure disposition: BEST-EFFORT | State after failure: JOURNAL entry pending | Retry: Re-record | Rollback: N/A | Evidence: JOURNAL.md entry
+- TX-007: Stage: EVIDENCE | Mutation: NO | Failure disposition: BEST-EFFORT | State after failure: Probe logs missing | Retry: Re-run probes | Rollback: N/A | Evidence: Playwright console + network logs
+- TX-008: Stage: ROLLBACK | Mutation: YES | Failure disposition: CONDITIONAL | State after failure: Previous SHA restored on server | Retry: Re-attempt rollback | Rollback: N/A | Evidence: Rollback commit SHA
