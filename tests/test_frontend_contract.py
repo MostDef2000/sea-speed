@@ -290,6 +290,64 @@ ROAD_HLS_SCENARIO = (
 """
 )
 
+# Executed road Chrome-lie twin: Chrome reports canPlayType('application/
+# vnd.apple.mpegurl') === 'maybe' while being unable to demux native HLS
+# (prod incident 2026-11-12: the native-first branch stalled forever at
+# readyState 0). The hls.js branch must win FIRST whenever MSE is available,
+# with the worker disabled (the site CSP has no worker-src, so hls.js blob:
+# workers are blocked), and the native path must stay a no-MSE fallback only.
+ROAD_CHROME_LIE_SCENARIO = (
+    ";(async () => {\n"
+    + SCENARIO_PREAMBLE
+    + """
+  const instances = __record.hlsInstances;
+  assert(instances.length === 1, "boot must connect exactly once; got " + instances.length);
+  __canPlayType = "maybe";
+  await __record.elements.streamControlBtn.onclick();
+  await settle();
+  assert(instances[0].destroyed === true && window.hls === null, "the stop toggle must tear the boot instance down");
+  await __record.elements.streamControlBtn.onclick();
+  await settle();
+  assert(instances.length === 2, "the reconnect must stay on the hls.js branch even when canPlayType lies; got " + instances.length);
+  assert(
+    instances[1].config && instances[1].config.enableWorker === false,
+    "road hls.js must run with enableWorker:false (CSP blocks blob: workers); got " + JSON.stringify(instances[1].config)
+  );
+  assert(
+    JSON.stringify(instances[1].sources) === JSON.stringify(["/sea-speed/media/road1/index.m3u8"]),
+    "the reconnect must load the protected road HLS path; got " + JSON.stringify(instances[1].sources)
+  );
+  assert(!__record.elements.roadMainVideo.src, "the native src must never be set while MSE is available; got " + __record.elements.roadMainVideo.src);
+  console.log("###" + JSON.stringify({ configs: instances.map((i) => i.config) }));
+})().catch((e) => { console.error(e && e.stack || e); process.exit(1); });
+"""
+)
+
+# Executed road no-MSE twin: with MSE unavailable the native path is the only
+# fallback left and must set video.src directly (never create an Hls instance).
+ROAD_NO_MSE_SCENARIO = (
+    ";(async () => {\n"
+    + SCENARIO_PREAMBLE
+    + """
+  const instances = __record.hlsInstances;
+  assert(instances.length === 1, "boot must connect exactly once; got " + instances.length);
+  __hlsSupported = false;
+  __canPlayType = "maybe";
+  await __record.elements.streamControlBtn.onclick();
+  await settle();
+  await __record.elements.streamControlBtn.onclick();
+  await settle();
+  assert(instances.length === 1, "no new Hls instance may be created when MSE is unavailable; got " + instances.length);
+  assert(instances[0].destroyed === true && window.hls === null, "the hls.js instance must stay torn down on the native fallback");
+  assert(
+    __record.elements.roadMainVideo.src === "/sea-speed/media/road1/index.m3u8",
+    "the no-MSE fallback must set the native video src; got " + JSON.stringify(__record.elements.roadMainVideo.src)
+  );
+  console.log("###" + JSON.stringify({ nativeSrc: __record.elements.roadMainVideo.src }));
+})().catch((e) => { console.error(e && e.stack || e); process.exit(1); });
+"""
+)
+
 # Executed road worker twin: the road-scoped control endpoints only, the
 # trusted target guard, and a toggle that never touches the live stream.
 ROAD_WORKER_SCENARIO = (
@@ -564,6 +622,26 @@ OBJECTS_LIST_RESPONSE = {
 }
 
 
+# Executed water worker-off twin: the site CSP has no worker-src, so hls.js
+# blob: workers are blocked at the edge (prod incident 2026-11-12); the water
+# Hls config must ship enableWorker:false.
+WATER_ENABLEWORKER_SCENARIO = (
+    ";(async () => {\n"
+    + SCENARIO_PREAMBLE
+    + """
+  __record.timeouts.splice(0).forEach(([fn]) => fn());
+  await settle();
+  const instances = __record.hlsInstances;
+  assert(instances.length === 1, "the water page must create exactly one HLS instance; got " + instances.length);
+  assert(
+    instances[0].config && instances[0].config.enableWorker === false,
+    "water hls.js must run with enableWorker:false (CSP blocks blob: workers); got " + JSON.stringify(instances[0].config)
+  );
+  console.log("###" + JSON.stringify({ configs: instances.map((i) => i.config) }));
+})().catch((e) => { console.error(e && e.stack || e); process.exit(1); });
+"""
+)
+
 class WaterStreamContractTests(unittest.TestCase):
     """Executed water operator twins (stream, worker, fallback, cards)."""
 
@@ -571,6 +649,13 @@ class WaterStreamContractTests(unittest.TestCase):
         evidence = frontend_html.run_inline_scripts(source=WATER_PAGE, scenario=WATER_HLS_SCENARIO)
         self.assertEqual(evidence["sources"], [WATER_HLS_URL])
         self.assertEqual(evidence["instances"], 2)  # initial + post-toggle reconnect
+
+    def test_water_hls_runs_with_worker_disabled(self) -> None:
+        evidence = frontend_html.run_inline_scripts(source=WATER_PAGE, scenario=WATER_ENABLEWORKER_SCENARIO)
+        self.assertIs(
+            evidence["configs"][0].get("enableWorker"), False,
+            "water hls.js must run with enableWorker:false (CSP blocks blob: workers)",
+        )
 
     def test_water_worker_lifecycle_only_controls_ai_overlay(self) -> None:
         evidence = frontend_html.run_inline_scripts(
@@ -604,6 +689,21 @@ class RoadStreamContractTests(unittest.TestCase):
             drain_timeouts=True,
         )
         self.assertEqual(evidence["sources"], [ROAD_HLS_URL])
+
+    def test_road_stays_on_hlsjs_when_chrome_lies_about_native_hls(self) -> None:
+        evidence = frontend_html.run_inline_scripts(
+            source=ROAD_PAGE, scenario=ROAD_CHROME_LIE_SCENARIO, responses=[], drain_timeouts=True
+        )
+        self.assertIs(
+            evidence["configs"][1].get("enableWorker"), False,
+            "road hls.js must run with enableWorker:false even when canPlayType lies",
+        )
+
+    def test_road_native_src_is_the_no_mse_fallback_only(self) -> None:
+        evidence = frontend_html.run_inline_scripts(
+            source=ROAD_PAGE, scenario=ROAD_NO_MSE_SCENARIO, responses=[], drain_timeouts=True
+        )
+        self.assertEqual(evidence["nativeSrc"], ROAD_HLS_URL)
 
     def test_road_worker_control_is_road_scoped_and_media_independent(self) -> None:
         evidence = frontend_html.run_inline_scripts(
@@ -928,6 +1028,19 @@ class HlsScriptPinTests(unittest.TestCase):
                             "@latest", attrs["src"],
                             f"the {name} page must never load hls.js from the floating @latest tag",
                         )
+
+
+    def test_every_operator_hls_config_disables_the_worker(self) -> None:
+        """The site CSP has no worker-src, so hls.js blob: workers are blocked
+        at the edge; every shipped new Hls() config must carry enableWorker:false
+        (prod incident 2026-11-12: the road page black-screened in Chrome)."""
+        for page, name in ((WATER_PAGE, "water"), (CAMERAS_PAGE, "cameras"), (ROAD_PAGE, "road")):
+            with self.subTest(page=name):
+                self.assertIn(
+                    "new Hls({enableWorker:false,",
+                    frontend_html.page_live_source(page),
+                    f"the {name} page hls.js config must disable the worker (CSP blocks blob: workers)",
+                )
 
 
 class StreamReconnectSemanticsStructuralTests(unittest.TestCase):

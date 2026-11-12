@@ -58,7 +58,7 @@
         if(player.destroyed)return;
         destroyMedia();
         if(window.Hls&&Hls.isSupported()){
-          const instance=new Hls({lowLatencyMode:true,backBufferLength:10,maxBufferLength:20});
+          const instance=new Hls({enableWorker:false,lowLatencyMode:true,backBufferLength:10,maxBufferLength:20});
           player.hls=instance;
           instance.on(Hls.Events.MANIFEST_PARSED,()=>video.play().catch(()=>{}));
           instance.on(Hls.Events.ERROR,(_event,data)=>{
