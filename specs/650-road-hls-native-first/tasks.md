@@ -1,5 +1,7 @@
 # Tasks: road1 native HLS first + MediaSource reset
 
+- Spec: specs/650-road-hls-native-first/spec.md
+
 ## Delivery tasks
 - [x] Modify `attachHls()` to try native HLS before hls.js fallback
 - [x] Modify `destroyMedia()` to use `roadMainVideo.src=""` instead of `removeAttribute("src")`
