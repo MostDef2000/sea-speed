@@ -20,6 +20,9 @@ road1 video plays in browser without black screen / Stream retrying loop. Native
 - Playwright in real Chromium: readyState 4, videoWidth 1920, videoHeight 1080, 12/12 segments 200, zero 404.
 - Server file `/var/www/mostdef.ru/sea-speed/road/main.js` updated and verified.
 - CI green on PR, merge to main, lane-A deploy, acceptance probes pass.
+- AC-001: Video readyState reaches 4 (HAVE_ENOUGH_DATA) and currentTime increases during playback.
+- AC-002: All HLS segments return 200, zero 404.
+- AC-003: cam1 stream unaffected (already works).
 
 ## Runtime feedback
 - hls.js v1.5.7 cannot decode mediamtx fMP4 stream (readyState 0, waiting timeout loop).
