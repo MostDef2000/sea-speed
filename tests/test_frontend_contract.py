@@ -18,7 +18,12 @@ intervals, registry scope controls) exactly like an operator would:
   reconnect cycle clears the dedup guard;
 - the objects registry binds its camera/domain scope from ?scope, the
   same-origin referrer and the domain filter, syncs the scope into the URL,
-  and issues real same-origin PATCH/DELETE writes.
+  and issues real same-origin PATCH/DELETE writes;
+- the playback watchdogs grant a startup grace (issue #656): a connect that
+  is still buffering within the ~15s startup budget is never killed (the old
+  1s road / 2.5s water watchdogs killed hls.js during its normal live-sync
+  startup), the budget timeout reconnects exactly once, and the strict stall
+  detection stays armed after playback has started.
 
 Structural pins without an executable surface (data-layout markers, header
 order, grid-template-areas, media queries, static link wiring, the stream
@@ -74,6 +79,39 @@ SCENARIO_PREAMBLE = """
   const assert = (cond, msg) => { if (!cond) { console.error("FAIL: " + msg); process.exit(1); } };
   const settle = () => new Promise((r) => setImmediate(r));
   await settle();
+"""
+
+# Scenario-local virtual clock for the startup-grace twins (issue #656): the
+# shim's setTimeout records but never fires, and the pages' stall math reads
+# performance.now() (road) / Date.now() (water) — both real clocks under
+# node — so "advance simulated time" is inexpressible without a scenario
+# override. It is installed AFTER boot (the auto-connect already ran), so
+# only the watchdog/reconnect timers the scenario drives go through it;
+# advance(ms) fires the page's own timers in deadline order up to now+ms.
+# The clock starts at 1e6 ms (never 0) because the pages treat a 0 progress
+# timestamp as "no progress yet" (lastPlaybackProgressAt>0 guards).
+VIRTUAL_CLOCK = """
+  let __vnow = 1e6;
+  const __pending = [];
+  let __seq = 0;
+  globalThis.setTimeout = (fn, ms) => { const id = ++__seq; __pending.push({ id, at: __vnow + Number(ms), fn }); return id; };
+  globalThis.clearTimeout = (id) => { const i = __pending.findIndex((t) => t.id === id); if (i >= 0) __pending.splice(i, 1); };
+  performance.now = () => __vnow;
+  Date.now = () => __vnow;
+  const advance = async (ms) => {
+    const target = __vnow + ms;
+    for (;;) {
+      const due = __pending.filter((t) => t.at <= target).sort((a, b) => a.at - b.at || a.id - b.id);
+      if (!due.length) break;
+      for (const t of due) {
+        const i = __pending.indexOf(t);
+        if (i >= 0) __pending.splice(i, 1);
+        __vnow = t.at;
+        await t.fn();
+      }
+    }
+    __vnow = target;
+  };
 """
 
 # Executed water stream twin: the auto-connect timer is drained, then the
@@ -344,6 +382,84 @@ ROAD_NO_MSE_SCENARIO = (
     "the no-MSE fallback must set the native video src; got " + JSON.stringify(__record.elements.roadMainVideo.src)
   );
   console.log("###" + JSON.stringify({ nativeSrc: __record.elements.roadMainVideo.src }));
+})().catch((e) => { console.error(e && e.stack || e); process.exit(1); });
+"""
+)
+
+# Executed road startup-grace twin (issue #656): after MANIFEST_PARSED the
+# video may legitimately sit at readyState 0 while hls.js live-syncs its
+# first segments (~5-8s on the 2s-segment playlist); the old 1s polling
+# watchdog killed the instance ~1s after MANIFEST_PARSED, forever. Within
+# the ~15s startup budget no reconnect may happen — the virtual clock
+# (VIRTUAL_CLOCK) advances simulated time well past the old kill point.
+ROAD_STARTUP_GRACE_SCENARIO = (
+    ";(async () => {\n"
+    + SCENARIO_PREAMBLE
+    + VIRTUAL_CLOCK
+    + """
+  const inst = __record.hlsInstances[0];
+  assert(__record.hlsInstances.length === 1, "boot must connect exactly once; got " + __record.hlsInstances.length);
+  assert(window.hls === inst, "the boot instance must be the attached one");
+  const video = __record.elements.roadMainVideo;
+  video.readyState = 0;
+  for (const handler of inst.handlers.hlsManifestParsed || []) await handler();
+  for (const fn of video.__listeners.waiting || []) fn();
+  await advance(10000);
+  assert(streamGeneration === 1, "startup grace: no reconnect may happen ~10s into startup (past the old 1s kill and the 2500 ms stall grace); streamGeneration went 1 -> " + streamGeneration);
+  assert(__record.hlsInstances.length === 1, "startup grace: the original instance must stay attached; got " + __record.hlsInstances.length + " instances");
+  assert(window.hls === inst, "startup grace: window.hls must still be the boot instance");
+  console.log("###" + JSON.stringify({ generation: streamGeneration, instances: __record.hlsInstances.length, status: __record.elements.streamStatus.textContent }));
+})().catch((e) => { console.error(e && e.stack || e); process.exit(1); });
+"""
+)
+
+# Executed road startup-timeout twin (issue #656): playback that never
+# starts must still reconnect — but only the startup-budget timeout may
+# trigger it: no reconnect before the ~15s budget elapses, exactly one
+# reconnect after it (the old watchdog reconnected at ~2s).
+ROAD_STARTUP_TIMEOUT_SCENARIO = (
+    ";(async () => {\n"
+    + SCENARIO_PREAMBLE
+    + VIRTUAL_CLOCK
+    + """
+  const inst = __record.hlsInstances[0];
+  const video = __record.elements.roadMainVideo;
+  video.readyState = 0;
+  for (const handler of inst.handlers.hlsManifestParsed || []) await handler();
+  for (const fn of video.__listeners.waiting || []) fn();
+  await advance(14000);
+  assert(streamGeneration === 1, "startup timeout: no reconnect may be scheduled before the ~15s startup budget elapses; streamGeneration went 1 -> " + streamGeneration);
+  await advance(6000);
+  assert(streamGeneration === 2, "startup timeout: the budget timeout must lead to exactly one reconnect; streamGeneration = " + streamGeneration);
+  assert(__record.hlsInstances.length === 2, "startup timeout: exactly one reconnect must create exactly one fresh instance; got " + __record.hlsInstances.length);
+  assert(window.hls === __record.hlsInstances[1], "the startup-timeout reconnect must attach a fresh instance");
+  console.log("###" + JSON.stringify({ generation: streamGeneration, instances: __record.hlsInstances.length }));
+})().catch((e) => { console.error(e && e.stack || e); process.exit(1); });
+"""
+)
+
+# Executed road post-start stall twin (issue #656 regression guard): once
+# playback has started (readyState>=2, playing), a stall with no progress
+# for past the 2500 ms grace must still schedule a reconnect — the strict
+# stall detection survives the startup-grace change.
+ROAD_POST_START_STALL_SCENARIO = (
+    ";(async () => {\n"
+    + SCENARIO_PREAMBLE
+    + VIRTUAL_CLOCK
+    + """
+  const inst = __record.hlsInstances[0];
+  const video = __record.elements.roadMainVideo;
+  for (const handler of inst.handlers.hlsManifestParsed || []) await handler();
+  video.readyState = 2;
+  video.paused = false;
+  video.currentTime = 1;
+  for (const fn of video.__listeners.playing || []) fn();
+  for (const fn of video.__listeners.waiting || []) fn();
+  await advance(3000);
+  assert(__record.elements.streamStatus.textContent === "retrying", "post-start stall: a stalled watchdog must schedule a reconnect; status = " + __record.elements.streamStatus.textContent);
+  await advance(1000);
+  assert(streamGeneration === 2 && __record.hlsInstances.length === 2, "post-start stall: the scheduled reconnect must run; generation=" + streamGeneration + " instances=" + __record.hlsInstances.length);
+  console.log("###" + JSON.stringify({ generation: streamGeneration, instances: __record.hlsInstances.length }));
 })().catch((e) => { console.error(e && e.stack || e); process.exit(1); });
 """
 )
@@ -642,6 +758,96 @@ WATER_ENABLEWORKER_SCENARIO = (
 """
 )
 
+# Executed water startup-grace twin (issue #656): MANIFEST_PARSED →
+# attemptVideoPlay → the video fires `waiting` with an empty buffer while
+# hls.js live-syncs its first segments; the old 2500 ms watchdog reconnected
+# at ~2.5s, forever. Within the ~15s startup budget no reconnect may happen
+# — the virtual clock (VIRTUAL_CLOCK) advances simulated time past the old
+# kill point.
+WATER_STARTUP_GRACE_SCENARIO = (
+    ";(async () => {\n"
+    + SCENARIO_PREAMBLE
+    + VIRTUAL_CLOCK
+    + """
+  __record.timeouts.splice(0).forEach(([fn]) => fn());
+  await settle();
+  const inst = __record.hlsInstances[0];
+  assert(__record.hlsInstances.length === 1, "boot must connect exactly once; got " + __record.hlsInstances.length);
+  assert(window.hls === inst && window.waterHls === inst, "the boot instance must be the attached one");
+  for (const handler of inst.handlers.hlsMediaAttached || []) await handler();
+  for (const handler of inst.handlers.hlsManifestParsed || []) await handler();
+  await settle();
+  const video = __record.elements.waterMainVideo;
+  video.paused = false;
+  for (const fn of video.__listeners.waiting || []) fn();
+  await advance(5000);
+  assert(streamGeneration === 1, "startup grace: no reconnect may happen ~5s into startup (past the old 2500 ms kill); streamGeneration went 1 -> " + streamGeneration);
+  assert(__record.hlsInstances.length === 1, "startup grace: the original instance must stay attached; got " + __record.hlsInstances.length + " instances");
+  assert(window.hls === inst, "startup grace: window.hls must still be the boot instance");
+  console.log("###" + JSON.stringify({ generation: streamGeneration, instances: __record.hlsInstances.length, status: __record.elements.streamStatus.textContent }));
+})().catch((e) => { console.error(e && e.stack || e); process.exit(1); });
+"""
+)
+
+# Executed water startup-timeout twin (issue #656): playback that never
+# starts must still reconnect — but only the startup-budget timeout may
+# trigger it: no reconnect before the ~15s budget elapses, exactly one
+# reconnect after it (the old watchdog reconnected at ~2.5s).
+WATER_STARTUP_TIMEOUT_SCENARIO = (
+    ";(async () => {\n"
+    + SCENARIO_PREAMBLE
+    + VIRTUAL_CLOCK
+    + """
+  __record.timeouts.splice(0).forEach(([fn]) => fn());
+  await settle();
+  const inst = __record.hlsInstances[0];
+  for (const handler of inst.handlers.hlsMediaAttached || []) await handler();
+  for (const handler of inst.handlers.hlsManifestParsed || []) await handler();
+  await settle();
+  const video = __record.elements.waterMainVideo;
+  video.paused = false;
+  for (const fn of video.__listeners.waiting || []) fn();
+  await advance(14000);
+  assert(streamGeneration === 1, "startup timeout: no reconnect may be scheduled before the ~15s startup budget elapses; streamGeneration went 1 -> " + streamGeneration);
+  await advance(6000);
+  assert(streamGeneration === 2, "startup timeout: the budget timeout must lead to exactly one reconnect; streamGeneration = " + streamGeneration);
+  assert(__record.hlsInstances.length === 2, "startup timeout: exactly one reconnect must create exactly one fresh instance; got " + __record.hlsInstances.length);
+  assert(window.hls === __record.hlsInstances[1], "the startup-timeout reconnect must attach a fresh instance");
+  console.log("###" + JSON.stringify({ generation: streamGeneration, instances: __record.hlsInstances.length }));
+})().catch((e) => { console.error(e && e.stack || e); process.exit(1); });
+"""
+)
+
+# Executed water post-start stall twin (issue #656 regression guard): once
+# playback has started (playing), a `waiting` stall with no progress for
+# past the 2500 ms grace must still schedule a reconnect — the strict stall
+# detection survives the startup-grace change.
+WATER_POST_START_STALL_SCENARIO = (
+    ";(async () => {\n"
+    + SCENARIO_PREAMBLE
+    + VIRTUAL_CLOCK
+    + """
+  __record.timeouts.splice(0).forEach(([fn]) => fn());
+  await settle();
+  const inst = __record.hlsInstances[0];
+  for (const handler of inst.handlers.hlsMediaAttached || []) await handler();
+  for (const handler of inst.handlers.hlsManifestParsed || []) await handler();
+  await settle();
+  const video = __record.elements.waterMainVideo;
+  video.paused = false;
+  video.currentTime = 1;
+  for (const fn of video.__listeners.playing || []) fn();
+  await advance(100);
+  for (const fn of video.__listeners.waiting || []) fn();
+  await advance(2500);
+  assert(String(__record.elements.streamStatus.textContent).startsWith("reconnecting"), "post-start stall: a stalled watchdog must schedule a reconnect; status = " + __record.elements.streamStatus.textContent);
+  await advance(1000);
+  assert(streamGeneration === 2 && __record.hlsInstances.length === 2, "post-start stall: the scheduled reconnect must run; generation=" + streamGeneration + " instances=" + __record.hlsInstances.length);
+  console.log("###" + JSON.stringify({ generation: streamGeneration, instances: __record.hlsInstances.length }));
+})().catch((e) => { console.error(e && e.stack || e); process.exit(1); });
+"""
+)
+
 class WaterStreamContractTests(unittest.TestCase):
     """Executed water operator twins (stream, worker, fallback, cards)."""
 
@@ -656,6 +862,35 @@ class WaterStreamContractTests(unittest.TestCase):
             evidence["configs"][0].get("enableWorker"), False,
             "water hls.js must run with enableWorker:false (CSP blocks blob: workers)",
         )
+
+    def test_water_startup_grace_survives_hls_live_sync_startup(self) -> None:
+        # Issue #656: the 2500 ms waiting watchdog reconnected at ~2.5s while
+        # hls.js was still live-syncing its first segments; within the ~15s
+        # startup budget no reconnect may happen.
+        evidence = frontend_html.run_inline_scripts(
+            source=WATER_PAGE, scenario=WATER_STARTUP_GRACE_SCENARIO, responses=[]
+        )
+        self.assertEqual(evidence["generation"], 1, "no reconnect within the startup budget")
+        self.assertEqual(evidence["instances"], 1, "the boot instance must stay attached")
+
+    def test_water_startup_timeout_reconnects_exactly_once_after_budget(self) -> None:
+        # Issue #656: a startup that never reaches playback must still
+        # reconnect — exactly once, and only after the ~15s budget elapses.
+        evidence = frontend_html.run_inline_scripts(
+            source=WATER_PAGE, scenario=WATER_STARTUP_TIMEOUT_SCENARIO, responses=[]
+        )
+        self.assertEqual(evidence["generation"], 2, "exactly one reconnect after the startup budget")
+        self.assertEqual(evidence["instances"], 2, "the reconnect must create exactly one fresh instance")
+
+    def test_water_post_start_stall_watchdog_still_reconnects(self) -> None:
+        # Issue #656 regression guard: after playback started, a `waiting`
+        # stall with no progress for past the 2500 ms grace must still
+        # schedule a reconnect.
+        evidence = frontend_html.run_inline_scripts(
+            source=WATER_PAGE, scenario=WATER_POST_START_STALL_SCENARIO, responses=[]
+        )
+        self.assertEqual(evidence["generation"], 2, "the post-start stall must reconnect")
+        self.assertEqual(evidence["instances"], 2, "the post-start stall reconnect must create a fresh instance")
 
     def test_water_worker_lifecycle_only_controls_ai_overlay(self) -> None:
         evidence = frontend_html.run_inline_scripts(
@@ -704,6 +939,35 @@ class RoadStreamContractTests(unittest.TestCase):
             source=ROAD_PAGE, scenario=ROAD_NO_MSE_SCENARIO, responses=[], drain_timeouts=True
         )
         self.assertEqual(evidence["nativeSrc"], ROAD_HLS_URL)
+
+    def test_road_startup_grace_survives_hls_live_sync_startup(self) -> None:
+        # Issue #656: the 1s polling watchdog killed the instance ~1s after
+        # MANIFEST_PARSED while hls.js was still live-syncing its first
+        # segments; within the ~15s startup budget no reconnect may happen.
+        evidence = frontend_html.run_inline_scripts(
+            source=ROAD_PAGE, scenario=ROAD_STARTUP_GRACE_SCENARIO, responses=[], drain_timeouts=True
+        )
+        self.assertEqual(evidence["generation"], 1, "no reconnect within the startup budget")
+        self.assertEqual(evidence["instances"], 1, "the boot instance must stay attached")
+
+    def test_road_startup_timeout_reconnects_exactly_once_after_budget(self) -> None:
+        # Issue #656: a startup that never reaches playback must still
+        # reconnect — exactly once, and only after the ~15s budget elapses.
+        evidence = frontend_html.run_inline_scripts(
+            source=ROAD_PAGE, scenario=ROAD_STARTUP_TIMEOUT_SCENARIO, responses=[], drain_timeouts=True
+        )
+        self.assertEqual(evidence["generation"], 2, "exactly one reconnect after the startup budget")
+        self.assertEqual(evidence["instances"], 2, "the reconnect must create exactly one fresh instance")
+
+    def test_road_post_start_stall_watchdog_still_reconnects(self) -> None:
+        # Issue #656 regression guard: after playback started, a stall with
+        # no progress for past the 2500 ms grace must still schedule a
+        # reconnect.
+        evidence = frontend_html.run_inline_scripts(
+            source=ROAD_PAGE, scenario=ROAD_POST_START_STALL_SCENARIO, responses=[], drain_timeouts=True
+        )
+        self.assertEqual(evidence["generation"], 2, "the post-start stall must reconnect")
+        self.assertEqual(evidence["instances"], 2, "the post-start stall reconnect must create a fresh instance")
 
     def test_road_worker_control_is_road_scoped_and_media_independent(self) -> None:
         evidence = frontend_html.run_inline_scripts(
