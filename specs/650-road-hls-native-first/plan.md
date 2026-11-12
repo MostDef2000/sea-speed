@@ -1,5 +1,7 @@
 # Plan: road1 native HLS first + MediaSource reset
 
+- Spec: specs/650-road-hls-native-first/spec.md
+
 ## Architecture
 Frontend JS (`frontend/sea-speed/road/main.js`) served via Caddy to mostdef.ru/sea-speed/road/. The `attachHls()` function chooses between native browser HLS and hls.js fallback. `destroyMedia()` resets the video element's MediaSource. No backend changes.
 
