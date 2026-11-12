@@ -1,5 +1,7 @@
 # Spec: road1 native HLS first + MediaSource reset
 
+## Issue: #637
+
 ## Product outcome
 road1 video plays in browser without black screen / Stream retrying loop. Native browser HLS decodes mediamtx fMP4 stream instead of failing hls.js.
 
