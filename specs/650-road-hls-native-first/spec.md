@@ -25,3 +25,10 @@ road1 video plays in browser without black screen / Stream retrying loop. Native
 - hls.js v1.5.7 cannot decode mediamtx fMP4 stream (readyState 0, waiting timeout loop).
 - Native browser HLS decodes fMP4 fine (readyState 4, 1920x1080).
 - `removeAttribute("src")` does not release old MediaSource/blob URL; `src=""` + `load()` does.
+
+## NFR assessment
+- Security: NONE — frontend-only change, no new attack surface.
+- Reliability: native HLS is browser-builtin, more reliable than hls.js v1.5.7 for mediamtx fMP4.
+- Performance: no change — same HLS segments, same delivery path.
+- Compatibility: native HLS supported in all modern browsers; hls.js kept as fallback for older browsers.
+- Maintainability: removes hls.js dependency for road1; simpler code path.
