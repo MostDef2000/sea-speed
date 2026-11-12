@@ -30,8 +30,8 @@ road1 video plays in browser without black screen / Stream retrying loop. Native
 - `removeAttribute("src")` does not release old MediaSource/blob URL; `src=""` + `load()` does.
 
 ## NFR assessment
-- NFR-001: Area: Security | Target: No new attack surface | Validation: Code review | Evidence: Frontend-only JS change, no backend or config changes | Status: PASS
-- NFR-002: Area: Reliability | Target: Video decodes and plays (readyState 4) | Validation: Playwright verification | Evidence: readyState 4, 12/12 segments 200, zero 404 | Status: PASS
-- NFR-003: Area: Performance | Target: No regression vs current delivery | Validation: Same HLS segments, same Caddy delivery path | Evidence: No change to segment count or encoding | Status: PASS
-- NFR-004: Area: Compatibility | Target: Works in modern browsers; hls.js fallback for older | Validation: canPlayType check before native HLS | Evidence: Native HLS first, hls.js fallback preserved | Status: PASS
-- NFR-005: Area: Maintainability | Target: Simpler code path, no hls.js for road1 | Validation: Code review | Evidence: attachHls tries native first, hls.js as fallback | Status: PASS
+- NFR-001 | Area: Security | Target: No new attack surface | Validation: Code review | Evidence: Frontend-only JS change, no backend or config changes | Status: PASS
+- NFR-002 | Area: Reliability | Target: Video decodes and plays (readyState 4) | Validation: Playwright verification | Evidence: readyState 4, 12/12 segments 200, zero 404 | Status: PASS
+- NFR-003 | Area: Performance | Target: No regression vs current delivery | Validation: Same HLS segments, same Caddy delivery path | Evidence: No change to segment count or encoding | Status: PASS
+- NFR-004 | Area: Compatibility | Target: Works in modern browsers; hls.js fallback for older | Validation: canPlayType check before native HLS | Evidence: Native HLS first, hls.js fallback preserved | Status: PASS
+- NFR-005 | Area: Maintainability | Target: Simpler code path, no hls.js for road1 | Validation: Code review | Evidence: attachHls tries native first, hls.js as fallback | Status: PASS
