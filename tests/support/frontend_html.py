@@ -173,6 +173,17 @@ PAGE_PATHS_BY_KEY = {
 }
 
 
+# Same-origin absolute src= targets under /sea-speed/ are local files (issue
+# #665: the water page references its local scripts by absolute path so they
+# survive the nested /sea-speed/water/ URL). The overlay module stays
+# excluded exactly as before: the shim's recording SeaSpeedOverlayCanvas stub
+# is what the executed page twins assert against, so the real overlay-canvas.js
+# bytes must not execute here (the old blanket "skip every absolute src" narrowed
+# to precisely the stubbed module; HLS stays excluded via its https:// src).
+STUBBED_OVERLAY_SRC = "/sea-speed/overlay-canvas.js"
+SEA_SPEED_SRC_PREFIX = "/sea-speed/"
+
+
 def external_local_scripts(source: Path, html: str) -> list[str]:
     """Bodies of the page's connected LOCAL external scripts, document order.
 
@@ -182,21 +193,35 @@ def external_local_scripts(source: Path, html: str) -> list[str]:
     return contract. Relative src= targets resolve against the source's own
     directory FIRST (a tmp copy may carry its own mutated .js next to it —
     the wave demos), falling back to the page's real frontend directory
-    (page_key's content markers) only when the file is absent there. Remote
-    (CDN) and absolute /sea-speed/... sources stay excluded: the shim stubs
-    those browser-level collaborators (HLS, SeaSpeedOverlayCanvas) and
-    live-sync.js was already external before #626, so the recorded-evidence
-    contract is unchanged.
+    (page_key's content markers) only when the file is absent there. Since
+    issue #665 a same-origin absolute /sea-speed/... src is local too: it
+    resolves to the shipped frontend/sea-speed/ file, with the same
+    next-to-the-source-first probe so a tmp copy's mutated .js still wins.
+    Remote (CDN) sources and the stubbed overlay module stay excluded: the
+    shim stubs those browser-level collaborators (HLS, SeaSpeedOverlayCanvas)
+    — executing the real overlay-canvas.js would replace the recording stub
+    the page twins assert against — so the recorded-evidence contract is
+    unchanged.
     """
     real_base = PAGE_PATHS_BY_KEY.get(page_key(source), source).parent
     scripts = []
     for match in re.finditer(r'<script\b[^>]*\bsrc\s*=\s*"([^"]+)"[^>]*>', html, re.IGNORECASE):
         src = match.group(1).strip()
-        if not src or src.startswith(("http://", "https://", "//")) or src.startswith("/"):
+        if not src or src.startswith(("http://", "https://", "//")):
             continue
-        path = (source.parent / src).resolve()
-        if not path.is_file():
-            path = (real_base / src).resolve()
+        if src.startswith("/"):
+            if not src.startswith(SEA_SPEED_SRC_PREFIX) or src == STUBBED_OVERLAY_SRC:
+                continue
+            # Same-origin absolute: the shipped frontend/sea-speed/ file,
+            # but a same-named file next to the source wins (the wave demos'
+            # tmp-copy mutation sensitivity).
+            path = (source.parent / Path(src).name).resolve()
+            if not path.is_file():
+                path = (FRONTEND / src[len(SEA_SPEED_SRC_PREFIX):]).resolve()
+        else:
+            path = (source.parent / src).resolve()
+            if not path.is_file():
+                path = (real_base / src).resolve()
         if not path.is_file():
             raise AssertionError(
                 f"external script not found: {path} (referenced by {source})"
