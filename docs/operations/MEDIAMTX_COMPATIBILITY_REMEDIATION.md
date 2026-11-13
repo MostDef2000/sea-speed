@@ -20,7 +20,7 @@ The first official `v1.20.0` canary exposed a separate startup defect in the syn
 ## Components
 
 - `deploy/vps/mediamtx-compatibility-remediation.sh` performs a loopback-only compatibility canary and, only after that canary succeeds, a digest-bound production binary replacement.
-- `deploy/vps/camera-source-switch.sh` remains responsible for the existing canonical `cam1` config contract and the gated removal of `cam1-new`.
+- `deploy/vps/camera-source-switch.sh` remained responsible for the existing canonical `cam1` config contract and the gated removal of `cam1-new`. REMOVED in #661 — dead legacy VPS-mediamtx-era tooling, superseded by the road1-720p transcode path (PR #660).
 - `docs/operations/CAMERA1_LIVE_REPLACEMENT.md` remains the base live-source runbook; this document is the compatibility-remediation supplement for the confirmed source-pull blocker.
 
 ## Candidate provenance
@@ -125,7 +125,7 @@ The scope should:
 7. prove canonical VPS-local HLS produces advancing media;
 8. prove the existing unauthenticated public request still receives the expected Basic Auth challenge and that `/cams/hls/cam1/index.m3u8` is unchanged;
 9. pause for human visual acceptance on `mostdef.ru` and require the exact text `CONFIRM_NEW_CAMERA` only when the new physical camera is visibly moving and the AI worker remains offline;
-10. only after that confirmation, use the existing `camera-source-switch.sh prepare-cleanup` and `activate-cleanup` flow to retire `cam1-new`;
+10. only after that confirmation, retire `cam1-new` (historically via the `camera-source-switch.sh prepare-cleanup` and `activate-cleanup` flow — the script was REMOVED in #661, dead legacy VPS-mediamtx era, superseded by the road1-720p transcode path, PR #660);
 11. re-prove canonical HLS, public boundary, AI-worker-off state, secret safety and preserved backups.
 
 If the failed pre-merge canary left the exact approved candidate binary in compatibility state, the post-merge rollout may reuse only that same digest after verifying its root ownership, mode and SHA-256. It must not select a second candidate, accept a conflicting marker, or activate a marker created by pre-fix source. The corrected merged `prepare` must create a new marker containing the active-config compatibility proof before activation is possible.

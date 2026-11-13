@@ -28,6 +28,8 @@ Options:
   --relay-service NAME     Ubuntu relay service that owns the MediaMTX config (default: sea-speed-stream.service)
   --state-root PATH        Root-only candidate/backup state (default: /var/lib/sea-speed-camera1-h264)
   --publish-address IPv4   Address the transcode publishes to (default: publisher-ip)
+  --systemd-unit-dir PATH  systemd unit install directory (default: /etc/systemd/system)
+  --watchdog-bin-dir PATH  freshness watchdog install directory (default: /usr/local/sbin)
 EOF
 }
 
@@ -49,6 +51,8 @@ state_root="/var/lib/sea-speed-camera1-h264"
 expected_config_sha256=""
 expected_unit_sha256=""
 publish_address=""
+systemd_unit_dir="/etc/systemd/system"
+watchdog_bin_dir="/usr/local/sbin"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -63,6 +67,8 @@ while [[ $# -gt 0 ]]; do
     --expected-config-sha256) [[ $# -ge 2 ]] || { echo "ERROR --expected-config-sha256 requires SHA256" >&2; exit 2; }; expected_config_sha256="$2"; shift 2 ;;
     --expected-unit-sha256) [[ $# -ge 2 ]] || { echo "ERROR --expected-unit-sha256 requires SHA256" >&2; exit 2; }; expected_unit_sha256="$2"; shift 2 ;;
     --publish-address) [[ $# -ge 2 ]] || { echo "ERROR --publish-address requires IPv4" >&2; exit 2; }; publish_address="$2"; shift 2 ;;
+    --systemd-unit-dir) [[ $# -ge 2 ]] || { echo "ERROR --systemd-unit-dir requires a path" >&2; exit 2; }; systemd_unit_dir="$2"; shift 2 ;;
+    --watchdog-bin-dir) [[ $# -ge 2 ]] || { echo "ERROR --watchdog-bin-dir requires a path" >&2; exit 2; }; watchdog_bin_dir="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "ERROR unknown option: $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -166,6 +172,79 @@ PY
 
 sha256_file() {
   sha256sum "$1" | awk '{print $1}'
+}
+
+derive_relay_service_identity() {
+  # Issue #661: service-identity derivation must FAIL CLOSED — verbatim port
+  # of camera-relay.sh's post-#449 derive_relay_service_identity ($relay_service
+  # instead of $service_name). A silent root:root 0600 fallback under
+  # docker-chroot (systemctl show hits no bus) mis-installed permissions and
+  # crash-looped mediamtx; the #659 cutover needed a MANUAL root:mediamtx 0640
+  # workaround. Derivation order:
+  #   (1) `systemctl show` (bus): definitive ONLY when User is non-empty.
+  #   (2) ON-DISK unit file (issue #449): `systemctl cat` turned out to be
+  #       bus-dependent too (RF-001 on-box finding), so the offline branch
+  #       reads the unit file directly — first readable regular non-symlink
+  #       candidate among /etc/systemd/system, /lib/systemd/system and
+  #       /usr/lib/systemd/system wins, then the drop-in directory next to
+  #       it (lexical order) is merged; the LAST `User=`/`Group=`
+  #       assignment wins (systemd override semantics). Optional whitespace
+  #       after `=` is tolerated (#448 F3a); `User=` absent or empty means
+  #       the unit runs as root.
+  #   (3) BOTH failing -> explicit ERROR + nonzero return; the caller
+  #       refuses to install with guessed ownership (before backup/install).
+  # Prints "owner group mode" on stdout; uses the global $relay_service.
+  local show_user show_group unit_text unit_user unit_group candidate drop_in
+  show_user="$(systemctl show -p User --value "$relay_service" 2>/dev/null || true)"
+  show_group="$(systemctl show -p Group --value "$relay_service" 2>/dev/null || true)"
+  if [[ -n "$show_user" ]]; then
+    if [[ "$show_user" == "root" ]]; then
+      printf 'root root 0600\n'
+      return 0
+    fi
+    if [[ -z "$show_group" ]]; then
+      show_group="$(id -gn "$show_user" 2>/dev/null || true)"
+    fi
+    if [[ -z "$show_group" ]]; then
+      echo "ERROR cannot resolve relay service group" >&2
+      return 1
+    fi
+    printf 'root %s 0640\n' "$show_group"
+    return 0
+  fi
+  unit_text=""
+  for candidate in \
+    "/etc/systemd/system/$relay_service" \
+    "/lib/systemd/system/$relay_service" \
+    "/usr/lib/systemd/system/$relay_service"; do
+    if [[ -f "$candidate" && -r "$candidate" && ! -L "$candidate" ]]; then
+      unit_text="$(cat "$candidate" 2>/dev/null || true)"$'\n'
+      for drop_in in "$candidate.d"/*.conf; do
+        [[ -f "$drop_in" && -r "$drop_in" && ! -L "$drop_in" ]] || continue
+        unit_text+="$(cat "$drop_in" 2>/dev/null || true)"$'\n'
+      done
+      break
+    fi
+  done
+  if [[ -n "$unit_text" ]]; then
+    unit_user="$(printf '%s\n' "$unit_text" | sed -nE 's/^[[:space:]]*User=[[:space:]]*([^[:space:]].*)$/\1/p' | tail -n 1)"
+    unit_group="$(printf '%s\n' "$unit_text" | sed -nE 's/^[[:space:]]*Group=[[:space:]]*([^[:space:]].*)$/\1/p' | tail -n 1)"
+    if [[ -z "$unit_user" || "$unit_user" == "root" ]]; then
+      printf 'root root 0600\n'
+      return 0
+    fi
+    if [[ -z "$unit_group" ]]; then
+      unit_group="$(id -gn "$unit_user" 2>/dev/null || true)"
+    fi
+    if [[ -z "$unit_group" ]]; then
+      echo "ERROR cannot resolve relay service group" >&2
+      return 1
+    fi
+    printf 'root %s 0640\n' "$unit_group"
+    return 0
+  fi
+  echo "ERROR relay service identity could not be derived (systemctl unavailable and unit file unreadable); refusing to install with guessed ownership" >&2
+  return 1
 }
 
 if [[ "$command" == "run" ]]; then
@@ -314,6 +393,14 @@ done
 [[ -x "$renderer" ]] || { echo "ERROR renderer missing" >&2; exit 8; }
 id sea-speed >/dev/null 2>&1 || { echo "ERROR transcode service user sea-speed does not exist" >&2; exit 8; }
 
+# Issue #661: derive the relay service identity BEFORE any mutation and
+# evidence it (camera-relay.sh caller pattern); a failed derivation refuses
+# fail-closed before backup/install.
+identity="$(derive_relay_service_identity)" || exit 9
+read -r install_owner install_group install_mode <<< "$identity"
+printf 'INSTALL_OWNER=%s:%s\n' "$install_owner" "$install_group"
+printf 'MODE=%s\n' "$install_mode"
+
 stamp="$(date -u +%Y%m%dT%H%M%SZ)"
 config_backup="NOT_PRESENT"
 if [[ -f "$config" ]]; then
@@ -321,8 +408,8 @@ if [[ -f "$config" ]]; then
   install -o root -g root -m 0600 "$config" "$config_backup"
 fi
 
-install -o root -g root -m 0644 "$candidate_unit" "/etc/systemd/system/$service_name"
-install -o root -g root -m 0600 "$candidate" "${config}.next"
+install -o root -g root -m 0644 "$candidate_unit" "$systemd_unit_dir/$service_name"
+install -o "$install_owner" -g "$install_group" -m "$install_mode" "$candidate" "${config}.next"
 mv -f "${config}.next" "$config"
 
 systemctl daemon-reload
@@ -339,10 +426,10 @@ fi
 systemctl enable --now "$service_name" || { echo "ERROR transcode enable failed" >&2; printf 'BACKUP=%s\n' "$config_backup" >&2; exit 32; }
 systemctl is-active --quiet "$service_name" || { echo "ERROR transcode not active" >&2; printf 'BACKUP=%s\n' "$config_backup" >&2; exit 33; }
 
-watchdog_dst="/usr/local/sbin/sea-speed-camera1-h264-freshness-watchdog"
+watchdog_dst="$watchdog_bin_dir/sea-speed-camera1-h264-freshness-watchdog"
 install -o root -g root -m 0755 "$script_dir/camera1-h264-freshness-watchdog.py" "$watchdog_dst"
-install -o root -g root -m 0644 "$script_dir/sea-speed-camera1-h264-freshness.service" "/etc/systemd/system/sea-speed-camera1-h264-freshness.service"
-install -o root -g root -m 0644 "$script_dir/sea-speed-camera1-h264-freshness.timer" "/etc/systemd/system/sea-speed-camera1-h264-freshness.timer"
+install -o root -g root -m 0644 "$script_dir/sea-speed-camera1-h264-freshness.service" "$systemd_unit_dir/sea-speed-camera1-h264-freshness.service"
+install -o root -g root -m 0644 "$script_dir/sea-speed-camera1-h264-freshness.timer" "$systemd_unit_dir/sea-speed-camera1-h264-freshness.timer"
 systemctl daemon-reload
 systemctl enable --now sea-speed-camera1-h264-freshness.timer || { echo "ERROR freshness timer enable failed" >&2; printf 'BACKUP=%s\n' "$config_backup" >&2; exit 34; }
 

@@ -1,0 +1,37 @@
+# Spec: legacy VPS camera-source-switch cleanup + fail-closed relay-identity config install
+
+- Issue: #661
+
+## Product outcome
+The dead legacy VPS-mediamtx-era cutover tool (`deploy/vps/camera-source-switch.sh`) is deleted and the two Ubuntu transcode scripts (`road1-h264-transcode.sh`, `camera1-h264-transcode.sh`) install the relay-owned MediaMTX config through a fail-closed derived service identity instead of a hardcoded `root:root 0600` — the same contract `camera-relay.sh` has had since #447/#449. This removes the #659 cutover incident class: on the box the relay unit runs as `root:mediamtx`, so a hardcoded `root:root 0600` config install left the relay unable to read its own config and needed a MANUAL `root:mediamtx 0640` workaround during the #659 activation.
+
+## User scenarios
+- An operator activates a transcode on the box: activate derives the relay service identity (`systemctl show` → on-disk unit → explicit refusal), prints `INSTALL_OWNER=`/`MODE=` evidence BEFORE any mutation, and installs the config with the derived owner/group/mode (non-root relay identity → `root:<group> 0640`; root identity → `root:root 0600` unchanged).
+- The derivation is impossible (no bus, no readable unit file): activate refuses fail-closed with exit 9 and the explicit derive error before taking a backup or installing anything — no guessed ownership, ever.
+- A reader of the camera1 runbooks finds the historical source-switch commands only as clearly marked removal notes (removed in #661, superseded by the road1-720p transcode path, PR #660); no runbook instructs running the deleted script.
+
+## Requirements
+1. Both transcode scripts port `derive_relay_service_identity()` verbatim from `camera-relay.sh` (post-#449 fail-closed contract; `$relay_service` instead of `$service_name`): derivation order `systemctl show` (definitive only when User is non-empty) → on-disk unit file with drop-in merge and last-assignment-wins → explicit ERROR + nonzero return; caller refuses with exit 9 before backup/install.
+2. Activate evidences the derived identity before mutating: `INSTALL_OWNER=<owner>:<group>` and `MODE=<mode>` lines precede the backup; the config install consumes the derived identity (`install -o "$install_owner" -g "$install_group" -m "$install_mode"`); the backup line is unchanged (root:root 0600 into the root-only state dir).
+3. Both scripts gain `--systemd-unit-dir PATH` (default `/etc/systemd/system`) and camera1 additionally `--watchdog-bin-dir PATH` (default `/usr/local/sbin`); the unit and watchdog installs target the redirected directories. Unit-file content generation, restart/rollback blocks and exit codes 7/8/30-33 are untouched.
+4. `deploy/vps/camera-source-switch.sh` is deleted; the four runbooks that referenced it (CAMERA1_DIRECT_H264_CUTOVER, CAMERA1_LIVE_REPLACEMENT, MEDIAMTX_COMPATIBILITY_REMEDIATION, MEDIAMTX_SYSTEMD_V247_COMPATIBILITY) carry short removal notes marking — not erasing — the history; `tests/test_camera1_live_replacement.py` drops the deleted-script pins and pins the removal-note state instead.
+5. The contract is pinned by executed twins on the real script bytes (one subclass per script × three scenarios: non-root identity, root identity, underivable identity) using opt-in harness stubs only for environment readiness (`id`, `install`), never for the behavior under test.
+
+Out of scope: `mediamtx-compatibility-remediation.sh`, `mediamtx-systemd-v247-runner.sh`, historical specs 075/076/659, the renderer, frontend, and any server-side execution — the scripts run only on the next manual activation.
+
+## Acceptance criteria
+- AC-001: Executed twins prove the underivable-identity refusal is fail-closed BEFORE any mutation: empty systemctl User plus a `--relay-service` with no unit file anywhere → exit 9, the explicit "refusing to install with guessed ownership" error, no `INSTALL_OWNER=`/`MODE=` evidence, live config bytes and 0640 mode unchanged, no backup taken — for BOTH scripts.
+- AC-002: Executed twins prove the derived-identity install: non-root relay identity (User=mediamtx) → `INSTALL_OWNER=root:mediamtx` + `MODE=0640` evidence before mutation and the real install line consuming `-o root -g mediamtx -m 0640` with the installed config mode 0640; root relay identity → exit 0 with installed mode 0600 (backward-compat guard, no evidence-line assertion).
+- AC-003: The redirect seams work: `--systemd-unit-dir` (both scripts) and `--watchdog-bin-dir` (camera1) place the unit/watchdog installs inside the transaction (defaults unchanged on the box); the backup line stays hardcoded root:root 0600; `bash -n` passes on both scripts.
+- AC-004: The legacy script is deleted and the four runbooks carry the removal note ("REMOVED in #661 — dead legacy VPS-mediamtx era, superseded by the road1-720p transcode path (PR #660)") with historical command shapes retained as record; `tests/test_camera1_live_replacement.py` no longer reads the deleted file and pins the removal-note state in the retire section.
+- AC-005: The permission battery is RED on base and green on the ported scripts: the flag-free underivable-identity twins fail on base behaviorally (base proceeds past the digest/id gates, takes the root:root 0600 backup, then dies at the hardcoded real-`/etc` unit install) and the full unittest suite is green offline and deterministically.
+
+## Runtime feedback
+- #659 cutover incident: both transcode scripts' activate installed the relay-owned config as hardcoded `root:root 0600`; the relay unit runs `root:mediamtx`, so the relay could not read the config and the activation needed a manual `root:mediamtx 0640` workaround — the exact failure mode camera-relay.sh already fixed in #447/#449.
+- camera-relay.sh's post-#449 contract (derive → evidence → install) has been running on the box; this change ports that proven contract onto the two transcode scripts rather than inventing a new one.
+
+## NFR assessment
+- NFR-001 | Area: Security | Target: The relay-owned MediaMTX config is never installed with guessed ownership; derivation fails closed before any mutation | Validation: Executed underivable-identity twins (exit 9, no backup, config untouched) | Evidence: tests/test_transcode_activate_permissions.py both classes test_activate_underivable_identity_refuses_fail_closed_before_mutation; RED-on-base quote in the delivery record | Status: PASS
+- NFR-002 | Area: Compatibility | Target: Root relay identity keeps the exact pre-change install behavior (root:root 0600); exit codes 7/8/30-33 and rollback semantics unchanged | Validation: Executed root-identity twins + diff inspection of untouched blocks | Evidence: test_activate_root_relay_identity_keeps_0600_install both classes; backup/restart/rollback lines byte-identical in the diff | Status: PASS
+- NFR-003 | Area: Maintainability | Target: The permission contract is pinned by executed twins on real script bytes, not source-text pins | Validation: unittest executed twins under a user namespace with opt-in readiness stubs only | Evidence: tests/test_transcode_activate_permissions.py (6 tests, copy-tree harness, install-argv log assertions) | Status: PASS
+- NFR-004 | Area: Operability | Target: The redirect seams default to the production paths and change nothing for existing invocations | Validation: Default-value inspection + full-transaction twins exercising the redirects | Evidence: defaults `/etc/systemd/system` and `/usr/local/sbin` in both scripts; twins complete only with the redirects in the sandbox | Status: PASS

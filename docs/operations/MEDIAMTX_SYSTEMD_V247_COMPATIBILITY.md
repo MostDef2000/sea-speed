@@ -60,8 +60,10 @@ VPS files plus the approved official MediaMTX archive, and invoke the final
 runner. The runner performs the fMP4 resume gate, systemd property preflight and
 existing compatibility canary. Activation remains conditional on a successful
 canary marker. Human visual acceptance of the new physical camera remains a
-separate gate before the existing `camera-source-switch.sh prepare-cleanup` /
-`activate-cleanup` path may retire `cam1-new`.
+separate gate before `cam1-new` may be retired (historically via the
+`camera-source-switch.sh` prepare-cleanup / activate-cleanup path — the script
+was REMOVED in #661, dead legacy VPS-mediamtx era, superseded by the road1-720p
+transcode path, PR #660).
 
 Repository integration of these runners is source state only. It does not by
 itself authorize or prove VPS installation, service mutation or runtime

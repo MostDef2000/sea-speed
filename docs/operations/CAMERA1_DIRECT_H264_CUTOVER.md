@@ -38,13 +38,13 @@ Repository components after #335:
 
 - `deploy/worker/ubuntu/camera1-h264-transcode.sh` + `sea-speed-camera1-h264.service` (Ubuntu) run the transcode and publish `cam1-h264`.
 - `deploy/worker/ubuntu/camera1-h264-freshness-watchdog.py` + `sea-speed-camera1-h264-freshness.service`/`.timer` (Ubuntu) supervise the produced `cam1-h264` stream and restart the Ubuntu transcode on stall.
-- `deploy/vps/camera-source-switch.sh` performs the cutover: sets VPS MediaMTX `hlsAddress` to `:18889`, points `cam1` at `cam1-h264`, and disables the external VPS `sea-speed-camera1-h264.service` + `sea-speed-camera1-hls-http.service` (recorded for rollback).
+- `deploy/vps/camera-source-switch.sh` performed the #335 cutover (set VPS MediaMTX `hlsAddress` to `:18889`, pointed `cam1` at `cam1-h264`, disabled the external VPS `sea-speed-camera1-h264.service` + `sea-speed-camera1-hls-http.service`). REMOVED in #661 — dead legacy VPS-mediamtx-era tooling, superseded by the road1-720p transcode path (PR #660).
 - `scripts/operations/mediamtx_path_config.py` adds the `cam1-h264` reader rule for the VPS IP and the publisher rule for the Ubuntu transcode IP (combined credential-free relay path; VPS-only reader, public cannot publish/read).
 - `deploy/vps/camera1-h264-freshness-watchdog.py` and `deploy/vps/sea-speed-auth-privileged-helper.py` recovery now re-source `cam1` via the MediaMTX REST API PATCH (FR-008). They MUST NOT restart `mediamtx.service`, `nginx`, or the retired external VPS transcode/hls-http units.
 
 Cutover and rollback:
 
-- Cutover: `deploy/vps/camera-source-switch.sh --relay-path cam1 --relay-url rtsp://10.123.239.102:8554/cam1-h264 --hls-address :18889 --retire-external` on VPS, then the protected Ubuntu deploy enables the Ubuntu transcode service + freshness watchdog.
+- Cutover (historical #335 command; the script was REMOVED in #661 — dead legacy VPS-mediamtx era, superseded by the road1-720p transcode path, PR #660): `camera-source-switch.sh --relay-path cam1 --relay-url rtsp://10.123.239.102:8554/cam1-h264 --hls-address :18889 --retire-external` on VPS, then the protected Ubuntu deploy enables the Ubuntu transcode service + freshness watchdog.
 - Rollback: re-enable the external VPS `sea-speed-camera1-h264.service` + `sea-speed-camera1-hls-http.service`, revert the VPS relay path to `cam1`, and disable the Ubuntu transcode service. The Ubuntu transcode is additive and removable; the VPS path is restored to the pre-#335 behavior.
 
 ## Repository components

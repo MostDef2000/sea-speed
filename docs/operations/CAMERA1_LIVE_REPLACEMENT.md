@@ -68,7 +68,7 @@ Do not use camera credentials in CLI arguments, process titles, issue comments, 
 
 - `scripts/operations/mediamtx_path_config.py` performs bounded MediaMTX YAML transformations without a PyYAML dependency, including the exact `cam1` reader authorization rule and the canonical VPS `rtspTransport: tcp` contract.
 - `deploy/worker/ubuntu/camera-relay.sh` prepares and activates the Ubuntu private relay while refusing to activate the AI worker.
-- `deploy/vps/camera-source-switch.sh` prepares and activates the canonical VPS `cam1` switch, verifies the exact TCP relay contract before installation, and separately retires `cam1-new` after browser validation.
+- `deploy/vps/camera-source-switch.sh` prepared and activated the canonical VPS `cam1` switch, verified the exact TCP relay contract before installation, and separately retired `cam1-new` after browser validation. REMOVED in #661 — dead legacy VPS-mediamtx-era tooling, superseded by the road1-720p transcode path (PR #660); the source-switch command sections below are historical record.
 - `scripts/operations/nginx_cam1_direct_h264.py` now prepares only the protected H.264 browser route under `/sea-speed/media/cam1/`.
 - `deploy/vps/sea-speed-auth-cutover.sh` is the Issue #115 activation boundary that combines the Camera 1 browser route with Authentik protection and `/cams/**` retirement.
 
@@ -148,6 +148,8 @@ Do not proceed to the VPS switch on TCP reachability alone; private media must b
 Use the credential-free private relay URL:
 
 ```text
+REMOVED in #661 — dead legacy VPS-mediamtx era, superseded by the road1-720p
+transcode path (PR #660). Historical command:
 camera-source-switch.sh prepare --config <vps-mediamtx-config> --relay-url rtsp://<ubuntu-private-ip>:8554/cam1
 ```
 
@@ -166,6 +168,8 @@ The prepare flow immediately verifies the protected candidate against this exact
 Use the exact candidate digest:
 
 ```text
+REMOVED in #661 — dead legacy VPS-mediamtx era, superseded by the road1-720p
+transcode path (PR #660). Historical command:
 camera-source-switch.sh activate --config <vps-mediamtx-config> --relay-url rtsp://<ubuntu-private-ip>:8554/cam1 --expected-sha256 <candidate-sha256>
 ```
 
@@ -201,12 +205,16 @@ Only after this evidence is accepted may the temporary `cam1-new` mapping be ret
 The existing command-line flag name `--confirmed-public-hls` is retained for backward compatibility in the source-switch helper; after Issue #115 it means that the protected browser HLS path has been confirmed.
 
 ```text
+REMOVED in #661 — dead legacy VPS-mediamtx era, superseded by the road1-720p
+transcode path (PR #660). Historical command:
 camera-source-switch.sh prepare-cleanup --config <vps-mediamtx-config> --relay-url rtsp://<ubuntu-private-ip>:8554/cam1 --confirmed-public-hls
 ```
 
 Then activate the exact cleanup candidate:
 
 ```text
+REMOVED in #661 — dead legacy VPS-mediamtx era, superseded by the road1-720p
+transcode path (PR #660). Historical command:
 camera-source-switch.sh activate-cleanup --config <vps-mediamtx-config> --relay-url rtsp://<ubuntu-private-ip>:8554/cam1 --expected-sha256 <candidate-sha256> --confirmed-public-hls
 ```
 
