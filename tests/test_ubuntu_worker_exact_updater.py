@@ -521,5 +521,45 @@ class UbuntuWorkerWatchdogExecutedTransactionTests(unittest.TestCase):
         self.assertNotIn("ABORT:", calls)
 
 
+class UbuntuWorkerUpdaterAuthenticatedFetchTests(unittest.TestCase):
+    """Issue #669 contract: the private-repo staging fetch in update-exact.sh
+    must authenticate with the root-owned read token. The token is read before
+    the first network fetch (fail closed, exit 5), the same token instance is
+    used for the fetch and the provenance check, the fetch consumes it through
+    an env-fed credential helper (never argv/URL), and it is unset after the
+    provenance check."""
+
+    def setUp(self) -> None:
+        self.source = UPDATER.read_text(encoding="utf-8")
+
+    def test_token_read_precedes_first_fetch(self) -> None:
+        read_token = self.source.index('IFS= read -r github_token < "$token_file"')
+        fetch = self.source.index("fetch --quiet --no-tags origin main:refs/remotes/origin/main")
+        self.assertLess(read_token, fetch, "token read must precede the first network fetch")
+
+    def test_fetch_consumes_token_without_argv_or_url_exposure(self) -> None:
+        start = self.source.index('SEA_SPEED_GITHUB_READ_TOKEN="$github_token" git -C "$staging_root"')
+        end = self.source.index("main:refs/remotes/origin/main", start)
+        fetch_command = self.source[start:end]
+        self.assertIn("-c credential.helper=", fetch_command)
+        self.assertIn("credential.helper=!f()", fetch_command)
+        self.assertIn('"$SEA_SPEED_GITHUB_READ_TOKEN"', fetch_command)
+        self.assertLess(
+            fetch_command.index("-c credential.helper="),
+            fetch_command.index("credential.helper=!f()"),
+        )
+        self.assertEqual(fetch_command.count("github_token"), 1)
+        self.assertNotIn("@github.com", fetch_command)
+        self.assertNotIn("extraHeader", self.source)
+        self.assertNotIn("https://$", fetch_command)
+
+    def test_same_token_serves_provenance_check_then_is_unset(self) -> None:
+        helper = self.source.index("credential.helper=!f()")
+        provenance = self.source.index("verify_quality_status.py", helper)
+        self.assertIn('GITHUB_TOKEN="$github_token"', self.source[helper:provenance])
+        unset_index = self.source.index("unset github_token", provenance)
+        self.assertNotIn("$github_token", self.source[unset_index:])
+
+
 if __name__ == "__main__":
     unittest.main()

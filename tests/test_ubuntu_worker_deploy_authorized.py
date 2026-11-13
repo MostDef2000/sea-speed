@@ -211,5 +211,54 @@ class UbuntuWorkerGpuBoxDeployLockTests(unittest.TestCase):
         self.assertIn("ERROR another authorized Ubuntu deployment is running", self.source)
 
 
+class UbuntuWorkerAuthenticatedFetchTests(unittest.TestCase):
+    """Issue #669: the repository is private, so the staging fetch in
+    deploy-authorized.sh must authenticate with the root-owned read token.
+    Token read+validation precedes the first network fetch (fail closed,
+    exit 5), the fetch consumes the token through an env-fed credential
+    helper (never argv/URL), and the token variable is unset after use."""
+
+    def setUp(self) -> None:
+        self.source = SCRIPT.read_text(encoding="utf-8")
+
+    def test_token_validation_precedes_first_fetch(self) -> None:
+        validation = self.source.index(
+            '[[ -f "$token_file" ]] || { echo "ERROR protected GitHub token missing: $token_file" >&2; exit 5; }'
+        )
+        fetch = self.source.index("fetch --quiet --no-tags origin main:refs/remotes/origin/main")
+        self.assertLess(validation, fetch, "token validation must fail closed before the first network fetch")
+
+    def test_token_block_appears_exactly_once(self) -> None:
+        self.assertEqual(self.source.count("ERROR protected GitHub token missing"), 1)
+        self.assertEqual(self.source.count('IFS= read -r github_token < "$token_file"'), 1)
+
+    def test_fetch_consumes_token_without_argv_or_url_exposure(self) -> None:
+        start = self.source.index('SEA_SPEED_GITHUB_READ_TOKEN="$github_token" git -C "$stage"')
+        end = self.source.index("main:refs/remotes/origin/main", start)
+        fetch_command = self.source[start:end]
+        # The token reaches git only through the credential helper's process
+        # environment; the helper string itself references the env var.
+        self.assertIn("-c credential.helper=", fetch_command)
+        self.assertIn("credential.helper=!f()", fetch_command)
+        self.assertIn('"$SEA_SPEED_GITHUB_READ_TOKEN"', fetch_command)
+        # Empty reset precedes the inline helper so no host-global helper
+        # (e.g. `store`) can answer the query or persist the token.
+        self.assertLess(
+            fetch_command.index("-c credential.helper="),
+            fetch_command.index("credential.helper=!f()"),
+        )
+        # Exactly one occurrence of the token variable in the fetch command:
+        # the environment assignment. No credentials in the URL/argv.
+        self.assertEqual(fetch_command.count("github_token"), 1)
+        self.assertNotIn("@github.com", fetch_command)
+        self.assertNotIn("extraHeader", self.source)
+        self.assertNotIn("https://$", fetch_command)
+
+    def test_token_unset_after_authenticated_fetch(self) -> None:
+        helper = self.source.index("credential.helper=!f()")
+        unset_index = self.source.index("unset github_token", helper)
+        self.assertNotIn("$github_token", self.source[unset_index:])
+
+
 if __name__ == "__main__":
     unittest.main()

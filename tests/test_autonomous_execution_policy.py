@@ -195,7 +195,10 @@ class AutonomousExecutionPolicyTests(unittest.TestCase):
         # `persist-credentials: false` the checkout removes the credential
         # helper, so those fetches cannot authenticate — the checkout must
         # leave credential persistence enabled (absent or true).
-        for name in ("deploy-runtime-autonomous.yml", "deploy-vps.yml"):
+        # Issue #669 extends the pin to deploy-ubuntu-worker.yml: its
+        # composite "Resolve exact main deployment commit" step runs the same
+        # post-checkout `git fetch` against the (now private) repository.
+        for name in ("deploy-runtime-autonomous.yml", "deploy-vps.yml", "deploy-ubuntu-worker.yml"):
             with self.subTest(workflow=name):
                 data = load_workflow(WORKFLOWS / name)
                 checkouts = [

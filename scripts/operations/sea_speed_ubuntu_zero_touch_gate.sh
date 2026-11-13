@@ -17,6 +17,7 @@ readonly GATE_PATH="/usr/local/sbin/sea-speed-ubuntu-zero-touch-gate"
 readonly DEPLOY_USER="sea-speed-deploy"
 readonly REPOSITORY_URL="https://github.com/MostDef2000/sea-speed.git"
 readonly INSTALL_ROOT="/opt/sea-speed-worker"
+readonly GITHUB_READ_TOKEN_FILE="/etc/sea-speed/github-read-token"
 
 fail() {
   echo "ERROR $*" >&2
@@ -36,7 +37,7 @@ execute_root() {
   local target="$1" issue="$2" artifact="$3"
   validate_request "$target" "$issue" "$artifact"
 
-  for command_name in git python3 install mktemp rm; do
+  for command_name in git python3 install mktemp rm stat; do
     command -v "$command_name" >/dev/null 2>&1 || fail "required command missing: $command_name"
   done
 
@@ -56,7 +57,24 @@ execute_root() {
 
   git -C "$stage" init -q
   git -C "$stage" remote add origin "$REPOSITORY_URL"
-  git -C "$stage" fetch --quiet --no-tags origin main:refs/remotes/origin/main
+  # Issue #669: the repository is private, so the root-mode fetch
+  # authenticates with the root-owned read token. Token read+validation
+  # precedes the first network fetch (fail closed before any transport).
+  # The token value never enters argv, URLs, git config or logs: it reaches
+  # git only through the credential helper's process environment, and the
+  # leading empty credential.helper reset clears any host-global helper
+  # chain so no `store` helper can persist the token to disk.
+  [[ -f "$GITHUB_READ_TOKEN_FILE" ]] || fail "protected GitHub token missing: $GITHUB_READ_TOKEN_FILE"
+  [[ "$(stat -c '%a' "$GITHUB_READ_TOKEN_FILE")" == "600" ]] || fail "GitHub token mode must be 600"
+  [[ "$(stat -c '%u' "$GITHUB_READ_TOKEN_FILE")" == "0" ]] || fail "GitHub token must be owned by root"
+  local github_token=""
+  IFS= read -r github_token < "$GITHUB_READ_TOKEN_FILE" || true
+  [[ -n "${github_token:-}" ]] || fail "GitHub token file is empty"
+  SEA_SPEED_GITHUB_READ_TOKEN="$github_token" git -C "$stage" \
+    -c credential.helper= \
+    -c 'credential.helper=!f() { printf "username=x-access-token\n"; printf "password=%s\n" "$SEA_SPEED_GITHUB_READ_TOKEN"; }; f' \
+    fetch --quiet --no-tags origin main:refs/remotes/origin/main
+  unset github_token
   git -C "$stage" cat-file -e "$target^{commit}" 2>/dev/null || fail "target is not present in origin/main"
   local first_parent_match=0
   while IFS= read -r commit; do
