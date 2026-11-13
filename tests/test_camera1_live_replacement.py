@@ -542,6 +542,44 @@ class TranscodeRunExecutedTests(unittest.TestCase):
             self.assertEqual(argv[-1], "rtsp://10.0.0.8:8554/cam1-h264")
             self.assertEqual(argv[-2], "rtsp")
 
+    def test_run_publishes_capped_720p_with_pinned_gop(self) -> None:
+        # Executed twin of the #672 run contract: the cam1 transcode now
+        # carries the road1-style bitrate-cap triple and a pinned 2 s GOP
+        # (-g 30 -keyint_min 30 at fps=15 → ~2 s HLS segments), observed
+        # from the REAL script bytes with the recording fake ffmpeg.
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            (tmp / "worker.env").write_text("HLS_URL=" + self.CREDENTIAL_URL + "\n", encoding="utf-8")
+            (tmp / "worker.env").chmod(0o600)
+            result, argv_lines, _ = self._run(tmp)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(len(argv_lines), 1)
+            argv = argv_lines[0]
+            # The ordered bitrate-cap triple (road1 precedent): -b:v 1500k,
+            # then -maxrate 1600k, then -bufsize 3200k.
+            bitrate_idx = argv.index("-b:v")
+            maxrate_idx = argv.index("-maxrate")
+            bufsize_idx = argv.index("-bufsize")
+            self.assertLess(bitrate_idx, maxrate_idx)
+            self.assertLess(maxrate_idx, bufsize_idx)
+            self.assertEqual(argv[bitrate_idx + 1], "1500k")
+            self.assertEqual(argv[maxrate_idx + 1], "1600k")
+            self.assertEqual(argv[bufsize_idx + 1], "3200k")
+            # The pinned GOP: -g 30 -keyint_min 30 (2 s at fps=15 → ~2 s
+            # HLS segments).
+            gop_idx = argv.index("-g")
+            keyint_idx = argv.index("-keyint_min")
+            self.assertLess(gop_idx, keyint_idx)
+            self.assertEqual(argv[gop_idx + 1], "30")
+            self.assertEqual(argv[keyint_idx + 1], "30")
+            # The 720p15 encoding chain is still intact.
+            self.assertEqual(argv[argv.index("-vf") + 1], "fps=15,scale=-2:720")
+            self.assertEqual(argv[argv.index("-c:v") + 1], "libx264")
+            self.assertEqual(argv[argv.index("-preset") + 1], "veryfast")
+            self.assertEqual(argv[argv.index("-tune") + 1], "zerolatency")
+            # The publish target ends the argv (after `-f rtsp`).
+            self.assertEqual(argv[-3:], ["-f", "rtsp", "rtsp://10.0.0.8:8554/cam1-h264"])
+
     def test_run_rejects_invalid_transport_fail_closed(self) -> None:
         # Executed twin of the transport vocabulary gate: an unsupported
         # CAMERA1_RTSP_TRANSPORT refuses the run (exit 6) before any ffmpeg
