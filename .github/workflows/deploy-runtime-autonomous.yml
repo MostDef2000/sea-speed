@@ -44,7 +44,6 @@ jobs:
         with:
           ref: ${{ steps.release.outputs.sha }}
           fetch-depth: 0
-          persist-credentials: false
 
       - name: Require quality commit is current main tip
         id: freshness
@@ -77,7 +76,7 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Verify public protected production source
+      - name: Verify protected production source
         if: ${{ steps.freshness.outputs.fresh == 'true' }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -124,7 +123,7 @@ jobs:
             echo "- Freshness basis: \`$FRESH_BASIS\`"
             echo "- Current-tip eligible: \`$FRESH\`"
             if [[ "$FRESH" == "true" ]]; then
-              echo "- Source protection: public protected main with required checks"
+              echo "- Source protection: protected main with required checks"
               echo "- Allowed: \`$ALLOWED\`"
               echo "- Reason: \`$REASON\`"
               echo "- Decision ID: \`$DECISION_ID\`"

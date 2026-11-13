@@ -1,5 +1,5 @@
 name: Verify exact release
-description: Shared verification for exact main Quality-approved release - public protected source, first-parent SHA, Quality status, standing policy.
+description: Shared verification for exact main Quality-approved release - protected source, first-parent SHA, Quality status, standing policy.
 
 inputs:
   commit_sha:
@@ -30,7 +30,7 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Verify public protected production source
+    - name: Verify protected production source
       shell: bash
       env:
         GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}

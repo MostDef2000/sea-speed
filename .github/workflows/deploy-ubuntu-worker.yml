@@ -35,7 +35,7 @@ concurrency:
 
 jobs:
   # Sea Speed transparent flow markers (kept for contract tests):
-  # Verify public protected production source
+  # Verify protected production source
   # verify_source_protection.py
   # --require-context "Repository validation"
   # --require-context "quality-integration"
@@ -45,7 +45,7 @@ jobs:
   # evaluate_production_policy.py --require-allow vars.SEA_SPEED_PRODUCTION_DELEGATION_V1 production-policy-decision.json
   # verify_source_protection.py - Repository validation + quality-integration
   # rev-list --first-parent refs/remotes/origin/main - target is not on current main first-parent history
-  # Verify public protected production source
+  # Verify protected production source
   # verify_quality_status.py - quality-integration.yml
   # evaluate_production_policy.py --require-allow - vars.SEA_SPEED_PRODUCTION_DELEGATION_V1
   # --first-parent

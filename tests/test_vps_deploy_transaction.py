@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import hashlib
+import io
 import json
 import os
+import shutil
 import subprocess
+import tarfile
 import tempfile
 import unittest
 from pathlib import Path
@@ -50,9 +54,11 @@ class VpsDeployTransactionTests(unittest.TestCase):
         (self.state / "previous-release").write_text(OLDER + "\n", encoding="utf-8")
         self.write_fakes()
 
-    def write_release(self, sha: str, with_store: bool = True) -> None:
-        release = self.releases / sha
-        files = {
+    def release_files(self, sha: str) -> dict[str, str]:
+        # The synthetic release layout: exactly the files deploy.sh's
+        # release_complete/download_release required list checks, plus the
+        # two state files download_release itself writes.
+        return {
             "api/app/main.py": f"SOURCE_COMMIT = '{sha}'\n",
             "api/app/store.py": f"# store fixture {sha}\n",
             "api/app/config.py": f"# config fixture {sha}\n",
@@ -94,6 +100,10 @@ class VpsDeployTransactionTests(unittest.TestCase):
             "commit-sha": sha + "\n",
             "archive-sha256": (sha[0] * 64) + "\n",
         }
+
+    def write_release(self, sha: str, with_store: bool = True) -> None:
+        release = self.releases / sha
+        files = self.release_files(sha)
         if not with_store:
             # Store-less release (pre-#394 shape): activation must treat the
             # live store.py as a clean downgrade and remove it.
@@ -260,6 +270,7 @@ printf 'LISTEN 0 128 %s 0.0.0.0:*\n' "$SEA_SPEED_WORKER_PRIVATE_LISTEN"
         ss_mode: str = "bound",
         prune_failure: str = "",
         public_mode: str = "healthy",
+        extra_env: dict[str, str] | None = None,
     ) -> dict[str, str]:
         env = os.environ.copy()
         env.update(
@@ -320,6 +331,8 @@ printf 'LISTEN 0 128 %s 0.0.0.0:*\n' "$SEA_SPEED_WORKER_PRIVATE_LISTEN"
                 "FAKE_RM_LOG": str(self.root / "rm.log"),
             }
         )
+        if extra_env:
+            env.update(extra_env)
         return env
 
     def run_deploy(
@@ -329,6 +342,7 @@ printf 'LISTEN 0 128 %s 0.0.0.0:*\n' "$SEA_SPEED_WORKER_PRIVATE_LISTEN"
         ss_mode: str = "bound",
         prune_failure: str = "",
         public_mode: str = "healthy",
+        extra_env: dict[str, str] | None = None,
     ) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             ["bash", str(DEPLOY_SCRIPT), CANDIDATE],
@@ -338,6 +352,7 @@ printf 'LISTEN 0 128 %s 0.0.0.0:*\n' "$SEA_SPEED_WORKER_PRIVATE_LISTEN"
                 ss_mode=ss_mode,
                 prune_failure=prune_failure,
                 public_mode=public_mode,
+                extra_env=extra_env,
             ),
             text=True,
             stdout=subprocess.PIPE,
@@ -716,6 +731,88 @@ printf 'LISTEN 0 128 %s 0.0.0.0:*\n' "$SEA_SPEED_WORKER_PRIVATE_LISTEN"
             result.stdout,
         )
         self.assertEqual(self.manifest()["state"], "rolled_back")
+
+    # Issue #668 F4 — the deploy workflow pre-places the release archive on
+    # the VPS via scp, so download_release must not curl when the archive
+    # already exists at its expected path; the existing completeness and
+    # hash-recording behavior is preserved.
+
+    def build_release_archive(self, sha: str) -> bytes:
+        # GitHub source-archive shape: one top-level directory, which
+        # download_release extracts with --strip-components=1.
+        top = self.root / "archive-src" / f"sea-speed-{sha}"
+        files = self.release_files(sha)
+        files.pop("commit-sha")
+        files.pop("archive-sha256")
+        for relative, content in files.items():
+            path = top / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+        buffer = io.BytesIO()
+        with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+            archive.add(top, arcname=f"sea-speed-{sha}")
+        return buffer.getvalue()
+
+    def install_archive_sentinel_curl(self) -> None:
+        # The shared curl fake plus a sentinel: every invocation is logged,
+        # and any attempt to download the release archive from GitHub fails
+        # closed (exit 7) and drops a sentinel file.
+        existing = (self.fake_bin / "curl").read_text(encoding="utf-8")
+        body = existing.split("\n", 1)[1]
+        sentinel = (
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "printf '%s\\n' \"$*\" >> \"${FAKE_CURL_LOG:-/dev/null}\"\n"
+            "if [[ \"$*\" == *'/archive/'* ]]; then\n"
+            "  touch \"${FAKE_CURL_ARCHIVE_SENTINEL:-/dev/null}\"\n"
+            "  echo 'curl: (7) sentinel: release archive download attempted' >&2\n"
+            "  exit 7\n"
+            "fi\n"
+            + body
+        )
+        self.write_executable("curl", sentinel)
+
+    def test_pre_placed_release_archive_skips_curl_and_records_hash(self) -> None:
+        # The candidate release is NOT pre-written (so release_complete fails
+        # and the download path runs), but the release archive IS pre-placed
+        # at its expected path, like the deploy workflow's scp step does.
+        # download_release must use the pre-placed archive without invoking
+        # curl, and must still compute and record the archive hash.
+        shutil.rmtree(self.releases / CANDIDATE)
+        archive_bytes = self.build_release_archive(CANDIDATE)
+        for path in (
+            self.releases / f"{CANDIDATE}.tar.gz",
+            self.state / f"{CANDIDATE}.tar.gz",
+            self.deploy_root / f"{CANDIDATE}.tar.gz",
+            self.releases / f"sea-speed-vps-{CANDIDATE}.tar.gz",
+        ):
+            path.write_bytes(archive_bytes)
+        self.install_archive_sentinel_curl()
+        result = self.run_deploy(
+            extra_env={
+                "FAKE_CURL_LOG": str(self.root / "curl.log"),
+                "FAKE_CURL_ARCHIVE_SENTINEL": str(self.root / "curl-archive-sentinel"),
+                "SEA_SPEED_RELEASE_ARCHIVE": str(self.releases / f"{CANDIDATE}.tar.gz"),
+            }
+        )
+        self.assertEqual(result.returncode, 0, result.stdout)
+        curl_log = (self.root / "curl.log").read_text(encoding="utf-8")
+        self.assertNotIn(
+            "/archive/",
+            curl_log,
+            "curl was invoked for the release archive although it was pre-placed",
+        )
+        self.assertFalse(
+            (self.root / "curl-archive-sentinel").exists(),
+            "the release archive download (curl) ran although the archive was pre-placed",
+        )
+        expected_sha = hashlib.sha256(archive_bytes).hexdigest()
+        self.assertEqual(
+            (self.releases / CANDIDATE / "archive-sha256").read_text(encoding="utf-8").strip(),
+            expected_sha,
+            "the pre-placed archive hash must still be computed and recorded",
+        )
+        self.assertEqual(self.current(), CANDIDATE)
 
 
 if __name__ == "__main__":

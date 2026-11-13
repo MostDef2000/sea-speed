@@ -60,8 +60,6 @@ def validate_source_state(
     *,
     required_contexts: tuple[str, ...] = (),
 ) -> None:
-    if repository.get("private") is not False or repository.get("visibility") != "public":
-        raise SourceProtectionError("production repository must be public on the GitHub Free control plane")
     if branch.get("name") != "main":
         raise SourceProtectionError("production source branch must be main")
     if branch.get("protected") is not True:
@@ -93,9 +91,10 @@ def main() -> int:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
     contexts = sorted(normalized_contexts(branch))
+    visibility = repository.get("visibility") or ("private" if repository.get("private") else "unknown")
     print(
         "Source protection verified: "
-        f"repository={args.repository} visibility=public branch=main protected=true "
+        f"repository={args.repository} visibility={visibility} branch=main protected=true "
         f"required_contexts={','.join(args.require_context) or 'none'} "
         f"observed_contexts={','.join(contexts) or 'unknown'}"
     )

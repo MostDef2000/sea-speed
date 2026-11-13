@@ -188,6 +188,50 @@ class AutonomousExecutionPolicyTests(unittest.TestCase):
             self.assertNotIn("verify_production_authorization.py", joined)
             self.assertNotIn("PRODUCTION APPROVED", joined)
 
+    def test_deploy_checkouts_keep_persisted_credentials_for_git_fetch(self):
+        # Issue #668: the post-checkout steps run `git fetch` (the freshness
+        # step in the autonomous router, the "Resolve exact main deployment
+        # commit" composite in deploy-vps.yml). With
+        # `persist-credentials: false` the checkout removes the credential
+        # helper, so those fetches cannot authenticate — the checkout must
+        # leave credential persistence enabled (absent or true).
+        for name in ("deploy-runtime-autonomous.yml", "deploy-vps.yml"):
+            with self.subTest(workflow=name):
+                data = load_workflow(WORKFLOWS / name)
+                checkouts = [
+                    step
+                    for _, step in steps_of(data)
+                    if str(step.get("uses") or "").startswith("actions/checkout")
+                ]
+                self.assertTrue(checkouts, f"{name} has no actions/checkout step")
+                for step in checkouts:
+                    with_creds = (step.get("with") or {}).get("persist-credentials")
+                    self.assertIn(
+                        with_creds,
+                        (None, True),
+                        f"{name} checkout disables credential persistence; the post-checkout git fetch cannot authenticate",
+                    )
+
+    def test_flow_marker_step_name_drops_public(self):
+        # Issue #668: the source-protection flow marker is renamed from
+        # "Verify public protected production source" to "Verify protected
+        # production source" in all three deploy workflows (step name in the
+        # autonomous router, comment markers in the two deploy workflows) —
+        # the trust model admits a protected private repository, so the
+        # marker must not claim "public".
+        for name in ("deploy-runtime-autonomous.yml", "deploy-vps.yml", "deploy-ubuntu-worker.yml"):
+            with self.subTest(workflow=name):
+                text = (WORKFLOWS / name).read_text(encoding="utf-8")
+                self.assertNotIn("Verify public protected production source", text)
+                self.assertIn("Verify protected production source", text)
+        # Executable twin: the autonomous router's real step name (parsed,
+        # comment-blind) is the renamed marker.
+        data = load_workflow(WORKFLOWS / "deploy-runtime-autonomous.yml")
+        protection = next(
+            step for _, step in steps_of(data) if "verify_source_protection.py" in (step.get("run") or "")
+        )
+        self.assertEqual(protection.get("name"), "Verify protected production source")
+
     def test_ubuntu_workflow_uses_zero_touch_connector(self):
         data = load_workflow(WORKFLOWS / "deploy-ubuntu-worker.yml")
         runs = "\n".join(run_text(step) for _, step in steps_of(data))

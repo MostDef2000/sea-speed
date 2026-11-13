@@ -48,4 +48,4 @@ PR --+--> PR Validation (required)
                                                                               +--> Deploy Ubuntu (if Ubuntu REQUIRED)
 ```
 
-**Гарантии:** public protected main, exact Quality, first-parent, standing policy ALLOW, zero per-release approval, Operator actions 0.
+**Гарантии:** protected main, exact Quality, first-parent, standing policy ALLOW, zero per-release approval, Operator actions 0.

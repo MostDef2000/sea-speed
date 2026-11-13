@@ -9,7 +9,7 @@ GitHub `main` is the source of truth for repository/product state. Sea Speed has
 
 The canonical Issue is the durable delivery-control record for an existing task: Outcome Contract, source-authorization receipt, machine-readable `Sea Speed Delivery Checkpoint v2`, exact branch/PR/head identities, completed gates and evidence cursors. The live conversation is transient interaction state used for new authorization decisions; it is not the durable execution cursor.
 
-On the GitHub Free plan the production repository remains public so branch protection, required checks and the `production` environment can form the control plane. Public source is not a secret boundary; credentials, private keys, populated environment values and runtime secrets remain outside Git.
+On the GitHub Free plan the production repository may be private or public; branch protection, required checks and the `production` environment form the control plane regardless of visibility. Source visibility is not a secret boundary; credentials, private keys, populated environment values and runtime secrets remain outside Git.
 
 Windows Worker is retired from production. Historical Windows evidence remains immutable/readable audit history.
 
@@ -90,7 +90,7 @@ This boundary prevents false background-work claims and same-evidence polling/pl
 ```text
 successful Quality integration gate for push/main
 -> exact current main check
--> public/protected main + required-check verification
+-> protected main + required-check verification
 -> exact merged Issue/PR/Change Contract resolution
 -> trusted standing delegation + repository policy
 -> typed allow/deny decision
@@ -110,7 +110,7 @@ The effective delegation and deployment credentials live outside ordinary reposi
 
 The standing delegation grants only `deploy` and `rollback` when both trusted delegation and repository policy allow them. IAM, secrets, environment/settings administration, branch protection and arbitrary infrastructure mutation remain outside Delivery Orchestrator authority.
 
-Changing repository visibility to private on the Free plan, removing main protection or removing required checks makes production fail closed until the independent control-plane state is restored.
+Removing main protection or removing required checks makes production fail closed until the independent control-plane state is restored; repository visibility itself is not a production gate.
 
 ## Ubuntu zero-touch transport
 

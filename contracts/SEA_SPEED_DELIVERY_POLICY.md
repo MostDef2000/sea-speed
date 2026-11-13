@@ -90,7 +90,7 @@ Source authorization never authorizes runtime mutation. Runtime authority comes 
 
 The trusted delegation is not a repository file, Issue field or comment. Repository policy may narrow but cannot widen it. Effective actions are the intersection of trusted permissions and repository allowed actions. Allowed standing actions are exactly `deploy` and `rollback`; IAM, secret management, environment/settings administration, branch protection and arbitrary infrastructure mutation are not delegated.
 
-Production execution additionally requires a protected source boundary. On the GitHub Free control plane Sea Speed production source MUST remain public, `main` MUST report `protected=true`, and the required merge-facing checks `Repository validation` and `quality-integration` MUST be present. `.github/workflows/deploy-runtime-autonomous.yml`, `.github/workflows/deploy-vps.yml` and `.github/workflows/deploy-ubuntu-worker.yml` fail closed through `scripts/release/verify_source_protection.py` before production policy evaluation or transport.
+Production execution additionally requires a protected source boundary. Sea Speed production source may be private or public; `main` MUST report `protected=true`, and the required merge-facing checks `Repository validation` and `quality-integration` MUST be present. `.github/workflows/deploy-runtime-autonomous.yml`, `.github/workflows/deploy-vps.yml` and `.github/workflows/deploy-ubuntu-worker.yml` fail closed through `scripts/release/verify_source_protection.py` before production policy evaluation or transport.
 
 Branch/ruleset administration is independently controlled and cannot be performed by the Delivery Orchestrator. The administrative target is: PR required, required checks enabled, force-push/delete disabled, no bypass that can silently skip those controls, and no mandatory per-release human reviewer.
 
@@ -102,7 +102,7 @@ Historical comment strings (`PRODUCTION APPROVED`, `Authorization-Fingerprint`, 
 
 Each protected runtime workflow independently verifies source protection and re-evaluates standing policy with `--require-allow` before transport. Manual workflow dispatch cannot bypass source protection, Quality or standing policy.
 
-Missing/stale/invalid delegation, private repository visibility, unprotected main or missing required status checks deny without runtime mutation.
+Missing/stale/invalid delegation, unprotected main or missing required status checks deny without runtime mutation.
 
 ## 8. Runtime execution capability
 
@@ -153,7 +153,7 @@ The key MUST NOT provide a general shell, PTY, forwarding, agent forwarding, arb
 
 ## 11. Repository-owned server-pull model
 
-VPS and Ubuntu target transactions may fetch exact public repository source after protected workflow admission. Public source bytes are not authority; the protected source state, exact Quality, standing policy decision and restricted runtime credential are the security boundary.
+VPS and Ubuntu target transactions may obtain exact repository source after protected workflow admission. Source bytes are not authority; the protected source state, exact Quality, standing policy decision and restricted runtime credential are the security boundary.
 
 Substantive deployment logic must remain in repository-owned target entrypoints rather than ad-hoc operator commands.
 
@@ -174,7 +174,7 @@ One-time bootstrap of branch protection, environment secret material and the ded
 
 ## 13. VPS execution and evidence
 
-`.github/workflows/deploy-vps.yml` remains the single protected VPS implementation. It verifies public protected main, exact main/Quality, standing policy, artifacts/release provenance and rollback before SSH. VPS completion requires exact deployed source, health/smoke/product/security evidence and known rollback target.
+`.github/workflows/deploy-vps.yml` remains the single protected VPS implementation. It verifies protected main, exact main/Quality, standing policy, artifacts/release provenance and rollback before SSH. VPS completion requires exact deployed source, health/smoke/product/security evidence and known rollback target.
 
 ### 13.1 Operator terminal command handoff format
 
