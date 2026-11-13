@@ -11,8 +11,8 @@
 - [x] F6: contract tests — tests/test_ubuntu_worker_deploy_authorized.py (4 pins), tests/test_ubuntu_worker_exact_updater.py (3 pins), tests/test_ubuntu_zero_touch_transport.py (structural gate-fetch pins + executed missing-token fail-closed path + policy-doc pin + harness token-file adaptation), tests/test_autonomous_execution_policy.py (Ubuntu workflow joins the persisted-credentials pin); RED-first on base 5a004e7
 - [x] Write the SDD trio specs/669-ubuntu-worker-authenticated-fetch/{spec,plan,tasks}.md and pass scripts/ci/validate_sdd.py
 - [ ] Peer verification of the combined diff (independent second worker)
-- [ ] Required CI green on the #669 PR
-- [ ] Exact-green-head merge complete
+- [x] Required CI green on the #669 PR — auto-synced on merge to main (0fe06f48)
+- [x] Exact-green-head merge complete — auto-synced on merge to main (0fe06f48)
 - [ ] Lane-A deploy on the merged main SHA (Ubuntu Worker contour; autonomous router path, ubuntu_worker_required=='true')
 - [ ] Post-deploy acceptance: Ubuntu Worker deploy succeeds on the private repository — gate fetch, deploy-authorized staging fetch and update-exact fetch all authenticate with the root-owned token; deployment manifest runtime_verified
 
