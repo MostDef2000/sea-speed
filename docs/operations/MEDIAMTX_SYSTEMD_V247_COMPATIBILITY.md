@@ -1,5 +1,10 @@
 # MediaMTX systemd v247 compatibility runner
 
+> **REMOVED in #663**: the legacy VPS tooling described here
+> (`mediamtx-compatibility-remediation.sh`, `mediamtx-systemd-v247-runner.sh`,
+> `camera1-final-cutover.sh`) no longer exists in the repository. This document
+> is retained as a historical record (precedent #661: mark, never erase).
+
 ## Purpose
 
 Issue #87 already has a fail-closed MediaMTX v1.20.0 compatibility core in
