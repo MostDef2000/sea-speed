@@ -12,7 +12,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 RENDERER = ROOT / "scripts/operations/mediamtx_path_config.py"
 UBUNTU = ROOT / "deploy/worker/ubuntu/camera-relay.sh"
-VPS = ROOT / "deploy/vps/camera-source-switch.sh"
 TRANSCODE = ROOT / "deploy/worker/ubuntu/camera1-h264-transcode.sh"
 DOC = ROOT / "docs/operations/CAMERA1_LIVE_REPLACEMENT.md"
 sys.path.insert(0, str(ROOT / "tests"))
@@ -239,9 +238,7 @@ class Camera1LiveReplacementTests(unittest.TestCase):
 
     def test_shell_contracts_are_explicit_and_ai_worker_is_not_controlled(self) -> None:
         subprocess.run(["bash", "-n", str(UBUNTU)], check=True)
-        subprocess.run(["bash", "-n", str(VPS)], check=True)
         ubuntu = UBUNTU.read_text(encoding="utf-8")
-        vps = VPS.read_text(encoding="utf-8")
 
         # 398-wave3: retired source-text pins and their executed twins (same
         # commit, this cluster):
@@ -264,16 +261,10 @@ class Camera1LiveReplacementTests(unittest.TestCase):
         self.assertNotIn('systemctl enable "$worker_service"', ubuntu)
         self.assertIn("automatic rollback is not authorized", ubuntu)
 
-        # 398-wave3: SP pins — the VPS shell is outside the executed surface
-        # (no sandbox lane runs deploy/vps/**); its renderer-side contract is
-        # executed above through the vps-switch / verify-vps-switch CLI twins.
-        self.assertIn("--confirmed-public-hls", vps)
-        self.assertIn("cam1-new", vps)
-        self.assertIn("verify-vps-switch", vps)
-        self.assertIn("RTSP_TRANSPORT=tcp", vps)
-        self.assertIn("LOCAL_CANONICAL_HLS=PASS", vps)
-        self.assertIn("automatic rollback is not authorized", vps)
-        self.assertNotIn("worker.env", vps)
+        # #661: the VPS source-switch shell and its SP pins died with the
+        # file (dead legacy VPS-mediamtx-era tooling, superseded by the
+        # road1-720p transcode path) — there is no deploy/vps surface left
+        # to pin here.
 
     def test_documentation_preserves_private_relay_and_records_auth_v1_boundary(self) -> None:
         # SS twins (issue #398 wave 6): each retired anywhere-in-file pin is
@@ -337,12 +328,14 @@ class Camera1LiveReplacementTests(unittest.TestCase):
         retire_section = markdown_docs.section_titled(source, "retire", "cam1-new")
         self.assertIsNotNone(retire_section)
         # The retirement RULE lives in the section body (peer review F2 —
-        # heading presence alone is not the contract): the gated cleanup flow
-        # (prepare-cleanup → activate-cleanup, both gated on the confirmed
-        # protected-HLS precondition via --confirmed-public-hls) and the
-        # refuse-unless-canonical-bound guard that removes only `cam1-new`.
-        # Same-or-stronger vs the retired anywhere-in-file
-        # `assertIn("cam1-new", source)` pin.
+        # heading presence alone is not the contract). #661 deleted the
+        # source-switch script: the section must carry the removal note
+        # (dead legacy VPS-mediamtx era, superseded by the road1-720p
+        # transcode path) and keeps the historical gated cleanup command
+        # shape as record (prepare-cleanup → activate-cleanup, gated on
+        # --confirmed-public-hls) plus the refuse-unless-canonical-bound
+        # guard that removes only `cam1-new`.
+        self.assertIn("REMOVED in #661", retire_section[1])
         self.assertIn("camera-source-switch.sh prepare-cleanup", retire_section[1])
         self.assertIn("camera-source-switch.sh activate-cleanup", retire_section[1])
         self.assertIn("--confirmed-public-hls", retire_section[1])
