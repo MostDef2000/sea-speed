@@ -30,9 +30,30 @@ class ProductionSourceProtectionTests(unittest.TestCase):
             required_contexts=("Repository validation", "quality-integration"),
         )
 
-    def test_private_repository_is_denied(self):
-        with self.assertRaisesRegex(MODULE.SourceProtectionError, "must be public"):
-            MODULE.validate_source_state(self.repository(public=False), self.branch())
+    def test_private_protected_repository_is_admitted(self):
+        # Issue #668: the trust model admits a PRIVATE repository when main
+        # is protected with the required status checks — no error is raised.
+        MODULE.validate_source_state(
+            self.repository(public=False),
+            self.branch(contexts=("PR Validation / Repository validation", "Quality integration gate / quality-integration")),
+            required_contexts=("Repository validation", "quality-integration"),
+        )
+
+    def test_private_repository_without_protection_is_denied(self):
+        # Issue #668: admitting private repositories does not relax the
+        # protection requirement — an unprotected main still fails closed.
+        with self.assertRaisesRegex(MODULE.SourceProtectionError, "protection is not active"):
+            MODULE.validate_source_state(self.repository(public=False), self.branch(protected=False))
+
+    def test_private_repository_missing_required_check_is_denied(self):
+        # Issue #668: a private repository with protection but a missing
+        # required status check still fails closed.
+        with self.assertRaisesRegex(MODULE.SourceProtectionError, "missing required status checks"):
+            MODULE.validate_source_state(
+                self.repository(public=False),
+                self.branch(contexts=("Repository validation",)),
+                required_contexts=("Repository validation", "quality-integration"),
+            )
 
     def test_unprotected_main_is_denied(self):
         with self.assertRaisesRegex(MODULE.SourceProtectionError, "protection is not active"):

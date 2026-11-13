@@ -83,7 +83,7 @@ Quality disposition does not create source merge or runtime authority. `commit a
 
 New deployable releases use `sea_speed_release_manifest_v3` and typed production policy/execution-audit evidence. Historical v1/v2 manifests, old authorization fingerprints and Windows records remain readable immutable audit history but do not authorize new execution.
 
-The current GitHub Free production model additionally requires public protected `main` and required merge-facing checks before runtime policy/transport. A private repository or unprotected `main` is production deny until independently corrected.
+The current production model additionally requires protected `main` and required merge-facing checks before runtime policy/transport; the repository itself may be private or public. An unprotected `main` is production deny until independently corrected.
 
 ## Historical truth
 

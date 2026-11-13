@@ -137,7 +137,9 @@ class QualityArchitectureTests(unittest.TestCase):
         # break them while any loosening of the guards still fails RED.
         source = (ROOT / "scripts/release/verify_source_protection.py").read_text(encoding="utf-8")
         tree = ast.parse(source)
-        self.assertTrue(worker_source.contains_expr(tree, 'repository.get("visibility") != "public"'))
+        # Issue #668: the public-visibility gate is deliberately retired — the
+        # trust model admits a private repository; fail-closed now rests on
+        # the protection and required-status-checks guards pinned below.
         self.assertTrue(worker_source.contains_expr(tree, 'branch.get("protected") is not True'))
         self.assertTrue(
             any("missing required status checks" in constant for constant in worker_source.string_constants(tree)),

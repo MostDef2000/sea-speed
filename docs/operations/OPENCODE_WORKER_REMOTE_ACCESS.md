@@ -73,4 +73,4 @@ All durable GitHub lifecycle operations use the GitHub Connector under Sea Speed
 
 ## Production action boundary
 
-A working SSH session means transport is available. Production mutation still requires protected public `main`, exact-main Quality, standing policy allow and the repository-owned target transaction.
+A working SSH session means transport is available. Production mutation still requires protected `main`, exact-main Quality, standing policy allow and the repository-owned target transaction.

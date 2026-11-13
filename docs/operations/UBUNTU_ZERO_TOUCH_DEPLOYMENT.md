@@ -30,7 +30,7 @@ The production Worker remains a bounded runtime host, not a general GitHub Actio
 
 Before enabling zero-touch production, the repository owner/admin must establish these settings outside repository writes:
 
-1. Repository visibility is `public` while Sea Speed uses GitHub Free.
+1. Repository visibility may be private or public; source protection comes from `main` branch protection, not visibility.
 2. `main` branch/ruleset requires PRs and the merge-facing checks `Repository validation` and `quality-integration`; force push/delete and silent bypass are disabled.
 3. GitHub `production` environment still contains the standing delegation `SEA_SPEED_PRODUCTION_DELEGATION_V1` and has no per-release required reviewer.
 4. Existing VPS deployment credentials remain available to the `production` environment.
@@ -114,9 +114,10 @@ Missing transport credentials fail closed before SSH. There is no recurring one-
 
 `scripts/release/verify_source_protection.py` is a hard gate in the autonomous router and both protected deployment workflows. It requires:
 
-- repository visibility `public`;
 - `main.protected=true`;
 - required check contexts `Repository validation` and `quality-integration`.
+
+The repository may be private or public; branch protection, not visibility, carries the trust boundary.
 
 Repository settings must additionally require PRs and disable force-push/delete/bypass paths. Those settings remain independently administered and are not writable by the Delivery Orchestrator.
 
@@ -124,7 +125,7 @@ Repository settings must additionally require PRs and disable force-push/delete/
 
 Zero-touch is active only when:
 
-- GitHub reports public protected main with required checks;
+- GitHub reports protected main with required checks;
 - the production environment standing delegation remains valid;
 - the deploy account is SSH-accessible by the dedicated public key while password authentication remains impossible;
 - effective sshd policy admits both the existing operator principal(s) and `sea-speed-deploy` when `AllowUsers` is configured;

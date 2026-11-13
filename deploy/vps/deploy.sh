@@ -263,9 +263,15 @@ download_release() {
   mkdir -p "$extracted"
 
   log "Downloading exact commit ${COMMIT_SHA}"
-  curl --fail --location --silent --show-error \
-    "https://github.com/${REPOSITORY}/archive/${COMMIT_SHA}.tar.gz" \
-    --output "$archive"
+  local preplaced="${SEA_SPEED_RELEASE_ARCHIVE:-$DEPLOY_ROOT/state/${COMMIT_SHA}.tar.gz}"
+  if [[ -f "$preplaced" ]]; then
+    log "Using pre-placed release archive"
+    cp "$preplaced" "$archive"
+  else
+    curl --fail --location --silent --show-error \
+      "https://github.com/${REPOSITORY}/archive/${COMMIT_SHA}.tar.gz" \
+      --output "$archive"
+  fi
   archive_sha="$(sha256sum "$archive" | awk '{print $1}')"
   tar -xzf "$archive" -C "$extracted" --strip-components=1
 

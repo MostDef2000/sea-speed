@@ -131,7 +131,7 @@ def main() -> int:
             "steps.freshness.outputs.fresh == 'true'",
             "merge-base --is-ancestor", "':(glob,exclude)specs/*/tasks.md'",
             "fresh_basis=tree-modulo-tasks", "fresh_basis=tip", "Freshness basis:",
-            "Verify public protected production source",
+            "Verify protected production source",
             "verify_source_protection.py", '--require-context "Repository validation"', '--require-context "quality-integration"',
             "vars.SEA_SPEED_PRODUCTION_DELEGATION_V1", "evaluate_production_policy.py",
             "uses: ./.github/workflows/deploy-vps.yml", "uses: ./.github/workflows/deploy-ubuntu-worker.yml",
@@ -176,7 +176,7 @@ def main() -> int:
             file,
             (
                 "environment: production", "refs/heads/main", "--first-parent", "verify_quality_status.py",
-                "Verify public protected production source", "verify_source_protection.py",
+                "Verify protected production source", "verify_source_protection.py",
                 '--require-context "Repository validation"', '--require-context "quality-integration"',
                 "evaluate_production_policy.py", "--require-allow", "vars.SEA_SPEED_PRODUCTION_DELEGATION_V1",
                 "production-policy-decision.json", "Build release provenance v3" if file == "deploy-vps.yml" else "Build exact artifacts and Ubuntu release provenance",
@@ -223,7 +223,7 @@ def main() -> int:
         except ValueError as exc:
             fail(str(exc))
 
-    print("Workflow policy valid: protected public main -> exact quality -> standing policy -> restricted VPS/Ubuntu zero-touch execution")
+    print("Workflow policy valid: protected main -> exact quality -> standing policy -> restricted VPS/Ubuntu zero-touch execution")
     return 0
 
 

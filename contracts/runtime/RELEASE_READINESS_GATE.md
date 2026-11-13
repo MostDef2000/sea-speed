@@ -17,7 +17,7 @@ Release Readiness Gate
 - Applicable merged PR linked: YES/NO
 - Outcome Contract / approved scope current: YES/NO
 - Approved source committed to main: YES/NO
-- Repository visibility public: YES/NO
+- Repository visibility (informational, not a gate): public/private
 - Main branch protected: YES/NO
 - Required source checks protected: YES/NO
 - Exact source is on current main first-parent history: YES/NO
@@ -70,11 +70,11 @@ Connector reads are cursor-bound and progressive: `known object -> metadata -> t
 
 ## Protected source gate
 
-On GitHub Free, Sea Speed production requires a public repository and protected `main`. `scripts/release/verify_source_protection.py` must succeed before production policy evaluation in the autonomous router and before transport in both protected deploy workflows.
+On GitHub Free, Sea Speed production requires a protected `main`; the repository may be private or public. `scripts/release/verify_source_protection.py` must succeed before production policy evaluation in the autonomous router and before transport in both protected deploy workflows.
 
-The machine-verifiable minimum is `visibility=public`, `main.protected=true`, and required check contexts for `Repository validation` and `quality-integration`. Independently administered repository settings must also require PRs and disable force-push/delete/bypass paths that would defeat these checks. Repository/ruleset settings are not agent authority.
+The machine-verifiable minimum is `main.protected=true` and required check contexts for `Repository validation` and `quality-integration`. Independently administered repository settings must also require PRs and disable force-push/delete/bypass paths that would defeat these checks. Repository/ruleset settings are not agent authority.
 
-Changing repository visibility to private, removing main protection or removing required checks is production deny until the protected state is restored.
+Removing main protection or removing required checks is production deny until the protected state is restored.
 
 ## Capability preflight
 
@@ -110,7 +110,7 @@ New runtime delivery uses `sea_speed_release_manifest_v3`, binding Issue, PR, Ou
 
 Production never runs merely because of source approval, push, merge, Issue/PR/comment text or a known hash. Runtime authority is a current independently administered standing delegation intersected with repository policy.
 
-Before transport verify exact lowercase current-main first-parent SHA, successful exact `push/main` Quality, one applicable merged PR/canonical Issue, protected public source, valid current standing delegation, requested action in both trusted permissions and repository policy, matching policy hash, deterministic typed `allow`, exact artifacts/release evidence and rollback target.
+Before transport verify exact lowercase current-main first-parent SHA, successful exact `push/main` Quality, one applicable merged PR/canonical Issue, protected source, valid current standing delegation, requested action in both trusted permissions and repository policy, matching policy hash, deterministic typed `allow`, exact artifacts/release evidence and rollback target.
 
 The standing action set is `deploy`, `rollback` only. IAM/secrets/settings administration is excluded. Missing/invalid delegation is deny. Legacy per-release comment authorization is non-authoritative historical evidence.
 

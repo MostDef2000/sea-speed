@@ -1,0 +1,70 @@
+# Plan: private-repo deploy chain (protected main without public visibility)
+
+- Specification: specs/668-private-repo-deploy-chain/spec.md
+
+## Architecture
+Five surfaces, one trust-model change: (1) `scripts/release/verify_source_protection.py` drops only the public-visibility hard gate and prints the actual visibility — the protection/required-context checks and their fail-closed errors are untouched; (2) the two VPS-contour checkouts (`deploy-runtime-autonomous.yml`, `deploy-vps.yml`) stop passing `persist-credentials: false` so the post-checkout `git fetch` steps (freshness, resolve-exact-commit composite) authenticate with the persisted job token; (3) `deploy-vps.yml` pre-places a runner-built `git archive` of the verified DEPLOY_SHA on the VPS via the existing restricted SSH identity, and `deploy/vps/deploy.sh` `download_release` prefers that pre-placed archive (env-overridable, default = the scp target) with the curl fallback intact; (4) the flow marker "Verify public protected production source" becomes "Verify protected production source" atomically across the three workflows, the composite action and `validate_workflow_policy.py`; (5) governing docs drop the public-visibility mandate. The Ubuntu Worker contour is explicitly out of scope (follow-up issue).
+
+## Decisions
+- Trust boundary moves from visibility to protection: the deleted gate checked `private is not False or visibility != "public"`; the retained checks (`main` name, `protected=true`, required contexts) are the actual anti-tamper boundary, so admitting a private repo does not relax anything the tests pin ("protection is not active", "missing required status checks" fragments unchanged).
+- Credential persistence is restored by REMOVING the `persist-credentials: false` line rather than setting `true`: absent means the actions/checkout default (persist), which the parsed-structure test accepts as `(None, True)`. The job token is `contents: read`-scoped; the workflows already declare explicit minimal permissions.
+- The archive is built with `git archive` on the runner AFTER the composite verified DEPLOY_SHA (40-hex, first-parent membership, local cat-file) — the runner already holds the exact verified objects, and `git archive` output is a deterministic function of the tree, so provenance is status-quo-equivalent to the previous GitHub codeload archive (both are git-derived bytes of the same SHA). The pre-existing gap — the shipped archive is built on the runner while the *evidence* artifact is uploaded separately — is unchanged and recorded, not silently altered.
+- scp target `/opt/sea-speed-deploy/state/${DEPLOY_SHA}.tar.gz` matches the deploy.sh default fallback `$DEPLOY_ROOT/state/${COMMIT_SHA}.tar.gz` exactly; `SEA_SPEED_RELEASE_ARCHIVE` exists only as an override for tests/ops, not a new config knob (unset behavior is the production path).
+- Remote dir creation (`ssh mkdir -p /opt/sea-speed-deploy/state`) rides in the same step, idempotent, before scp; the step re-checks VPS_HOST/VPS_USER non-empty exactly like the deploy step and uses the same `-i/-p/-P/-o BatchMode=yes -o StrictHostKeyChecking=yes` options — no new credentials, no secrets in argv.
+- deploy.sh keeps ONE download function: the pre-placed branch copies to the same `$archive` temp path, so sha256 recording, the required-files completeness loop and `tar --strip-components=1` extraction are shared by both paths (the archive prefix `sea-speed-${DEPLOY_SHA}/` provides the single top-level directory `--strip-components=1` expects).
+- Marker rename is atomic with the validator literals (lines 134/179 + success text) because the validator requires the marker text in all three workflows — renaming workflows without the validator (or vice versa) breaks `validate_workflow_policy.py` and CI.
+- deploy-ubuntu-worker.yml receives ONLY the two comment-marker renames: its checkout keeps `persist-credentials: false` and its transport still assumes public source; the Ubuntu private-repo fix (credential persistence + archive transport through the forced-command protocol) is a separate authorized change.
+
+## Affected contours
+- VPS (release tree + deploy transport): deploy/vps/deploy.sh (download_release pre-placed branch), .github/workflows/deploy-vps.yml (checkout credentials, archive step, markers, summary)
+- Control plane: .github/workflows/deploy-runtime-autonomous.yml (checkout credentials, step name, summary), .github/actions/verify-exact-release/action.yml (step name, description), scripts/quality/validate_workflow_policy.py (markers, success text), scripts/release/verify_source_protection.py
+- Contracts/docs: contracts/SEA_SPEED_DELIVERY_POLICY.md, contracts/runtime/RELEASE_READINESS_GATE.md, contracts/branches/deploy.md, specs/README.md, docs/WORKFLOW_OVERVIEW.md, docs/operations/UBUNTU_ZERO_TOUCH_DEPLOYMENT.md
+- specs/668-private-repo-deploy-chain/ (spec, plan, tasks)
+- Explicitly unchanged: tests/** (frozen RED-first contract), deploy/worker/**, frontend/**, api/**, data/contracts/**, scripts/ci/**, .github/workflows/deploy-ubuntu-worker.yml beyond the two marker strings
+
+## Validation
+- `python3 -m unittest tests.test_production_source_protection tests.test_autonomous_execution_policy tests.test_vps_deploy_transaction -v` → Ran 42 tests, OK (RED-first: the three files arrived failing on base 42c08d8).
+- `python3 -m unittest discover -s tests -p "test_*.py"` → full battery green (baseline 1381+ tests, skipped=2, plus the new 42).
+- `python3 scripts/quality/validate_workflow_policy.py && python3 scripts/quality/validate_quality_contracts.py && python3 scripts/ci/validate_sdd.py && python3 scripts/ci/validate_repo.py` → all pass.
+- `bash -n deploy/vps/deploy.sh` → clean.
+- Repo-wide grep for "Verify public protected production source" and "protected public main" → zero matches outside tests/ and historical specs/.
+- `git diff --stat` → only the allowed paths.
+
+## Runtime feedback
+- Issue #668: repo went private 2026-11-13; the autonomous chain fails closed at three independent points (visibility gate, unauthenticated git fetch, public-archive curl) — all three are addressed so the chain fails closed ONLY on the real trust conditions (protection, contexts, policy).
+- Historical specs (030, 576-604) keep their "protected public main" wording as immutable audit history.
+
+## Risk profile
+- Risk profile: REQUIRED
+
+- RISK-668-001 | Category: SEC | Probability: 2 | Impact: 5 | Score: 10 | Mitigation: the admission of private repositories keeps every protection check and error fragment unchanged; contract tests pin the denial paths (unprotected main, missing contexts) for private AND public repos | Validation: tests.test_production_source_protection 7/7 OK | Residual risk: a future edit could weaken protection checks — pinned by the frozen contract tests and validate_workflow_policy.py markers | Owner: Delivery Orchestrator | Status: MITIGATED
+- RISK-668-002 | Category: SEC | Probability: 2 | Impact: 3 | Score: 6 | Mitigation: persisted checkout credentials are the job-scoped GITHUB_TOKEN with contents:read; no step echoes it; the new archive step handles only paths and the pre-configured SSH identity; validators forbid curl|sh and write-all permissions | Validation: validate_workflow_policy.py source scan + step-source review | Residual risk: credential helper present in later steps (checkout default) — accepted, same exposure as every standard GitHub Actions checkout | Owner: Delivery Orchestrator | Status: MITIGATED
+- RISK-668-003 | Category: OPS | Probability: 2 | Impact: 4 | Score: 8 | Mitigation: archive step is guarded by the same VPS_HOST/VPS_USER checks as the deploy step, runs after Configure SSH, and mkdir -p is idempotent; deploy.sh falls back to curl (fail-closed) when no archive is pre-placed | Validation: tests.test_vps_deploy_transaction + bash -n deploy/vps/deploy.sh | Residual risk: first private-repo deploy exercises the scp path in production — acceptance probe verifies the manifest after deploy | Owner: Delivery Orchestrator | Status: MITIGATED
+- RISK-668-004 | Category: DATA | Probability: 2 | Impact: 2 | Score: 4 | Mitigation: the shipped archive is a runner-built `git archive` of the composite-verified DEPLOY_SHA — provenance is status-quo-equivalent (git-derived bytes of the verified SHA, same as the previous codeload archive); the runner-artifact-vs-shipped-archive gap is pre-existing, unchanged and recorded here | Validation: workflow step ordering (verify -> archive -> scp -> deploy) + deploy.sh sha256 recording unchanged | Residual risk: the gap remains open by design, tracked for a follow-up; no new divergence introduced | Owner: Delivery Orchestrator | Status: ACCEPTED
+- RISK-668-005 | Category: TECH | Probability: 2 | Impact: 2 | Score: 4 | Mitigation: marker rename is a single atomic commit across workflows + composite + validator; repo-wide grep proves no residual old marker outside tests/historical specs | Validation: grep + validate_workflow_policy.py + tests.test_autonomous_execution_policy flow-marker test | Residual risk: historical specs keep the old wording intentionally (immutable audit history) | Owner: Delivery Orchestrator | Status: MITIGATED
+- RISK-668-006 | Category: OPS | Probability: 3 | Impact: 2 | Score: 6 | Mitigation: the pre-placed archive is retained in `$DEPLOY_ROOT/state/` after use — one tarball per deployed SHA (a few MB), overwritten on re-deploy of the same SHA; retries stay idempotent because a completed release short-circuits download_release before the archive is consulted | Validation: deploy.sh control-flow review + tests.test_vps_deploy_transaction retry paths | Residual risk: slow accumulation of state/<SHA>.tar.gz over many deploys — monitorable via disk usage; pruning is a deliberate follow-up, not silently dropped | Owner: Delivery Orchestrator | Status: ACCEPTED
+
+## Test design
+- TEST-001 | Covers: AC-001 | Level: unit | Priority: P0 | Evidence: tests.test_production_source_protection → Ran 7 tests, OK (private-protected admitted; private-unprotected/private-missing-check/public-unprotected/public-missing-check denied with exact fragments; RED-first on base)
+- TEST-002 | Covers: AC-002 | Level: unit | Priority: P0 | Evidence: tests.test_autonomous_execution_policy → Ran 11 tests, OK (persisted-credentials twin on parsed YAML for both workflows; flow-marker rename incl. parsed step-name twin; router/composite policy chain unchanged)
+- TEST-003 | Covers: AC-003 | Level: integration | Priority: P0 | Evidence: tests.test_vps_deploy_transaction → Ran 24 tests, OK (sentinel curl proves the pre-placed archive skips curl and still records sha256; full rollback/boundary/degraded transaction matrix green)
+- TEST-004 | Covers: AC-004 | Level: integration | Priority: P0 | Evidence: validate_workflow_policy.py + validate_quality_contracts.py + validate_sdd.py + validate_repo.py outputs quoted in the delivery record; full battery run by the delivery orchestrator before merge
+
+## Correct-course check
+- Trigger: NONE
+- Issue impact: requirements stable — the five surfaces match the approved design recorded in issue #668
+- Specification impact: none — spec matches the locked design (trust model, credential persistence, archive transport, marker rename, docs)
+- Plan impact: none — implementation followed the planned surfaces; no additional refactors
+- Tasks impact: none — delivery tasks executed as written
+- Authorization impact: NONE
+- Follow-up: Ubuntu Worker private-repo contour (checkout credential persistence + archive transport through the forced-command protocol) is deferred to a dedicated follow-up issue; the runner-artifact-vs-shipped-archive provenance gap remains recorded for a future hardening pass
+
+## Deployment transaction audit
+- TX-001 | Stage: ADMISSION | Mutation: NO | Failure disposition: FATAL | State after failure: PR not merged, no changes applied | Retry: N/A | Rollback: N/A | Evidence: SDD validators green on the #668 PR; frozen contract tests define the admitted scope
+- TX-002 | Stage: PRE-MUTATION | Mutation: NO | Failure disposition: FATAL | State after failure: VPS unchanged, previous release serves traffic | Retry: N/A | Rollback: N/A | Evidence: composite verifies exact SHA, first-parent membership, Quality status, source protection and policy ALLOW before transport
+- TX-003 | Stage: MUTATION | Mutation: YES | Failure disposition: CONDITIONAL | State after failure: Pre-placed archive present on VPS, live source untouched until deploy.sh mutates | Retry: Re-run workflow | Rollback: Revert to previous main SHA | Evidence: deploy-vps.yml run log (archive scp + deploy steps)
+- TX-004 | Stage: VERIFICATION | Mutation: NO | Failure disposition: FATAL | State after failure: Deploy fails closed pre-mutation (boundary/health gates) or rolls back post-mutation | Retry: Re-run deploy workflow on a fresh allowed SHA | Rollback: deploy.sh rollback to previous release | Evidence: deployment-manifest.json runtime_verified + auth_v1_road_private_m2m passed
+- TX-005 | Stage: STATE-COMMIT | Mutation: NO | Failure disposition: BEST-EFFORT | State after failure: Merge commit recorded in git | Retry: Re-merge | Rollback: Revert merge commit | Evidence: Merge commit SHA on main
+- TX-006 | Stage: HOUSEKEEPING | Mutation: NO | Failure disposition: BEST-EFFORT | State after failure: JOURNAL entry pending | Retry: Re-record | Rollback: N/A | Evidence: JOURNAL.md entry
+- TX-007 | Stage: EVIDENCE | Mutation: NO | Failure disposition: BEST-EFFORT | State after failure: Deployment evidence artifact missing | Retry: Re-run evidence collection | Rollback: N/A | Evidence: sea-speed-vps-deployment-<SHA> artifact (policy decision, release manifest, deployment manifest, execution audit)
+- TX-008 | Stage: ROLLBACK | Mutation: YES | Failure disposition: CONDITIONAL | State after failure: Previous release restored and re-verified on the VPS | Retry: Re-attempt rollback | Rollback: N/A | Evidence: deploy.sh rolled_back manifest state (pinned by tests.test_vps_deploy_transaction)
