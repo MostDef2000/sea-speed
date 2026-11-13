@@ -273,6 +273,8 @@ if [[ "$command" == "run" ]]; then
   exec ffmpeg -nostdin -hide_banner -loglevel warning \
     -f concat -safe 0 -protocol_whitelist file,rtsp,tcp,udp,rtp -i "$ffconcat_input" \
     -an -vf fps=15,scale=-2:720 -c:v libx264 -preset veryfast -tune zerolatency \
+    -b:v 1500k -maxrate 1600k -bufsize 3200k \
+    -g 30 -keyint_min 30 \
     -f rtsp "rtsp://${publish_address}:8554/cam1-h264"
 fi
 
