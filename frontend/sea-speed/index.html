@@ -90,7 +90,7 @@ button,input,summary{font:inherit}button,summary,a{touch-action:manipulation;-we
       <section class="control-section" data-control="roi"><div class="control-label"><span>ROI</span><span>polygon</span></div><h3>Разметка акватории</h3><div class="roi-actions"><button id="roiEditBtn" class="mini-btn">ROI edit</button><button id="roiUndoBtn" class="mini-btn">Undo</button><button id="roiClearBtn" class="mini-btn">Clear</button><button id="roiSaveBtn" class="mini-btn primary">Save ROI</button></div><div id="roiStatus" class="roi-status">ROI: loading</div></section>
       <section class="control-section" data-control="speed-lines"><div class="control-label"><span>Speed lines</span><span>A / B</span></div><h3>Линии скорости</h3><div class="speed-lines-grid"><button id="speedLineABtn" class="mini-btn">Line A</button><button id="speedLineBBtn" class="mini-btn">Line B</button><button id="speedLineUndoBtn" class="mini-btn">Undo</button><button id="speedLineClearBtn" class="mini-btn">Clear</button></div><div class="speed-distance-row"><label for="speedLinesDistanceInput">Distance, m</label><input id="speedLinesDistanceInput" type="number" step="0.1" min="0" value="57"><button id="speedLinesSaveBtn" class="mini-btn primary">Save</button></div><div id="speedLinesStatus" class="roi-status">Speed lines: loading</div></section>
       <section class="control-section" data-control="crossing-line" id="crossingCard"><div class="control-label"><span>Crossing counter</span><span>editor</span></div><h3>Счётная линия</h3><div class="roi-actions"><button id="cxEditBtn" class="mini-btn">Линия счёта</button><button id="cxUndoBtn" class="mini-btn">Удалить линию</button><button id="cxSaveBtn" class="mini-btn primary">Сохранить</button><button id="cxOffBtn" class="mini-btn">Выключить</button></div><div id="cxStatus" class="roi-status">Линия счёта: загрузка…</div></section>
-<script src="./crossing-line.js"></script>
+<script src="/sea-speed/crossing-line.js"></script>
       <section class="control-section" data-control="speed-calibration"><div class="control-label"><span>Calibration</span><span>factor</span></div><h3>Speed calibration</h3><div class="speed-config-row"><label for="speedFactorInput">km/h per px/s</label><input id="speedFactorInput" type="number" step="0.001" min="0" placeholder="0.000"><button id="speedSaveBtn" class="mini-btn primary">Save</button></div><div id="speedConfigStatus" class="roi-status">Speed config: loading</div></section>
     </div>
     <div class="diagnostics-row">
@@ -104,7 +104,7 @@ button,input,summary{font:inherit}button,summary,a{touch-action:manipulation;-we
 <footer class="operator-footer">Sea Speed · Maritime computer vision prototype</footer>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.7/dist/hls.min.js" integrity="sha384-1B+J55elPxu+trIhW7QThjZg3evX8C5P6zjB82Xnn46RKPAXpL+vkanRSjCidsJv" crossorigin="anonymous"></script>
 <script src="/sea-speed/overlay-canvas.js"></script>
-<script src="./main.js"></script>
-<script src="./live-sync.js"></script>
+<script src="/sea-speed/main.js"></script>
+<script src="/sea-speed/live-sync.js"></script>
 </body>
 </html>

@@ -56,7 +56,7 @@ class LiveSyncModuleTests(unittest.TestCase):
 
     def test_both_pages_include_overlay_and_live_sync_modules(self) -> None:
         expected = {
-            WATER_HTML: ('<script src="./live-sync.js"></script>', '<script src="/sea-speed/overlay-canvas.js"></script>'),
+            WATER_HTML: ('<script src="/sea-speed/live-sync.js"></script>', '<script src="/sea-speed/overlay-canvas.js"></script>'),
             ROAD_HTML: ('<script src="/sea-speed/live-sync.js"></script>', '<script src="/sea-speed/overlay-canvas.js"></script>'),
         }
         for html, (live_sync_include, overlay_include) in expected.items():
