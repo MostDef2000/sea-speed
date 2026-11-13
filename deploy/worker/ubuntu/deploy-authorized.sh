@@ -140,7 +140,26 @@ trap cleanup EXIT
 
 git -C "$stage" init -q
 git -C "$stage" remote add origin "$repository_url"
-git -C "$stage" fetch --quiet --no-tags origin main:refs/remotes/origin/main
+# Issue #669: the repository is private, so the staging fetch authenticates
+# with the root-owned read token. Token read+validation precedes the first
+# network fetch (fail closed, exit 5, before any transport). The token value
+# never enters argv, URLs, git config or logs: it reaches git only through
+# the credential helper's process environment, and the leading empty
+# credential.helper reset clears any host-global helper chain so no `store`
+# helper can persist the token to disk after a successful auth.
+[[ -f "$token_file" ]] || { echo "ERROR protected GitHub token missing: $token_file" >&2; exit 5; }
+[[ "$(stat -c '%a' "$token_file")" == "600" ]] || { echo "ERROR GitHub token mode must be 600" >&2; exit 5; }
+if [[ "$test_mode" != "1" && "$(stat -c '%u' "$token_file")" != "0" ]]; then
+  echo "ERROR GitHub token must be owned by root" >&2
+  exit 5
+fi
+IFS= read -r github_token < "$token_file" || true
+[[ -n "${github_token:-}" ]] || { echo "ERROR GitHub token file is empty" >&2; exit 5; }
+SEA_SPEED_GITHUB_READ_TOKEN="$github_token" git -C "$stage" \
+  -c credential.helper= \
+  -c 'credential.helper=!f() { printf "username=x-access-token\n"; printf "password=%s\n" "$SEA_SPEED_GITHUB_READ_TOKEN"; }; f' \
+  fetch --quiet --no-tags origin main:refs/remotes/origin/main
+unset github_token
 git -C "$stage" cat-file -e "$target^{commit}" 2>/dev/null || {
   echo "ERROR target is not present in origin/main" >&2; exit 7;
 }
@@ -264,16 +283,6 @@ for required in \
   deploy/worker/ubuntu/rollback-exact.sh; do
   [[ -f "$stage/$required" ]] || { echo "ERROR target lacks required deployment component: $required" >&2; exit 8; }
 done
-[[ -f "$token_file" ]] || { echo "ERROR protected GitHub token missing: $token_file" >&2; exit 5; }
-[[ "$(stat -c '%a' "$token_file")" == "600" ]] || { echo "ERROR GitHub token mode must be 600" >&2; exit 5; }
-if [[ "$test_mode" != "1" && "$(stat -c '%u' "$token_file")" != "0" ]]; then
-  echo "ERROR GitHub token must be owned by root" >&2
-  exit 5
-fi
-IFS= read -r github_token < "$token_file" || true
-[[ -n "${github_token:-}" ]] || { echo "ERROR GitHub token file is empty" >&2; exit 5; }
-unset github_token
-
 active_marker="$install_root/shared/runtime/active-source-commit"
 previous="$(cat "$active_marker" 2>/dev/null || true)"
 [[ "$previous" =~ ^[0-9a-f]{40}$ ]] || { echo "ERROR active source marker is missing or invalid" >&2; exit 9; }

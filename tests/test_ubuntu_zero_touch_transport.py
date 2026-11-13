@@ -291,6 +291,53 @@ class UbuntuZeroTouchTransportTests(unittest.TestCase):
         )
         self.assertLess(verify_index, transport_index)
 
+    def test_gate_root_fetch_is_token_authenticated_fail_closed(self):
+        # Issue #669: the gate's root-mode fetch is the FIRST fetch of the
+        # worker deploy path; on the private repository it must authenticate
+        # with the root-owned read token, failing closed before any network
+        # transport. Same pin family as the deploy-authorized/update-exact
+        # fetch pins: validation precedes the fetch, the token reaches git
+        # only through the credential helper's environment (never argv/URL),
+        # and the variable is unset after use.
+        gate = self.read("scripts/operations/sea_speed_ubuntu_zero_touch_gate.sh")
+        start = gate.index("execute_root() {")
+        end = gate.index('\n}\n\nif [[ "${1:-}" == "--execute" ]]', start)
+        execute_root = gate[start:end]
+        validation = execute_root.index(
+            '[[ -f "$GITHUB_READ_TOKEN_FILE" ]] || fail "protected GitHub token missing'
+        )
+        fetch = execute_root.index("fetch --quiet --no-tags origin main:refs/remotes/origin/main")
+        self.assertLess(validation, fetch, "token validation must fail closed before the first network fetch")
+        fetch_start = execute_root.index('SEA_SPEED_GITHUB_READ_TOKEN="$github_token" git -C "$stage"')
+        fetch_end = execute_root.index("main:refs/remotes/origin/main", fetch_start)
+        fetch_command = execute_root[fetch_start:fetch_end]
+        self.assertIn("-c credential.helper=", fetch_command)
+        self.assertIn("credential.helper=!f()", fetch_command)
+        self.assertIn('"$SEA_SPEED_GITHUB_READ_TOKEN"', fetch_command)
+        # Empty reset precedes the inline helper so no host-global helper
+        # (e.g. `store`) can answer the query or persist the token.
+        self.assertLess(
+            fetch_command.index("-c credential.helper="),
+            fetch_command.index("credential.helper=!f()"),
+        )
+        # Exactly one occurrence of the token variable in the fetch command:
+        # the environment assignment. No credentials in the URL/argv.
+        self.assertEqual(fetch_command.count("github_token"), 1)
+        self.assertNotIn("@github.com", fetch_command)
+        self.assertNotIn("https://$", fetch_command)
+        self.assertNotIn("extraHeader", gate)
+        unset_index = execute_root.index("unset github_token", fetch_end)
+        self.assertNotIn("$github_token", execute_root[unset_index:])
+
+    def test_delivery_policy_drops_public_visibility_claim_for_worker_refetch(self):
+        # Issue #669: the repository is private; the governing policy must
+        # not claim the worker contour re-fetches "public main" — the gate's
+        # and the deploy transaction's fetches authenticate with the
+        # root-owned read token.
+        policy = self.read("contracts/SEA_SPEED_DELIVERY_POLICY.md")
+        self.assertNotIn("re-fetches public", policy)
+        self.assertIn("authenticated with the root-owned GitHub read token", policy)
+
 
 def _gate_entrypoint_source() -> str:
     """The real gate script's constants + fail()/validate_request() + entrypoint.
@@ -327,7 +374,7 @@ def _gate_helpers_source() -> str:
     return "set -euo pipefail\n" + readonly_block + "\n" + helpers
 
 
-def _gate_execute_root_source(fixture_root: Path, repository_url: str) -> str:
+def _gate_execute_root_source(fixture_root: Path, repository_url: str, token_file: Path) -> str:
     """The real gate script's constants + fail()/validate_request()/execute_root().
 
     Executed to drive the stage-cleanup error path (issue #398 wave 5
@@ -336,10 +383,16 @@ def _gate_execute_root_source(fixture_root: Path, repository_url: str) -> str:
     - INSTALL_ROOT is redirected into the fixture tree and REPOSITORY_URL to
       a nonexistent local path, so ``git fetch`` fails deterministically as
       the sandbox user (no network, no root).
+    - GITHUB_READ_TOKEN_FILE is redirected into the fixture tree (issue
+      #669): the token validation reads a fixture-controlled path instead
+      of the real root-owned ``/etc/sea-speed/github-read-token``.
     - The ``[[ "$EUID" -eq 0 ]]`` root-check line is dropped: the test runs
       as the sandbox user and the root gate is orthogonal to the stage-
       cleanup behavior under test (same class of omission as the entrypoint
-      harness's PATH-reset note).
+      harness's PATH-reset note). The token root-ownership check line is
+      dropped for the same reason — a fixture file cannot be root-owned
+      without root; the check itself stays pinned by the structural
+      authenticated-fetch test below.
     Everything else is real script bytes, including the global ``stage``
     declaration, the in-function ``cleanup()`` definition, and the
     ``trap cleanup EXIT`` wiring.
@@ -359,6 +412,11 @@ def _gate_execute_root_source(fixture_root: Path, repository_url: str) -> str:
         f'readonly INSTALL_ROOT="{fixture_root}"',
         readonly_block,
     )
+    readonly_block = re.sub(
+        r'readonly GITHUB_READ_TOKEN_FILE="[^"]*"',
+        f'readonly GITHUB_READ_TOKEN_FILE="{token_file}"',
+        readonly_block,
+    )
     helpers = source[source.index("fail() {"):source.index("execute_root() {")]
     start = source.index("execute_root() {")
     end = source.index('\n}\n\nif [[ "${1:-}" == "--execute" ]]', start)
@@ -366,6 +424,7 @@ def _gate_execute_root_source(fixture_root: Path, repository_url: str) -> str:
     execute_root = "\n".join(
         line for line in execute_root.splitlines()
         if '[[ "$EUID" -eq 0 ]] || fail "--execute requires root"' not in line
+        and 'fail "GitHub token must be owned by root"' not in line
     )
     return "set -euo pipefail\n" + readonly_block + "\n" + helpers + execute_root
 
@@ -535,14 +594,24 @@ class GateExecuteRootErrorPathExecutedTests(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
         self.fixture_root = self.tmp / "root"
         (self.fixture_root / "updater").mkdir(parents=True)
+        self.token_file = self.tmp / "github-read-token"
         self.stub_dir = self.tmp / "stubs"
         self.stub_dir.mkdir()
         _write_executable(self.stub_dir / "install", INSTALL_STUB)
         self.script = self.tmp / "gate_execroot.sh"
         self.script.write_text(
-            _gate_execute_root_source(self.fixture_root, str(self.tmp / "nonexistent-repo")),
+            _gate_execute_root_source(self.fixture_root, str(self.tmp / "nonexistent-repo"), self.token_file),
             encoding="utf-8",
         )
+
+    def _write_valid_token(self) -> None:
+        # Issue #669: a fixture token file that passes the gate's validation
+        # (exists, mode 600, non-empty) so the executed error path reaches the
+        # git fetch itself. Root ownership cannot be simulated without root;
+        # the harness drops that one line (documented adaptation) and the
+        # ownership check stays pinned structurally.
+        self.token_file.write_text("ghp_fixture_token\n", encoding="utf-8")
+        self.token_file.chmod(0o600)
 
     def _run_execute_root(self, target: str, issue: str, artifact: str) -> subprocess.CompletedProcess[str]:
         driver = self.tmp / "execroot_driver.sh"
@@ -570,9 +639,27 @@ class GateExecuteRootErrorPathExecutedTests(unittest.TestCase):
         # exit under set -e AFTER the stage dir is created. The EXIT trap must
         # still remove the stage; on the buggy base it cannot (stage is a
         # function-local, unbound in the trap frame), so a zero-touch.* orphan
-        # remains — that orphan is the RED this test pins.
+        # remains — that orphan is the RED this test pins. Issue #669: the
+        # fixture token file passes validation so the failure is still the
+        # fetch itself, not the new token gate.
+        self._write_valid_token()
         result = self._run_execute_root("a" * 40, "7", "b" * 64)
         self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            self._stage_residue(), [],
+            "orphan zero-touch.* stage left in updater root",
+        )
+
+    def test_missing_token_fails_closed_before_any_fetch(self):
+        # Issue #669: with the token file absent, execute_root must fail
+        # closed with the token-missing error BEFORE the network fetch (the
+        # fetch would never run; the stage cleanup trap still fires). On the
+        # anonymous-fetch base there is no token gate, so the failure comes
+        # from git instead — that difference is the RED this test pins.
+        result = self._run_execute_root("a" * 40, "7", "b" * 64)
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertIn("protected GitHub token missing", result.stderr)
+        self.assertNotIn("fatal:", result.stderr, "git fetch ran despite the missing token")
         self.assertEqual(
             self._stage_residue(), [],
             "orphan zero-touch.* stage left in updater root",

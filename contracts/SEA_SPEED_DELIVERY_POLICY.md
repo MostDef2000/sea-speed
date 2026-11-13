@@ -147,7 +147,7 @@ The gate accepts exactly:
 sea-speed-ubuntu-deploy-v1 <40-char-sha> <canonical-issue> <artifact-sha256>
 ```
 
-The unprivileged entrypoint validates syntax and may invoke only the same root-owned gate through one narrowly-scoped `sudo -n` rule. Root mode re-fetches public `main`, requires the target on current main first-parent history, checks out exact source, recomputes the deterministic Ubuntu exact-artifact digest, requires digest equality, and then invokes `deploy/worker/ubuntu/deploy-authorized.sh`. Successful stdout is only the validated runtime deployment manifest; diagnostic output goes to stderr.
+The unprivileged entrypoint validates syntax and may invoke only the same root-owned gate through one narrowly-scoped `sudo -n` rule. Root mode re-fetches `main` authenticated with the root-owned GitHub read token (`/etc/sea-speed/github-read-token`), requires the target on current main first-parent history, checks out exact source, recomputes the deterministic Ubuntu exact-artifact digest, requires digest equality, and then invokes `deploy/worker/ubuntu/deploy-authorized.sh`; the gate's and the deploy transaction's repository fetches (the gate script, `deploy/worker/ubuntu/deploy-authorized.sh`, `deploy/worker/ubuntu/update-exact.sh`) all authenticate with that token and never embed credentials in URLs or argv. Successful stdout is only the validated runtime deployment manifest; diagnostic output goes to stderr.
 
 The key MUST NOT provide a general shell, PTY, forwarding, agent forwarding, arbitrary sudo or public Internet exposure of the Worker.
 

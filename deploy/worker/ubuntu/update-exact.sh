@@ -166,7 +166,22 @@ trap cleanup EXIT
 
 git -C "$staging_root" init -q
 git -C "$staging_root" remote add origin "$repository_url"
-git -C "$staging_root" fetch --quiet --no-tags origin main:refs/remotes/origin/main
+# Issue #669: the repository is private, so the staging fetch authenticates
+# with the root-owned read token (file validated above). The token is read
+# before the first network fetch (fail closed, exit 5) and never enters
+# argv, URLs, git config or logs: it reaches git only through the credential
+# helper's process environment, and the leading empty credential.helper
+# reset clears any host-global helper chain so no `store` helper can persist
+# the token to disk after a successful auth.
+IFS= read -r github_token < "$token_file" || true
+if [[ -z "${github_token:-}" ]]; then
+  echo "ERROR GitHub token file is empty" >&2
+  exit 5
+fi
+SEA_SPEED_GITHUB_READ_TOKEN="$github_token" git -C "$staging_root" \
+  -c credential.helper= \
+  -c 'credential.helper=!f() { printf "username=x-access-token\n"; printf "password=%s\n" "$SEA_SPEED_GITHUB_READ_TOKEN"; }; f' \
+  fetch --quiet --no-tags origin main:refs/remotes/origin/main
 
 if ! git -C "$staging_root" cat-file -e "$source_commit^{commit}" 2>/dev/null; then
   echo "ERROR source commit is not present in origin/main history" >&2
@@ -184,11 +199,6 @@ if [[ "$actual_commit" != "$source_commit" ]]; then
   exit 8
 fi
 
-IFS= read -r github_token < "$token_file" || true
-if [[ -z "${github_token:-}" ]]; then
-  echo "ERROR GitHub token file is empty" >&2
-  exit 5
-fi
 GITHUB_TOKEN="$github_token" python3 \
   "$staging_root/scripts/quality/verify_quality_status.py" \
   --repository "$repository" \
