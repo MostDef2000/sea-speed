@@ -30,8 +30,7 @@ Pure-markup change with a pinning oracle. The icon is a 32×32 SVG (rounded-rect
 - Issue #677 (2026-11-14): base cefd446 contains zero `<link>` elements across the six pages (grep + RED oracle run); the favicon source line in `shared/sea-speed-favicon/favicon-datauri.txt` is the single upstream artwork source.
 
 ## Risk profile
-- Risk profile: REQUIRED
-- RISK-001 | Category: TECH | Probability: 1 | Impact: 1 | Score: 1 | Mitigation: the tag is inserted by script from the shared source file (never hand-retyped) and the oracle pins per-page byte equality against that source, XML validity, the ≤ 600-byte decoded cap and the brand colours, so a drifted or swapped icon fails CI | Validation: RED-on-base oracle run, GREEN run, byte-equality proof OK ×6, `xml.dom.minidom` parse proof | Residual risk: none beyond a future deliberate icon redesign, which must update the shared source line and the oracle's colour pins together | Owner: Sea Speed Delivery Orchestrator | Status: MITIGATED
+- Risk profile: NOT REQUIRED
 
 ## Test design
 - TEST-001 | Covers: AC-001 | Level: unit | Priority: P0 | Evidence: tests/test_677_favicon.py FaviconDataUriTests.test_every_page_carries_exactly_one_svg_data_uri_favicon + test_all_six_hrefs_are_byte_identical (presence, rel/type/href pins, head placement, cross-page byte equality); RED on base cefd446 (9 failed, 1 passed), GREEN after the change (4 passed, 6 subtests passed)
