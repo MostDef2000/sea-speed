@@ -1,0 +1,32 @@
+# Spec: fix two ReferenceErrors in the road operator page script
+
+- Issue: #679
+- Issue: #680
+
+## Product outcome
+The road operator page script (`frontend/sea-speed/road/main.js`) stops silently degrading: `loadSpeedConfig()` reads the payload variable it actually declares (`f`) instead of the undeclared `d` copy-pasted from the water page (`frontend/sea-speed/main.js:38`, where the variable is named `d`), and the `cxOffBtn.onclick` re-enable branch posts the persisted `crossingCfg.line` instead of the undeclared `line` local of the neighbouring `cxSaveBtn.onclick` handler. Both bugs threw `ReferenceError` on every exercised path; both throws were swallowed by the surrounding `catch`, so the UI silently showed a failure state ("Speed config: ошибка загрузки" on every page load, "ошибка переключения" with no POST when re-enabling a crossing line) even when the API was healthy. The fix is exactly two identifier corrections — no restructuring, no renaming of `f` to `d` (the same expression reads `f` three times), no behaviour, markup, API or deploy change.
+
+## User scenarios
+- Operator opens the road page with a healthy analytics API: the speed-factor input shows the configured coefficient and the status reads "Speed config: включен, коэффициент …" (or "Speed config: выключен" when disabled) instead of the perpetual "Speed config: ошибка загрузки".
+- Operator turns a crossing line off and then wants it back on: pressing "Включить" issues exactly one POST carrying `enabled:true` and the persisted two-point line, and the status reads "линия включена", instead of throwing an undeclared-identifier ReferenceError that the catch turns into "ошибка переключения" with no request at all.
+
+## Requirements
+1. `frontend/sea-speed/road/main.js` `loadSpeedConfig()`: the status expression reads the declared payload variable — `d.enabled` → `f.enabled` and `Number(d.kmh_per_px_s)` → `Number(f.kmh_per_px_s)` inside the same template literal. The variable is not renamed to `d` (the declaration and first read already use `f` three times in the same expression).
+2. `frontend/sea-speed/road/main.js` `cxOffBtn.onclick` else-branch: the re-enable POST body `{enabled:true,line}` becomes `{enabled:true,line:crossingCfg.line}`. No other token of the file changes: no restructuring, no renaming, no reformatting.
+3. `frontend/sea-speed/main.js` (the water page) is NOT changed — its `loadSpeedConfig` declares `d` and is correct as written; the bug is only the road page's partial rename.
+4. A behavioural Node-based oracle (`tests/test_679_680_road_main_js.py`, stdlib Python + `subprocess.run(["node", "-e", …])`) extracts the real function/handler sources by marker locate + brace matching, evals them under Node with stubbed DOM elements and stubbed `jsonReq`/`postJson`, and asserts the observed behaviour. It is RED on base `30773ae` (both ReferenceErrors swallowed → fallback status text / empty calls array) and GREEN after the fix. Node is required: a missing node fails loudly, never skips.
+
+## Acceptance criteria
+- AC-001: with a healthy speed-config API (`enabled:true`, `kmh_per_px_s:12.5`), the extracted `loadSpeedConfig` under Node sets the input to `"12.500"` and the status contains `включен`; the process exits 0. RED authenticity — on base `30773ae` the status is the fallback `"Speed config: ошибка загрузки"` because the swallowed `ReferenceError: d is not defined` aborts the success path.
+- AC-002: with `enabled:false`, the same extracted function sets the status containing `выключен`. RED on base `30773ae` (same swallowed ReferenceError → fallback status).
+- AC-003: with `crossingCfg={enabled:false,line:[{x:10,y:20},{x:30,y:40}]}`, the extracted `cxOffBtn.onclick` under Node issues exactly one POST whose body deep-equals `{"enabled":true,"line":[{"x":10,"y":20},{"x":30,"y":40}]}`. RED authenticity — on base `30773ae` zero calls happen and the status is `"ошибка переключения"` because the swallowed `ReferenceError: line is not defined` fires before `postJson`.
+- AC-004: diff shape — `frontend/sea-speed/road/main.js` changes by exactly the two identifier corrections above and nothing else; `frontend/sea-speed/main.js`, all other frontend files, `deploy/**`, `scripts/**`, `.github/**` and other tests are untouched; the full test battery is green with the new oracle included and no existing test weakened, skipped or mocked.
+
+## Runtime feedback
+- Issue #679 (2026-11-14): the road page's `loadSpeedConfig` declares `const f=await jsonReq(SPEED_CONFIG_URL)` but its status expression reads `d.enabled`/`Number(d.kmh_per_px_s)` — `d` exists only as a local of `speedSaveBtn.onclick` and of the water page's own loader, never in this scope; every load-path call threw and was swallowed.
+- Issue #680 (2026-11-14): `line` in the `cxOffBtn.onclick` else-branch exists only as a `const` inside the `cxSaveBtn.onclick` handler; the re-enable path therefore never issued its POST in production.
+
+## NFR assessment
+- NFR-001 | Area: Security | Target: no new endpoints, credentials, requests or exposure — the change is identifier resolution only | Validation: full diff review of frontend/sea-speed/road/main.js plus git status for stray files | Evidence: the diff contains exactly two token corrections (d→f reads in loadSpeedConfig; line→line:crossingCfg.line in the cxOffBtn re-enable body); no new fetch/POST target, no DOM or API surface change, and the re-enable POST now carries the same persisted-line payload the water page's equivalent flow already sends | Status: PASS
+- NFR-002 | Area: Maintainability | Target: the road page's config loaders and handlers reference only variables declared in their scope; no copy-paste drift from frontend/sea-speed/main.js | Validation: behavioural Node oracle runs the real extracted function/handler sources with stubs and pins the observed status text and posted payload | Evidence: tests/test_679_680_road_main_js.py (2 tests, RED on base 30773ae with both swallowed ReferenceErrors surfaced by the diagnostic raw run, GREEN after the fix) | Status: PASS
+- NFR-003 | Area: Performance | Target: no additional requests or runtime cost per page load or operator action | Validation: diff review — no new statements, no new network calls | Evidence: loadSpeedConfig still issues one GET per load and the re-enable path still one POST; the only change is that these requests now actually happen instead of dying on an undeclared identifier before/around them | Status: PASS
