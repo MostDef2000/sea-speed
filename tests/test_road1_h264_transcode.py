@@ -86,8 +86,9 @@ class Road1TranscodeRunExecutedTests(unittest.TestCase):
 
     The REAL road1-h264-transcode.sh bytes execute the `run` flow (no root
     gate) with a recording fake ffmpeg on PATH; the full ffmpeg argv is
-    captured and asserted, including the mandatory bitrate-cap triple that
-    distinguishes this script from the cam1 transcode.
+    captured and asserted, including the mandatory bitrate-cap triple and,
+    since #675, the pinned 2 s GOP that makes the encoder tail identical to
+    the cam1 transcode's.
     """
 
     def _run(self, tmp: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -139,6 +140,14 @@ class Road1TranscodeRunExecutedTests(unittest.TestCase):
             self.assertEqual(argv[bitrate_idx + 1], "1500k")
             self.assertEqual(argv[maxrate_idx + 1], "1600k")
             self.assertEqual(argv[bufsize_idx + 1], "3200k")
+            # The pinned GOP (issue #675, cam1 #672 precedent): -g 30, then
+            # -keyint_min 30 (2 s at fps=15 → ~2 s HLS segments instead of
+            # the default keyint 250 / EXTINF 16.66667).
+            gop_idx = argv.index("-g")
+            keyint_idx = argv.index("-keyint_min")
+            self.assertLess(gop_idx, keyint_idx)
+            self.assertEqual(argv[gop_idx + 1], "30")
+            self.assertEqual(argv[keyint_idx + 1], "30")
             # The publish target ends the argv (after `-f rtsp`).
             self.assertEqual(argv[-3:], ["-f", "rtsp", "rtsp://10.123.239.102:8554/road1-720p"])
 

@@ -220,6 +220,7 @@ if [[ "$command" == "run" ]]; then
     -rtsp_transport tcp -i "$source_url" \
     -an -vf fps=15,scale=-2:720 -c:v libx264 -preset veryfast -tune zerolatency \
     -b:v 1500k -maxrate 1600k -bufsize 3200k \
+    -g 30 -keyint_min 30 \
     -f rtsp "rtsp://${publish_address}:8554/road1-720p"
 fi
 
