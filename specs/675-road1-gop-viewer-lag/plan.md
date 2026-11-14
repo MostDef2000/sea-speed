@@ -38,7 +38,7 @@ Two-sided but minimal change. Worker-side (Ubuntu): `deploy/worker/ubuntu/road1-
 - TEST-001 | Covers: AC-001 | Level: unit | Priority: P0 | Evidence: Road1TranscodeRunExecutedTests.test_run_publishes_capped_720p_from_the_relay_path asserts the ordered GOP pair -g 30 then -keyint_min 30 in the executed run argv (plus the existing cap-triple/chain/publish pins)
 - TEST-002 | Covers: AC-001 | Level: unit | Priority: P0 | Evidence: RED run on base df51cb7 fails with ValueError list.index(x): x not in list at argv.index("-g")
 - TEST-003 | Covers: AC-002 | Level: unit | Priority: P0 | Evidence: full unittest battery green (1397 tests OK, skipped=2, exit 0) plus bash -n on the script
-- TEST-004 | Covers: AC-003 | Level: static | Priority: P0 | Evidence: diff review plus literal grep — the new config literal present exactly once in each of the three frontend files, the old literal present zero times; `node --check` passes on all three
+- TEST-004 | Covers: AC-003 | Level: unit | Priority: P0 | Evidence: diff review plus literal grep — the new config literal present exactly once in each of the three frontend files, the old literal present zero times; `node --check` passes on all three
 - TEST-005 | Covers: AC-004 | Level: runtime-manual | Priority: P1 | Evidence: post-deploy 10-minute viewer probe on water (lag ≤ ~6 s, 0 stall/error cycles; fallback to default sync count documented if stalls regress)
 - TEST-006 | Covers: AC-005 | Level: runtime-manual | Priority: P1 | Evidence: post-deploy road1 media playlist TARGETDURATION:2, EXTINF:2.00000, fresh segment ≈ 300–400 KB, unit sea-speed-road1-h264 active
 
