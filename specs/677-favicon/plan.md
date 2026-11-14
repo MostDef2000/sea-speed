@@ -38,6 +38,16 @@ Pure-markup change with a pinning oracle. The icon is a 32×32 SVG (rounded-rect
 - TEST-003 | Covers: AC-003 | Level: unit | Priority: P0 | Evidence: git diff --stat (6 files, 6 insertions, 0 deletions) plus full-diff review — one added line per page, nothing else; forbidden paths untouched (git status)
 - TEST-004 | Covers: AC-004 | Level: unit | Priority: P0 | Evidence: full battery `python3 -W error::ResourceWarning -m unittest discover -s tests -p 'test_*.py'` green with the new oracle included; no existing test modified
 
+## Deployment transaction audit
+- TX-001 | Stage: ADMISSION | Mutation: NO | Failure disposition: FATAL | State after failure: PR not merged, no changes applied | Retry: N/A | Rollback: N/A | Evidence: Change Contract and SDD validators green on PR #678
+- TX-002 | Stage: PRE-MUTATION | Mutation: NO | Failure disposition: FATAL | State after failure: VPS still serving the previous release; no frontend file replaced | Retry: N/A | Rollback: N/A | Evidence: changed-file scope is six HTML files plus tests and specs; deploy/vps/deploy.sh untouched
+- TX-003 | Stage: MUTATION | Mutation: YES | Failure disposition: FATAL | State after failure: the VPS deploy script installs each frontend file via a .next temp file and an atomic mv, so a failed install leaves the previous file in place | Retry: Re-dispatch the deploy workflow on the same SHA | Rollback: Revert the merge commit and redeploy the previous main SHA | Evidence: deploy/vps/deploy.sh install-then-mv activation block
+- TX-004 | Stage: VERIFICATION | Mutation: NO | Failure disposition: FATAL | State after failure: PR not merged | Retry: Re-run the suite | Rollback: N/A | Evidence: pytest tests/test_677_favicon.py (4 passed, 6 subtests), full unittest battery (1401 OK, skipped=2), RED proof on cefd446 (9 failed, 1 passed), scripts/ci/validate_sdd.py
+- TX-005 | Stage: STATE-COMMIT | Mutation: NO | Failure disposition: BEST-EFFORT | State after failure: merge commit recorded in git | Retry: Re-merge | Rollback: Revert the merge commit | Evidence: merge commit SHA on main
+- TX-006 | Stage: HOUSEKEEPING | Mutation: NO | Failure disposition: BEST-EFFORT | State after failure: JOURNAL entry pending | Retry: Re-record | Rollback: N/A | Evidence: JOURNAL.md entry
+- TX-007 | Stage: EVIDENCE | Mutation: NO | Failure disposition: BEST-EFFORT | State after failure: acceptance probe output missing | Retry: Re-run the probe | Rollback: N/A | Evidence: post-deploy authenticated fetch of the served HTML plus a browser-tab screenshot
+- TX-008 | Stage: ROLLBACK | Mutation: YES | Failure disposition: FATAL | State after failure: N/A — rollback is the recovery path itself | Retry: N/A | Rollback: git revert of the merge commit followed by a redeploy of the previous main SHA | Evidence: previous main SHA cefd446780ab87ebd2952f2ad4b3ad015658709b
+
 ## Correct-course check
 - Trigger: NONE
 - Issue impact: none — the work order matches issue #677 as opened (favicon on all six pages, inline data-URI, deploy script untouched)
