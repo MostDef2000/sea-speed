@@ -44,7 +44,7 @@ button,input,summary{font:inherit}button,summary,a{touch-action:manipulation;-we
   <aside class="right-sidebar" data-layout="right-information-rail">
     <section class="panel crossing-card" data-layout="crossing-stats">
       <div class="card-heading"><div><p class="panel-kicker">ПЕРЕСЕЧЕНИЯ</p><h2>Статистика пересечений</h2><p class="section-note">Road 1 · текущий crossing state</p></div><a class="card-action" href="/sea-speed/objects/?scope=road&view=crossings">История</a></div>
-      <div class="crossing-period"><label>С даты<input id="cxFrom" type="date"></label><label>По дату<input id="cxTo" type="date"></label><button id="cxShowBtn" type="button">Показать</button></div>
+      <div class="crossing-period"><label>С даты<input id="cxFrom" type="date"></label><label>По дату<input id="cxTo" type="date"></label><button id="cxShowBtn" type="button">Показать</button><button id="cxLiveBtn" type="button">Текущее</button><span id="cxMode" class="section-note">текущее состояние</span></div>
       <div class="crossing-kpis"><div class="crossing-kpi"><span>IN</span><strong id="cxStatsIn">0</strong></div><div class="crossing-kpi"><span>OUT</span><strong id="cxStatsOut">0</strong></div><div class="crossing-kpi"><span>ВСЕГО</span><strong id="cxStatsTotal">0</strong></div></div>
       <div class="crossing-table-wrap"><table class="crossing-table"><thead><tr><th>класс</th><th>IN</th><th>OUT</th><th>всего</th></tr></thead><tbody id="cxStatsRows"><tr><td colspan="4">Нет данных</td></tr></tbody></table></div><div class="crossing-last">Последнее пересечение: <span id="cxLast">—</span></div>
     </section>

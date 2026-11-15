@@ -1002,6 +1002,132 @@ class SummaryVlzHappyPathTests(unittest.TestCase):
         self.assertLess(i_btn, i_close)
 
 
+class SummaryLastCrossingAtTests(unittest.TestCase):
+    """Issue #681/#682 RED: the crossings summary must gain ONE additive field,
+    ``last_crossing_at`` — the maximum parsed ``created_at`` instant among the
+    records that PASS the window filter AND have a valid direction (i.e. among
+    the counted records), serialized as a timezone-qualified ISO-8601 string,
+    or ``null`` when no record qualifies. Everything else in the response is
+    unchanged.
+
+    RED on the current tree: ``get_analytics_crossings_summary`` returns no
+    ``last_crossing_at`` key, so every assertion below fails with
+    ``KeyError: 'last_crossing_at'`` until the field is implemented.
+    """
+
+    def _ns(self) -> dict[str, Any]:
+        ApiCrossingTests.setUpClass()  # fresh tmp so the SQLite store is openable
+        return dict(ApiCrossingTests.namespace)
+
+    def test_last_crossing_at_is_max_counted_in_vlz_window(self) -> None:
+        # AC: last_crossing_at equals the max created_at among the counted
+        # records in a VLZ day window; a record outside the window and a record
+        # with an invalid direction must NOT influence the value.
+        ns = self._ns()
+        _purge_crossings(ns, "road1")
+        for record in (
+            # counted, inside the VLZ day 2026-08-23 window (14:00Z..14:00Z)
+            {"object_type": "car", "direction": "left_to_right",
+             "created_at": "2026-08-22T18:00:00+00:00"},
+            # counted, inside the window, the latest counted instant
+            {"object_type": "truck", "direction": "right_to_left",
+             "created_at": "2026-08-23T02:00:00+00:00"},
+            # outside the window (after 2026-08-23T14:00Z) — must not count
+            {"object_type": "car", "direction": "left_to_right",
+             "created_at": "2026-08-23T15:00:00+00:00"},
+            # inside the window but an invalid direction — must not count
+            {"object_type": "bus", "direction": "up",
+             "created_at": "2026-08-23T03:00:00+00:00"},
+        ):
+            ns["store"].append_crossing(ns["STATE_DB_FILE"], "road1", record, 5000)
+        r = ns["get_analytics_crossings_summary"](
+            "road1", hours=24, date_from="2026-08-23", date_to="2026-08-23")
+        self.assertEqual(r["window"]["mode"], "vlz_days")
+        self.assertEqual(r["totals"], {"left_to_right": 1, "right_to_left": 1})
+        last = r["last_crossing_at"]
+        self.assertIsNotNone(last, "last_crossing_at must be present for a window with counted records")
+        self.assertEqual(
+            datetime.fromisoformat(last),
+            datetime(2026, 8, 23, 2, 0, 0, tzinfo=timezone.utc),
+            "last_crossing_at must be the max created_at among the counted records",
+        )
+
+    def test_last_crossing_at_is_null_when_no_counted_records(self) -> None:
+        # AC: last_crossing_at is null when the window has no counted records
+        # (only an out-of-window record and an invalid-direction record).
+        ns = self._ns()
+        _purge_crossings(ns, "road1")
+        for record in (
+            {"object_type": "car", "direction": "left_to_right",
+             "created_at": "2026-08-23T15:00:00+00:00"},  # outside the window
+            {"object_type": "bus", "direction": "up",
+             "created_at": "2026-08-23T03:00:00+00:00"},  # invalid direction
+        ):
+            ns["store"].append_crossing(ns["STATE_DB_FILE"], "road1", record, 5000)
+        r = ns["get_analytics_crossings_summary"](
+            "road1", hours=24, date_from="2026-08-23", date_to="2026-08-23")
+        self.assertEqual(r["totals"], {"left_to_right": 0, "right_to_left": 0})
+        self.assertIsNone(r["last_crossing_at"], "last_crossing_at must be null when no record qualifies")
+
+    def test_last_crossing_at_is_timezone_qualified(self) -> None:
+        # AC: the value is timezone-qualified (parses with fromisoformat and
+        # has a non-None tzinfo).
+        ns = self._ns()
+        _purge_crossings(ns, "road1")
+        ns["store"].append_crossing(
+            ns["STATE_DB_FILE"], "road1",
+            {"object_type": "car", "direction": "left_to_right",
+             "created_at": "2026-08-23T02:00:00+00:00"}, 5000)
+        r = ns["get_analytics_crossings_summary"](
+            "road1", hours=24, date_from="2026-08-23", date_to="2026-08-23")
+        last = r["last_crossing_at"]
+        self.assertIsInstance(last, str, "last_crossing_at must be an ISO-8601 string")
+        parsed = datetime.fromisoformat(last)
+        self.assertIsNotNone(parsed.tzinfo, "last_crossing_at must carry a timezone offset")
+
+    def test_last_crossing_at_in_rolling_hours_mode(self) -> None:
+        # AC: rolling-hours mode (no date params) also returns last_crossing_at.
+        ns = self._ns()
+        now = datetime.now(timezone.utc)
+        fresh_ts = (now - timedelta(hours=1)).isoformat()
+        old_ts = (now - timedelta(hours=30)).isoformat()
+        _purge_crossings(ns, "cam1")
+        for record in (
+            {"object_type": "vessel", "direction": "left_to_right", "created_at": fresh_ts},
+            {"object_type": "vessel", "direction": "right_to_left", "created_at": old_ts},
+        ):
+            ns["store"].append_crossing(ns["STATE_DB_FILE"], "cam1", record, 5000)
+        r = ns["get_analytics_crossings_summary"]("cam1", hours=24)
+        self.assertEqual(r["window"]["mode"], "rolling_hours")
+        self.assertEqual(r["totals"], {"left_to_right": 1, "right_to_left": 0})
+        last = r["last_crossing_at"]
+        self.assertIsNotNone(last, "rolling-hours mode must return last_crossing_at")
+        self.assertEqual(
+            datetime.fromisoformat(last), now - timedelta(hours=1),
+            "rolling-hours last_crossing_at must be the max counted instant",
+        )
+
+    def test_naive_record_timestamps_are_treated_as_utc(self) -> None:
+        # AC: naive (no-offset) record timestamps are treated as UTC and still
+        # produce a value.
+        ns = self._ns()
+        _purge_crossings(ns, "road1")
+        ns["store"].append_crossing(
+            ns["STATE_DB_FILE"], "road1",
+            {"object_type": "car", "direction": "left_to_right",
+             "created_at": "2026-08-23T02:00:00"}, 5000)  # naive, no offset
+        r = ns["get_analytics_crossings_summary"](
+            "road1", hours=24, date_from="2026-08-23", date_to="2026-08-23")
+        self.assertEqual(r["totals"], {"left_to_right": 1, "right_to_left": 0})
+        last = r["last_crossing_at"]
+        self.assertIsNotNone(last, "a naive-timestamp record must still produce last_crossing_at")
+        self.assertEqual(
+            datetime.fromisoformat(last),
+            datetime(2026, 8, 23, 2, 0, 0, tzinfo=timezone.utc),
+            "a naive created_at must be interpreted as UTC",
+        )
+
+
 class CrossingsLayerCameraScopeTests(unittest.TestCase):
     def test_layer_reads_global_scope_binding_not_window(self) -> None:
         # Executed twin: booting the objects page with ?scope=road must bind
