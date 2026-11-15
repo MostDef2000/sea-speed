@@ -55,6 +55,7 @@ EXPECTED_SCRIPT_ORDER = (
     "/sea-speed/crossing-line.js",
     HLS_PINNED_SRC,
     "/sea-speed/overlay-canvas.js",
+    "/login-popup.js",
     "/sea-speed/main.js",
     "/sea-speed/live-sync.js",
 )
@@ -86,6 +87,10 @@ class WaterPageAbsoluteAssetTests(unittest.TestCase):
         for tag, src in self.srcs:
             with self.subTest(src=src):
                 if src.startswith("/sea-speed/"):
+                    continue
+                # The shared login-popup helper is a public web-root asset
+                # (like /unavailable.js): same-origin absolute, not relative.
+                if src == "/login-popup.js":
                     continue
                 if src.startswith("https://cdn.jsdelivr.net/"):
                     self.assertIn(

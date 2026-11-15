@@ -45,6 +45,7 @@ class VpsDeployTransactionTests(unittest.TestCase):
         self.road_config = self.live / "frontend/sea-speed/road/config.js"
         self.road_main = self.live / "frontend/sea-speed/road/main.js"
         self.unavailable_js = self.live / "frontend/sea-speed/unavailable.js"
+        self.login_popup = self.live / "frontend/sea-speed/login-popup.js"
         # Issue #683: the objects page's inline scripts moved to external
         # files, so their targets point into the sandbox live tree too.
         self.objects_crossings = self.live / "frontend/sea-speed/objects/crossings.js"
@@ -94,6 +95,9 @@ class VpsDeployTransactionTests(unittest.TestCase):
             "frontend/sea-speed/road/config.js": f"road-config {sha}\n",
             "frontend/sea-speed/road/main.js": f"road-main {sha}\n",
             "frontend/sea-speed/unavailable.js": f"unavailable-js {sha}\n",
+            # Login popup helper: release_complete requires the public-root
+            # asset, so synthetic releases carry it like the real tree does.
+            "frontend/sea-speed/login-popup.js": f"login-popup {sha}\n",
             # Issue #683: release_complete requires the objects-page external
             # scripts, so synthetic releases carry them like the real tree does.
             "frontend/sea-speed/objects/crossings.js": f"objects-crossings {sha}\n",
@@ -136,6 +140,7 @@ class VpsDeployTransactionTests(unittest.TestCase):
             self.overlay_canvas: release / "frontend/sea-speed/overlay-canvas.js",
             self.objects_crossings: release / "frontend/sea-speed/objects/crossings.js",
             self.objects_registry: release / "frontend/sea-speed/objects/registry.js",
+            self.login_popup: release / "frontend/sea-speed/login-popup.js",
             self.root_frontend: release / "frontend/root/index.html",
             self.fallback: release / "frontend/sea-speed/unavailable.html",
         }
@@ -302,6 +307,7 @@ printf 'LISTEN 0 128 %s 0.0.0.0:*\n' "$SEA_SPEED_WORKER_PRIVATE_LISTEN"
                 "SEA_SPEED_OBJECTS_CROSSINGS_TARGET": str(self.objects_crossings),
                 "SEA_SPEED_OBJECTS_REGISTRY_JS_TARGET": str(self.objects_registry),
                 "SEA_SPEED_UNAVAILABLE_JS_TARGET": str(self.unavailable_js),
+                "SEA_SPEED_LOGIN_POPUP_TARGET": str(self.login_popup),
                 "SEA_SPEED_ROOT_FRONTEND_TARGET": str(self.root_frontend),
                 "SEA_SPEED_FALLBACK_FRONTEND_TARGET": str(self.fallback),
                 "SEA_SPEED_SYSTEMCTL_BIN": str(self.systemctl),
@@ -325,6 +331,7 @@ printf 'LISTEN 0 128 %s 0.0.0.0:*\n' "$SEA_SPEED_WORKER_PRIVATE_LISTEN"
                 "SEA_SPEED_OBJECTS_CROSSINGS_URL": "https://example.invalid/sea-speed/objects/crossings.js",
                 "SEA_SPEED_OBJECTS_REGISTRY_URL": "https://example.invalid/sea-speed/objects/registry.js",
                 "SEA_SPEED_UNAVAILABLE_JS_URL": "https://example.invalid/unavailable.js",
+                "SEA_SPEED_LOGIN_POPUP_URL": "https://example.invalid/login-popup.js",
                 "SEA_SPEED_ROOT_FRONTEND_URL": "https://example.invalid/",
                 "SEA_SPEED_REQUIRE_AUTH_BOUNDARY": "1",
                 "SEA_SPEED_AUTHENTIK_UPSTREAM": "http://10.123.239.102:19000",
@@ -389,6 +396,9 @@ printf 'LISTEN 0 128 %s 0.0.0.0:*\n' "$SEA_SPEED_WORKER_PRIVATE_LISTEN"
         # the live tree by the successful deploy, like the other modules.
         self.assertIn(CANDIDATE, self.objects_crossings.read_text())
         self.assertIn(CANDIDATE, self.objects_registry.read_text())
+        # The login popup helper must be promoted into the live tree by the
+        # successful deploy, like the other modules.
+        self.assertIn(CANDIDATE, self.login_popup.read_text())
         self.assertIn("SEA_SPEED_AUTH_CUTOVER=PASS", result.stdout)
         self.assertIn(
             "WORKER_PRIVATE_ROAD_API_BASE=http://10.123.239.29:18080/api/analytics/road1",
@@ -626,6 +636,7 @@ printf 'LISTEN 0 128 %s 0.0.0.0:*\n' "$SEA_SPEED_WORKER_PRIVATE_LISTEN"
             ("road/config.js", "road config"),
             ("road/main.js", "road main"),
             ("unavailable.js", "unavailable"),
+            ("login-popup.js", "login-popup"),
             ("objects/crossings.js", "objects crossings"),
             ("objects/registry.js", "objects registry"),
         )
@@ -661,6 +672,7 @@ printf 'LISTEN 0 128 %s 0.0.0.0:*\n' "$SEA_SPEED_WORKER_PRIVATE_LISTEN"
             "road/config.js",
             "road/main.js",
             "unavailable.js",
+            "login-popup.js",
             "objects/crossings.js",
             "objects/registry.js",
         ):
@@ -674,6 +686,7 @@ printf 'LISTEN 0 128 %s 0.0.0.0:*\n' "$SEA_SPEED_WORKER_PRIVATE_LISTEN"
         self.assertIn(OLD, self.api.read_text(), "rollback must restore the pre-#626 release")
         self.assertFalse(self.crossing_line.exists())
         self.assertFalse(self.unavailable_js.exists())
+        self.assertFalse(self.login_popup.exists())
         self.assertFalse(self.objects_crossings.exists())
         self.assertFalse(self.objects_registry.exists())
         for label in (
@@ -683,6 +696,7 @@ printf 'LISTEN 0 128 %s 0.0.0.0:*\n' "$SEA_SPEED_WORKER_PRIVATE_LISTEN"
             "Road config module",
             "Road main module",
             "Unavailable module",
+            "Login popup module",
             "Objects crossings module",
             "Objects registry module",
         ):
@@ -702,6 +716,7 @@ printf 'LISTEN 0 128 %s 0.0.0.0:*\n' "$SEA_SPEED_WORKER_PRIVATE_LISTEN"
             "Road config module",
             "Road main module",
             "Unavailable module",
+            "Login popup module",
             "Objects crossings module",
             "Objects registry module",
         ):
@@ -763,6 +778,14 @@ printf 'LISTEN 0 128 %s 0.0.0.0:*\n' "$SEA_SPEED_WORKER_PRIVATE_LISTEN"
             ),
             f"objects-crossings {OLD}\n",
         )
+        # The login popup helper is present in the live tree, so the capture
+        # copies it into the bootstrap release (file, not .absent marker).
+        self.assertEqual(
+            (self.releases / bootstrap_name / "frontend/sea-speed/login-popup.js").read_text(
+                encoding="utf-8"
+            ),
+            f"login-popup {OLD}\n",
+        )
         # The candidate deploy fails post-mutation and rolls back to the
         # bootstrap release: the re-activation must succeed end-to-end.
         self.assertEqual(result.returncode, 1, result.stdout)
@@ -782,6 +805,10 @@ printf 'LISTEN 0 128 %s 0.0.0.0:*\n' "$SEA_SPEED_WORKER_PRIVATE_LISTEN"
         self.assertEqual(
             self.objects_crossings.read_text(encoding="utf-8"),
             f"objects-crossings {OLD}\n",
+        )
+        self.assertEqual(
+            self.login_popup.read_text(encoding="utf-8"),
+            f"login-popup {OLD}\n",
         )
         self.assertEqual(self.manifest()["state"], "rolled_back")
 

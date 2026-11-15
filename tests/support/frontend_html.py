@@ -183,6 +183,13 @@ PAGE_PATHS_BY_KEY = {
 STUBBED_OVERLAY_SRC = "/sea-speed/overlay-canvas.js"
 SEA_SPEED_SRC_PREFIX = "/sea-speed/"
 
+# Web-root absolute src= targets: the login-popup helper deploys to the
+# public web root (/login-popup.js) from frontend/sea-speed/login-popup.js
+# (mirroring unavailable.js), so the four app pages reference it by web-root
+# absolute path. The explicit map keeps the resolver fail-loud: any other
+# web-root absolute src stays skipped exactly as before.
+WEB_ROOT_SCRIPTS = {"/login-popup.js": "frontend/sea-speed/login-popup.js"}
+
 
 def external_local_scripts(source: Path, html: str) -> list[str]:
     """Bodies of the page's connected LOCAL external scripts, document order.
@@ -197,7 +204,10 @@ def external_local_scripts(source: Path, html: str) -> list[str]:
     issue #665 a same-origin absolute /sea-speed/... src is local too: it
     resolves to the shipped frontend/sea-speed/ file, with the same
     next-to-the-source-first probe so a tmp copy's mutated .js still wins.
-    Remote (CDN) sources and the stubbed overlay module stay excluded: the
+    A web-root absolute src in WEB_ROOT_SCRIPTS (the login-popup helper,
+    deployed to the public web root) resolves to its mapped shipped file
+    with the same next-to-the-source-first probe. Remote (CDN) sources, the
+    stubbed overlay module and any unmapped web-root src stay excluded: the
     shim stubs those browser-level collaborators (HLS, SeaSpeedOverlayCanvas)
     — executing the real overlay-canvas.js would replace the recording stub
     the page twins assert against — so the recorded-evidence contract is
@@ -210,14 +220,23 @@ def external_local_scripts(source: Path, html: str) -> list[str]:
         if not src or src.startswith(("http://", "https://", "//")):
             continue
         if src.startswith("/"):
-            if not src.startswith(SEA_SPEED_SRC_PREFIX) or src == STUBBED_OVERLAY_SRC:
+            if src == STUBBED_OVERLAY_SRC:
                 continue
-            # Same-origin absolute: the shipped frontend/sea-speed/ file,
-            # but a same-named file next to the source wins (the wave demos'
-            # tmp-copy mutation sensitivity).
+            if src.startswith(SEA_SPEED_SRC_PREFIX):
+                # Same-origin absolute: the shipped frontend/sea-speed/ file.
+                fallback = FRONTEND / src[len(SEA_SPEED_SRC_PREFIX):]
+            elif src in WEB_ROOT_SCRIPTS:
+                # Web-root absolute (the login-popup helper deploys to the
+                # public web root): the mapped shipped file.
+                fallback = ROOT / WEB_ROOT_SCRIPTS[src]
+            else:
+                continue
+            # Same-origin absolute: a same-named file next to the source
+            # wins (the wave demos' tmp-copy mutation sensitivity), falling
+            # back to the shipped file.
             path = (source.parent / Path(src).name).resolve()
             if not path.is_file():
-                path = (FRONTEND / src[len(SEA_SPEED_SRC_PREFIX):]).resolve()
+                path = fallback.resolve()
         else:
             path = (source.parent / src).resolve()
             if not path.is_file():
@@ -326,6 +345,10 @@ globalThis.document = {
   fullscreenElement: null,
   exitFullscreen() {},
   getElementById(id) {
+    // DOM-faithful: null for ids absent from the page's HTML, so existence
+    // guards (the login overlay's getElementById early-return) behave like
+    // the real DOM; known ids fabricate the full element stub.
+    if (!__knownIds.has(id)) return null;
     if (!__record.elements[id]) __record.elements[id] = __makeElement(id);
     return __record.elements[id];
   },
@@ -499,9 +522,28 @@ DEFAULT_SCENARIO = """
   );
   __sessionFail = true;
   await watchdog[0]();
+  // Contract (login-popup): identity loss after establishment shows the
+  // in-page login overlay instead of navigating away — the overlay is
+  // appended to the live body and carries the Войти button, and no
+  // location.assign/replace is recorded.
+  const overlay = (document.body.__children || []).find((el) => el && el.id === "seaSpeedLoginOverlay");
   assert(
-    __record.locations.includes(__REDIRECT),
-    "identity loss after establishment must redirect to " + __REDIRECT
+    overlay,
+    "identity loss after establishment must show the in-page login overlay (#seaSpeedLoginOverlay)"
+  );
+  const loginBtn = (overlay.__children || []).find((el) => el && el.id === "seaSpeedLoginBtn");
+  assert(loginBtn, "the login overlay must contain the #seaSpeedLoginBtn button");
+  assert(
+    loginBtn.textContent === "Войти",
+    "the login button must be labelled Войти; got " + JSON.stringify(loginBtn.textContent)
+  );
+  assert(
+    __record.locations.length === 0,
+    "identity loss must not navigate away; recorded locations: " + JSON.stringify(__record.locations)
+  );
+  assert(
+    __record.replaces.length === 0,
+    "identity loss must not navigate away; recorded replaces: " + JSON.stringify(__record.replaces)
   );
   console.log("###" + JSON.stringify({
     sessionFetches: __record.fetch.filter((c) => c.url === __SESSION_PATH).map((c) => c.options),
@@ -511,6 +553,10 @@ DEFAULT_SCENARIO = """
     redirects: __record.locations,
     sessionUser: __record.elements.sessionUser ? __record.elements.sessionUser.textContent : null,
     replaces: __record.replaces,
+    loginOverlay: {
+      present: !!overlay,
+      loginBtnLabel: loginBtn ? loginBtn.textContent : null,
+    },
     overlayInits: __record.overlayInits,
     workerActive: __record.workerActive,
     hlsInstances: __record.hlsInstances.map((inst) => ({
@@ -569,6 +615,10 @@ def run_inline_scripts(
         f"const __REDIRECT = {json.dumps(REDIRECT_PATH)};\n"
         f"const __sessionUser = {json.dumps(session_username)};\n"
         "let __sessionFail = false;\n"
+        # DOM-faithful getElementById: the ids present in this page's HTML
+        # are the only ones the shim may fabricate (unknown ids return null,
+        # so the login overlay's existence guard works like the real DOM).
+        f"const __knownIds = new Set({json.dumps(re.findall(r'\bid="([^"]*)"', html))});\n"
         f"const __readyState = {json.dumps(ready_state)};\n"
         f"const __hlsSupportedInit = {json.dumps(bool(hls_supported))};\n"
         "let __hlsSupported = __hlsSupportedInit;\n"
