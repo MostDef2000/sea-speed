@@ -1,0 +1,71 @@
+# Plan: extract objects-page inline scripts for the strict CSP and keep one crossing-toggle writer
+
+- Spec: specs/683-694-objects-page-csp-and-toggle/spec.md
+
+## Architecture
+Two frontend fixes plus their deploy and test contours, no structural change. (1) Issue #683 — `frontend/sea-speed/objects/index.html` carried two inline `<script>` blocks that the strict #626 CSP (`script-src 'self' https://cdn.jsdelivr.net`, no hashes, no `unsafe-inline`) blocks; both blocks moved verbatim into external files `objects/crossings.js` (crossings-layer IIFE, 56 lines) and `objects/registry.js` (registry script, 50 lines), referenced in the original order (`crossings.js` at line 53 before `registry.js` at line 74). The only cross-file identifier is safe: `crossings.js` reads `registryScopeKey` only inside `camFor()` at call time, and `initCxLayer` defers to `DOMContentLoaded` while `readyState` is `"loading"`, so `registry.js` (which defines it) has executed by then. (2) Issue #694 — `frontend/sea-speed/road/config.js` duplicated the `cxOffBtn.onclick` writer already owned by `frontend/sea-speed/road/main.js` (the canonical handler with error display + `drawCrossing()`); because `config.js` defers its init to `DOMContentLoaded`, its simplified duplicate ran later and silently won. The 21-line duplicate block is removed; `config.js` keeps its boot-status writes and init GET. (3) Deploy — `deploy/vps/deploy.sh` (+53 lines) wires both new files through the full #626 module lifecycle (TARGET/URL vars, `release_complete -f`, required download loop, install-to-`TARGET_RELEASE`, bootstrap `.absent` capture, module-state fail-closed checks, conditional staging, `mv`-promote, `verify_frontends` smoke), and the exact-artifact vps required lists in `scripts/quality/build_exact_artifacts.py` / `validate_exact_artifacts.py` are extended. (4) Oracles — `tests/test_626_csp_no_inline_scripts.py` (static CSP guard extended to the objects page), new `tests/test_694_single_toggle_writer.py` (static single-writer guard), `tests/test_unified_registry.py` (JS assertions retargeted to the extracted files), `tests/test_vps_deploy_transaction.py` (deploy transaction coverage extended).
+
+## Decisions
+- Verbatim extraction, no rewrite: the inline blocks are working code; a byte-identical move (proven against base `282fe49d`, modulo leading/trailing whitespace) keeps the diff reviewable and behaviour identical, while any "cleanup" would risk drift for zero gain.
+- External files instead of CSP hashes: hashes would pin exact bytes and break on every future edit of the two scripts, and `'unsafe-inline'` would undo #626; external files keep `script-src 'self'` and follow the same external-module pattern the deploy script already manages for the other frontend scripts.
+- Preserve script order rather than converting to ES modules or a bundler: `crossings.js` before `registry.js` reproduces the inline execution order exactly; the call-time-only read of `registryScopeKey` plus the `DOMContentLoaded` deferral make the ordering safe without touching the moved code.
+- Remove the duplicate writer entirely instead of merging behaviours: `road/main.js` owns the canonical toggle handler (error display + `drawCrossing()`); `config.js`'s actual job is boot status and the init GET, which stay. A static single-writer guard (`tests/test_694_single_toggle_writer.py`) pins the invariant so the clobber cannot return.
+- Full #626 deploy lifecycle for both files, not a one-line copy: `OBJECTS_REGISTRY_JS_TARGET` takes the JS suffix to stay distinct from the API-side `OBJECTS_REGISTRY_TARGET` (`api/app/objects_registry.py`), and the fail-closed checks (`release_complete -f`, required download loop, module-state checks) mean a release missing either file aborts before any live mutation; bootstrap capture uses file-level `<name>.absent` markers so partial checkouts are detected.
+
+## Affected contours
+- VPS frontend: `frontend/sea-speed/objects/index.html` (two inline blocks → two external script tags), new `frontend/sea-speed/objects/crossings.js` (56 lines), new `frontend/sea-speed/objects/registry.js` (50 lines)
+- VPS frontend (road): `frontend/sea-speed/road/config.js` (21-line duplicate toggle block removed; boot-status writes and init GET kept); `frontend/sea-speed/road/main.js` untouched
+- Deploy: `deploy/vps/deploy.sh` (+53 lines, both files through the #626 module lifecycle)
+- Quality scripts: `scripts/quality/build_exact_artifacts.py`, `scripts/quality/validate_exact_artifacts.py` (vps required lists extended)
+- Tests: `tests/test_626_csp_no_inline_scripts.py` (extended), `tests/test_694_single_toggle_writer.py` (new), `tests/test_unified_registry.py` (JS assertions retargeted), `tests/test_vps_deploy_transaction.py` (extended)
+- SDD: `specs/683-694-objects-page-csp-and-toggle/` (spec, plan, tasks)
+- Explicitly unchanged: the production CSP (`scripts/operations/nginx_sea_speed_auth.py`), `api/**`, `worker/**`, `.github/**`, all other frontend files and tests.
+
+## Validation
+- Phase-A RED on base `282fe49d`: the two oracles (`tests/test_626_csp_no_inline_scripts.py` + `tests/test_694_single_toggle_writer.py`) ran 7 failed / 5 passed — the objects page still carried both inline blocks, `objects/crossings.js` / `objects/registry.js` did not exist, and `road/config.js` still assigned `cxOffBtn.onclick`.
+- GREEN: 7 passed + 26 subtests on the two oracles; `tests.test_vps_deploy_transaction` + `tests.test_unified_registry` — 34 tests OK.
+- Full battery: `python3 -W error::ResourceWarning -m unittest discover -s tests -p 'test_*.py'` (the repo's documented runner) — Ran 1406 tests, OK (skipped=2), exit 0.
+- Validators: validate_repo (947 tracked files), validate_contracts (66 canonical, 9 entrypoints), validate_quality_contracts (7 contracts, 6 fixtures), validate_workflow_policy, validate_token_preflight — all PASS; ruff PASS; `bash -n deploy/vps/deploy.sh` OK.
+- Byte-identity: both extracted files proven byte-identical to the former inline blocks (modulo leading/trailing whitespace) against base `282fe49d`.
+- Browser probe under an enforcing CSP (`script-src 'self'`): objects page — zero CSP violations, both scripts executed, `#cxViewBtn` produced `?scope=water&view=crossings`; road page — two `media-src blob:` messages only, a probe-CSP artifact (production CSP includes `media-src 'self' blob:`, `scripts/operations/nginx_sea_speed_auth.py:86`, `tests/test_589_security_headers_renderer.py`); screenshot `shared/wave1-683-objects-csp-probe.png`.
+- `python3 scripts/ci/validate_sdd.py` green with the new trio.
+
+## Runtime feedback
+- Issue #683: verified live under an enforcing CSP — the objects page previously executed nothing (inline scripts blocked); after the change both external scripts execute and the crossings view toggle works (`?scope=water&view=crossings`) with zero CSP violations.
+- Issue #694: on base `282fe49d` the `config.js` duplicate silently overwrote `main.js`'s canonical toggle handler at boot (its deferred `DOMContentLoaded` init ran later); the single-writer guard pins exactly one writer going forward.
+
+## Risk profile
+- Risk profile: NOT REQUIRED
+
+## Test design
+- TEST-001 | Covers: AC-001 | Level: unit | Priority: P0 | Evidence: tests/test_626_csp_no_inline_scripts.py — objects page added to HTML_PAGES, both new scripts in NEW_EXTERNAL_SCRIPTS; asserts zero inline script bodies and non-empty external files; RED on base 282fe49d (inline blocks present, files absent), GREEN after the change
+- TEST-002 | Covers: AC-002 | Level: unit | Priority: P0 | Evidence: tests/test_694_single_toggle_writer.py — exactly one frontend file assigns cxOffBtn.onclick and it is frontend/sea-speed/road/main.js; config.js must not assign it and must keep the cxStatus boot-status write; RED on base 282fe49d (two writers), GREEN after the fix
+- TEST-003 | Covers: AC-003 | Level: integration | Priority: P0 | Evidence: tests/test_vps_deploy_transaction.py extended across release_files/setUp/env/install_live/promotion/smoke/rollback-fail-closed/bootstrap-capture, plus the vps required lists in scripts/quality/build_exact_artifacts.py and validate_exact_artifacts.py; a release missing either new file fails closed before any live mutation; bash -n deploy/vps/deploy.sh OK
+- TEST-004 | Covers: AC-004 | Level: unit | Priority: P0 | Evidence: full battery `python3 -W error::ResourceWarning -m unittest discover -s tests -p 'test_*.py'` (Ran 1406, OK, skipped=2) + validators (validate_repo 947 files, validate_contracts 66 canonical / 9 entrypoints, validate_quality_contracts 7 / 6, validate_workflow_policy, validate_token_preflight) + ruff PASS + browser probe under enforcing script-src 'self' CSP (zero violations on the objects page; screenshot shared/wave1-683-objects-csp-probe.png)
+
+## Deployment transaction audit
+- TX-001 | Stage: ADMISSION | Mutation: NO | Failure disposition: FATAL | State after failure: PR not merged, no changes applied | Retry: N/A | Rollback: N/A | Evidence: Change Contract and SDD validators green on the 683/694 PR
+- TX-002 | Stage: PRE-MUTATION | Mutation: NO | Failure disposition: FATAL | State after failure: VPS still serving the previous release; no frontend file replaced | Retry: N/A | Rollback: N/A | Evidence: release_complete -f checks and the download_release required loop verify both new files exist in the release before install_release runs; a release missing them fails closed before any live mutation
+- TX-003 | Stage: MUTATION | Mutation: YES | Failure disposition: FATAL | State after failure: deploy.sh installs each frontend file via a .next temp file and an atomic mv, so a failed install leaves the previous file in place | Retry: Re-dispatch the deploy workflow on the same SHA | Rollback: Revert the merge commit and redeploy the previous main SHA | Evidence: deploy/vps/deploy.sh install-then-mv activation block (OBJECTS_CROSSINGS_TARGET / OBJECTS_REGISTRY_JS_TARGET .next install + mv -f)
+- TX-004 | Stage: VERIFICATION | Mutation: NO | Failure disposition: FATAL | State after failure: PR not merged | Retry: Re-run the suite | Rollback: N/A | Evidence: phase-A RED on base 282fe49d (7 failed / 5 passed on test_626 + test_694), GREEN (7 passed + 26 subtests; test_vps_deploy_transaction + test_unified_registry 34 OK), full battery Ran 1406 OK (skipped=2), ruff PASS, bash -n deploy/vps/deploy.sh OK
+- TX-005 | Stage: STATE-COMMIT | Mutation: NO | Failure disposition: BEST-EFFORT | State after failure: merge commit recorded in git | Retry: Re-merge | Rollback: Revert the merge commit | Evidence: merge commit SHA on main
+- TX-006 | Stage: HOUSEKEEPING | Mutation: NO | Failure disposition: BEST-EFFORT | State after failure: JOURNAL entry pending | Retry: Re-record | Rollback: N/A | Evidence: JOURNAL.md entry
+- TX-007 | Stage: EVIDENCE | Mutation: NO | Failure disposition: BEST-EFFORT | State after failure: acceptance probe output missing | Retry: Re-run the probe | Rollback: N/A | Evidence: post-deploy public fetch of /sea-speed/objects/crossings.js and /sea-speed/objects/registry.js (HTTP 200, non-empty) plus a browser probe of the objects page under the production CSP (zero script-src violations; screenshot shared/wave1-683-objects-csp-probe.png)
+- TX-008 | Stage: ROLLBACK | Mutation: YES | Failure disposition: FATAL | State after failure: N/A — rollback is the recovery path itself | Retry: N/A | Rollback: git revert of the merge commit followed by a redeploy of the previous main SHA | Evidence: previous main SHA 282fe49d0eaca077ca71629ac39694d2b3a37df3
+
+## Correct-course check
+- Trigger: NONE
+- Issue impact: none — the work order matches issues #683/#694 as opened (objects-page inline scripts blocked by the strict CSP; duplicate cxOffBtn.onclick writer in road/config.js)
+- Specification impact: none — the spec matches the locked design (verbatim extraction, strict CSP kept, single toggle writer, full #626 deploy lifecycle for both files)
+- Plan impact: none — no deviation discovered during implementation; both peer-review findings were resolved inside the admitted scope (byte-identity proven against base 282fe49d; env override renamed to SEA_SPEED_OBJECTS_REGISTRY_JS_TARGET with zero occurrences of the old name remaining)
+- Tasks impact: none — delivery tasks executed as written
+- Authorization impact: NONE (bounded worker work order from the delivery orchestrator on branch agent/wave1-683-694; the orchestrator owns the Git lifecycle)
+- Follow-up: none in this change; the VPS frontend redeploy that ships the fix to production happens in the authorized delivery chain after merge (lane-A, orchestrator-owned)
+
+## Test evidence summary
+- RED (base 282fe49d, phase-A oracles): 7 failed / 5 passed across tests/test_626_csp_no_inline_scripts.py + tests/test_694_single_toggle_writer.py — the objects page still carried both inline blocks, objects/crossings.js and objects/registry.js did not exist, and road/config.js still assigned cxOffBtn.onclick.
+- GREEN: 7 passed + 26 subtests on the two oracles; tests.test_vps_deploy_transaction + tests.test_unified_registry — 34 tests OK.
+- Full battery: `python3 -W error::ResourceWarning -m unittest discover -s tests -p 'test_*.py'` — Ran 1406 tests, OK (skipped=2).
+- Validators: validate_repo (947 tracked files), validate_contracts (66 canonical, 9 entrypoints), validate_quality_contracts (7 contracts, 6 fixtures), validate_workflow_policy, validate_token_preflight — all PASS; ruff PASS; bash -n deploy/vps/deploy.sh OK.
+- Peer review: independent reviewer (different model family) — verdict REQUEST_CHANGES on two points, both resolved: (a) verbatim extraction unproven → byte-identity against base 282fe49d proven; (b) env override name SEA_SPEED_OBJECTS_REGISTRY_TARGET read as the API module → renamed to SEA_SPEED_OBJECTS_REGISTRY_JS_TARGET, zero occurrences of the old name remain.
+- Browser probe: enforcing script-src 'self' CSP — objects page zero violations, both scripts executed, #cxViewBtn produced ?scope=water&view=crossings; road page two media-src blob: messages only (probe-CSP artifact; production CSP includes media-src 'self' blob:, scripts/operations/nginx_sea_speed_auth.py:86, tests/test_589_security_headers_renderer.py); screenshot shared/wave1-683-objects-csp-probe.png.

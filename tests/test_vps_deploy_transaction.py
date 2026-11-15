@@ -45,6 +45,10 @@ class VpsDeployTransactionTests(unittest.TestCase):
         self.road_config = self.live / "frontend/sea-speed/road/config.js"
         self.road_main = self.live / "frontend/sea-speed/road/main.js"
         self.unavailable_js = self.live / "frontend/sea-speed/unavailable.js"
+        # Issue #683: the objects page's inline scripts moved to external
+        # files, so their targets point into the sandbox live tree too.
+        self.objects_crossings = self.live / "frontend/sea-speed/objects/crossings.js"
+        self.objects_registry = self.live / "frontend/sea-speed/objects/registry.js"
         self.root_frontend = self.live / "frontend/root/index.html"
         self.fallback = self.live / "frontend/sea-speed-unavailable.html"
         for sha in (OLD, CANDIDATE, OLDER):
@@ -90,6 +94,10 @@ class VpsDeployTransactionTests(unittest.TestCase):
             "frontend/sea-speed/road/config.js": f"road-config {sha}\n",
             "frontend/sea-speed/road/main.js": f"road-main {sha}\n",
             "frontend/sea-speed/unavailable.js": f"unavailable-js {sha}\n",
+            # Issue #683: release_complete requires the objects-page external
+            # scripts, so synthetic releases carry them like the real tree does.
+            "frontend/sea-speed/objects/crossings.js": f"objects-crossings {sha}\n",
+            "frontend/sea-speed/objects/registry.js": f"objects-registry {sha}\n",
             "frontend/root/index.html": f"root {sha}\n",
             "frontend/sea-speed/unavailable.html": f"fallback {sha}\n",
             "deploy/vps/sea-speed-auth-cutover.sh": "#!/usr/bin/env bash\nexit 0\n",
@@ -126,6 +134,8 @@ class VpsDeployTransactionTests(unittest.TestCase):
             self.road: release / "frontend/sea-speed/road/index.html",
             self.live_sync: release / "frontend/sea-speed/live-sync.js",
             self.overlay_canvas: release / "frontend/sea-speed/overlay-canvas.js",
+            self.objects_crossings: release / "frontend/sea-speed/objects/crossings.js",
+            self.objects_registry: release / "frontend/sea-speed/objects/registry.js",
             self.root_frontend: release / "frontend/root/index.html",
             self.fallback: release / "frontend/sea-speed/unavailable.html",
         }
@@ -289,6 +299,8 @@ printf 'LISTEN 0 128 %s 0.0.0.0:*\n' "$SEA_SPEED_WORKER_PRIVATE_LISTEN"
                 "SEA_SPEED_CAMERAS_JS_TARGET": str(self.cameras_js),
                 "SEA_SPEED_ROAD_CONFIG_TARGET": str(self.road_config),
                 "SEA_SPEED_ROAD_MAIN_TARGET": str(self.road_main),
+                "SEA_SPEED_OBJECTS_CROSSINGS_TARGET": str(self.objects_crossings),
+                "SEA_SPEED_OBJECTS_REGISTRY_JS_TARGET": str(self.objects_registry),
                 "SEA_SPEED_UNAVAILABLE_JS_TARGET": str(self.unavailable_js),
                 "SEA_SPEED_ROOT_FRONTEND_TARGET": str(self.root_frontend),
                 "SEA_SPEED_FALLBACK_FRONTEND_TARGET": str(self.fallback),
@@ -310,6 +322,8 @@ printf 'LISTEN 0 128 %s 0.0.0.0:*\n' "$SEA_SPEED_WORKER_PRIVATE_LISTEN"
                 "SEA_SPEED_CAMERAS_JS_URL": "https://example.invalid/sea-speed/cameras/cameras.js",
                 "SEA_SPEED_ROAD_CONFIG_URL": "https://example.invalid/sea-speed/road/config.js",
                 "SEA_SPEED_ROAD_MAIN_URL": "https://example.invalid/sea-speed/road/main.js",
+                "SEA_SPEED_OBJECTS_CROSSINGS_URL": "https://example.invalid/sea-speed/objects/crossings.js",
+                "SEA_SPEED_OBJECTS_REGISTRY_URL": "https://example.invalid/sea-speed/objects/registry.js",
                 "SEA_SPEED_UNAVAILABLE_JS_URL": "https://example.invalid/unavailable.js",
                 "SEA_SPEED_ROOT_FRONTEND_URL": "https://example.invalid/",
                 "SEA_SPEED_REQUIRE_AUTH_BOUNDARY": "1",
@@ -371,6 +385,10 @@ printf 'LISTEN 0 128 %s 0.0.0.0:*\n' "$SEA_SPEED_WORKER_PRIVATE_LISTEN"
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assertEqual(self.current(), CANDIDATE)
         self.assertIn(CANDIDATE, self.road.read_text())
+        # Issue #683: the objects-page external scripts must be promoted into
+        # the live tree by the successful deploy, like the other modules.
+        self.assertIn(CANDIDATE, self.objects_crossings.read_text())
+        self.assertIn(CANDIDATE, self.objects_registry.read_text())
         self.assertIn("SEA_SPEED_AUTH_CUTOVER=PASS", result.stdout)
         self.assertIn(
             "WORKER_PRIVATE_ROAD_API_BASE=http://10.123.239.29:18080/api/analytics/road1",
@@ -608,6 +626,8 @@ printf 'LISTEN 0 128 %s 0.0.0.0:*\n' "$SEA_SPEED_WORKER_PRIVATE_LISTEN"
             ("road/config.js", "road config"),
             ("road/main.js", "road main"),
             ("unavailable.js", "unavailable"),
+            ("objects/crossings.js", "objects crossings"),
+            ("objects/registry.js", "objects registry"),
         )
         for relative, label in modules:
             with self.subTest(module=relative):
@@ -641,6 +661,8 @@ printf 'LISTEN 0 128 %s 0.0.0.0:*\n' "$SEA_SPEED_WORKER_PRIVATE_LISTEN"
             "road/config.js",
             "road/main.js",
             "unavailable.js",
+            "objects/crossings.js",
+            "objects/registry.js",
         ):
             (old_modules / relative).unlink()
             (old_modules / (relative + ".absent")).touch()
@@ -652,6 +674,8 @@ printf 'LISTEN 0 128 %s 0.0.0.0:*\n' "$SEA_SPEED_WORKER_PRIVATE_LISTEN"
         self.assertIn(OLD, self.api.read_text(), "rollback must restore the pre-#626 release")
         self.assertFalse(self.crossing_line.exists())
         self.assertFalse(self.unavailable_js.exists())
+        self.assertFalse(self.objects_crossings.exists())
+        self.assertFalse(self.objects_registry.exists())
         for label in (
             "Crossing line module",
             "Main module",
@@ -659,12 +683,14 @@ printf 'LISTEN 0 128 %s 0.0.0.0:*\n' "$SEA_SPEED_WORKER_PRIVATE_LISTEN"
             "Road config module",
             "Road main module",
             "Unavailable module",
+            "Objects crossings module",
+            "Objects registry module",
         ):
             self.assertIn(f"{label} is absent in this rollback release", result.stdout)
         self.assertEqual(self.manifest()["state"], "rolled_back")
 
     def test_success_smoke_checks_csp_external_scripts(self) -> None:
-        # Healthy deploy: after activation the six #626 external scripts are
+        # Healthy deploy: after activation the #626/#683 external scripts are
         # live, so the post-activation verification smoke-checks each of them
         # through its public URL.
         result = self.run_deploy()
@@ -676,6 +702,8 @@ printf 'LISTEN 0 128 %s 0.0.0.0:*\n' "$SEA_SPEED_WORKER_PRIVATE_LISTEN"
             "Road config module",
             "Road main module",
             "Unavailable module",
+            "Objects crossings module",
+            "Objects registry module",
         ):
             self.assertIn(
                 f"{label} public smoke check passed with HTTP 200",
@@ -708,6 +736,11 @@ printf 'LISTEN 0 128 %s 0.0.0.0:*\n' "$SEA_SPEED_WORKER_PRIVATE_LISTEN"
         # state" and the rollback path is dead on arrival.
         (self.state / "current-release").unlink()
         self.overlay_canvas.unlink()
+        # Issue #683: the objects-page scripts follow the same capture
+        # contract — registry.js absent in live becomes a file-level .absent
+        # marker, while crossings.js present in live is copied into the
+        # bootstrap release and survives the rollback promotion.
+        self.objects_registry.unlink()
 
         result = self.run_deploy(mode="fail-candidate")
 
@@ -720,15 +753,35 @@ printf 'LISTEN 0 128 %s 0.0.0.0:*\n' "$SEA_SPEED_WORKER_PRIVATE_LISTEN"
             (self.releases / bootstrap_name / "frontend/sea-speed/overlay-canvas.js.absent").is_file(),
             result.stdout,
         )
+        self.assertTrue(
+            (self.releases / bootstrap_name / "frontend/sea-speed/objects/registry.js.absent").is_file(),
+            result.stdout,
+        )
+        self.assertEqual(
+            (self.releases / bootstrap_name / "frontend/sea-speed/objects/crossings.js").read_text(
+                encoding="utf-8"
+            ),
+            f"objects-crossings {OLD}\n",
+        )
         # The candidate deploy fails post-mutation and rolls back to the
         # bootstrap release: the re-activation must succeed end-to-end.
         self.assertEqual(result.returncode, 1, result.stdout)
         self.assertIn("Rollback successful", result.stdout, result.stdout)
         self.assertNotIn("has no overlay-canvas module state", result.stdout)
+        self.assertNotIn("has no objects registry module state", result.stdout)
         self.assertEqual(self.current(), bootstrap_name)
         self.assertIn(
             "Overlay canvas module is absent in this rollback release",
             result.stdout,
+        )
+        self.assertIn(
+            "Objects registry module is absent in this rollback release",
+            result.stdout,
+        )
+        self.assertFalse(self.objects_registry.exists())
+        self.assertEqual(
+            self.objects_crossings.read_text(encoding="utf-8"),
+            f"objects-crossings {OLD}\n",
         )
         self.assertEqual(self.manifest()["state"], "rolled_back")
 

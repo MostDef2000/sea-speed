@@ -29,6 +29,11 @@ MAIN_JS_TARGET="${SEA_SPEED_MAIN_JS_TARGET:-/var/www/mostdef.ru/sea-speed/main.j
 CAMERAS_JS_TARGET="${SEA_SPEED_CAMERAS_JS_TARGET:-/var/www/mostdef.ru/sea-speed/cameras/cameras.js}"
 ROAD_CONFIG_TARGET="${SEA_SPEED_ROAD_CONFIG_TARGET:-/var/www/mostdef.ru/sea-speed/road/config.js}"
 ROAD_MAIN_TARGET="${SEA_SPEED_ROAD_MAIN_TARGET:-/var/www/mostdef.ru/sea-speed/road/main.js}"
+# Issue #683: objects-page external scripts deploy like the other CSP modules.
+# OBJECTS_REGISTRY_JS_TARGET (frontend registry.js) is distinct from the
+# API-side OBJECTS_REGISTRY_TARGET (api/app/objects_registry.py) defined above.
+OBJECTS_CROSSINGS_TARGET="${SEA_SPEED_OBJECTS_CROSSINGS_TARGET:-/var/www/mostdef.ru/sea-speed/objects/crossings.js}"
+OBJECTS_REGISTRY_JS_TARGET="${SEA_SPEED_OBJECTS_REGISTRY_JS_TARGET:-/var/www/mostdef.ru/sea-speed/objects/registry.js}"
 UNAVAILABLE_JS_TARGET="${SEA_SPEED_UNAVAILABLE_JS_TARGET:-/var/www/mostdef.ru/unavailable.js}"
 ROOT_FRONTEND_TARGET="${SEA_SPEED_ROOT_FRONTEND_TARGET:-/var/www/mostdef.ru/index.html}"
 FALLBACK_FRONTEND_TARGET="${SEA_SPEED_FALLBACK_FRONTEND_TARGET:-/var/www/mostdef.ru/sea-speed-unavailable.html}"
@@ -47,6 +52,8 @@ MAIN_JS_URL="${SEA_SPEED_MAIN_JS_URL:-https://mostdef.ru/sea-speed/main.js}"
 CAMERAS_JS_URL="${SEA_SPEED_CAMERAS_JS_URL:-https://mostdef.ru/sea-speed/cameras/cameras.js}"
 ROAD_CONFIG_URL="${SEA_SPEED_ROAD_CONFIG_URL:-https://mostdef.ru/sea-speed/road/config.js}"
 ROAD_MAIN_URL="${SEA_SPEED_ROAD_MAIN_URL:-https://mostdef.ru/sea-speed/road/main.js}"
+OBJECTS_CROSSINGS_URL="${SEA_SPEED_OBJECTS_CROSSINGS_URL:-https://mostdef.ru/sea-speed/objects/crossings.js}"
+OBJECTS_REGISTRY_URL="${SEA_SPEED_OBJECTS_REGISTRY_URL:-https://mostdef.ru/sea-speed/objects/registry.js}"
 UNAVAILABLE_JS_URL="${SEA_SPEED_UNAVAILABLE_JS_URL:-https://mostdef.ru/unavailable.js}"
 ROOT_FRONTEND_URL="${SEA_SPEED_ROOT_FRONTEND_URL:-https://mostdef.ru/}"
 AUTH_BOUNDARY_REQUIRED="${SEA_SPEED_REQUIRE_AUTH_BOUNDARY:-0}"
@@ -231,6 +238,8 @@ release_complete() {
      -f "$root/api/app/live_feeds.py" && \
      -f "$root/frontend/sea-speed/index.html" && \
      -f "$root/frontend/sea-speed/objects/index.html" && \
+     -f "$root/frontend/sea-speed/objects/crossings.js" && \
+     -f "$root/frontend/sea-speed/objects/registry.js" && \
      -f "$root/frontend/sea-speed/cameras/index.html" && \
      -f "$root/frontend/sea-speed/road/index.html" && \
      -f "$root/frontend/sea-speed/live-sync.js" && \
@@ -287,6 +296,8 @@ download_release() {
     api/app/live_feeds.py \
     frontend/sea-speed/index.html \
     frontend/sea-speed/objects/index.html \
+    frontend/sea-speed/objects/crossings.js \
+    frontend/sea-speed/objects/registry.js \
     frontend/sea-speed/cameras/index.html \
     frontend/sea-speed/road/index.html \
     frontend/sea-speed/live-sync.js \
@@ -327,6 +338,8 @@ download_release() {
   install -m 0644 "$extracted/api/app/live_feeds.py" "$TARGET_RELEASE/api/app/live_feeds.py"
   install -m 0644 "$extracted/frontend/sea-speed/index.html" "$TARGET_RELEASE/frontend/sea-speed/index.html"
   install -m 0644 "$extracted/frontend/sea-speed/objects/index.html" "$TARGET_RELEASE/frontend/sea-speed/objects/index.html"
+  install -m 0644 "$extracted/frontend/sea-speed/objects/crossings.js" "$TARGET_RELEASE/frontend/sea-speed/objects/crossings.js"
+  install -m 0644 "$extracted/frontend/sea-speed/objects/registry.js" "$TARGET_RELEASE/frontend/sea-speed/objects/registry.js"
   install -m 0644 "$extracted/frontend/sea-speed/cameras/index.html" "$TARGET_RELEASE/frontend/sea-speed/cameras/index.html"
   install -m 0644 "$extracted/frontend/sea-speed/road/index.html" "$TARGET_RELEASE/frontend/sea-speed/road/index.html"
   install -m 0644 "$extracted/frontend/sea-speed/live-sync.js" "$TARGET_RELEASE/frontend/sea-speed/live-sync.js"
@@ -508,6 +521,16 @@ bootstrap_current_release() {
   else
     touch "$bootstrap_release/frontend/sea-speed/objects/.absent"
   fi
+  if [[ -f "$OBJECTS_CROSSINGS_TARGET" ]]; then
+    install -m 0644 "$OBJECTS_CROSSINGS_TARGET" "$bootstrap_release/frontend/sea-speed/objects/crossings.js"
+  else
+    touch "$bootstrap_release/frontend/sea-speed/objects/crossings.js.absent"
+  fi
+  if [[ -f "$OBJECTS_REGISTRY_JS_TARGET" ]]; then
+    install -m 0644 "$OBJECTS_REGISTRY_JS_TARGET" "$bootstrap_release/frontend/sea-speed/objects/registry.js"
+  else
+    touch "$bootstrap_release/frontend/sea-speed/objects/registry.js.absent"
+  fi
   if [[ -f "$CAMERAS_FRONTEND_TARGET" ]]; then
     install -m 0644 "$CAMERAS_FRONTEND_TARGET" "$bootstrap_release/frontend/sea-speed/cameras/index.html"
   else
@@ -648,6 +671,8 @@ install_release() {
   [[ -f "$release_dir/api/app/main.py" ]] || { echo "Release ${release_name} has no API file" >&2; return 1; }
   [[ -f "$release_dir/frontend/sea-speed/index.html" ]] || { echo "Release ${release_name} has no operator frontend file" >&2; return 1; }
   [[ -f "$release_dir/frontend/sea-speed/objects/index.html" || -f "$release_dir/frontend/sea-speed/objects/.absent" ]] || { echo "Release ${release_name} has no objects frontend state" >&2; return 1; }
+  [[ -f "$release_dir/frontend/sea-speed/objects/crossings.js" || -f "$release_dir/frontend/sea-speed/objects/crossings.js.absent" ]] || { echo "Release ${release_name} has no objects crossings module state" >&2; return 1; }
+  [[ -f "$release_dir/frontend/sea-speed/objects/registry.js" || -f "$release_dir/frontend/sea-speed/objects/registry.js.absent" ]] || { echo "Release ${release_name} has no objects registry module state" >&2; return 1; }
   [[ -f "$release_dir/frontend/sea-speed/cameras/index.html" || -f "$release_dir/frontend/sea-speed/cameras/.absent" ]] || { echo "Release ${release_name} has no cameras frontend state" >&2; return 1; }
   [[ -f "$release_dir/frontend/sea-speed/road/index.html" || -f "$release_dir/frontend/sea-speed/road/.absent" ]] || { echo "Release ${release_name} has no road frontend state" >&2; return 1; }
   [[ -f "$release_dir/frontend/sea-speed/live-sync.js" || -f "$release_dir/frontend/sea-speed/live-sync.js.absent" ]] || { echo "Release ${release_name} has no live-sync module state" >&2; return 1; }
@@ -717,6 +742,12 @@ install_release() {
   fi
   if [[ -f "$release_dir/frontend/sea-speed/road/main.js" ]]; then
     install -m 0644 "$release_dir/frontend/sea-speed/road/main.js" "${ROAD_MAIN_TARGET}.next"
+  fi
+  if [[ -f "$release_dir/frontend/sea-speed/objects/crossings.js" ]]; then
+    install -m 0644 "$release_dir/frontend/sea-speed/objects/crossings.js" "${OBJECTS_CROSSINGS_TARGET}.next"
+  fi
+  if [[ -f "$release_dir/frontend/sea-speed/objects/registry.js" ]]; then
+    install -m 0644 "$release_dir/frontend/sea-speed/objects/registry.js" "${OBJECTS_REGISTRY_JS_TARGET}.next"
   fi
   if [[ -f "$release_dir/frontend/sea-speed/unavailable.js" ]]; then
     install -m 0644 "$release_dir/frontend/sea-speed/unavailable.js" "${UNAVAILABLE_JS_TARGET}.next"
@@ -846,6 +877,16 @@ install_release() {
   else
     rm -f "$ROAD_MAIN_TARGET" "${ROAD_MAIN_TARGET}.next"
   fi
+  if [[ -f "$release_dir/frontend/sea-speed/objects/crossings.js" ]]; then
+    mv -f "${OBJECTS_CROSSINGS_TARGET}.next" "$OBJECTS_CROSSINGS_TARGET"
+  else
+    rm -f "$OBJECTS_CROSSINGS_TARGET" "${OBJECTS_CROSSINGS_TARGET}.next"
+  fi
+  if [[ -f "$release_dir/frontend/sea-speed/objects/registry.js" ]]; then
+    mv -f "${OBJECTS_REGISTRY_JS_TARGET}.next" "$OBJECTS_REGISTRY_JS_TARGET"
+  else
+    rm -f "$OBJECTS_REGISTRY_JS_TARGET" "${OBJECTS_REGISTRY_JS_TARGET}.next"
+  fi
   if [[ -f "$release_dir/frontend/sea-speed/unavailable.js" ]]; then
     mv -f "${UNAVAILABLE_JS_TARGET}.next" "$UNAVAILABLE_JS_TARGET"
   else
@@ -966,6 +1007,18 @@ verify_frontends() {
     verify_public_url "Road main module" "$ROAD_MAIN_URL"
   else
     log "Road main module is absent in this rollback release"
+  fi
+  if [[ -f "$OBJECTS_CROSSINGS_TARGET" ]]; then
+    [[ -s "$OBJECTS_CROSSINGS_TARGET" ]] || { echo "Objects crossings module file is empty: ${OBJECTS_CROSSINGS_TARGET}" >&2; return 1; }
+    verify_public_url "Objects crossings module" "$OBJECTS_CROSSINGS_URL"
+  else
+    log "Objects crossings module is absent in this rollback release"
+  fi
+  if [[ -f "$OBJECTS_REGISTRY_JS_TARGET" ]]; then
+    [[ -s "$OBJECTS_REGISTRY_JS_TARGET" ]] || { echo "Objects registry module file is empty: ${OBJECTS_REGISTRY_JS_TARGET}" >&2; return 1; }
+    verify_public_url "Objects registry module" "$OBJECTS_REGISTRY_URL"
+  else
+    log "Objects registry module is absent in this rollback release"
   fi
   if [[ -f "$OVERLAY_CANVAS_TARGET" ]]; then
     [[ -s "$OVERLAY_CANVAS_TARGET" ]] || { echo "Overlay canvas module file is empty: ${OVERLAY_CANVAS_TARGET}" >&2; return 1; }
