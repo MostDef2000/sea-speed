@@ -20,6 +20,10 @@ OBJECTS_REGISTRY_SOURCE = ROOT / "api" / "app" / "objects_registry.py"
 PASSAGE_MIRRORS_SOURCE = ROOT / "api" / "app" / "passage_mirrors.py"
 WATER_PASSAGES_SOURCE = ROOT / "api" / "app" / "water_passages.py"
 REGISTRY_PAGE = ROOT / "frontend" / "sea-speed" / "objects" / "index.html"
+# Issue #683: the objects page's inline scripts moved to external files, so
+# markup assertions stay on the HTML while JS-code assertions target these.
+REGISTRY_JS = ROOT / "frontend" / "sea-speed" / "objects" / "registry.js"
+CROSSINGS_JS = ROOT / "frontend" / "sea-speed" / "objects" / "crossings.js"
 
 
 def load_functions(names: set[str], namespace: dict[str, Any]) -> dict[str, Any]:
@@ -228,16 +232,20 @@ class RegistryPageContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.page = REGISTRY_PAGE.read_text(encoding="utf-8")
+        # Issue #683: the registry/crossings scripts are external files now;
+        # JS-code assertions target them, markup assertions stay on the HTML.
+        cls.registry_js = REGISTRY_JS.read_text(encoding="utf-8")
+        cls.crossings_js = CROSSINGS_JS.read_text(encoding="utf-8")
 
     def test_domain_selector_enabled_with_switch_handler(self) -> None:
         self.assertRegex(self.page, r'<select id="domainInput"[^>]*(?<!disabled)>')
-        self.assertIn('domainInput.addEventListener("change"', self.page)
-        self.assertIn("function setRegistryScope(", self.page)
-        self.assertIn("applyRegistryScope();loadObjects()", self.page)
+        self.assertIn('domainInput.addEventListener("change"', self.registry_js)
+        self.assertIn("function setRegistryScope(", self.registry_js)
+        self.assertIn("applyRegistryScope();loadObjects()", self.registry_js)
 
     def test_referrer_pre_selection_preserved(self) -> None:
-        self.assertIn('referrerPath.startsWith("/sea-speed/road/")?"road":"water"', self.page)
-        self.assertIn('hasOwnProperty.call(REGISTRY_SCOPES,requestedScope)', self.page)
+        self.assertIn('referrerPath.startsWith("/sea-speed/road/")?"road":"water"', self.registry_js)
+        self.assertIn('hasOwnProperty.call(REGISTRY_SCOPES,requestedScope)', self.registry_js)
 
     def test_single_registry_nav_link(self) -> None:
         self.assertNotIn('objects/?scope=water">', self.page.split("<nav")[1].split("</nav>")[0])
@@ -245,12 +253,12 @@ class RegistryPageContractTests(unittest.TestCase):
         self.assertIn('href="/sea-speed/objects/">Реестр объектов</a>', self.page)
 
     def test_crossing_history_query_activates_existing_layer_and_stays_scope_aware(self) -> None:
-        self.assertIn('const requestedView=new URLSearchParams(window.location.search).get("view")', self.page)
-        self.assertIn('if(requestedView==="crossings")setCrossingsActive(true,false)', self.page)
-        self.assertIn('function setCrossingsActive(nextActive,syncUrl=true)', self.page)
-        self.assertIn('url.searchParams.set("view","crossings")', self.page)
-        self.assertIn('url.searchParams.delete("view")', self.page)
-        self.assertIn('registryScopeKey==="road")?"road1":"cam1"', self.page)
+        self.assertIn('const requestedView=new URLSearchParams(window.location.search).get("view")', self.crossings_js)
+        self.assertIn('if(requestedView==="crossings")setCrossingsActive(true,false)', self.crossings_js)
+        self.assertIn('function setCrossingsActive(nextActive,syncUrl=true)', self.crossings_js)
+        self.assertIn('url.searchParams.set("view","crossings")', self.crossings_js)
+        self.assertIn('url.searchParams.delete("view")', self.crossings_js)
+        self.assertIn('registryScopeKey==="road")?"road1":"cam1"', self.crossings_js)
         self.assertEqual(self.page.count('id="crossingsLayer"'), 1)
         self.assertEqual(self.page.count('id="cxViewBtn"'), 1)
 

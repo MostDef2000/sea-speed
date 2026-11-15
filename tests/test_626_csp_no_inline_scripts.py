@@ -1,4 +1,4 @@
-"""CSP-readiness guard oracle for the sea-speed frontend (issue #626).
+"""CSP-readiness guard oracle for the sea-speed frontend (issues #626, #683).
 
 Issue #626: the sea-speed frontend pages carry inline ``<script>`` blocks and
 one HTML-attribute event handler (``onclick="location.reload()"`` on the
@@ -8,21 +8,32 @@ block every one of them, so before the edge CSP can flip from
 Report-Only to enforcing, the pages must load their scripts from external
 files only.
 
-Desired behavior pinned here (R-6 of specs/626-csp-external-scripts/spec.md):
+Issue #683: the objects registry page (``objects/index.html``) still carries
+two inline ``<script>`` blocks (the crossings-layer IIFE and the registry
+script) that the same enforcing CSP would block; they must move to the
+external files ``objects/crossings.js`` and ``objects/registry.js``.
 
-* every ``<script>`` tag in the four front pages (``index.html``,
-  ``cameras/index.html``, ``road/index.html``, ``unavailable.html``) carries
-  a ``src=`` attribute — no inline script blocks,
+Desired behavior pinned here (R-6 of specs/626-csp-external-scripts/spec.md,
+extended to the objects page by #683):
+
+* every ``<script>`` tag in the five front pages (``index.html``,
+  ``objects/index.html``, ``cameras/index.html``, ``road/index.html``,
+  ``unavailable.html``) carries a ``src=`` attribute — no inline script
+  blocks,
 * no HTML-attribute event handler (``on[a-z]+=``) appears anywhere in those
   files (JS-assigned ``.onclick = ...`` handlers are CSP-legal and stay),
-* the six external scripts extracted by #626 exist and are non-empty,
+* the eight external scripts extracted by #626 and #683 exist and are
+  non-empty,
 * ``deploy/vps/deploy.sh`` copies every one of them to the VPS (a merged
   frontend referencing files the deploy does not copy would 404 in
   production).
 
-On base 8f409d2 the inline blocks and the onclick attribute are present and
-the external files do not exist, so this oracle FAILS (RED); after the
-mechanical extraction it passes unchanged (GREEN). The scan is a raw-text
+On base 8f409d2 the #626 inline blocks and the onclick attribute were
+present and the six #626 external files did not exist, so this oracle
+FAILED (RED) until that mechanical extraction landed. On base 282fe49 the
+objects page inline blocks are present and ``objects/crossings.js`` /
+``objects/registry.js`` do not exist, so the oracle is RED again; after
+the #683 extraction it passes unchanged (GREEN). The scan is a raw-text
 regex scan (stdlib only): ``<script\\b[^>]*>`` for the src check and
 ``\\son[a-z]+\\s*=`` for attribute handlers — precise enough for these
 pages, which contain no legitimate ``on*``-shaped attribute text.
@@ -38,6 +49,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 HTML_PAGES = (
     ROOT / "frontend" / "sea-speed" / "index.html",
+    ROOT / "frontend" / "sea-speed" / "objects" / "index.html",
     ROOT / "frontend" / "sea-speed" / "cameras" / "index.html",
     ROOT / "frontend" / "sea-speed" / "road" / "index.html",
     ROOT / "frontend" / "sea-speed" / "unavailable.html",
@@ -46,6 +58,8 @@ HTML_PAGES = (
 NEW_EXTERNAL_SCRIPTS = (
     "frontend/sea-speed/crossing-line.js",
     "frontend/sea-speed/main.js",
+    "frontend/sea-speed/objects/crossings.js",
+    "frontend/sea-speed/objects/registry.js",
     "frontend/sea-speed/cameras/cameras.js",
     "frontend/sea-speed/road/config.js",
     "frontend/sea-speed/road/main.js",
@@ -59,7 +73,7 @@ ON_ATTRIBUTE_RE = re.compile(r"\son[a-z]+\s*=", re.IGNORECASE)
 
 
 class SeaSpeedCspNoInlineScriptsTests(unittest.TestCase):
-    """The four sea-speed pages carry zero inline scripts and zero on*= handlers."""
+    """The five sea-speed pages carry zero inline scripts and zero on*= handlers."""
 
     def test_every_script_tag_carries_src(self) -> None:
         for page in HTML_PAGES:
