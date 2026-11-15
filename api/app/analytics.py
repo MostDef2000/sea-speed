@@ -506,6 +506,7 @@ def get_analytics_crossings_summary(
         cutoff = datetime.now(timezone.utc) - timedelta(hours=window["hours"])
     totals = {"left_to_right": 0, "right_to_left": 0}
     by_class: Dict[str, Dict[str, int]] = {}
+    last_moment = None
     for record in records:
         if not isinstance(record, dict):
             continue
@@ -524,6 +525,8 @@ def get_analytics_crossings_summary(
         direction = str(record.get("direction") or "")
         if direction not in CROSSING_DIRECTIONS:
             continue
+        if last_moment is None or moment > last_moment:
+            last_moment = moment
         class_name = str(record.get("object_type") or record.get("class_name") or "object")
         totals[direction] += 1
         class_counts = by_class.setdefault(class_name, {"left_to_right": 0, "right_to_left": 0})
@@ -535,5 +538,6 @@ def get_analytics_crossings_summary(
         "window": window,
         "totals": totals,
         "by_class": by_class,
+        "last_crossing_at": last_moment.isoformat() if last_moment is not None else None,
         "generated_at": now_iso(),
     }
