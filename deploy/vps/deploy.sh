@@ -35,6 +35,8 @@ ROAD_MAIN_TARGET="${SEA_SPEED_ROAD_MAIN_TARGET:-/var/www/mostdef.ru/sea-speed/ro
 OBJECTS_CROSSINGS_TARGET="${SEA_SPEED_OBJECTS_CROSSINGS_TARGET:-/var/www/mostdef.ru/sea-speed/objects/crossings.js}"
 OBJECTS_REGISTRY_JS_TARGET="${SEA_SPEED_OBJECTS_REGISTRY_JS_TARGET:-/var/www/mostdef.ru/sea-speed/objects/registry.js}"
 UNAVAILABLE_JS_TARGET="${SEA_SPEED_UNAVAILABLE_JS_TARGET:-/var/www/mostdef.ru/unavailable.js}"
+# Login popup helper: public root asset, like unavailable.js.
+LOGIN_POPUP_TARGET="${SEA_SPEED_LOGIN_POPUP_TARGET:-/var/www/mostdef.ru/login-popup.js}"
 ROOT_FRONTEND_TARGET="${SEA_SPEED_ROOT_FRONTEND_TARGET:-/var/www/mostdef.ru/index.html}"
 FALLBACK_FRONTEND_TARGET="${SEA_SPEED_FALLBACK_FRONTEND_TARGET:-/var/www/mostdef.ru/sea-speed-unavailable.html}"
 SERVICE_NAME="sea-speed-api"
@@ -55,6 +57,7 @@ ROAD_MAIN_URL="${SEA_SPEED_ROAD_MAIN_URL:-https://mostdef.ru/sea-speed/road/main
 OBJECTS_CROSSINGS_URL="${SEA_SPEED_OBJECTS_CROSSINGS_URL:-https://mostdef.ru/sea-speed/objects/crossings.js}"
 OBJECTS_REGISTRY_URL="${SEA_SPEED_OBJECTS_REGISTRY_URL:-https://mostdef.ru/sea-speed/objects/registry.js}"
 UNAVAILABLE_JS_URL="${SEA_SPEED_UNAVAILABLE_JS_URL:-https://mostdef.ru/unavailable.js}"
+LOGIN_POPUP_URL="${SEA_SPEED_LOGIN_POPUP_URL:-https://mostdef.ru/login-popup.js}"
 ROOT_FRONTEND_URL="${SEA_SPEED_ROOT_FRONTEND_URL:-https://mostdef.ru/}"
 AUTH_BOUNDARY_REQUIRED="${SEA_SPEED_REQUIRE_AUTH_BOUNDARY:-0}"
 AUTHENTIK_UPSTREAM="${SEA_SPEED_AUTHENTIK_UPSTREAM:-}"
@@ -250,6 +253,7 @@ release_complete() {
      -f "$root/frontend/sea-speed/road/config.js" && \
      -f "$root/frontend/sea-speed/road/main.js" && \
      -f "$root/frontend/sea-speed/unavailable.js" && \
+     -f "$root/frontend/sea-speed/login-popup.js" && \
      -f "$root/frontend/root/index.html" && \
      -f "$root/frontend/sea-speed/unavailable.html" && \
      -f "$root/deploy/vps/sea-speed-auth-cutover.sh" && \
@@ -308,6 +312,7 @@ download_release() {
     frontend/sea-speed/road/config.js \
     frontend/sea-speed/road/main.js \
     frontend/sea-speed/unavailable.js \
+    frontend/sea-speed/login-popup.js \
     frontend/root/index.html \
     frontend/sea-speed/unavailable.html \
     deploy/vps/sea-speed-auth-cutover.sh \
@@ -350,6 +355,7 @@ download_release() {
   install -m 0644 "$extracted/frontend/sea-speed/road/config.js" "$TARGET_RELEASE/frontend/sea-speed/road/config.js"
   install -m 0644 "$extracted/frontend/sea-speed/road/main.js" "$TARGET_RELEASE/frontend/sea-speed/road/main.js"
   install -m 0644 "$extracted/frontend/sea-speed/unavailable.js" "$TARGET_RELEASE/frontend/sea-speed/unavailable.js"
+  install -m 0644 "$extracted/frontend/sea-speed/login-popup.js" "$TARGET_RELEASE/frontend/sea-speed/login-popup.js"
   install -m 0644 "$extracted/frontend/root/index.html" "$TARGET_RELEASE/frontend/root/index.html"
   install -m 0644 "$extracted/frontend/sea-speed/unavailable.html" "$TARGET_RELEASE/frontend/sea-speed/unavailable.html"
   install -m 0755 "$extracted/deploy/vps/sea-speed-auth-cutover.sh" "$TARGET_RELEASE/deploy/vps/sea-speed-auth-cutover.sh"
@@ -581,6 +587,11 @@ bootstrap_current_release() {
   else
     touch "$bootstrap_release/frontend/sea-speed/unavailable.js.absent"
   fi
+  if [[ -f "$LOGIN_POPUP_TARGET" ]]; then
+    install -m 0644 "$LOGIN_POPUP_TARGET" "$bootstrap_release/frontend/sea-speed/login-popup.js"
+  else
+    touch "$bootstrap_release/frontend/sea-speed/login-popup.js.absent"
+  fi
   install -m 0644 "$ROOT_FRONTEND_TARGET" "$bootstrap_release/frontend/root/index.html"
   if [[ -f "$FALLBACK_FRONTEND_TARGET" ]]; then
     install -m 0644 "$FALLBACK_FRONTEND_TARGET" "$bootstrap_release/frontend/sea-speed/unavailable.html"
@@ -683,6 +694,7 @@ install_release() {
   [[ -f "$release_dir/frontend/sea-speed/road/config.js" || -f "$release_dir/frontend/sea-speed/road/config.js.absent" ]] || { echo "Release ${release_name} has no road config module state" >&2; return 1; }
   [[ -f "$release_dir/frontend/sea-speed/road/main.js" || -f "$release_dir/frontend/sea-speed/road/main.js.absent" ]] || { echo "Release ${release_name} has no road main module state" >&2; return 1; }
   [[ -f "$release_dir/frontend/sea-speed/unavailable.js" || -f "$release_dir/frontend/sea-speed/unavailable.js.absent" ]] || { echo "Release ${release_name} has no unavailable module state" >&2; return 1; }
+  [[ -f "$release_dir/frontend/sea-speed/login-popup.js" || -f "$release_dir/frontend/sea-speed/login-popup.js.absent" ]] || { echo "Release ${release_name} has no login-popup module state" >&2; return 1; }
   [[ -f "$release_dir/frontend/root/index.html" ]] || { echo "Release ${release_name} has no root frontend file" >&2; return 1; }
   [[ -f "$release_dir/frontend/sea-speed/unavailable.html" || -f "$release_dir/frontend/sea-speed/unavailable.html.absent" ]] || { echo "Release ${release_name} has no fallback frontend state" >&2; return 1; }
 
@@ -751,6 +763,9 @@ install_release() {
   fi
   if [[ -f "$release_dir/frontend/sea-speed/unavailable.js" ]]; then
     install -m 0644 "$release_dir/frontend/sea-speed/unavailable.js" "${UNAVAILABLE_JS_TARGET}.next"
+  fi
+  if [[ -f "$release_dir/frontend/sea-speed/login-popup.js" ]]; then
+    install -m 0644 "$release_dir/frontend/sea-speed/login-popup.js" "${LOGIN_POPUP_TARGET}.next"
   fi
   if [[ -f "$release_dir/frontend/sea-speed/unavailable.html" ]]; then
     install -m 0644 "$release_dir/frontend/sea-speed/unavailable.html" "${FALLBACK_FRONTEND_TARGET}.next"
@@ -892,6 +907,11 @@ install_release() {
   else
     rm -f "$UNAVAILABLE_JS_TARGET" "${UNAVAILABLE_JS_TARGET}.next"
   fi
+  if [[ -f "$release_dir/frontend/sea-speed/login-popup.js" ]]; then
+    mv -f "${LOGIN_POPUP_TARGET}.next" "$LOGIN_POPUP_TARGET"
+  else
+    rm -f "$LOGIN_POPUP_TARGET" "${LOGIN_POPUP_TARGET}.next"
+  fi
   if [[ -f "$release_dir/frontend/sea-speed/unavailable.html" ]]; then
     mv -f "${FALLBACK_FRONTEND_TARGET}.next" "$FALLBACK_FRONTEND_TARGET"
   else
@@ -1031,6 +1051,12 @@ verify_frontends() {
     verify_public_url "Unavailable module" "$UNAVAILABLE_JS_URL"
   else
     log "Unavailable module is absent in this rollback release"
+  fi
+  if [[ -f "$LOGIN_POPUP_TARGET" ]]; then
+    [[ -s "$LOGIN_POPUP_TARGET" ]] || { echo "Login popup module file is empty: ${LOGIN_POPUP_TARGET}" >&2; return 1; }
+    verify_public_url "Login popup module" "$LOGIN_POPUP_URL"
+  else
+    log "Login popup module is absent in this rollback release"
   fi
   verify_public_url "Root frontend" "$ROOT_FRONTEND_URL"
 }

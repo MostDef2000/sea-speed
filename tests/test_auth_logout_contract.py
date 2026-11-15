@@ -11,8 +11,9 @@ this file:
 - the three protected frontends execute their real inline scripts under the
   ``frontend_html`` node shim: the session watchdog is identified
   behaviorally (the interval registered at the protected cadence re-fetches
-  the trusted identity), identity loss after establishment must rebuild the
-  current URL from ``pathname+search+hash`` and hand it to
+  the trusted identity), identity loss after establishment must show the
+  in-page login overlay (``#seaSpeedLoginOverlay`` with a
+  ``#seaSpeedLoginBtn`` button labelled "Войти") instead of
   ``window.top.location.replace``, and the provider logout link must be a
   real anchor attribute in the page markup;
 - the worker operation script runs for real under
@@ -77,10 +78,11 @@ def load_blueprint(path: Path) -> dict:
 # Executed session-watchdog twin, run in the page's own scope: the interval
 # registered at the protected cadence must re-fetch the trusted identity,
 # identity must populate the trusted element, and identity loss AFTER
-# establishment must rebuild the current URL (pathname+search+hash) and hand
-# it to window.top.location.replace. Storage globals must stay undefined in
-# the page scope (any module-level or watchdog-path access would throw under
-# the shim, which has no storage globals).
+# establishment must show the in-page login overlay (#seaSpeedLoginOverlay
+# with the #seaSpeedLoginBtn "Войти" button) without any recorded
+# location.assign/replace. Storage globals must stay undefined in the page
+# scope (any module-level or watchdog-path access would throw under the
+# shim, which has no storage globals).
 LOGOUT_SCENARIO = """
 ;(async () => {
   const assert = (cond, msg) => { if (!cond) { console.error("FAIL: " + msg); process.exit(1); } };
@@ -111,17 +113,38 @@ LOGOUT_SCENARIO = """
   location.hash = "#frag";
   __sessionFail = true;
   await fireWatchdogs();
-  const expected = location.pathname + "?probe=1" + "#frag";
+  // Contract (login-popup): identity loss after establishment shows the
+  // in-page login overlay instead of window.top.location.replace — the
+  // overlay is appended to the live body and carries the Войти button, and
+  // no location.assign/replace is recorded.
+  const overlay = (document.body.__children || []).find((el) => el && el.id === "seaSpeedLoginOverlay");
   assert(
-    __record.replaces.includes(expected),
-    "identity loss after establishment must window.top.location.replace to the current URL (" +
-      expected + "); recorded: " + JSON.stringify(__record.replaces)
+    overlay,
+    "identity loss after establishment must show the in-page login overlay (#seaSpeedLoginOverlay)"
+  );
+  const loginBtn = (overlay.__children || []).find((el) => el && el.id === "seaSpeedLoginBtn");
+  assert(loginBtn, "the login overlay must contain the #seaSpeedLoginBtn button");
+  assert(
+    loginBtn.textContent === "Войти",
+    "the login button must be labelled Войти; got " + JSON.stringify(loginBtn.textContent)
+  );
+  assert(
+    __record.locations.length === 0,
+    "identity loss must not navigate away; recorded locations: " + JSON.stringify(__record.locations)
+  );
+  assert(
+    __record.replaces.length === 0,
+    "identity loss must not navigate away; recorded replaces: " + JSON.stringify(__record.replaces)
   );
   console.log("###" + JSON.stringify({
     sessionFetches: __record.fetch.filter((c) => c.url === __SESSION_PATH).map((c) => c.options),
     intervals: __record.intervals.map(([fn, ms]) => ({ fn: (fn && fn.name) || "?", ms })),
     replaces: __record.replaces,
     sessionUser: __record.elements.sessionUser ? __record.elements.sessionUser.textContent : null,
+    loginOverlay: {
+      present: !!overlay,
+      loginBtnLabel: loginBtn ? loginBtn.textContent : null,
+    },
   }));
 })().catch((e) => { console.error(e && e.stack || e); process.exit(1); });
 """
@@ -196,9 +219,22 @@ class FrontendLogoutExecutedTests(unittest.TestCase):
                     any(ms == SESSION_WATCHDOG_MS for ms in (i["ms"] for i in evidence["intervals"])),
                     "no session watchdog interval registered",
                 )
+                # Contract (login-popup): identity loss shows the in-page
+                # login overlay (with the Войти button) and never navigates
+                # away — the recorded replaces/locations stay empty.
                 self.assertTrue(
-                    any("probe=1#frag" in replaced for replaced in evidence["replaces"]),
-                    f"identity loss did not replace to the current URL: {evidence['replaces']}",
+                    evidence["loginOverlay"]["present"],
+                    f"identity loss did not show the login overlay: {evidence['loginOverlay']}",
+                )
+                self.assertEqual(
+                    evidence["loginOverlay"]["loginBtnLabel"],
+                    "Войти",
+                    f"login overlay button mislabelled: {evidence['loginOverlay']}",
+                )
+                self.assertEqual(
+                    evidence["replaces"],
+                    [],
+                    f"identity loss must not navigate away: {evidence['replaces']}",
                 )
                 self.assertTrue(
                     all(fetch.get("credentials") == "same-origin" for fetch in evidence["sessionFetches"]),

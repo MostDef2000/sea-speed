@@ -79,11 +79,12 @@ def anchor_attribute(tag: str, name: str) -> str | None:
 
 # Page-agnostic executed session twin: every protected frontend must watch
 # its trusted identity on the 15 s watchdog, fetch it same-origin, populate
-# the trusted element, and on identity loss AFTER establishment redirect to
-# the page's own protected URL (road pages location.assign the road path;
-# water/cameras/objects window.top.location.replace the current
-# pathname+search+hash — the assertion accepts the recorded evidence of
-# either wiring, so a page that switches between them stays green).
+# the trusted element, and on identity loss AFTER establishment show the
+# in-page login overlay (SeaSpeedAuth.showOverlay: a #seaSpeedLoginOverlay
+# appended to the body carrying a #seaSpeedLoginBtn button labelled "Войти")
+# instead of navigating away — the assertion accepts the recorded evidence
+# of the overlay in the live DOM and an empty navigation record, so a page
+# that regresses to a redirect/replace fails it.
 SESSION_SCENARIO = """
 ;(async () => {
   const assert = (cond, msg) => { if (!cond) { console.error("FAIL: " + msg); process.exit(1); } };
@@ -113,10 +114,28 @@ SESSION_SCENARIO = """
   );
   __sessionFail = true;
   await fireWatchdogs();
+  // Contract (login-popup): identity loss after establishment shows the
+  // in-page login overlay instead of navigating away — the overlay is
+  // appended to the live body and carries the Войти button, and no
+  // location.assign/replace is recorded.
+  const overlay = (document.body.__children || []).find((el) => el && el.id === "seaSpeedLoginOverlay");
   assert(
-    __record.locations.includes(__REDIRECT) ||
-      __record.replaces.includes(location.pathname + location.search + location.hash),
-    "identity loss after establishment must redirect to the protected URL"
+    overlay,
+    "identity loss after establishment must show the in-page login overlay (#seaSpeedLoginOverlay)"
+  );
+  const loginBtn = (overlay.__children || []).find((el) => el && el.id === "seaSpeedLoginBtn");
+  assert(loginBtn, "the login overlay must contain the #seaSpeedLoginBtn button");
+  assert(
+    loginBtn.textContent === "Войти",
+    "the login button must be labelled Войти; got " + JSON.stringify(loginBtn.textContent)
+  );
+  assert(
+    __record.locations.length === 0,
+    "identity loss must not navigate away; recorded locations: " + JSON.stringify(__record.locations)
+  );
+  assert(
+    __record.replaces.length === 0,
+    "identity loss must not navigate away; recorded replaces: " + JSON.stringify(__record.replaces)
   );
   console.log("###" + JSON.stringify({
     sessionFetches: __record.fetch.filter((c) => c.url === __SESSION_PATH).map((c) => c.options),
@@ -125,6 +144,87 @@ SESSION_SCENARIO = """
     redirects: __record.locations,
     replaces: __record.replaces,
     sessionUser: __record.elements.sessionUser ? __record.elements.sessionUser.textContent : null,
+    loginOverlay: {
+      present: !!overlay,
+      loginBtnLabel: loginBtn ? loginBtn.textContent : null,
+    },
+  }));
+})().catch((e) => { console.error(e && e.stack || e); process.exit(1); });
+"""
+
+# Road session-watchdog twin (issue #398 wave 2, retargeted to the
+# login-popup overlay contract): the road page's real scripts execute in
+# node under the frontend_html shim — the 15 s watchdog wiring, the
+# same-origin session fetch, the identity population and the identity-loss
+# overlay are asserted on the executed page. On identity loss AFTER
+# establishment the page must show the in-page login overlay
+# (SeaSpeedAuth.showOverlay: a #seaSpeedLoginOverlay appended to the body
+# carrying a #seaSpeedLoginBtn button labelled "Войти") instead of
+# navigating away — the assertion accepts the recorded evidence of the
+# overlay in the live DOM and an empty navigation record, so a page that
+# regresses to a redirect/replace fails it.
+ROAD_WATCHDOG_SCENARIO = """
+;(async () => {
+  const assert = (cond, msg) => { if (!cond) { console.error("FAIL: " + msg); process.exit(1); } };
+  await new Promise((r) => setImmediate(r));
+  assert(typeof localStorage === "undefined", "localStorage must not exist in the page scope");
+  assert(typeof sessionStorage === "undefined", "sessionStorage must not exist in the page scope");
+  const watchdogs = __record.intervals.filter(([, ms]) => ms === __WATCHDOG_MS);
+  assert(watchdogs.length >= 1, "no " + __WATCHDOG_MS + " ms interval registered (session watchdog missing)");
+  const fireWatchdogs = async () => {
+    for (const watchdog of watchdogs) {
+      await watchdog[0]();
+      await new Promise((r) => setImmediate(r));
+    }
+  };
+  const fetchCountBefore = __record.fetch.length;
+  await fireWatchdogs();
+  assert(
+    __record.fetch.slice(fetchCountBefore).some((c) => c.url === __SESSION_PATH),
+    "the " + __WATCHDOG_MS + " ms interval does not re-fetch the trusted identity"
+  );
+  const sessionFetch = __record.fetch.find((c) => c.url === __SESSION_PATH);
+  assert(sessionFetch, "session endpoint not fetched at boot");
+  assert(sessionFetch.options.credentials === "same-origin", "session fetch is not same-origin");
+  assert(
+    __record.elements.sessionUser && __record.elements.sessionUser.textContent === __sessionUser,
+    "success path does not populate the trusted identity"
+  );
+  __sessionFail = true;
+  await fireWatchdogs();
+  // Contract (login-popup): identity loss after establishment shows the
+  // in-page login overlay instead of navigating away — the overlay is
+  // appended to the live body and carries the Войти button, and no
+  // location.assign/replace is recorded.
+  const overlay = (document.body.__children || []).find((el) => el && el.id === "seaSpeedLoginOverlay");
+  assert(
+    overlay,
+    "identity loss after establishment must show the in-page login overlay (#seaSpeedLoginOverlay)"
+  );
+  const loginBtn = (overlay.__children || []).find((el) => el && el.id === "seaSpeedLoginBtn");
+  assert(loginBtn, "the login overlay must contain the #seaSpeedLoginBtn button");
+  assert(
+    loginBtn.textContent === "Войти",
+    "the login button must be labelled Войти; got " + JSON.stringify(loginBtn.textContent)
+  );
+  assert(
+    __record.locations.length === 0,
+    "identity loss must not navigate away; recorded locations: " + JSON.stringify(__record.locations)
+  );
+  assert(
+    __record.replaces.length === 0,
+    "identity loss must not navigate away; recorded replaces: " + JSON.stringify(__record.replaces)
+  );
+  console.log("###" + JSON.stringify({
+    sessionFetches: __record.fetch.filter((c) => c.url === __SESSION_PATH).map((c) => c.options),
+    intervals: __record.intervals.map(([fn, ms]) => ({ fn: (fn && fn.name) || "?", ms })),
+    redirects: __record.locations,
+    replaces: __record.replaces,
+    sessionUser: __record.elements.sessionUser ? __record.elements.sessionUser.textContent : null,
+    loginOverlay: {
+      present: !!overlay,
+      loginBtnLabel: loginBtn ? loginBtn.textContent : null,
+    },
   }));
 })().catch((e) => { console.error(e && e.stack || e); process.exit(1); });
 """
@@ -189,14 +289,15 @@ class AuthSessionFrontendContractTests(unittest.TestCase):
         self.assertIn("waterMainVideo", evidence["attached"])
 
     def test_road_session_watchdog_matches_protected_operator_semantics(self) -> None:
-        # Behavioral conversion (issue #398 wave 2): the page's real inline
-        # scripts execute in node under the frontend_html shim — the 15 s
-        # watchdog wiring, the same-origin session fetch, the identity
-        # population and the identity-loss redirect are asserted on the
-        # executed page, not on its formatting (reformatting or renaming
-        # internals keeps this green; breaking the wiring fails it even when
-        # the historical marker text survives).
-        evidence = frontend_html.run_inline_scripts()
+        # Behavioral conversion (issue #398 wave 2, retargeted to the
+        # login-popup overlay contract): the page's real scripts execute in
+        # node under the frontend_html shim — the 15 s watchdog wiring, the
+        # same-origin session fetch, the identity population and the
+        # identity-loss overlay are asserted on the executed page, not on its
+        # formatting (reformatting or renaming internals keeps this green;
+        # breaking the wiring fails it even when the historical marker text
+        # survives).
+        evidence = frontend_html.run_inline_scripts(scenario=ROAD_WATCHDOG_SCENARIO)
         self.assertIn(
             frontend_html.WATCHDOG_MS,
             [interval["ms"] for interval in evidence["intervals"]],
@@ -205,7 +306,27 @@ class AuthSessionFrontendContractTests(unittest.TestCase):
         self.assertTrue(evidence["sessionFetches"], "session endpoint never fetched")
         self.assertEqual(evidence["sessionFetches"][0].get("credentials"), "same-origin")
         self.assertEqual(evidence["sessionUser"], "operator")
-        self.assertEqual(evidence["redirects"], [frontend_html.REDIRECT_PATH])
+        # Contract (login-popup): identity loss shows the in-page login
+        # overlay (with the Войти button) and never navigates away.
+        self.assertTrue(
+            evidence["loginOverlay"]["present"],
+            "identity loss must show the in-page login overlay (#seaSpeedLoginOverlay)",
+        )
+        self.assertEqual(
+            evidence["loginOverlay"]["loginBtnLabel"],
+            "Войти",
+            "the login button must be labelled Войти",
+        )
+        self.assertEqual(
+            evidence["redirects"],
+            [],
+            "identity loss must not navigate away (location.assign)",
+        )
+        self.assertEqual(
+            evidence["replaces"],
+            [],
+            "identity loss must not navigate away (location.replace)",
+        )
 
 
 if __name__ == "__main__":

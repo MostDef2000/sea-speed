@@ -13,8 +13,7 @@
     function redirectForReauthentication(){
       if(sessionRedirecting)return;
       sessionRedirecting=true;
-      const protectedUrl=window.location.pathname+window.location.search+window.location.hash;
-      window.top.location.replace(protectedUrl);
+      SeaSpeedAuth.showOverlay();
     }
 
     async function loadSessionIdentity(){
