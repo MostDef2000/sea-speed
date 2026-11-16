@@ -1,0 +1,15 @@
+{
+  "name": "sea-speed",
+  "private": true,
+  "description": "Sea Speed frontend tooling (issue #684: static JS gates).",
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "@playwright/test": "1.65.1",
+    "eslint": "10.15.0",
+    "globals": "17.14.0"
+  },
+  "scripts": {
+    "lint:js": "eslint frontend",
+    "test:browser": "playwright test"
+  }
+}
