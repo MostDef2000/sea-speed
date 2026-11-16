@@ -33,6 +33,14 @@ jobs:
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: "22"
+      - name: Install locked frontend tooling
+        run: npm ci --ignore-scripts
+      - name: ESLint no-undef (non-mutating)
+        run: npm run lint:js
+      - name: Install Chromium for browser smoke
+        run: npx playwright install --with-deps chromium
+      - name: Browser smoke (six operator pages)
+        run: npm run test:browser
       - name: Install canonical locked dependencies (API + test + tooling)
         run: pip install -r api/requirements-api.lock.txt
       - name: Validate pull request Change Contract

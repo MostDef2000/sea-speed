@@ -36,3 +36,8 @@ Thumbs.db
 
 # Local worker runtime
 worker/runtime/
+
+# Node tooling (issue #684)
+node_modules/
+playwright-report/
+test-results/
