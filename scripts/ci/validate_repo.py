@@ -5,7 +5,7 @@ import re,subprocess,sys,tempfile
 from html.parser import HTMLParser
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[2]
-ALLOWED_TOP_LEVEL={".github",".gitignore",".specify",".opencode","AGENTS.md","README.md","api","contracts","data","deploy","docs","frontend","opencode.json","schemas","scripts","skills","specs","tests","worker"}
+ALLOWED_TOP_LEVEL={".github",".gitignore",".specify",".opencode","AGENTS.md","README.md","api","contracts","data","deploy","docs","eslint.config.mjs","frontend","opencode.json","package-lock.json","package.json","playwright.config.mjs","schemas","scripts","skills","specs","tests","worker"}
 ALLOWED_EXACT_PATHS={".opencode/agents/sea-speed-delivery-orchestrator.md",".opencode/project-profile.json",".opencode/delivery-pipeline.json"}
 REQUIRED_FILES={
 "AGENTS.md","README.md","opencode.json",".opencode/project-profile.json",".opencode/delivery-pipeline.json","api/app/main.py","frontend/root/index.html","frontend/sea-speed/index.html","frontend/sea-speed/objects/index.html","frontend/sea-speed/cameras/index.html","frontend/sea-speed/road/index.html",
