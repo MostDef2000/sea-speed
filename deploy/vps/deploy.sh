@@ -936,6 +936,27 @@ verify_public_url() {
   esac
 }
 
+# Issue #709: public web-root assets (the login-popup helper) must be
+# anonymously readable with HTTP 200. verify_public_url stays permissive for
+# the protected operator assets behind authentik (302/401/403), so public
+# assets need this separate strict 200-only verifier rather than a tightened
+# verify_public_url.
+verify_public_asset_200() {
+  local label="$1" target="$2" status
+  status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --max-time 15 "$target")" || {
+    echo "${label} public asset smoke check request failed: ${target}" >&2
+    return 1
+  }
+  if [[ "$status" != "200" ]]; then
+    echo "${label} public asset smoke check failed with HTTP ${status}: ${target}" >&2
+    return 1
+  fi
+  # Legacy pass line kept for the existing success-smoke assertions, followed
+  # by the distinct strict-helper line this public-asset contract requires.
+  log "${label} public smoke check passed with HTTP 200"
+  log "${label} public asset smoke check passed with HTTP 200"
+}
+
 verify_fallback_page() {
   local status headers body
   status="$(curl --silent --show-error --output /tmp/sea-speed-fallback-body.html --write-out '%{http_code}' --max-time 15 "$FRONTEND_URL" 2>/dev/null || true)"
@@ -1054,7 +1075,9 @@ verify_frontends() {
   fi
   if [[ -f "$LOGIN_POPUP_TARGET" ]]; then
     [[ -s "$LOGIN_POPUP_TARGET" ]] || { echo "Login popup module file is empty: ${LOGIN_POPUP_TARGET}" >&2; return 1; }
-    verify_public_url "Login popup module" "$LOGIN_POPUP_URL"
+    # Fail closed on a non-200 so the error propagates past the trailing root
+    # frontend check instead of being swallowed there.
+    verify_public_asset_200 "Login popup module" "$LOGIN_POPUP_URL" || return 1
   else
     log "Login popup module is absent in this rollback release"
   fi
