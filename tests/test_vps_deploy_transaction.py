@@ -4,6 +4,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import tarfile
@@ -893,6 +894,174 @@ printf 'LISTEN 0 128 %s 0.0.0.0:*\n' "$SEA_SPEED_WORKER_PRIVATE_LISTEN"
             "the pre-placed archive hash must still be computed and recorded",
         )
         self.assertEqual(self.current(), CANDIDATE)
+
+    # Strict public-asset smoke for the public web-root login-popup helper:
+    # /login-popup.js must be anonymously readable with HTTP 200, unlike the
+    # protected operator assets behind authentik whose 302/401/403 answers
+    # the permissive verify_public_url accepts.
+
+    def shell_function_bodies(self) -> dict[str, str]:
+        # Minimal parser for deploy.sh's top-level shell functions: each one
+        # starts with `name() {` at column 0 and ends with a column-0 `}`
+        # (single-line forms like `log() { ...; }` close on the opener line).
+        bodies: dict[str, str] = {}
+        current: str | None = None
+        collected: list[str] = []
+        for line in DEPLOY_SCRIPT.read_text(encoding="utf-8").splitlines():
+            if current is None:
+                match = re.match(r"^([A-Za-z_][A-Za-z0-9_]*)\(\)\s*\{", line)
+                if match is None:
+                    continue
+                current = match.group(1)
+                rest = line[match.end() :]
+                if rest.rstrip().endswith("}"):
+                    bodies[current] = rest
+                    current = None
+                    collected = []
+                else:
+                    collected = [rest]
+                continue
+            if line == "}":
+                bodies[current] = "\n".join(collected)
+                current = None
+                collected = []
+                continue
+            collected.append(line)
+        return bodies
+
+    def strict_public_asset_verifiers(self) -> list[str]:
+        # A dedicated strict public-asset verifier captures %{http_code} with
+        # the same curl options as verify_public_url but accepts only 200:
+        # its code (comment-only lines stripped) mentions 200 and carries no
+        # digit|digit status-alternation arm such as the permissive
+        # 200|301|302|307|308|401|403 form.
+        names: list[str] = []
+        for name, body in self.shell_function_bodies().items():
+            code = "\n".join(
+                line for line in body.splitlines() if not line.lstrip().startswith("#")
+            )
+            if "%{http_code}" not in code:
+                continue
+            if "200" not in code:
+                continue
+            if re.search(r"\d\s*\|\s*\d", code):
+                continue
+            names.append(name)
+        return sorted(names)
+
+    def install_login_popup_status_curl(self) -> None:
+        # The shared curl fake answers 200 for every unknown URL. This
+        # variant answers FAKE_LOGIN_POPUP_STATUS for the login-popup smoke
+        # URL, keyed on the live helper content (like the candidate-500 mode
+        # keys on the live API source) so the rollback re-verification sees
+        # the old release's healthy 200 again, then defers to the shared
+        # fake for every other URL.
+        existing = (self.fake_bin / "curl").read_text(encoding="utf-8")
+        body = existing.split("\n", 1)[1]
+        branch = (
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "if [[ \"${@: -1}\" == \"${SEA_SPEED_LOGIN_POPUP_URL:-}\" ]]; then\n"
+            "  if grep -Fq \"$FAKE_CANDIDATE_SHA\" \"$SEA_SPEED_LOGIN_POPUP_TARGET\" 2>/dev/null; then\n"
+            "    printf '%s' \"${FAKE_LOGIN_POPUP_STATUS:-200}\"\n"
+            "  else\n"
+            "    printf '200'\n"
+            "  fi\n"
+            "  exit 0\n"
+            "fi\n"
+            + body
+        )
+        self.write_executable("curl", branch)
+
+    def test_deploy_defines_strict_200_only_public_asset_verifier(self) -> None:
+        # Source-level pin (stated reason): the fake-curl harness can inject
+        # a per-URL status and the behavioral test below proves the
+        # login-popup smoke fails closed, but behavior alone cannot prove a
+        # dedicated reusable verifier with 200-only status acceptance — the
+        # call site could inline an equivalent check. So require a top-level
+        # function that captures %{http_code} like verify_public_url yet
+        # accepts only 200, and keep verify_public_url itself permissive for
+        # the protected operator assets (302/401/403 behind authentik).
+        strict = self.strict_public_asset_verifiers()
+        self.assertTrue(
+            strict,
+            "deploy.sh must define a dedicated public-asset verifier that accepts only HTTP 200",
+        )
+        self.assertNotIn(
+            "verify_public_url",
+            strict,
+            "verify_public_url must stay permissive for protected assets; "
+            "the 200-only check belongs to a dedicated helper",
+        )
+
+    def test_login_popup_smoke_block_calls_strict_public_asset_verifier(self) -> None:
+        source = DEPLOY_SCRIPT.read_text(encoding="utf-8")
+        strict = self.strict_public_asset_verifiers()
+        self.assertTrue(
+            strict,
+            "deploy.sh must define the strict public-asset verifier before "
+            "the login-popup smoke block can call it",
+        )
+        call_lines = [
+            line
+            for line in source.splitlines()
+            if "LOGIN_POPUP_URL" in line
+            and "LOGIN_POPUP_URL=" not in line
+            and not line.lstrip().startswith("#")
+        ]
+        self.assertTrue(
+            call_lines,
+            "the login-popup smoke must call a verifier on $LOGIN_POPUP_URL",
+        )
+        for line in call_lines:
+            self.assertTrue(
+                any(re.search(rf"\b{re.escape(name)}\b", line) for name in strict),
+                "the login-popup smoke must go through the strict 200-only "
+                f"verifier, not the permissive one: {line.strip()}",
+            )
+        self.assertNotIn(
+            'verify_public_url "Login popup module" "$LOGIN_POPUP_URL"',
+            source,
+            "the permissive verify_public_url call for the login-popup must be gone",
+        )
+
+    def test_login_popup_smoke_is_strict_public_asset_check(self) -> None:
+        # The login-popup helper lives in the public web root: an anonymous
+        # non-200 answer must fail the deploy closed. The permissive
+        # verify_public_url set (200|301|302|307|308|401|403) is correct for
+        # protected operator assets behind authentik but wrong here — a
+        # 302/401/403 would otherwise count as a passed smoke check (and
+        # even a rejected status is currently swallowed by the trailing
+        # root-frontend check inside verify_frontends). The fake curl
+        # answers per-status for the login-popup URL only, keyed on the
+        # live helper content so the rollback re-verification sees the old
+        # release's healthy 200 again.
+        self.install_login_popup_status_curl()
+        for status in ("302", "401", "403", "404"):
+            with self.subTest(status=status):
+                result = self.run_deploy(extra_env={"FAKE_LOGIN_POPUP_STATUS": status})
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertEqual(self.current(), OLD, result.stdout)
+                self.assertIn("Login popup module", result.stdout)
+                self.assertIn(f"HTTP {status}", result.stdout)
+                self.assertNotIn(
+                    f"Login popup module public smoke check passed with HTTP {status}",
+                    result.stdout,
+                    "the permissive verify_public_url pass-through must be gone "
+                    "from the login-popup smoke",
+                )
+                self.assertEqual(
+                    self.manifest()["state"], "rolled_back", result.stdout
+                )
+                self.assertIn("Rollback successful", result.stdout)
+
+        result = self.run_deploy(extra_env={"FAKE_LOGIN_POPUP_STATUS": "200"})
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(self.current(), CANDIDATE, result.stdout)
+        self.assertIn(
+            "Login popup module public asset smoke check passed with HTTP 200",
+            result.stdout,
+        )
 
 
 if __name__ == "__main__":
