@@ -47,11 +47,12 @@ class UbuntuWorkerManualInstallTests(unittest.TestCase):
         self.assertNotRegex(requirements, re.compile(r"^torch(?:[=<>]|$)", re.MULTILINE))
         self.assertNotRegex(requirements, re.compile(r"^torchvision(?:[=<>]|$)", re.MULTILINE))
         self.assertNotIn("av==", requirements)
+        # Issue #687: exactly one OpenCV distribution is pinned in the direct
+        # manifest; the stale headless expectation was removed with the wheel.
         for requirement in (
             "ultralytics==8.4.117",
             "lap==0.5.13",
             "opencv-python==5.0.0.93",
-            "opencv-python-headless==5.0.0.93",
             "numpy==2.4.4",
             "requests==2.34.2",
             "python-dotenv==1.2.2",
