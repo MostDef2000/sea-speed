@@ -602,6 +602,8 @@ async def post_analytics_state(
         data = json.loads(metadata)
     except Exception:
         raise HTTPException(status_code=400, detail="metadata must be valid JSON")
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=400, detail="metadata must be a JSON object")
     data["camera_id"] = camera_id
     data["analytics_profile"] = identity["analytics_profile"]
     data["domain"] = identity["domain"]
@@ -667,6 +669,8 @@ async def post_analytics_event(
         event = json.loads(metadata)
     except Exception:
         raise HTTPException(status_code=400, detail="metadata must be valid JSON")
+    if not isinstance(event, dict):
+        raise HTTPException(status_code=400, detail="metadata must be a JSON object")
     # Issue #587: deliver_event stores the event verbatim (json.dumps default
     # allow_nan=True), so NaN/±Infinity anywhere in the payload would persist
     # invalid strict JSON into event_feed/event_receipts — reject at the
