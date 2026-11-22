@@ -1,6 +1,7 @@
 """Bounded Water passage tracking and pluggable speed-measurement strategies."""
 from __future__ import annotations
 
+import importlib.util
 import math
 import sys
 import time
@@ -13,15 +14,21 @@ from typing import Callable, Deque, Dict, Iterable, List, Optional, Sequence, Tu
 
 # Issue #697: the typed unknown-reason vocabulary is shared byte-for-byte with
 # the API. Resolve the release-relative api/app directory from THIS file
-# (independent of cwd), matching deploy/worker/ubuntu/observed-worker-runner.py
-# (issue #698) so the worker and the API agree on one closed set.
+# (independent of cwd), then load that ONE file by path and register it as the
+# single top-level ``unknown_reason`` module. Do NOT add api/app to sys.path:
+# that would expose every sibling API module (config, identity, store, ...) as
+# a bare import to the worker.
 _API_APP_DIR = Path(__file__).resolve().parents[1] / "api" / "app"
-if str(_API_APP_DIR) not in sys.path:
-    sys.path.insert(0, str(_API_APP_DIR))
-from unknown_reason import (  # noqa: E402
-    GATE_UNAVAILABLE,
-    TOO_FEW_OBSERVATIONS,
+_UNKNOWN_REASON_SPEC = importlib.util.spec_from_file_location(
+    "unknown_reason", _API_APP_DIR / "unknown_reason.py"
 )
+if _UNKNOWN_REASON_SPEC is None or _UNKNOWN_REASON_SPEC.loader is None:
+    raise ImportError(f"cannot load the shared unknown_reason module from {_API_APP_DIR}")
+_unknown_reason = importlib.util.module_from_spec(_UNKNOWN_REASON_SPEC)
+sys.modules["unknown_reason"] = _unknown_reason
+_UNKNOWN_REASON_SPEC.loader.exec_module(_unknown_reason)
+GATE_UNAVAILABLE = _unknown_reason.GATE_UNAVAILABLE
+TOO_FEW_OBSERVATIONS = _unknown_reason.TOO_FEW_OBSERVATIONS
 
 Point = Tuple[float, float]
 Line = Tuple[Point, Point]

@@ -86,8 +86,9 @@ byte-identical to before.
 - Edge/Ubuntu/vps archives each contain `api/app/unknown_reason.py` (verified
   from the built tarballs).
 - Focused behavioral scenarios (worker per-path reasons, API accept/reject,
-  legacy read, rank-merge non-demotion) are owned by the test worker and are
-  PENDING here.
+  legacy read, rank-merge non-demotion, log line, packaging, import isolation)
+  are pinned by `tests/test_697_typed_unknown_reason.py`: observed `35 passed,
+  58 subtests passed, 0 failed`.
 
 ## Runtime feedback
 
@@ -108,13 +109,13 @@ byte-identical to before.
 
 ## Test design
 
-- TEST-001 | Covers: AC-001 | Level: unit | Priority: P0 | Evidence: test worker — closed set membership, stdlib-only import, is_unknown_reason behavior
-- TEST-002 | Covers: AC-002 | Level: unit | Priority: P0 | Evidence: test worker — TwoGate/engine per-path reasons incl. disabled update and finalize branches
-- TEST-003 | Covers: AC-003 | Level: unit | Priority: P0 | Evidence: test worker — measured/measuring carry no reason; measured calibrated wins without gate reason
-- TEST-004 | Covers: AC-004 | Level: unit | Priority: P1 | Evidence: test worker — post_passage log appends reason only when present
-- TEST-005 | Covers: AC-005 | Level: integration | Priority: P0 | Evidence: test worker — API 400 for non-string/non-enum, 200 for absent reason
-- TEST-006 | Covers: AC-006 | Level: integration | Priority: P0 | Evidence: test worker — legacy unknown read supplies legacy_unspecified, row unchanged on disk
-- TEST-007 | Covers: AC-007 | Level: integration | Priority: P0 | Evidence: test worker — late unknown does not demote measured row or attach reason
+- TEST-001 | Covers: AC-001 | Level: unit | Priority: P0 | Evidence: tests/test_697_typed_unknown_reason.py — closed set membership, stdlib-only import, is_unknown_reason behavior
+- TEST-002 | Covers: AC-002 | Level: unit | Priority: P0 | Evidence: tests/test_697_typed_unknown_reason.py — TwoGate/engine per-path reasons incl. disabled update and finalize branches
+- TEST-003 | Covers: AC-003 | Level: unit | Priority: P0 | Evidence: tests/test_697_typed_unknown_reason.py — measured/measuring carry no reason; measured calibrated wins without gate reason
+- TEST-004 | Covers: AC-004 | Level: unit | Priority: P1 | Evidence: tests/test_697_typed_unknown_reason.py — post_passage log appends reason only when present
+- TEST-005 | Covers: AC-005 | Level: integration | Priority: P0 | Evidence: tests/test_697_typed_unknown_reason.py — API 400 for non-string/non-enum, 200 for absent reason
+- TEST-006 | Covers: AC-006 | Level: integration | Priority: P0 | Evidence: tests/test_697_typed_unknown_reason.py — legacy unknown read supplies legacy_unspecified, row unchanged on disk
+- TEST-007 | Covers: AC-007 | Level: integration | Priority: P0 | Evidence: tests/test_697_typed_unknown_reason.py — late unknown does not demote measured row or attach reason
 - TEST-008 | Covers: AC-008 | Level: integration | Priority: P0 | Evidence: build+validate exact artifacts green, convergence 11/11, edge archive contains module (observed in this change)
 
 ## Correct-course check

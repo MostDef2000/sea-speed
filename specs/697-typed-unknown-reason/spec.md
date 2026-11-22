@@ -112,6 +112,10 @@ result discards any unknown reason from the gate candidate.
   `legacy_unspecified` in the returned dict only.
 - Storage/history is never rewritten: no migration, no backfill, no update of
   existing rows.
+- The write response also reflects the inferred reason: because the API returns
+  the persisted row through the same read-normalization path, a POST that omits
+  the reason comes back with `legacy_unspecified` while the stored history is
+  left unchanged.
 - A row promoted to a known status never surfaces a reason.
 
 ## Gherkin scenarios
@@ -195,6 +199,6 @@ Feature: Typed reason for an unknown speed status
 
 ## NFR assessment
 
-- NFR-001 | Area: Observability | Target: every unknown speed status carries exactly one typed reason from the closed set, with legacy rows readable as legacy_unspecified | Validation: per-path unit scenarios plus API read/write boundary scenarios (test worker) | Evidence: worker/API verification recorded in plan.md; test-worker evidence PENDING | Status: PASS
-- NFR-002 | Area: Compatibility | Target: additive JSON only — no new column, no top-level field, no UI change; old writes without a reason keep working and history is never rewritten | Validation: boundary scenarios for absent reason, invalid reason and legacy read; diff inspection of the storage schema | Evidence: water_passages.py validation/read diff; test-worker evidence PENDING | Status: PASS
+- NFR-001 | Area: Observability | Target: every unknown speed status carries exactly one typed reason from the closed set, with legacy rows readable as legacy_unspecified | Validation: per-path unit scenarios plus API read/write boundary scenarios (test worker) | Evidence: tests/test_697_typed_unknown_reason.py — 35 passed, 58 subtests passed, 0 failed; worker/API wiring recorded in plan.md | Status: PASS
+- NFR-002 | Area: Compatibility | Target: additive JSON only — no new column, no top-level field, no UI change; old writes without a reason keep working and history is never rewritten | Validation: boundary scenarios for absent reason, invalid reason and legacy read; diff inspection of the storage schema | Evidence: tests/test_697_typed_unknown_reason.py — 35 passed, 58 subtests passed, 0 failed; water_passages.py validation/read diff; no schema change | Status: PASS
 - NFR-003 | Area: Operability | Target: the shared vocabulary ships on every contour that can load water_passage.py and is mirrored through every deploy touchpoint | Validation: exact-artifact build+validate, edge archive inventory, deploy convergence check | Evidence: build/validate and convergence output recorded in plan.md | Status: PASS

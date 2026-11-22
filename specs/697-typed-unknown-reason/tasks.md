@@ -41,13 +41,13 @@
 
 ## Requirements traceability
 
-- AC-001 | Task: T-001 | Evidence: closed-set module diff; test-worker unit tests PENDING | Coverage: COVERED
-- AC-002 | Task: T-002 | Evidence: per-path reason mapping in worker diff; test-worker unit tests PENDING | Coverage: COVERED
-- AC-003 | Task: T-002 | Evidence: measured/measuring construct no reason; selection passes the selected result whole; test-worker tests PENDING | Coverage: COVERED
-- AC-004 | Task: T-003 | Evidence: post_passage log conditional reason suffix in diff; test-worker test PENDING | Coverage: COVERED
-- AC-005 | Task: T-004 | Evidence: boundary rejection branch in diff; test-worker integration test PENDING | Coverage: COVERED
-- AC-006 | Task: T-004 | Evidence: read-side normalization in diff; no write/backfill; test-worker integration test PENDING | Coverage: COVERED
-- AC-007 | Task: T-004 | Evidence: rank-merge code untouched; test-worker integration test PENDING | Coverage: COVERED
+- AC-001 | Task: T-001 | Evidence: tests/test_697_typed_unknown_reason.py — closed-set membership and stdlib-only/import-isolation assertions (green) | Coverage: COVERED
+- AC-002 | Task: T-002 | Evidence: tests/test_697_typed_unknown_reason.py — per-path reason assertions incl. disabled/finalize branches (green) | Coverage: COVERED
+- AC-003 | Task: T-002 | Evidence: tests/test_697_typed_unknown_reason.py — measured/measuring no-reason and selection-contract assertions (green) | Coverage: COVERED
+- AC-004 | Task: T-003 | Evidence: tests/test_697_typed_unknown_reason.py — byte-exact success log assertion (green) | Coverage: COVERED
+- AC-005 | Task: T-004 | Evidence: tests/test_697_typed_unknown_reason.py — boundary 400 for invalid supplied reason, accept when absent (green) | Coverage: COVERED
+- AC-006 | Task: T-004 | Evidence: tests/test_697_typed_unknown_reason.py — legacy unknown read supplies legacy_unspecified, row unchanged (green) | Coverage: COVERED
+- AC-007 | Task: T-004 | Evidence: tests/test_697_typed_unknown_reason.py — rank-merge non-demotion assertions (green) | Coverage: COVERED
 - AC-008 | Task: T-005, T-007 | Evidence: build+validate exact artifacts green; convergence 11/11; all three archives contain the module | Coverage: COVERED
 
 ## Completion gate
@@ -58,7 +58,8 @@
 - Exact-artifact build + validate green in a temp output dir.
 - Deploy convergence check green (11/11) and the edge archive contains
   `api/app/unknown_reason.py`.
-- Behavioral tests are owned by the test worker and recorded as PENDING here.
+- Behavioral tests: `tests/test_697_typed_unknown_reason.py` green — 35
+  passed, 58 subtests passed, 0 failed.
 
 ## Verification evidence
 
@@ -83,16 +84,22 @@ root at base `83e8851a896b795786fc4db7c3f6fe7088436302`):
   `unmirrored: []`, `unshipped: []`, `CONVERGENCE_OK`.
 - Archive inventory: `vps unknown_reason: True`, `edge unknown_reason: True`,
   `ubuntu-worker unknown_reason: True`.
-- Test-worker behavioral evidence: PENDING (tests/** is owned by a separate
-  worker; not fabricated here).
+- `python3 -m pytest tests/test_697_typed_unknown_reason.py -q` →
+  `35 passed, 58 subtests passed` (0 failed).
+- Full suite `python3 -m pytest tests/ -q` → `1702 passed, 2 failed, 2 skipped,
+  941 subtests passed`; the two failures are the pre-existing working-tree
+  scope guards (#685, #687) rejecting the one uncommitted in-scope
+  `worker/water_passage.py` edit before the orchestrator commit — not
+  behavioral regressions and not caused by this change's logic.
 
 ## Definition of Done
 
 - Issue/spec/plan/tasks current — this trio added for #697.
 - Exact changed-file scope verified — only the admitted production, packaging
   and SDD paths are touched.
-- Required tests and evidence complete — build/compile/lint/convergence
-  evidence recorded; behavioral tests PENDING on the test worker.
+- Required tests and evidence complete — compile/lint/convergence evidence
+  recorded; `tests/test_697_typed_unknown_reason.py` green (35 passed, 58
+  subtests, 0 failed).
 - Required CI green — not yet observed in this worker scope (no commit/PR).
 - Exact-green-head merge complete — not yet; owned by the delivery
   orchestrator after `commit approved`.

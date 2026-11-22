@@ -231,16 +231,45 @@ class TypedUnknownReasonEnumOracleTests(unittest.TestCase):
                 self.assertFalse(vocab.is_unknown_reason(value))
 
     def test_worker_imports_the_shared_vocabulary_release_relative(self) -> None:
-        # The worker resolves api/app from ITS OWN file location, not from
-        # cwd: run the import from an unrelated working directory.
+        # Hardened contract (peer review): the worker must load the shared
+        # vocabulary FILE-PATH wise (importlib.util.spec_from_file_location),
+        # NOT by inserting api/app into sys.path and importing the bare name —
+        # that would expose every api/app module (config, identity, store, ...)
+        # as a top-level import to the worker. The probe therefore pins THREE
+        # things at once, from an unrelated working directory (release-relative
+        # load):
+        #   1. sys.path is byte-identical before/after the worker import (no
+        #      api/app entry is added, or it is restored exactly);
+        #   2. the shared module is still importable afterwards and its
+        #      constants are the correct literals;
+        #   3. no OTHER api/app module became bare-importable.
         probe = (
-            "import sys\n"
+            "import importlib.util, json, sys\n"
             f"sys.path.insert(0, {str(ROOT / 'worker')!r})\n"
+            "before = list(sys.path)\n"
             "import water_passage\n"
+            "after = list(sys.path)\n"
             "import unknown_reason\n"
+            f"api_app = {str(ROOT / 'api' / 'app')!r}\n"
+            "exposed = []\n"
+            "for name in ('config', 'identity', 'store', 'objects_registry',\n"
+            "             'passage_mirrors', 'water_passages', 'main'):\n"
+            "    try:\n"
+            "        spec = importlib.util.find_spec(name)\n"
+            "    except (ImportError, ValueError, ModuleNotFoundError):\n"
+            "        spec = None\n"
+            "    origin = getattr(spec, 'origin', None) or ''\n"
+            "    if origin.startswith(api_app):\n"
+            "        exposed.append(name)\n"
+            "print(json.dumps([p for p in after if p not in before]))\n"
+            "print(json.dumps(after == before))\n"
+            "print(json.dumps([p for p in after if p.endswith('api/app')]))\n"
             "print(unknown_reason.__file__)\n"
+            "print(unknown_reason.TOO_FEW_OBSERVATIONS)\n"
+            "print(unknown_reason.GATE_UNAVAILABLE)\n"
             "print(water_passage.TOO_FEW_OBSERVATIONS)\n"
             "print(water_passage.GATE_UNAVAILABLE)\n"
+            "print(json.dumps(exposed))\n"
         )
         with tempfile.TemporaryDirectory(prefix="sea-speed-697-cwd-") as temp_dir:
             result = subprocess.run(
@@ -254,9 +283,29 @@ class TypedUnknownReasonEnumOracleTests(unittest.TestCase):
             )
         self.assertEqual(result.returncode, 0, result.stderr)
         lines = result.stdout.strip().splitlines()
-        self.assertEqual(Path(lines[0]).resolve(), (ROOT / "api" / "app" / "unknown_reason.py").resolve())
-        self.assertEqual(lines[1], "too_few_observations")
-        self.assertEqual(lines[2], "gate_unavailable")
+        self.assertEqual(len(lines), 9, result.stdout)
+        # 1. Loading the worker must not leave api/app on sys.path.
+        self.assertEqual(
+            json.loads(lines[0]), [], "water_passage must not add entries to sys.path"
+        )
+        self.assertTrue(
+            json.loads(lines[1]), "sys.path must be restored exactly (or untouched)"
+        )
+        self.assertEqual(json.loads(lines[2]), [], "api/app must not be on sys.path")
+        # 2. The shared module is still importable and correct afterwards.
+        self.assertEqual(
+            Path(lines[3]).resolve(), (ROOT / "api" / "app" / "unknown_reason.py").resolve()
+        )
+        self.assertEqual(lines[4], "too_few_observations")
+        self.assertEqual(lines[5], "gate_unavailable")
+        self.assertEqual(lines[6], "too_few_observations")
+        self.assertEqual(lines[7], "gate_unavailable")
+        # 3. No other api/app module is exposed as a top-level import.
+        self.assertEqual(
+            json.loads(lines[8]),
+            [],
+            "the worker must not expose api/app modules by bare name",
+        )
 
 
 # ---------------------------------------------------------------------------
