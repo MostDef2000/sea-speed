@@ -62,10 +62,11 @@ ROOT_SOURCE = ROOT_PAGE.read_text(encoding="utf-8-sig")
 WATER_HLS_URL = "/sea-speed/media/cam1/index.m3u8"
 ROAD_HLS_URL = "/sea-speed/media/road1/index.m3u8"
 
-# Pinned hls.js CDN artifact (issue #575): the production-proven 1.5.7
-# release, loaded with Subresource Integrity on every operator page.
-HLS_PINNED_SRC = "https://cdn.jsdelivr.net/npm/hls.js@1.5.7/dist/hls.min.js"
-HLS_SRI_INTEGRITY = "sha384-1B+J55elPxu+trIhW7QThjZg3evX8C5P6zjB82Xnn46RKPAXpL+vkanRSjCidsJv"
+# Pinned hls.js CDN artifact (issues #575, refreshed by #688): the
+# production-proven 1.7.4 release, loaded with Subresource Integrity on every
+# operator page.
+HLS_PINNED_SRC = "https://cdn.jsdelivr.net/npm/hls.js@1.7.4/dist/hls.min.js"
+HLS_SRI_INTEGRITY = "sha384-p9vgU/7IYJWd3I4STrtqxqR/2cAQlhIX7D/HrTnIMEjjcUox165b7se7sxmm3zDg"
 
 # Boot responses: the worker control GET must answer ok:true so the page
 # renders the trusted worker state instead of the control-error path.
@@ -1254,7 +1255,7 @@ class HlsScriptPinTests(unittest.TestCase):
     """SS twin: the hls.js supply-chain contract on all three operator pages
     (issue #575, audit #534 P2-07). The executed stream twins above prove the
     player wiring; this pin freezes the CDN artifact itself — every page must
-    load the exact production-proven 1.5.7 hls.min.js with its sha384
+    load the exact production-proven 1.7.4 hls.min.js with its sha384
     Subresource Integrity and a CORS-anonymous request, and the floating
     @latest tag must stay gone."""
 
@@ -1272,7 +1273,7 @@ class HlsScriptPinTests(unittest.TestCase):
                 attrs = hls_tags[0]
                 self.assertEqual(
                     attrs.get("src"), HLS_PINNED_SRC,
-                    f"the {name} page must pin the exact hls.js 1.5.7 artifact",
+                    f"the {name} page must pin the exact hls.js 1.7.4 artifact",
                 )
                 self.assertEqual(
                     attrs.get("integrity"), HLS_SRI_INTEGRITY,

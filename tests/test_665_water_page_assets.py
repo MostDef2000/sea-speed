@@ -40,10 +40,10 @@ WATER_HTML = ROOT / "frontend" / "sea-speed" / "index.html"
 SCRIPT_TAG_RE = re.compile(r"<script\b[^>]*>", re.IGNORECASE)
 SRC_ATTR_RE = re.compile(r'\bsrc\s*=\s*"([^"]*)"', re.IGNORECASE)
 
-# Pinned hls.js CDN artifact (issue #575): the production-proven 1.5.7
-# release, loaded with Subresource Integrity (same pin as
-# tests/test_frontend_contract.py).
-HLS_PINNED_SRC = "https://cdn.jsdelivr.net/npm/hls.js@1.5.7/dist/hls.min.js"
+# Pinned hls.js CDN artifact (issues #575, refreshed by #688): the
+# production-proven 1.7.4 release, loaded with Subresource Integrity (same pin
+# as tests/test_frontend_contract.py).
+HLS_PINNED_SRC = "https://cdn.jsdelivr.net/npm/hls.js@1.7.4/dist/hls.min.js"
 
 LOCAL_SCRIPTS = (
     "/sea-speed/crossing-line.js",

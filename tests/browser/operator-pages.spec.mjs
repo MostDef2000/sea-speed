@@ -9,7 +9,7 @@
 // every one of its <script src> answered with 200.
 //
 // CDN stubbing: the shipped HTML loads hls.js from
-// https://cdn.jsdelivr.net/npm/hls.js@1.5.7/dist/hls.min.js. `page.route`
+// https://cdn.jsdelivr.net/npm/hls.js@1.7.4/dist/hls.min.js. `page.route`
 // fulfils exactly that URL with HLS_STUB_SOURCE, and any other
 // cdn.jsdelivr.net request is aborted (a leaked request surfaces as a
 // `requestfailed`, i.e. a test failure). The fixture server strips that tag's

@@ -6,7 +6,7 @@
 // enforces the policy shipped by scripts/operations/nginx_sea_speed_auth.py.
 //
 // Harness deviation, deliberate and narrow: the shipped HTML references
-// https://cdn.jsdelivr.net/npm/hls.js@1.5.7/dist/hls.min.js with a `integrity`
+// https://cdn.jsdelivr.net/npm/hls.js@1.7.4/dist/hls.min.js with a `integrity`
 // SRI digest. A synthetic stub can never satisfy that digest, and a blocked
 // script would defeat the point of the gate, so this server strips only the
 // `integrity`/`crossorigin` attributes of that one tag. Every other byte of the
@@ -27,7 +27,7 @@ const SEA_SPEED_ROOT = path.join(FRONTEND_ROOT, "sea-speed");
 
 export const FIXTURE_PORT = 8131;
 
-export const HLS_CDN_URL = "https://cdn.jsdelivr.net/npm/hls.js@1.5.7/dist/hls.min.js";
+export const HLS_CDN_URL = "https://cdn.jsdelivr.net/npm/hls.js@1.7.4/dist/hls.min.js";
 export const HLS_STUB_PATH = "/cdn/hls.min.js";
 
 // Byte-identical to the production policy in
@@ -100,7 +100,7 @@ const EMPTY_API_BODY = {
 };
 
 const CDN_SCRIPT_TAG =
-  /<script\b[^>]*\bsrc="https:\/\/cdn\.jsdelivr\.net\/npm\/hls\.js@1\.5\.7\/dist\/hls\.min\.js"[^>]*><\/script>/gi;
+  /<script\b[^>]*\bsrc="https:\/\/cdn\.jsdelivr\.net\/npm\/hls\.js@1\.7\.4\/dist\/hls\.min\.js"[^>]*><\/script>/gi;
 
 function contentTypeFor(filePath) {
   switch (path.extname(filePath)) {
