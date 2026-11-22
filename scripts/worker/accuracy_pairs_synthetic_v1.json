@@ -1,0 +1,67 @@
+[
+  {
+    "id": "synthetic-case-01",
+    "truth": "pass",
+    "outcome": "pass"
+  },
+  {
+    "id": "synthetic-case-02",
+    "truth": "pass",
+    "outcome": "pass"
+  },
+  {
+    "id": "synthetic-case-03",
+    "truth": "pass",
+    "outcome": "pass"
+  },
+  {
+    "id": "synthetic-case-04",
+    "truth": "pass",
+    "outcome": "pass"
+  },
+  {
+    "id": "synthetic-case-05",
+    "truth": "pass",
+    "outcome": "non_pass"
+  },
+  {
+    "id": "synthetic-case-06",
+    "truth": "pass",
+    "outcome": "unknown"
+  },
+  {
+    "id": "synthetic-case-07",
+    "truth": "pass",
+    "outcome": "unknown"
+  },
+  {
+    "id": "synthetic-case-08",
+    "truth": "non_pass",
+    "outcome": "pass"
+  },
+  {
+    "id": "synthetic-case-09",
+    "truth": "non_pass",
+    "outcome": "pass"
+  },
+  {
+    "id": "synthetic-case-10",
+    "truth": "non_pass",
+    "outcome": "non_pass"
+  },
+  {
+    "id": "synthetic-case-11",
+    "truth": "non_pass",
+    "outcome": "non_pass"
+  },
+  {
+    "id": "synthetic-case-12",
+    "truth": "non_pass",
+    "outcome": "non_pass"
+  },
+  {
+    "id": "synthetic-case-13",
+    "truth": "non_pass",
+    "outcome": "unknown"
+  }
+]
