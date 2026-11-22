@@ -50,6 +50,7 @@ async function instrumentPage(page) {
     cspViolations: [],
     failedRequests: [],
     scriptStatus: new Map(),
+    styleStatus: new Map(),
   };
 
   page.on("console", (message) => {
@@ -69,8 +70,12 @@ async function instrumentPage(page) {
     );
   });
   page.on("response", (response) => {
-    if (response.request().resourceType() === "script") {
+    const resourceType = response.request().resourceType();
+    if (resourceType === "script") {
       observed.scriptStatus.set(urlKey(response.url()), response.status());
+    }
+    if (resourceType === "stylesheet") {
+      observed.styleStatus.set(urlKey(response.url()), response.status());
     }
   });
 
@@ -129,6 +134,18 @@ async function expectAllScriptsLoaded(page, observed, expectedScripts) {
   for (const key of expectedKeys) {
     expect(observed.scriptStatus.get(key), `script response status for ${key}`).toBe(200);
   }
+}
+
+/** Issue #685: the shared operator stylesheet must be linked and served 200. */
+async function expectSharedStylesheetLoaded(page, observed) {
+  const hrefs = await page
+    .locator('link[rel="stylesheet"]')
+    .evaluateAll((elements) => elements.map((element) => element.getAttribute("href")));
+  expect(hrefs, "stylesheet links in the served document").toContain("/sea-speed/operator-common.css");
+  expect(
+    observed.styleStatus.get(keyFor("/sea-speed/operator-common.css")),
+    "shared operator stylesheet response status",
+  ).toBe(200);
 }
 
 /** login-popup.js exports an object (not a function) with these members. */
@@ -190,6 +207,7 @@ test.describe("#684 operator pages under the production CSP", () => {
       )
       .toEqual({ liveSync: "object", bracketForMedia: "function" });
     await expectSeaSpeedAuth(page);
+    await expectSharedStylesheetLoaded(page, observed);
 
     await expectAllScriptsLoaded(page, observed, scripts);
     expectCleanBrowserState(observed);
@@ -238,6 +256,7 @@ test.describe("#684 operator pages under the production CSP", () => {
     await expect(page.locator("#cxFrom")).not.toHaveValue("");
     await expect(page.locator("#sessionUser")).toHaveText("operator");
     await expectSeaSpeedAuth(page);
+    await expectSharedStylesheetLoaded(page, observed);
 
     await expectAllScriptsLoaded(page, observed, scripts);
     expectCleanBrowserState(observed);
