@@ -1114,7 +1114,7 @@ verify_frontends() {
   fi
   if [[ -f "$OPERATOR_COMMON_CSS_TARGET" ]]; then
     [[ -s "$OPERATOR_COMMON_CSS_TARGET" ]] || { echo "Operator common stylesheet is empty: ${OPERATOR_COMMON_CSS_TARGET}" >&2; return 1; }
-    verify_public_asset_200 "Operator common stylesheet" "$OPERATOR_COMMON_CSS_URL" || return 1
+    verify_public_url "Operator common stylesheet" "$OPERATOR_COMMON_CSS_URL" || return 1
   else
     log "Operator common stylesheet is absent in this rollback release"
   fi

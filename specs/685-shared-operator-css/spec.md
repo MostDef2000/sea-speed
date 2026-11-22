@@ -196,6 +196,27 @@ HTML; downgrade ordering restores HTML before removing CSS; a pre-feature target
   exercised against a live VPS in this worker; its runtime confirmation is
   deferred to the deploy stage.
 
+### Production incident — CSS smoke strict-200 reverted (run 45075776142)
+
+A real VPS deploy run (`45075776142`) failed at the stylesheet smoke step with
+`Operator common stylesheet public asset smoke check failed with HTTP 302:
+https://mostdef.ru/sea-speed/operator-common.css`. The entire `/sea-speed/*`
+tree sits behind the operator auth boundary, so an auth redirect (302/401) is
+the EXPECTED public response for the stylesheet — exactly as for every sibling
+operator asset (Water/Road/Cameras/Objects pages and their modules), whose
+checks use the permissive `verify_public_url` (accepts
+200|301|302|307|308|401|403) and pass with 302.
+
+The corrected contract: the CSS smoke uses `verify_public_url ... || return 1`.
+An auth redirect or auth answer is accepted as the expected public response; only
+genuinely broken responses (e.g. 404/500) fail closed and trigger the existing
+rollback path. The earlier strict-200 (`verify_public_asset_200`) suggestion was
+wrong for this auth-protected path and has been reverted.
+
+Impact: the failed run rolled back automatically and successfully to `eba2604`;
+no state damage occurred. The deploy has NOT otherwise succeeded and NFR/AC
+statuses are unchanged (AC-008 remains not formally closed).
+
 ### Pre-existing visual debt (out of scope, NOT caused by #685)
 
 The UI worker observed the following defects in BOTH the before and after

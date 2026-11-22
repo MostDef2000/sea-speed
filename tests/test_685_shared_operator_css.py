@@ -746,32 +746,32 @@ class OperatorCssDeployTests(VpsDeployFixture):
 
     # -- post-activation public smoke ----------------------------------------
 
-    def test_verify_frontends_smoke_fails_closed_on_a_non_200_shared_css_url(
+    def test_verify_frontends_smoke_accepts_auth_redirect_but_fails_on_broken_css(
         self,
     ) -> None:
-        # SDD TX-004 lists the verify_frontends CSS check as FATAL evidence
-        # and the stylesheet URL is a public web-root asset like the #709
-        # login-popup helper: ANY non-200 — 500 as well as a redirect (302)
-        # or an auth answer (401) — must make verify_frontends return
-        # nonzero, so the deploy fails closed and rolls back instead of
-        # shipping a release whose shared stylesheet is not plainly served
-        # with 200 (verify_public_asset_200, not the permissive
-        # verify_public_url that accepts 200|301|302|307|308|401|403).
-        # A healthy 200 keeps the deploy successful (the fake curl answers
-        # 200 for the rollback re-verification, keyed on the live asset
-        # content).
+        # Corrected contract after the production incident (deploy run
+        # 45075776142): the whole /sea-speed/* tree sits behind the operator
+        # auth boundary, so the stylesheet URL answers the same 302 auth
+        # redirect as every sibling operator asset. verify_public_url
+        # (200|301|302|307|308|401|403) is the correct bar for it — a strict
+        # 200-only check rejected the expected redirect and rolled back a
+        # healthy deploy — while `|| return 1` keeps genuinely broken
+        # responses (404/500) fail-closed, which is what SDD TX-004's FATAL
+        # disposition is about: not rejecting auth redirects.
         #
-        # RED against current deploy.sh twice over: the permissive verifier
-        # ACCEPTS 302/401 (subtests below fail on the returncode assertion)
-        # and the CSS block historically logged-but-swallowed the verdict.
         # The failure line is matched in both message shapes because
         # verify_public_url says "public smoke check failed" while
-        # verify_public_asset_200 says "public asset smoke check failed".
-        # The empty-live-file guard IS fatal today and stays source-pinned
-        # (the harness cannot produce an empty live asset).
+        # verify_public_asset_200 says "public asset smoke check failed" —
+        # RED against a strict-200 variant, whose rejection of 302/401 fails
+        # the accepted-redirect subtests below. The empty-live-file guard IS
+        # fatal and stays source-pinned (the harness cannot produce an empty
+        # live asset).
         self.install_css_status_curl()
-        for status in ("500", "302", "401"):
-            with self.subTest(status=status):
+
+        # Broken responses must fail closed: nonzero rc, rollback to OLD,
+        # manifest rolled_back.
+        for status in ("500", "404"):
+            with self.subTest(broken=status):
                 result = self.run_deploy(extra_env={"FAKE_CSS_URL_STATUS": status})
                 self.assertNotEqual(result.returncode, 0, result.stdout)
                 self.assertRegex(
@@ -784,6 +784,22 @@ class OperatorCssDeployTests(VpsDeployFixture):
                 self.assertIn("Rollback successful", result.stdout)
                 self.assertEqual(
                     self.manifest()["state"], "rolled_back", result.stdout
+                )
+
+        # Auth-boundary answers are the healthy contract for an operator
+        # asset: the deploy succeeds and the accepted verdict is reported.
+        for status in ("302", "401"):
+            with self.subTest(auth=status):
+                result = self.run_deploy(extra_env={"FAKE_CSS_URL_STATUS": status})
+                self.assertEqual(result.returncode, 0, result.stdout)
+                self.assertIn(
+                    f"Operator common stylesheet public smoke check passed with "
+                    f"HTTP {status}",
+                    result.stdout,
+                )
+                self.assertEqual(self.current(), CANDIDATE, result.stdout)
+                self.assertEqual(
+                    self.manifest()["state"], "runtime_verified", result.stdout
                 )
 
         result = self.run_deploy(extra_env={"FAKE_CSS_URL_STATUS": "200"})
@@ -833,16 +849,18 @@ class OperatorCssDeployTests(VpsDeployFixture):
             verify,
             "verify_frontends must reject an empty live stylesheet",
         )
-        # Issue #685 contract: the stylesheet URL is a public web-root asset,
-        # so the smoke must go through the STRICT 200-only verifier (the #709
-        # login-popup shape), not the permissive verify_public_url that
-        # accepts 301/302/307/308/401/403 — and it must fail closed (`|| return 1`).
+        # Issue #685 corrected contract (production run 45075776142): the
+        # stylesheet sits behind the operator auth boundary like every sibling
+        # operator asset, so the smoke uses the permissive operator-asset
+        # verifier (200|301|302|307|308|401|403) — a strict 200-only bar
+        # rejected the expected auth redirect and rolled back a healthy
+        # deploy — while `|| return 1` keeps broken responses fail-closed.
         self.assertIn(
-            'verify_public_asset_200 "Operator common stylesheet" '
+            'verify_public_url "Operator common stylesheet" '
             '"$OPERATOR_COMMON_CSS_URL" || return 1',
             verify,
-            "verify_frontends must smoke-check the stylesheet with the strict "
-            "200-only verifier and fail closed on a non-200",
+            "verify_frontends must smoke-check the stylesheet with the "
+            "operator-asset verifier and fail closed on a broken response",
         )
 
 
