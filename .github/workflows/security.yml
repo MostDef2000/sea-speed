@@ -63,13 +63,44 @@ jobs:
           python-version: "3.14"
 
       - name: Install pip-audit
-        run: pip install pip-audit
+        run: pip install pip-audit==2.10.1
 
       - name: Audit pinned worker runtime requirements
         run: pip-audit -r deploy/worker/ubuntu/requirements-runtime.txt
 
       - name: Audit pinned API requirements
         run: pip-audit -r api/requirements-api.txt
+
+      - name: Audit hash-locked worker runtime dependency graph
+        run: pip-audit --disable-pip -r deploy/worker/ubuntu/requirements-runtime.lock.txt --format json --output pip-audit-worker-lock.json
+
+      - name: Audit hash-locked API dependency graph
+        run: pip-audit --disable-pip -r api/requirements-api.lock.txt --format json --output pip-audit-api-lock.json
+
+      - name: Upload pip-audit JSON reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pip-audit-reports-${{ github.sha }}
+          path: |
+            pip-audit-api-lock.json
+            pip-audit-worker-lock.json
+          retention-days: 14
+
+      - name: "Negative self-test: known-vulnerable pin must fail the audit"
+        # requests==2.20.0 is a transitive dependency pin published with known
+        # CVEs (e.g. CVE-2018-18074, CVE-2023-32681), so auditing it must exit
+        # non-zero. An unexpectedly clean audit here means this gate is a no-op,
+        # which is exactly what this step fails on.
+        run: |
+          set -euo pipefail
+          self_test_req="$(mktemp)"
+          trap 'rm -f "$self_test_req"' EXIT
+          printf 'requests==2.20.0\n' > "$self_test_req"
+          if pip-audit --disable-pip -r "$self_test_req" --format json --output pip-audit-selftest.json; then
+            echo "negative self-test failed: pip-audit reported requests==2.20.0 as clean" >&2
+            exit 1
+          fi
 
   security-result:
     name: security-result
