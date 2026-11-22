@@ -21,7 +21,7 @@
   "runtime_requirements": "requirements-runtime.txt",
   "resolved_lock": {
     "file": "requirements-runtime.lock.txt",
-    "sha256": "0197b630d2324f7457faa524522136aca1f7a023cbc0df5cc2a104b27bc9da4c"
+    "sha256": "e20d765263221f52ac4b7cb55a522d627eec122b300514e5012b37b300aebbca"
   },
   "verification_imports": [
     "cv2",
