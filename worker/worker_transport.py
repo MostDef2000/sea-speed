@@ -191,9 +191,12 @@ def post_passage(passage, snapshot_path=None):
             return False
         speed = payload.get("speed_kmh")
         speed_text = "-" if speed is None else f"{float(speed):.3f}"
+        meta = payload.get("measurement_meta")
+        reason = meta.get("unknown_reason") if isinstance(meta, dict) else None
+        reason_text = f" unknown_reason={reason}" if reason else ""
         print(
             f'POST passage ok id={payload["passage_id"]} status={payload.get("status")} '
-            f'speed_status={payload.get("speed_status")} speed_kmh={speed_text}'
+            f'speed_status={payload.get("speed_status")} speed_kmh={speed_text}{reason_text}'
         )
         return True
     except Exception as exc:

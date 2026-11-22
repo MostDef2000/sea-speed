@@ -34,6 +34,11 @@ except ModuleNotFoundError:  # direct file execution: put the repo root on sys.p
 # from its exec namespace (repo-local import, mirrors tests/test_617).
 from api.app.log_redaction import redact_log_text
 
+# Issue #697: passage_row_to_dict now normalizes measurement_meta through the
+# shared typed-reason vocabulary — the AST-loaded copy resolves these two
+# names from this exec namespace (mirrors the #698 redact_log_text seam).
+from api.app.unknown_reason import LEGACY_UNSPECIFIED, is_unknown_reason
+
 sys.path.insert(0, str(ROOT / "worker"))
 from water_passage import (
     MeasurementResult,
@@ -456,6 +461,8 @@ class PassageApiRetentionTests(unittest.TestCase):
     FUNCTIONS = {
         "optional_float", "optional_int", "open_passages_db", "cleanup_passage_media",
         "prune_water_passages", "initialize_water_passages_db", "passage_row_to_dict",
+        # Issue #697: passage_row_to_dict calls the read-path normalizer.
+        "_normalize_unknown_reason",
         "_validate_passage_payload", "upsert_water_passage", "list_water_passages",
         "_delete_passage_mirrors", "open_objects_db",
     }
@@ -480,6 +487,10 @@ class PassageApiRetentionTests(unittest.TestCase):
             # redact_log_text(...) on its error branch; the AST-loaded copy
             # resolves that name from this namespace.
             "redact_log_text": redact_log_text,
+            # Issue #697: passage_row_to_dict calls _normalize_unknown_reason,
+            # which needs the closed-set helpers from this namespace.
+            "is_unknown_reason": is_unknown_reason,
+            "LEGACY_UNSPECIFIED": LEGACY_UNSPECIFIED,
         }
 
     def passage(self, index: int, *, status: str = "completed", speed: Optional[float] = None) -> Dict[str, Any]:

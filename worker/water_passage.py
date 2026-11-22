@@ -2,12 +2,26 @@
 from __future__ import annotations
 
 import math
+import sys
 import time
 import uuid
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Callable, Deque, Dict, Iterable, List, Optional, Sequence, Tuple
+
+# Issue #697: the typed unknown-reason vocabulary is shared byte-for-byte with
+# the API. Resolve the release-relative api/app directory from THIS file
+# (independent of cwd), matching deploy/worker/ubuntu/observed-worker-runner.py
+# (issue #698) so the worker and the API agree on one closed set.
+_API_APP_DIR = Path(__file__).resolve().parents[1] / "api" / "app"
+if str(_API_APP_DIR) not in sys.path:
+    sys.path.insert(0, str(_API_APP_DIR))
+from unknown_reason import (  # noqa: E402
+    GATE_UNAVAILABLE,
+    TOO_FEW_OBSERVATIONS,
+)
 
 Point = Tuple[float, float]
 Line = Tuple[Point, Point]
@@ -101,6 +115,18 @@ def _median(values: Sequence[float]) -> float:
     return (ordered[middle - 1] + ordered[middle]) / 2.0
 
 
+def _unknown_meta(reason: str, meta: Optional[Dict[str, object]] = None) -> Dict[str, object]:
+    """Return measurement_meta carrying a typed reason for an unknown status.
+
+    The reason rides alongside the SELECTED measurement only: callers attach it
+    when they construct an ``unknown`` result. A known status never gets a
+    reason, so promotion to ``measured``/``incomplete`` cannot carry one over.
+    """
+    merged: Dict[str, object] = dict(meta or {})
+    merged["unknown_reason"] = reason
+    return merged
+
+
 @dataclass(frozen=True)
 class Observation:
     ts: float
@@ -151,7 +177,10 @@ class TwoGateSpeedEstimator(SpeedEstimator):
         self.first_line: Optional[str] = None
         self.first_ts: Optional[float] = None
         self.samples_used = 0
-        self.result = MeasurementResult(speed_method=self.method)
+        self.result = MeasurementResult(
+            speed_method=self.method,
+            measurement_meta=_unknown_meta(TOO_FEW_OBSERVATIONS),
+        )
 
     def _meta(self, second_line: Optional[str] = None, second_ts: Optional[float] = None) -> Dict[str, object]:
         meta: Dict[str, object] = {
@@ -171,7 +200,9 @@ class TwoGateSpeedEstimator(SpeedEstimator):
             self.result = MeasurementResult(
                 speed_status="unknown",
                 speed_method=self.method,
-                measurement_meta={"enabled": False, "samples_used": self.samples_used},
+                measurement_meta=_unknown_meta(
+                    GATE_UNAVAILABLE, {"enabled": False, "samples_used": self.samples_used}
+                ),
             )
             return self.result
         if self.result.speed_status == "measured":
@@ -218,10 +249,17 @@ class TwoGateSpeedEstimator(SpeedEstimator):
         if self.result.speed_status == "measured":
             return self.result
         status = "incomplete" if self.enabled and self.samples_used else "unknown"
+        meta: Dict[str, object] = self._meta()
+        if status == "unknown":
+            # A disabled/unusable gate is a configuration gap, not a lack of
+            # observations; zero observations on an enabled gate is the latter.
+            meta = _unknown_meta(
+                TOO_FEW_OBSERVATIONS if self.enabled else GATE_UNAVAILABLE, meta
+            )
         self.result = MeasurementResult(
             speed_status=status,
             speed_method=self.method,
-            measurement_meta=self._meta(),
+            measurement_meta=meta,
         )
         return self.result
 
@@ -254,10 +292,17 @@ class _PassageState:
     confidence: float = 0.0
     best_snapshot_score: float = -1.0
     best_snapshot_sharpness: float = -1.0
-    measurement: MeasurementResult = field(default_factory=MeasurementResult)
+    measurement: MeasurementResult = field(
+        default_factory=lambda: MeasurementResult(
+            measurement_meta=_unknown_meta(TOO_FEW_OBSERVATIONS)
+        )
+    )
     calibrated_samples: Deque[float] = field(default_factory=deque)
     calibrated_measurement: MeasurementResult = field(
-        default_factory=lambda: MeasurementResult(speed_method="detection_first_calibrated")
+        default_factory=lambda: MeasurementResult(
+            speed_method="detection_first_calibrated",
+            measurement_meta=_unknown_meta(TOO_FEW_OBSERVATIONS),
+        )
     )
 
 

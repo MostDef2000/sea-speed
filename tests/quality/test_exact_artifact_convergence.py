@@ -40,11 +40,22 @@ class ExactArtifactConvergenceTests(unittest.TestCase):
         mirrored = deploy_app_module_targets(text)
         required = vps_required_app_modules()
         # Issue #698: api/app/log_redaction.py joined the vps required set, so
-        # the mirror set grew 9 -> 10.
+        # the mirror set grew 9 -> 10. Issue #697: api/app/unknown_reason.py
+        # joined it (worker/water_passage.py imports the shared vocabulary),
+        # so the mirror set grew 10 -> 11.
         self.assertEqual(
-            len(mirrored), 10, f"unexpected api/app TARGET mirror set: {sorted(mirrored)}"
+            len(mirrored), 11, f"unexpected api/app TARGET mirror set: {sorted(mirrored)}"
         )
         self.assertEqual(mirrored, required)
+        # Issue #697: the vocabulary module ships in ALL THREE inventories —
+        # the vps contour (API read/boundary), the Ubuntu Worker contour
+        # (worker/water_passage.py imports it) and the archival edge bundle
+        # (edge ships worker/water_passage.py too).
+        self.assertIn("api/app/unknown_reason.py", required)
+        self.assertIn(
+            "api/app/unknown_reason.py", COMPONENT_FILES["ubuntu-worker"]["required"]
+        )
+        self.assertIn("api/app/unknown_reason.py", COMPONENT_FILES["edge"]["required"])
         # The new module must be required by BOTH active contours (it is
         # imported by the worker scripts too) and must never enter the edge
         # archival inventory.
