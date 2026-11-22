@@ -69,8 +69,8 @@ for it.
 - [x] Issue/spec/plan/tasks current
 - [x] Exact changed-file scope verified (three HTML pages + this SDD trio)
 - [x] Required tests and evidence complete (tests owned by a separate worker; markup evidence recorded here)
-- [ ] Required CI green
-- [ ] Exact-green-head merge complete
+- [x] Required CI green — auto-synced on merge to main (eba2604d)
+- [x] Exact-green-head merge complete — auto-synced on merge to main (eba2604d)
 - [ ] Deployment state resolved (VPS deploy required for runtime acceptance)
 - [ ] Runtime acceptance resolved (RUNTIME-MANUAL — cam1 and road1 playback pending the deploy)
 - [x] Deferred work recorded (runtime playback probe deferred to the post-deploy operator check)
