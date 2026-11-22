@@ -1,0 +1,305 @@
+{
+ "hash_count": 1120,
+ "issue": 687,
+ "package_count": 57,
+ "packages": {
+  "certifi": {
+   "hash_count": 2,
+   "hash_set_sha256": "8b0a8cea66a9f8efb7320022a7ae1e16e61685ebfd09b2cc609a502af5f497f8",
+   "version": "2026.11.20"
+  },
+  "charset-normalizer": {
+   "hash_count": 172,
+   "hash_set_sha256": "ca945cb4505fc49fd45ccac94c3ac5793894baffee8f3588f8b17e999af3d396",
+   "version": "3.5.2"
+  },
+  "contourpy": {
+   "hash_count": 70,
+   "hash_set_sha256": "59b96b1fc5d3a32899f6ed30a0a780f7120257e16e8516202088825adbc7fefe",
+   "version": "1.4.0"
+  },
+  "cuda-bindings": {
+   "hash_count": 23,
+   "hash_set_sha256": "25daa92511cdb9d5b69d9208ea10fd0c993cd389efde92dfa42eff4dcf5386ef",
+   "version": "13.4.3"
+  },
+  "cuda-pathfinder": {
+   "hash_count": 1,
+   "hash_set_sha256": "436e6df82778e1ea12b7307e45d63a3d3b08484f9d722e8ec74fb29ecba84575",
+   "version": "1.8.3"
+  },
+  "cuda-toolkit": {
+   "hash_count": 1,
+   "hash_set_sha256": "dab58f2f0ea1adccb373ca25d1991b78859f08833fe6aefb0684f19b489991a9",
+   "version": "13.0.3.0"
+  },
+  "cycler": {
+   "hash_count": 2,
+   "hash_set_sha256": "aaa1e482d8d3c3c0e6b0e6011e38d38c15dde8e8901e3929bbf49be66427c6a2",
+   "version": "0.12.1"
+  },
+  "filelock": {
+   "hash_count": 2,
+   "hash_set_sha256": "81bf3a51ea3ebb5e8097b91990a3b24789f99d8b5a3e3e18a4cc4178ddb894e4",
+   "version": "4.3.0"
+  },
+  "fonttools": {
+   "hash_count": 58,
+   "hash_set_sha256": "4b8583f8649a071d19cf21b5985206bcd20245ef2c16033749a1aa7717c8723a",
+   "version": "4.66.1"
+  },
+  "fsspec": {
+   "hash_count": 2,
+   "hash_set_sha256": "ae4796feb41bf81089b009c7c4966546764cac358d8077b90ba06b64d524eaa9",
+   "version": "2026.9.0"
+  },
+  "idna": {
+   "hash_count": 2,
+   "hash_set_sha256": "b6230fd0e2ce9330583a87ca84762cb49d0e5ceda717c83fd3b938cb86b8403f",
+   "version": "3.20"
+  },
+  "jinja2": {
+   "hash_count": 2,
+   "hash_set_sha256": "41b7d1f6147170a166f678aa44bd18a2f965c068a819b233e57ea147fc70f264",
+   "version": "3.1.6"
+  },
+  "kiwisolver": {
+   "hash_count": 141,
+   "hash_set_sha256": "d0a4f19d9266f6b9d8fcf61fd0dbc4a94c5e4ead40c99ef403d54d58b8a992ea",
+   "version": "1.5.1"
+  },
+  "lap": {
+   "hash_count": 62,
+   "hash_set_sha256": "b57481c090aaafd507e785449332d9491d12ca4011dce79ddb80f3568638344b",
+   "version": "0.5.13"
+  },
+  "markupsafe": {
+   "hash_count": 151,
+   "hash_set_sha256": "91d2d62093395393585dac93be0dd60bf619eb94dec4f2c854a5df6ca93c4b63",
+   "version": "3.0.4"
+  },
+  "matplotlib": {
+   "hash_count": 53,
+   "hash_set_sha256": "03ccc58a5c285d873356ff679cdb50cc4afdf8c0fa2d0db01dfe596ae7d2f471",
+   "version": "3.11.2"
+  },
+  "mpmath": {
+   "hash_count": 2,
+   "hash_set_sha256": "235a282517fe424b6092b0913c7ec7e6b156cc4e2d394f78938eb36fa57dc75e",
+   "version": "1.3.0"
+  },
+  "networkx": {
+   "hash_count": 2,
+   "hash_set_sha256": "e8f14ba899d3c4d2cf3921b01c971ba5a86acb80fd41ebedc8134b1a260eb9f9",
+   "version": "3.7"
+  },
+  "numpy": {
+   "hash_count": 72,
+   "hash_set_sha256": "c4bd2e03d334d35821bc676cb496d23d00243bec3c5a8a229b3fc13024188c40",
+   "version": "2.4.4"
+  },
+  "nvidia-cublas": {
+   "hash_count": 3,
+   "hash_set_sha256": "6acca677d22c755d547a9d8f628c7c5f4d52bbdb3213a708683189db3bb1afd1",
+   "version": "13.1.1.3"
+  },
+  "nvidia-cuda-cupti": {
+   "hash_count": 3,
+   "hash_set_sha256": "fdef03d2071df337e01dd9c0513aa70239d6fb119272b912a84672ddf94b805d",
+   "version": "13.0.85"
+  },
+  "nvidia-cuda-nvrtc": {
+   "hash_count": 3,
+   "hash_set_sha256": "8e7b385ef238c4fd59051b9dd9f44be85140b686a11ea1e70c0cdd577d79f32e",
+   "version": "13.0.88"
+  },
+  "nvidia-cuda-runtime": {
+   "hash_count": 3,
+   "hash_set_sha256": "f91800439cf17106f39c3ef70dbd358af8bdaea766142ef735b05d7606ea5825",
+   "version": "13.0.96"
+  },
+  "nvidia-cudnn-cu13": {
+   "hash_count": 3,
+   "hash_set_sha256": "f1f16ec18844ac34a6bfc87887f3efacad9a2e1cb9d5e01f0f46841b8fc9b51a",
+   "version": "9.20.0.48"
+  },
+  "nvidia-cufft": {
+   "hash_count": 3,
+   "hash_set_sha256": "4c9ac0a8cfd5143e1c9c117e385f7fa37d88399a7648626c823c9ed9da9fa5fd",
+   "version": "12.0.0.61"
+  },
+  "nvidia-cufile": {
+   "hash_count": 2,
+   "hash_set_sha256": "68d3e3b1409d5e17c89a87fc14af398583fff2d51227d3e190f4ad6c913c5d74",
+   "version": "1.15.1.6"
+  },
+  "nvidia-curand": {
+   "hash_count": 3,
+   "hash_set_sha256": "5ac10a66852cfabcf938a99743b43717c68819b3d3197eedf8eaac00bb71e7f0",
+   "version": "10.4.0.35"
+  },
+  "nvidia-cusolver": {
+   "hash_count": 3,
+   "hash_set_sha256": "ec5ac573128d0593fc4bbcf4f203ede64c3706a498b347d32b119cae8889520b",
+   "version": "12.0.4.66"
+  },
+  "nvidia-cusparse": {
+   "hash_count": 3,
+   "hash_set_sha256": "fa4421bcdd2c563a467970c60876db80c7d4bfba44128d346dddc2ec6f08b3c4",
+   "version": "12.6.3.3"
+  },
+  "nvidia-cusparselt-cu13": {
+   "hash_count": 3,
+   "hash_set_sha256": "2cad9a75d4c0ba712c2c6fd6696960f4f74bb9595ed6f0538557b4c0bfc4319e",
+   "version": "0.8.1"
+  },
+  "nvidia-ml-py": {
+   "hash_count": 2,
+   "hash_set_sha256": "eedb2daa22b81a885531eb50c51beffe140c35116e99169c0cb68aecf79c59a9",
+   "version": "13.615.71"
+  },
+  "nvidia-nccl-cu13": {
+   "hash_count": 2,
+   "hash_set_sha256": "5b015ea7112dbd89c9f88874ec79e1a555af6056bcc6a496ae11dce5e9566f0c",
+   "version": "2.29.7"
+  },
+  "nvidia-nvjitlink": {
+   "hash_count": 4,
+   "hash_set_sha256": "2a93f02e2729b9996ec101cbc27a199d48a58793edf08ab36f7a7c65e3e15437",
+   "version": "13.4.92"
+  },
+  "nvidia-nvshmem-cu13": {
+   "hash_count": 2,
+   "hash_set_sha256": "0e846da1ad65b31a99843cabfa7f54db5c7a4c744f09c91c53b4d493485fb33b",
+   "version": "3.4.5"
+  },
+  "nvidia-nvtx": {
+   "hash_count": 3,
+   "hash_set_sha256": "04380033611b58195482d1c7ca8b16d53b67054c9be9ca7c2c1efefaca089f0f",
+   "version": "13.0.85"
+  },
+  "opencv-python": {
+   "hash_count": 9,
+   "hash_set_sha256": "60068df0ee48cf7f4f285a9014dea1794a2ddf38d206680e37815192ef3e2188",
+   "version": "5.0.0.93"
+  },
+  "opencv-python-headless": {
+   "hash_count": 9,
+   "hash_set_sha256": "eed166a0595be1a781afa449eb6ecb5ea357858e311105fbb1e8a0a186465ee3",
+   "hashes": [
+    "030ca5e0837a2963ab36ef896baa9767eb8d2b83353fb28af5a521e40dd8756f",
+    "09a872a157c1376ab922a69bbf22f9a95bcc7b658a9d8b436a60212b02b2eeb4",
+    "10818d91510e05c04568ae12b5cd120779c70c01bf897b001a6221fe430df80f",
+    "1e55af3abfb462eeeabe5c775f12bdb36216d8a93a3583d69e6bd6e1d6ba7d00",
+    "829717b6a95554f273e49e357cee3b3a2a26b6f4842fbc1bed2b45bdd8f87e0e",
+    "840bd717c21e5c11cadadc022a823315ea417f961213d06b4df010e019eb16f4",
+    "b82f9831daab90b725c7c1ee1b36cb5732c367096ac76d119e64e14eb70d5f3c",
+    "c6bcd96b185975ea240d22cfdb15a1f6d080cc95264cfbe2621f21bb144d89b9",
+    "ed709fdf9aa0bd1f2ed8549e71d19449b03a675bb581eb292285f6861953be37"
+   ],
+   "version": "5.0.0.93"
+  },
+  "packaging": {
+   "hash_count": 2,
+   "hash_set_sha256": "4be86452d48689f980fe9fe4f8d3d442271cc5c5385dbeb7074c5cf1937deebd",
+   "version": "26.3"
+  },
+  "pillow": {
+   "hash_count": 83,
+   "hash_set_sha256": "45c6f21622b840d57c72b11878d64857ea66c074399a0a3ad5afc610b1d06107",
+   "version": "13.0.0"
+  },
+  "polars": {
+   "hash_count": 2,
+   "hash_set_sha256": "445220469ae689ee62cbb0c38f0dfa15bdbc91f34135ecedbdf91fd89ed4fad1",
+   "version": "2.0.0"
+  },
+  "polars-runtime-32": {
+   "hash_count": 9,
+   "hash_set_sha256": "a26e625448f728001715727bad2e273d1cdb1e12ecb0aafdb3ca006a9f29207c",
+   "version": "2.0.0"
+  },
+  "psutil": {
+   "hash_count": 21,
+   "hash_set_sha256": "8638f4e372b82ad5c62e94acda14b6c91df766a13788ed83a19eeebeab972812",
+   "version": "7.2.2"
+  },
+  "pyparsing": {
+   "hash_count": 2,
+   "hash_set_sha256": "140d45f587e4d88cc9dd4b4ffd5de1dc9f32609ac44c7e2323dcf50ef13c6426",
+   "version": "3.3.3"
+  },
+  "python-dateutil": {
+   "hash_count": 2,
+   "hash_set_sha256": "559b84c26007e221d047f2d0b064803f0d3b407ccaa79e11f25e52a3407e85fd",
+   "version": "2.9.0.post0"
+  },
+  "python-dotenv": {
+   "hash_count": 2,
+   "hash_set_sha256": "daa59cff1e1e380b0bfbab59000eedc68306f40071cd95f02e26dc551715bae7",
+   "version": "1.2.2"
+  },
+  "pyyaml": {
+   "hash_count": 73,
+   "hash_set_sha256": "734884ab612f617355a9db8de1e570fbe0b94f8d5f9575e1d97b7d44b11c8dea",
+   "version": "6.0.3"
+  },
+  "requests": {
+   "hash_count": 2,
+   "hash_set_sha256": "10b1b5a78b5e8c71110b79ea72f2e1f41ffcc4c450d45ac3efdd13cb08e37f8d",
+   "version": "2.34.2"
+  },
+  "setuptools": {
+   "hash_count": 2,
+   "hash_set_sha256": "17546008ac13da067335046774d66a04878d89be64deb4e15179ca7f55c72cb6",
+   "version": "84.2.1"
+  },
+  "six": {
+   "hash_count": 2,
+   "hash_set_sha256": "47bc3054e4bb0a759c688ab432f1c8f02e27fcf11e13ef9e2bb3359bae692765",
+   "version": "1.17.0"
+  },
+  "sympy": {
+   "hash_count": 2,
+   "hash_set_sha256": "46a7119a19be993258eb586c3270fcb231fa86891f25c7c8c797b6bacc540aab",
+   "version": "1.14.0"
+  },
+  "torch": {
+   "hash_count": 1,
+   "hash_set_sha256": "924727c9df5f35fab81e1da7028d8c8aa6b922864134fb3be90f37783d7aab42",
+   "version": "2.13.0+cu130"
+  },
+  "torchvision": {
+   "hash_count": 12,
+   "hash_set_sha256": "f7fcda99f598ea48bbc2fed1c8d4e3aaa6efa68047c639345e093784338cc191",
+   "version": "0.28.0+cu130"
+  },
+  "triton": {
+   "hash_count": 12,
+   "hash_set_sha256": "2f0b509294ff13e507bb01cd5c1691bfa91d3784fecf88943ffb19af6afb6526",
+   "version": "3.7.1"
+  },
+  "typing-extensions": {
+   "hash_count": 2,
+   "hash_set_sha256": "eed97dac23dac5dcd42d1a192721c2910418cf9ba9d89029c297245b315f8c65",
+   "version": "4.16.0"
+  },
+  "ultralytics": {
+   "hash_count": 2,
+   "hash_set_sha256": "415877c16e9ececa8b0e125d3e7150b08f5fb986c9ffc3628b5b04a76c24f7d2",
+   "version": "8.4.117"
+  },
+  "ultralytics-thop": {
+   "hash_count": 2,
+   "hash_set_sha256": "cca787bd781f9be5544045314ad4dc42ee410b358656e1365141c41c46f8627b",
+   "version": "2.2.2"
+  },
+  "urllib3": {
+   "hash_count": 2,
+   "hash_set_sha256": "d0365924aec8865443bc58b3a669ab9098526be61bc54c09955ff166b03b56cd",
+   "version": "2.8.0"
+  }
+ },
+ "removed_package": "opencv-python-headless",
+ "source": "pre-change requirements-runtime.lock.txt as committed at 39ff43644c54a1dd92558b0eefa37808c9cb5329 (branch head before the #687 single-OpenCV-wheel landing); constructed by parsing that graph with sha256(sorted newline-joined hash set) per package"
+}
