@@ -19,7 +19,16 @@ CANDIDATE = "b" * 40
 OLDER = "c" * 40
 
 
-class VpsDeployTransactionTests(unittest.TestCase):
+class VpsDeployFixture(unittest.TestCase):
+    """Shared sandbox fixture for deploy/vps/deploy.sh transaction tests.
+
+    Issue #685 extracted the shared Water/Road operator stylesheet into
+    frontend/sea-speed/operator-common.css; the deploy-transaction tests
+    (old and new) share one harness, so this base class carries ONLY the
+    fixture and helpers (no test methods) and the concrete test classes
+    inherit it. Code motion only: helper bodies are unchanged.
+    """
+
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
@@ -36,6 +45,9 @@ class VpsDeployTransactionTests(unittest.TestCase):
         self.objects = self.live / "frontend/sea-speed/objects/index.html"
         self.cameras = self.live / "frontend/sea-speed/cameras/index.html"
         self.road = self.live / "frontend/sea-speed/road/index.html"
+        # Issue #685: the shared operator stylesheet deploys like the other
+        # frontend assets, so its target points into the sandbox live tree too.
+        self.operator_css = self.live / "frontend/sea-speed/operator-common.css"
         self.live_sync = self.live / "frontend/sea-speed/live-sync.js"
         self.overlay_canvas = self.live / "frontend/sea-speed/overlay-canvas.js"
         # Issue #626: the CSP external scripts deploy like the other frontend
@@ -106,6 +118,9 @@ class VpsDeployTransactionTests(unittest.TestCase):
             # scripts, so synthetic releases carry them like the real tree does.
             "frontend/sea-speed/objects/crossings.js": f"objects-crossings {sha}\n",
             "frontend/sea-speed/objects/registry.js": f"objects-registry {sha}\n",
+            # Issue #685: release_complete/download_release require the shared
+            # operator stylesheet, so synthetic releases carry it too.
+            "frontend/sea-speed/operator-common.css": f"/* operator-common-css {sha} */\n",
             "frontend/root/index.html": f"root {sha}\n",
             "frontend/sea-speed/unavailable.html": f"fallback {sha}\n",
             "deploy/vps/sea-speed-auth-cutover.sh": "#!/usr/bin/env bash\nexit 0\n",
@@ -144,6 +159,7 @@ class VpsDeployTransactionTests(unittest.TestCase):
             self.overlay_canvas: release / "frontend/sea-speed/overlay-canvas.js",
             self.objects_crossings: release / "frontend/sea-speed/objects/crossings.js",
             self.objects_registry: release / "frontend/sea-speed/objects/registry.js",
+            self.operator_css: release / "frontend/sea-speed/operator-common.css",
             self.login_popup: release / "frontend/sea-speed/login-popup.js",
             self.root_frontend: release / "frontend/root/index.html",
             self.fallback: release / "frontend/sea-speed/unavailable.html",
@@ -321,6 +337,11 @@ printf 'LISTEN 0 128 %s 0.0.0.0:*\n' "$SEA_SPEED_WORKER_PRIVATE_LISTEN"
                 "SEA_SPEED_OBJECTS_FRONTEND_URL": "https://example.invalid/sea-speed/objects/",
                 "SEA_SPEED_CAMERAS_FRONTEND_URL": "https://example.invalid/sea-speed/cameras/",
                 "SEA_SPEED_ROAD_FRONTEND_URL": "https://example.invalid/sea-speed/road/",
+                # Issue #685: the shared stylesheet target/URL are overridable
+                # like the other frontend assets, so the deploy runs entirely
+                # inside the sandbox live tree.
+                "SEA_SPEED_OPERATOR_COMMON_CSS_TARGET": str(self.operator_css),
+                "SEA_SPEED_OPERATOR_COMMON_CSS_URL": "https://example.invalid/sea-speed/operator-common.css",
                 "SEA_SPEED_LIVE_SYNC_URL": "https://example.invalid/sea-speed/live-sync.js",
                 # Issue #631: overlay-canvas.js is smoke-verified post-activation
                 # too, so its public URL is overridable like the other modules.
@@ -390,6 +411,128 @@ printf 'LISTEN 0 128 %s 0.0.0.0:*\n' "$SEA_SPEED_WORKER_PRIVATE_LISTEN"
 
     def manifest(self) -> dict[str, object]:
         return json.loads((self.state / "deployment-manifest.json").read_text())
+
+    # Issue #668 F4 — the deploy workflow pre-places the release archive on
+    # the VPS via scp, so download_release must not curl when the archive
+    # already exists at its expected path; the existing completeness and
+    # hash-recording behavior is preserved.
+
+    def build_release_archive(self, sha: str) -> bytes:
+        # GitHub source-archive shape: one top-level directory, which
+        # download_release extracts with --strip-components=1.
+        top = self.root / "archive-src" / f"sea-speed-{sha}"
+        files = self.release_files(sha)
+        files.pop("commit-sha")
+        files.pop("archive-sha256")
+        for relative, content in files.items():
+            path = top / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+        buffer = io.BytesIO()
+        with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+            archive.add(top, arcname=f"sea-speed-{sha}")
+        return buffer.getvalue()
+
+    def install_archive_sentinel_curl(self) -> None:
+        # The shared curl fake plus a sentinel: every invocation is logged,
+        # and any attempt to download the release archive from GitHub fails
+        # closed (exit 7) and drops a sentinel file.
+        existing = (self.fake_bin / "curl").read_text(encoding="utf-8")
+        body = existing.split("\n", 1)[1]
+        sentinel = (
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "printf '%s\\n' \"$*\" >> \"${FAKE_CURL_LOG:-/dev/null}\"\n"
+            "if [[ \"$*\" == *'/archive/'* ]]; then\n"
+            "  touch \"${FAKE_CURL_ARCHIVE_SENTINEL:-/dev/null}\"\n"
+            "  echo 'curl: (7) sentinel: release archive download attempted' >&2\n"
+            "  exit 7\n"
+            "fi\n"
+            + body
+        )
+        self.write_executable("curl", sentinel)
+
+    # Strict public-asset smoke for the public web-root login-popup helper:
+    # /login-popup.js must be anonymously readable with HTTP 200, unlike the
+    # protected operator assets behind authentik whose 302/401/403 answers
+    # the permissive verify_public_url accepts.
+
+    def shell_function_bodies(self) -> dict[str, str]:
+        # Minimal parser for deploy.sh's top-level shell functions: each one
+        # starts with `name() {` at column 0 and ends with a column-0 `}`
+        # (single-line forms like `log() { ...; }` close on the opener line).
+        bodies: dict[str, str] = {}
+        current: str | None = None
+        collected: list[str] = []
+        for line in DEPLOY_SCRIPT.read_text(encoding="utf-8").splitlines():
+            if current is None:
+                match = re.match(r"^([A-Za-z_][A-Za-z0-9_]*)\(\)\s*\{", line)
+                if match is None:
+                    continue
+                current = match.group(1)
+                rest = line[match.end() :]
+                if rest.rstrip().endswith("}"):
+                    bodies[current] = rest
+                    current = None
+                    collected = []
+                else:
+                    collected = [rest]
+                continue
+            if line == "}":
+                bodies[current] = "\n".join(collected)
+                current = None
+                collected = []
+                continue
+            collected.append(line)
+        return bodies
+
+    def strict_public_asset_verifiers(self) -> list[str]:
+        # A dedicated strict public-asset verifier captures %{http_code} with
+        # the same curl options as verify_public_url but accepts only 200:
+        # its code (comment-only lines stripped) mentions 200 and carries no
+        # digit|digit status-alternation arm such as the permissive
+        # 200|301|302|307|308|401|403 form.
+        names: list[str] = []
+        for name, body in self.shell_function_bodies().items():
+            code = "\n".join(
+                line for line in body.splitlines() if not line.lstrip().startswith("#")
+            )
+            if "%{http_code}" not in code:
+                continue
+            if "200" not in code:
+                continue
+            if re.search(r"\d\s*\|\s*\d", code):
+                continue
+            names.append(name)
+        return sorted(names)
+
+    def install_login_popup_status_curl(self) -> None:
+        # The shared curl fake answers 200 for every unknown URL. This
+        # variant answers FAKE_LOGIN_POPUP_STATUS for the login-popup smoke
+        # URL, keyed on the live helper content (like the candidate-500 mode
+        # keys on the live API source) so the rollback re-verification sees
+        # the old release's healthy 200 again, then defers to the shared
+        # fake for every other URL.
+        existing = (self.fake_bin / "curl").read_text(encoding="utf-8")
+        body = existing.split("\n", 1)[1]
+        branch = (
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "if [[ \"${@: -1}\" == \"${SEA_SPEED_LOGIN_POPUP_URL:-}\" ]]; then\n"
+            "  if grep -Fq \"$FAKE_CANDIDATE_SHA\" \"$SEA_SPEED_LOGIN_POPUP_TARGET\" 2>/dev/null; then\n"
+            "    printf '%s' \"${FAKE_LOGIN_POPUP_STATUS:-200}\"\n"
+            "  else\n"
+            "    printf '200'\n"
+            "  fi\n"
+            "  exit 0\n"
+            "fi\n"
+            + body
+        )
+        self.write_executable("curl", branch)
+
+class VpsDeployTransactionTests(VpsDeployFixture):
+    """Original deploy-transaction behavior (unchanged assertions)."""
+
 
     def test_success_commits_all_frontends_boundary_and_state(self) -> None:
         result = self.run_deploy()
@@ -816,46 +959,6 @@ printf 'LISTEN 0 128 %s 0.0.0.0:*\n' "$SEA_SPEED_WORKER_PRIVATE_LISTEN"
         )
         self.assertEqual(self.manifest()["state"], "rolled_back")
 
-    # Issue #668 F4 — the deploy workflow pre-places the release archive on
-    # the VPS via scp, so download_release must not curl when the archive
-    # already exists at its expected path; the existing completeness and
-    # hash-recording behavior is preserved.
-
-    def build_release_archive(self, sha: str) -> bytes:
-        # GitHub source-archive shape: one top-level directory, which
-        # download_release extracts with --strip-components=1.
-        top = self.root / "archive-src" / f"sea-speed-{sha}"
-        files = self.release_files(sha)
-        files.pop("commit-sha")
-        files.pop("archive-sha256")
-        for relative, content in files.items():
-            path = top / relative
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(content, encoding="utf-8")
-        buffer = io.BytesIO()
-        with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
-            archive.add(top, arcname=f"sea-speed-{sha}")
-        return buffer.getvalue()
-
-    def install_archive_sentinel_curl(self) -> None:
-        # The shared curl fake plus a sentinel: every invocation is logged,
-        # and any attempt to download the release archive from GitHub fails
-        # closed (exit 7) and drops a sentinel file.
-        existing = (self.fake_bin / "curl").read_text(encoding="utf-8")
-        body = existing.split("\n", 1)[1]
-        sentinel = (
-            "#!/usr/bin/env bash\n"
-            "set -euo pipefail\n"
-            "printf '%s\\n' \"$*\" >> \"${FAKE_CURL_LOG:-/dev/null}\"\n"
-            "if [[ \"$*\" == *'/archive/'* ]]; then\n"
-            "  touch \"${FAKE_CURL_ARCHIVE_SENTINEL:-/dev/null}\"\n"
-            "  echo 'curl: (7) sentinel: release archive download attempted' >&2\n"
-            "  exit 7\n"
-            "fi\n"
-            + body
-        )
-        self.write_executable("curl", sentinel)
-
     def test_pre_placed_release_archive_skips_curl_and_records_hash(self) -> None:
         # The candidate release is NOT pre-written (so release_complete fails
         # and the download path runs), but the release archive IS pre-placed
@@ -897,84 +1000,6 @@ printf 'LISTEN 0 128 %s 0.0.0.0:*\n' "$SEA_SPEED_WORKER_PRIVATE_LISTEN"
             "the pre-placed archive hash must still be computed and recorded",
         )
         self.assertEqual(self.current(), CANDIDATE)
-
-    # Strict public-asset smoke for the public web-root login-popup helper:
-    # /login-popup.js must be anonymously readable with HTTP 200, unlike the
-    # protected operator assets behind authentik whose 302/401/403 answers
-    # the permissive verify_public_url accepts.
-
-    def shell_function_bodies(self) -> dict[str, str]:
-        # Minimal parser for deploy.sh's top-level shell functions: each one
-        # starts with `name() {` at column 0 and ends with a column-0 `}`
-        # (single-line forms like `log() { ...; }` close on the opener line).
-        bodies: dict[str, str] = {}
-        current: str | None = None
-        collected: list[str] = []
-        for line in DEPLOY_SCRIPT.read_text(encoding="utf-8").splitlines():
-            if current is None:
-                match = re.match(r"^([A-Za-z_][A-Za-z0-9_]*)\(\)\s*\{", line)
-                if match is None:
-                    continue
-                current = match.group(1)
-                rest = line[match.end() :]
-                if rest.rstrip().endswith("}"):
-                    bodies[current] = rest
-                    current = None
-                    collected = []
-                else:
-                    collected = [rest]
-                continue
-            if line == "}":
-                bodies[current] = "\n".join(collected)
-                current = None
-                collected = []
-                continue
-            collected.append(line)
-        return bodies
-
-    def strict_public_asset_verifiers(self) -> list[str]:
-        # A dedicated strict public-asset verifier captures %{http_code} with
-        # the same curl options as verify_public_url but accepts only 200:
-        # its code (comment-only lines stripped) mentions 200 and carries no
-        # digit|digit status-alternation arm such as the permissive
-        # 200|301|302|307|308|401|403 form.
-        names: list[str] = []
-        for name, body in self.shell_function_bodies().items():
-            code = "\n".join(
-                line for line in body.splitlines() if not line.lstrip().startswith("#")
-            )
-            if "%{http_code}" not in code:
-                continue
-            if "200" not in code:
-                continue
-            if re.search(r"\d\s*\|\s*\d", code):
-                continue
-            names.append(name)
-        return sorted(names)
-
-    def install_login_popup_status_curl(self) -> None:
-        # The shared curl fake answers 200 for every unknown URL. This
-        # variant answers FAKE_LOGIN_POPUP_STATUS for the login-popup smoke
-        # URL, keyed on the live helper content (like the candidate-500 mode
-        # keys on the live API source) so the rollback re-verification sees
-        # the old release's healthy 200 again, then defers to the shared
-        # fake for every other URL.
-        existing = (self.fake_bin / "curl").read_text(encoding="utf-8")
-        body = existing.split("\n", 1)[1]
-        branch = (
-            "#!/usr/bin/env bash\n"
-            "set -euo pipefail\n"
-            "if [[ \"${@: -1}\" == \"${SEA_SPEED_LOGIN_POPUP_URL:-}\" ]]; then\n"
-            "  if grep -Fq \"$FAKE_CANDIDATE_SHA\" \"$SEA_SPEED_LOGIN_POPUP_TARGET\" 2>/dev/null; then\n"
-            "    printf '%s' \"${FAKE_LOGIN_POPUP_STATUS:-200}\"\n"
-            "  else\n"
-            "    printf '200'\n"
-            "  fi\n"
-            "  exit 0\n"
-            "fi\n"
-            + body
-        )
-        self.write_executable("curl", branch)
 
     def test_deploy_defines_strict_200_only_public_asset_verifier(self) -> None:
         # Source-level pin (stated reason): the fake-curl harness can inject

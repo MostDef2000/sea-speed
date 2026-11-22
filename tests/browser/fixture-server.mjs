@@ -147,7 +147,12 @@ function insidePath(root, relative) {
 function resolveStaticPath(pathname) {
   if (PAGE_FILES.has(pathname)) return PAGE_FILES.get(pathname);
   if (pathname === "/login-popup.js") return insidePath(SEA_SPEED_ROOT, "login-popup.js");
-  if (pathname.startsWith("/sea-speed/") && pathname.endsWith(".js")) {
+  // Issue #685: the operator pages link the shared stylesheet from the same
+  // static root as the modules — same insidePath containment guard as .js.
+  if (
+    pathname.startsWith("/sea-speed/") &&
+    (pathname.endsWith(".js") || pathname.endsWith(".css"))
+  ) {
     return insidePath(SEA_SPEED_ROOT, pathname.slice("/sea-speed/".length));
   }
   return null;

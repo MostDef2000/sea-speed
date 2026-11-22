@@ -55,6 +55,16 @@ ROOT_PAGE = ROOT / "frontend/root/index.html"
 
 WATER = WATER_PAGE.read_text(encoding="utf-8-sig")
 ROAD = ROAD_PAGE.read_text(encoding="utf-8-sig")
+# Issue #685: the shared Water/Road rule prefix (including the
+# .operator-header rule pinned below) moved out of the pages into the linked
+# frontend/sea-speed/operator-common.css. The pins below are asserted across
+# the page text PLUS its linked stylesheet — same rules the browser applies —
+# and the <link> itself is pinned in tests/test_685_shared_operator_css.py.
+OPERATOR_COMMON_CSS = (ROOT / "frontend/sea-speed/operator-common.css").read_text(
+    encoding="utf-8-sig"
+)
+WATER_STYLESHEET = WATER + OPERATOR_COMMON_CSS
+ROAD_STYLESHEET = ROAD + OPERATOR_COMMON_CSS
 OBJECTS = OBJECTS_PAGE.read_text(encoding="utf-8-sig")
 CAMERAS = CAMERAS_PAGE.read_text(encoding="utf-8-sig")
 ROOT_SOURCE = ROOT_PAGE.read_text(encoding="utf-8-sig")
@@ -1091,7 +1101,8 @@ class WaterStructuralTests(unittest.TestCase):
         self.assertLess(header.index('class="brand-inline"'), header.index('class="header-links"'))
         self.assertIn('data-layout="compact-status"', header)
         self.assertIn('class="session-bar"', header)
-        self.assertIn(".operator-header{display:flex;align-items:center;", WATER)
+        # Issue #685: the rule ships in the linked operator-common.css now.
+        self.assertIn(".operator-header{display:flex;align-items:center;", WATER_STYLESHEET)
 
     def test_water_controls_stay_under_camera_and_mobile_order_is_explicit(self) -> None:
         for marker in (
@@ -1176,7 +1187,8 @@ class RoadStructuralTests(unittest.TestCase):
         self.assertLess(header.index('class="brand-inline"'), header.index('class="header-links"'))
         self.assertIn('data-layout="compact-status"', header)
         self.assertIn('class="session-bar"', header)
-        self.assertIn(".operator-header{display:flex;align-items:center;", ROAD)
+        # Issue #685: the rule ships in the linked operator-common.css now.
+        self.assertIn(".operator-header{display:flex;align-items:center;", ROAD_STYLESHEET)
 
     def test_road_page_stays_on_protected_generic_analytics_api(self) -> None:
         # SS: the resolved endpoint wiring is executed in

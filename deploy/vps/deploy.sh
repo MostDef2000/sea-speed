@@ -23,6 +23,10 @@ FRONTEND_TARGET="${SEA_SPEED_FRONTEND_TARGET:-/var/www/mostdef.ru/sea-speed/inde
 OBJECTS_FRONTEND_TARGET="${SEA_SPEED_OBJECTS_FRONTEND_TARGET:-/var/www/mostdef.ru/sea-speed/objects/index.html}"
 CAMERAS_FRONTEND_TARGET="${SEA_SPEED_CAMERAS_FRONTEND_TARGET:-/var/www/mostdef.ru/sea-speed/cameras/index.html}"
 ROAD_FRONTEND_TARGET="${SEA_SPEED_ROAD_FRONTEND_TARGET:-/var/www/mostdef.ru/sea-speed/road/index.html}"
+# Issue #685: provably shared Water/Road CSS prefix extracted to one asset.
+# Served from the operator root so both /sea-speed/ and /sea-speed/road/ pages
+# resolve the absolute /sea-speed/operator-common.css link.
+OPERATOR_COMMON_CSS_TARGET="${SEA_SPEED_OPERATOR_COMMON_CSS_TARGET:-/var/www/mostdef.ru/sea-speed/operator-common.css}"
 LIVE_SYNC_TARGET="${SEA_SPEED_LIVE_SYNC_TARGET:-/var/www/mostdef.ru/sea-speed/live-sync.js}"
 OVERLAY_CANVAS_TARGET="${SEA_SPEED_OVERLAY_CANVAS_TARGET:-/var/www/mostdef.ru/sea-speed/overlay-canvas.js}"
 CROSSING_LINE_TARGET="${SEA_SPEED_CROSSING_LINE_TARGET:-/var/www/mostdef.ru/sea-speed/crossing-line.js}"
@@ -48,6 +52,7 @@ FRONTEND_URL="${SEA_SPEED_FRONTEND_URL:-https://mostdef.ru/sea-speed/}"
 OBJECTS_FRONTEND_URL="${SEA_SPEED_OBJECTS_FRONTEND_URL:-https://mostdef.ru/sea-speed/objects/}"
 CAMERAS_FRONTEND_URL="${SEA_SPEED_CAMERAS_FRONTEND_URL:-https://mostdef.ru/sea-speed/cameras/}"
 ROAD_FRONTEND_URL="${SEA_SPEED_ROAD_FRONTEND_URL:-https://mostdef.ru/sea-speed/road/}"
+OPERATOR_COMMON_CSS_URL="${SEA_SPEED_OPERATOR_COMMON_CSS_URL:-https://mostdef.ru/sea-speed/operator-common.css}"
 LIVE_SYNC_URL="${SEA_SPEED_LIVE_SYNC_URL:-https://mostdef.ru/sea-speed/live-sync.js}"
 OVERLAY_CANVAS_URL="${SEA_SPEED_OVERLAY_CANVAS_URL:-https://mostdef.ru/sea-speed/overlay-canvas.js}"
 CROSSING_LINE_URL="${SEA_SPEED_CROSSING_LINE_URL:-https://mostdef.ru/sea-speed/crossing-line.js}"
@@ -247,6 +252,7 @@ release_complete() {
      -f "$root/frontend/sea-speed/objects/registry.js" && \
      -f "$root/frontend/sea-speed/cameras/index.html" && \
      -f "$root/frontend/sea-speed/road/index.html" && \
+     -f "$root/frontend/sea-speed/operator-common.css" && \
      -f "$root/frontend/sea-speed/live-sync.js" && \
      -f "$root/frontend/sea-speed/overlay-canvas.js" && \
      -f "$root/frontend/sea-speed/crossing-line.js" && \
@@ -307,6 +313,7 @@ download_release() {
     frontend/sea-speed/objects/registry.js \
     frontend/sea-speed/cameras/index.html \
     frontend/sea-speed/road/index.html \
+    frontend/sea-speed/operator-common.css \
     frontend/sea-speed/live-sync.js \
     frontend/sea-speed/overlay-canvas.js \
     frontend/sea-speed/crossing-line.js \
@@ -351,6 +358,7 @@ download_release() {
   install -m 0644 "$extracted/frontend/sea-speed/objects/registry.js" "$TARGET_RELEASE/frontend/sea-speed/objects/registry.js"
   install -m 0644 "$extracted/frontend/sea-speed/cameras/index.html" "$TARGET_RELEASE/frontend/sea-speed/cameras/index.html"
   install -m 0644 "$extracted/frontend/sea-speed/road/index.html" "$TARGET_RELEASE/frontend/sea-speed/road/index.html"
+  install -m 0644 "$extracted/frontend/sea-speed/operator-common.css" "$TARGET_RELEASE/frontend/sea-speed/operator-common.css"
   install -m 0644 "$extracted/frontend/sea-speed/live-sync.js" "$TARGET_RELEASE/frontend/sea-speed/live-sync.js"
   install -m 0644 "$extracted/frontend/sea-speed/overlay-canvas.js" "$TARGET_RELEASE/frontend/sea-speed/overlay-canvas.js"
   install -m 0644 "$extracted/frontend/sea-speed/crossing-line.js" "$TARGET_RELEASE/frontend/sea-speed/crossing-line.js"
@@ -556,6 +564,11 @@ bootstrap_current_release() {
   else
     touch "$bootstrap_release/frontend/sea-speed/road/.absent"
   fi
+  if [[ -f "$OPERATOR_COMMON_CSS_TARGET" ]]; then
+    install -m 0644 "$OPERATOR_COMMON_CSS_TARGET" "$bootstrap_release/frontend/sea-speed/operator-common.css"
+  else
+    touch "$bootstrap_release/frontend/sea-speed/operator-common.css.absent"
+  fi
   if [[ -f "$LIVE_SYNC_TARGET" ]]; then
     install -m 0644 "$LIVE_SYNC_TARGET" "$bootstrap_release/frontend/sea-speed/live-sync.js"
   else
@@ -670,6 +683,35 @@ ensure_current_release_has_road_frontend() {
   fi
 }
 
+# Issue #685: capture the shared operator stylesheet state for the rollback
+# release before any live mutation. The release immediately preceding #685 was
+# produced by a deploy.sh with no knowledge of this asset, so it can carry
+# NEITHER the CSS file NOR an .absent marker. That "neither" state is
+# admissible only when the release HTML does not reference the stylesheet
+# (a genuine pre-feature release); otherwise the rollback target would ship a
+# page linking a missing asset, so we fail closed instead of marking it absent.
+ensure_current_release_has_operator_css() {
+  local current_name current_release css_target
+  current_name="$(cat "$CURRENT_FILE" 2>/dev/null || true)"
+  [[ -n "$current_name" ]] || return 0
+  current_release="$RELEASES_DIR/$current_name"
+  css_target="$current_release/frontend/sea-speed/operator-common.css"
+  if [[ -f "$css_target" || -f "${css_target}.absent" ]]; then return; fi
+  log "Capturing current operator-common.css state for rollback release ${current_name}"
+  mkdir -p "$current_release/frontend/sea-speed"
+  if [[ -f "$OPERATOR_COMMON_CSS_TARGET" ]]; then
+    install -m 0644 "$OPERATOR_COMMON_CSS_TARGET" "$css_target"
+    return
+  fi
+  if grep -q "operator-common.css" \
+      "$current_release/frontend/sea-speed/index.html" \
+      "$current_release/frontend/sea-speed/road/index.html" 2>/dev/null; then
+    echo "Rollback release ${current_name} references operator-common.css but ships neither the asset nor an .absent marker" >&2
+    return 1
+  fi
+  touch "${css_target}.absent"
+}
+
 ensure_current_release_has_fallback_frontend() {
   local current_name current_release fallback_release_dir
   current_name="$(cat "$CURRENT_FILE")"
@@ -706,6 +748,29 @@ install_release() {
   [[ -f "$release_dir/frontend/sea-speed/login-popup.js" || -f "$release_dir/frontend/sea-speed/login-popup.js.absent" ]] || { echo "Release ${release_name} has no login-popup module state" >&2; return 1; }
   [[ -f "$release_dir/frontend/root/index.html" ]] || { echo "Release ${release_name} has no root frontend file" >&2; return 1; }
   [[ -f "$release_dir/frontend/sea-speed/unavailable.html" || -f "$release_dir/frontend/sea-speed/unavailable.html.absent" ]] || { echo "Release ${release_name} has no fallback frontend state" >&2; return 1; }
+
+  # Issue #685: shared operator stylesheet state. present = ship the asset;
+  # absent = explicit .absent marker; prefeature = a release produced before
+  # #685 that carries NEITHER file. The prefeature state is admissible only
+  # when its HTML does not reference the stylesheet (validated below), so the
+  # very first rollback onto the pre-#685 release does not fail on a missing
+  # marker; a page that DOES reference a missing/empty asset fails closed.
+  local css_state="absent"
+  if [[ -f "$release_dir/frontend/sea-speed/operator-common.css" ]]; then
+    css_state="present"
+    [[ -s "$release_dir/frontend/sea-speed/operator-common.css" ]] || { echo "Release ${release_name} operator-common.css is empty" >&2; return 1; }
+  elif [[ -f "$release_dir/frontend/sea-speed/operator-common.css.absent" ]]; then
+    css_state="absent"
+  else
+    css_state="prefeature"
+  fi
+  if [[ "$css_state" != "present" ]] && \
+     grep -q "operator-common.css" \
+       "$release_dir/frontend/sea-speed/index.html" \
+       "$release_dir/frontend/sea-speed/road/index.html" 2>/dev/null; then
+    echo "Release ${release_name} frontend references operator-common.css but ships no CSS asset" >&2
+    return 1
+  fi
 
   install -m 0644 "$release_dir/api/app/main.py" "${API_TARGET}.next"
   if [[ -f "$release_dir/api/app/config.py" ]]; then
@@ -745,6 +810,9 @@ install_release() {
   fi
   if [[ -f "$release_dir/frontend/sea-speed/road/index.html" ]]; then
     install -m 0644 "$release_dir/frontend/sea-speed/road/index.html" "${ROAD_FRONTEND_TARGET}.next"
+  fi
+  if [[ "$css_state" == "present" ]]; then
+    install -m 0644 "$release_dir/frontend/sea-speed/operator-common.css" "${OPERATOR_COMMON_CSS_TARGET}.next"
   fi
   if [[ -f "$release_dir/frontend/sea-speed/live-sync.js" ]]; then
     install -m 0644 "$release_dir/frontend/sea-speed/live-sync.js" "${LIVE_SYNC_TARGET}.next"
@@ -859,6 +927,12 @@ install_release() {
     rm -f "$LOG_REDACTION_TARGET" "${LOG_REDACTION_TARGET}.next"
   fi
   mv -f "${API_TARGET}.next" "$API_TARGET"
+  if [[ "$css_state" == "present" ]]; then
+    # Issue #685 upgrade ordering: install the shared stylesheet BEFORE the
+    # HTML pages that link it are activated, so a live page never references a
+    # not-yet-present asset.
+    mv -f "${OPERATOR_COMMON_CSS_TARGET}.next" "$OPERATOR_COMMON_CSS_TARGET"
+  fi
   mv -f "${FRONTEND_TARGET}.next" "$FRONTEND_TARGET"
   mv -f "${ROOT_FRONTEND_TARGET}.next" "$ROOT_FRONTEND_TARGET"
   if [[ -f "$release_dir/frontend/sea-speed/objects/index.html" ]]; then
@@ -875,6 +949,12 @@ install_release() {
     mv -f "${ROAD_FRONTEND_TARGET}.next" "$ROAD_FRONTEND_TARGET"
   else
     rm -f "$ROAD_FRONTEND_TARGET" "${ROAD_FRONTEND_TARGET}.next"
+  fi
+  if [[ "$css_state" != "present" ]]; then
+    # Issue #685 downgrade ordering: the activated HTML no longer references
+    # the shared stylesheet (validated above), so remove the live CSS only
+    # AFTER the referencing HTML has been replaced.
+    rm -f "$OPERATOR_COMMON_CSS_TARGET" "${OPERATOR_COMMON_CSS_TARGET}.next"
   fi
   if [[ -f "$release_dir/frontend/sea-speed/live-sync.js" ]]; then
     mv -f "${LIVE_SYNC_TARGET}.next" "$LIVE_SYNC_TARGET"
@@ -1031,6 +1111,12 @@ verify_frontends() {
     verify_public_url "Road frontend" "$ROAD_FRONTEND_URL"
   else
     log "Road frontend is absent in this rollback release"
+  fi
+  if [[ -f "$OPERATOR_COMMON_CSS_TARGET" ]]; then
+    [[ -s "$OPERATOR_COMMON_CSS_TARGET" ]] || { echo "Operator common stylesheet is empty: ${OPERATOR_COMMON_CSS_TARGET}" >&2; return 1; }
+    verify_public_asset_200 "Operator common stylesheet" "$OPERATOR_COMMON_CSS_URL" || return 1
+  else
+    log "Operator common stylesheet is absent in this rollback release"
   fi
   if [[ -f "$LIVE_SYNC_TARGET" ]]; then
     [[ -s "$LIVE_SYNC_TARGET" ]] || { echo "Live sync module file is empty: ${LIVE_SYNC_TARGET}" >&2; return 1; }
@@ -1231,6 +1317,7 @@ main() {
   ensure_current_release_has_objects_frontend
   ensure_current_release_has_cameras_frontend
   ensure_current_release_has_road_frontend
+  ensure_current_release_has_operator_css
   ensure_current_release_has_fallback_frontend
 
   local old_current previous
