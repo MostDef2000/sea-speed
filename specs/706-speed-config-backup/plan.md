@@ -108,8 +108,21 @@ different projection untouched, per the admitted-scope resolution recorded in sp
 
 ## Deployment transaction audit
 
-Not applicable: this change ships application code only, mutates no deployment/release surface,
-and declares no runtime deployment REQUIRED.
+This audit models the VPS-only rollout of the speed-config loader and opt-in `.bak` backup
+(`api/app/main.py`, `api/app/store.py`). It does not redeploy the Ubuntu worker/relay or the
+Windows worker. The deploy target is the exact green main SHA
+`b774ecb6039f8ba07f87492b1bcc62ce1e6be488` and its merged successor produced by this PR,
+activated through the repository `deploy-vps` workflow under the standing delegation policy.
+Runtime acceptance is planned, not yet performed.
+
+- TX-001 | Stage: ADMISSION | Mutation: NO | Failure disposition: FATAL | State after failure: production VPS remains on the accepted previous release b774ecb6039f8ba07f87492b1bcc62ce1e6be488 | Retry: correct exact main SHA, green Quality integration and canonical Issue authorization evidence, then re-enter the protected deploy-vps workflow | Rollback: NOT REQUIRED before mutation | Evidence: exact first-parent main SHA after merge, green Quality integration on that SHA, canonical Issue production authorization and standing delegation policy
+- TX-002 | Stage: PRE-MUTATION | Mutation: POSSIBLE | Failure disposition: FATAL | State after failure: candidate API release may be staged while the current VPS release b774ecb6039f8ba07f87492b1bcc62ce1e6be488 remains active | Retry: verify the staged exact release and the current/previous release markers, then retry the deploy-vps dispatch | Rollback: NOT REQUIRED while the active VPS release is unchanged | Evidence: exact VPS release manifest and current/previous release markers for the candidate SHA
+- TX-003 | Stage: MUTATION | Mutation: YES | Failure disposition: FATAL | State after failure: the candidate VPS release may be active but is not accepted until verification succeeds | Retry: only after the deploy transaction restores or proves a coherent current release | Rollback: the deploy-vps rollback restores the previous exact release b774ecb6039f8ba07f87492b1bcc62ce1e6be488 | Evidence: repository-owned deploy-vps activation logs for the candidate SHA
+- TX-004 | Stage: VERIFICATION | Mutation: POSSIBLE | Failure disposition: FATAL | State after failure: the candidate release is not accepted and public speed-config behavior is unresolved | Retry: resolve health or public-smoke failure after the actual current release identity is known | Rollback: automatic previous-release verification through the accepted loopback origin and protected public smoke | Evidence: origin health on the loopback API origin, public smoke probes of GET/POST /api/cam1/speed-config, exact frontend release identity
+- TX-005 | Stage: STATE-COMMIT | Mutation: YES | Failure disposition: FATAL | State after failure: deployment evidence is incomplete and completion is forbidden | Retry: verify the actual runtime identity on the VPS before persisting the deployment manifest | Rollback: the previous exact VPS release b774ecb6039f8ba07f87492b1bcc62ce1e6be488 remains the declared rollback target | Evidence: current/previous release markers plus the runtime-verified deployment manifest
+- TX-006 | Stage: HOUSEKEEPING | Mutation: POSSIBLE | Failure disposition: BEST-EFFORT | State after failure: verified runtime remains valid while stale release cleanup may remain pending | Retry: clean stale non-current/non-previous releases independently after activation | Rollback: NOT REQUIRED solely for stale cleanup failure | Evidence: warning-only pruning behavior already regression-protected by the deploy-vps workflow
+- TX-007 | Stage: EVIDENCE | Mutation: NO | Failure disposition: CONDITIONAL | State after failure: the deployed runtime may be healthy but speed-config GET/POST acceptance remains incomplete | Retry: recollect public smoke probes without redeployment when the exact runtime identity is unchanged | Rollback: decide from actual API/runtime behavior, not evidence upload alone | Evidence: deployment manifest plus public GET/POST /api/cam1/speed-config smoke probes
+- TX-008 | Stage: ROLLBACK | Mutation: YES | Failure disposition: FATAL | State after failure: if the previous exact release cannot be restored and verified, stop automated mutation and recover the actual VPS state | Retry: read current/previous/runtime evidence before any new mutation | Rollback: no guessed secondary target; use the protected previous exact VPS release b774ecb6039f8ba07f87492b1bcc62ce1e6be488 | Evidence: deploy-vps rollback logs and verified origin/public health after rollback
 
 ## Rollout and rollback
 
