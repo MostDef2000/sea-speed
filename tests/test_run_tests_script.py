@@ -254,8 +254,8 @@ class ImportHygieneScanTests(unittest.TestCase):
                 # requests transitively — same guarded-optional idiom, and
                 # registering a new guarded-optional file means extending
                 # this pinned list (tests/test_616:43-45).
-                ("test_697_typed_unknown_reason.py", 71, "numpy"),
-                ("test_697_typed_unknown_reason.py", 75, "requests"),
+                ("test_697_typed_unknown_reason.py", 78, "numpy"),
+                ("test_697_typed_unknown_reason.py", 82, "requests"),
                 # Issue #698: uvicorn is an api-lock pin, not a battery
                 # dependency — the AccessFormatter probe uses the same
                 # guarded-optional idiom (extending the pin is the documented
