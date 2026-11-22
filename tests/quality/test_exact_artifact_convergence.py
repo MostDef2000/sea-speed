@@ -39,10 +39,20 @@ class ExactArtifactConvergenceTests(unittest.TestCase):
         text = DEPLOY_SH.read_text(encoding="utf-8")
         mirrored = deploy_app_module_targets(text)
         required = vps_required_app_modules()
+        # Issue #698: api/app/log_redaction.py joined the vps required set, so
+        # the mirror set grew 9 -> 10.
         self.assertEqual(
-            len(mirrored), 9, f"unexpected api/app TARGET mirror set: {sorted(mirrored)}"
+            len(mirrored), 10, f"unexpected api/app TARGET mirror set: {sorted(mirrored)}"
         )
         self.assertEqual(mirrored, required)
+        # The new module must be required by BOTH active contours (it is
+        # imported by the worker scripts too) and must never enter the edge
+        # archival inventory.
+        self.assertIn("api/app/log_redaction.py", required)
+        self.assertIn(
+            "api/app/log_redaction.py", COMPONENT_FILES["ubuntu-worker"]["required"]
+        )
+        self.assertNotIn("api/app/log_redaction.py", COMPONENT_FILES["edge"]["required"])
 
     def test_deploy_targets_parser_ignores_non_python_targets(self) -> None:
         text = DEPLOY_SH.read_text(encoding="utf-8")

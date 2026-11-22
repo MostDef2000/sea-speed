@@ -62,6 +62,7 @@ try:  # package context (api.app.analytics) and direct-file load both supported
     )
     from . import store  # noqa: F401  # explicit re-export seam (issue #396 wave 5)
     from .store import read_json_file, write_json_file
+    from .log_redaction import redact_log_text
 except ImportError:  # direct uvicorn app-dir / spec_from_file_location execution
     if str(Path(__file__).resolve().parent) not in sys.path:
         sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -90,6 +91,7 @@ except ImportError:  # direct uvicorn app-dir / spec_from_file_location executio
     )
     import store  # noqa: F401  # explicit re-export seam (issue #396 wave 5)
     from store import read_json_file, write_json_file
+    from log_redaction import redact_log_text
 
 __all__ = [
     "EVENTS_MEDIA_GRACE_SECONDS",
@@ -142,7 +144,7 @@ def sweep_events_media(force: bool = False, now: Optional[float] = None) -> int:
                 str(row[0]) for row in connection.execute("SELECT DISTINCT snapshot_url FROM objects")
             }
     except Exception as error:
-        print(f"events media sweep skipped: {error}", file=sys.stderr)
+        print(redact_log_text(f"events media sweep skipped: {error}"), file=sys.stderr)
         return 0
     deleted = 0
     for path in candidates:
@@ -172,7 +174,7 @@ def sweep_events_media(force: bool = False, now: Optional[float] = None) -> int:
             path.unlink()
             deleted += 1
         except OSError as error:
-            print(f"events media sweep failed for {name}: {error}", file=sys.stderr)
+            print(redact_log_text(f"events media sweep failed for {name}: {error}"), file=sys.stderr)
     return deleted
 
 

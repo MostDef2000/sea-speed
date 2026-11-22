@@ -7,10 +7,19 @@ import ipaddress
 import json
 import os
 import subprocess
+import sys
 import tempfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
+
+# Issue #698: resolve the release-relative api/app directory from THIS file
+# (independent of cwd) and load the stdlib-only redaction helper so the
+# rendered HTTP access line cannot leak a credential-bearing query string.
+_API_APP_DIR = Path(__file__).resolve().parents[3] / "api" / "app"
+if str(_API_APP_DIR) not in sys.path:
+    sys.path.insert(0, str(_API_APP_DIR))
+from log_redaction import redact_log_text  # noqa: E402
 
 SERVICE_NAME = "sea-speed-worker.service"
 ROAD_SERVICE_NAME = "sea-speed-road-worker.service"
@@ -195,7 +204,12 @@ class Handler(BaseHTTPRequestHandler):
     server_version = "SeaSpeedWorkerControl/1"
 
     def log_message(self, fmt: str, *args: object) -> None:
-        print("worker-control", self.address_string(), fmt % args, flush=True)
+        print(
+            "worker-control",
+            self.address_string(),
+            redact_log_text(fmt % args),
+            flush=True,
+        )
 
     def _send(self, status: int, payload: dict[str, Any]) -> None:
         body = json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8")

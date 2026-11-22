@@ -29,6 +29,11 @@ except ModuleNotFoundError:  # direct file execution: put the repo root on sys.p
     if str(ROOT) not in sys.path:
         sys.path.insert(0, str(ROOT))
     from tests.support import frontend_html, worker_source
+
+# Issue #698: the AST-loaded passage_mirrors copy resolves redact_log_text
+# from its exec namespace (repo-local import, mirrors tests/test_617).
+from api.app.log_redaction import redact_log_text
+
 sys.path.insert(0, str(ROOT / "worker"))
 from water_passage import (
     MeasurementResult,
@@ -471,6 +476,10 @@ class PassageApiRetentionTests(unittest.TestCase):
             "PASSAGE_SPEED_STATUSES": {"unknown", "measuring", "measured", "incomplete"},
             "PASSAGE_ID_RE": re.compile(r"^P-[A-Za-z0-9][A-Za-z0-9._-]{1,78}$"),
             "now_iso": lambda: "2026-08-18T00:00:00+00:00",
+            # Issue #698: passage_mirrors._delete_passage_mirrors prints
+            # redact_log_text(...) on its error branch; the AST-loaded copy
+            # resolves that name from this namespace.
+            "redact_log_text": redact_log_text,
         }
 
     def passage(self, index: int, *, status: str = "completed", speed: Optional[float] = None) -> Dict[str, Any]:
