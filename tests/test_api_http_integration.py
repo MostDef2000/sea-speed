@@ -446,6 +446,189 @@ class SeaSpeedApiHttpIntegrationTests(unittest.TestCase):
         self.assertEqual(persisted["kmh_per_px_s"], 1.5)
         self.assertTrue(persisted["enabled"])
 
+    # -- d1. issue #706: unified loader + .bak backup -----------------------
+
+    def speed_config_paths(self, camera_id: str = "cam1") -> tuple[Path, Path]:
+        primary = self.app_module.analytics_data_file(camera_id, "speed_config")
+        return primary, primary.with_name(primary.name + ".bak")
+
+    def clear_speed_config(self, camera_id: str = "cam1") -> None:
+        """Restore the pristine no-file state of the shared class data root.
+
+        Every #706 probe resets before mutating and registers this as a
+        cleanup FIRST, so neither this class's pre-existing assertions (the
+        finite-gate test starts from an empty GET) nor a later probe can be
+        order-dependent within the shared temp data root.
+        """
+        for path in self.speed_config_paths(camera_id):
+            path.unlink(missing_ok=True)
+
+    def test_speed_config_invalid_candidate_leaves_primary_and_backup_untouched(self):
+        self.addCleanup(self.clear_speed_config, "cam1")
+        self.clear_speed_config("cam1")
+        primary, backup = self.speed_config_paths("cam1")
+        with self.client() as client:
+            first = client.post(
+                "/api/cam1/speed-config",
+                json={"enabled": True, "kmh_per_px_s": 1.5},
+                headers=ADMIN_HEADERS,
+            )
+            second = client.post(
+                "/api/cam1/speed-config",
+                json={"enabled": True, "kmh_per_px_s": 2.5},
+                headers=ADMIN_HEADERS,
+            )
+            self.assertEqual(first.status_code, 200)
+            self.assertEqual(second.status_code, 200)
+            self.assertTrue(primary.is_file())
+            self.assertTrue(backup.is_file(), "the second write must publish the single .bak slot")
+            primary_bytes = primary.read_bytes()
+            backup_bytes = backup.read_bytes()
+            self.assertEqual(json.loads(backup_bytes)["kmh_per_px_s"], 1.5)
+            invalid_cases = (
+                (float("nan"), "kmh_per_px_s must be a finite number"),
+                ("abc", "kmh_per_px_s must be a number"),
+                (-1.0, "kmh_per_px_s must be >= 0"),
+            )
+            for value, detail in invalid_cases:
+                with self.subTest(value=value):
+                    rejected = self.post_json(
+                        client,
+                        "/api/cam1/speed-config",
+                        {"enabled": True, "kmh_per_px_s": value},
+                        ADMIN_HEADERS,
+                    )
+                    self.assertEqual(rejected.status_code, 400)
+                    self.assertEqual(rejected.json(), {"detail": detail})
+                    self.assertEqual(primary.read_bytes(), primary_bytes, "rejected candidate must not touch primary")
+                    self.assertEqual(backup.read_bytes(), backup_bytes, "rejected candidate must not touch .bak")
+            strays = sorted(
+                p.name for p in primary.parent.iterdir() if p.name.endswith(".tmp")
+            )
+            self.assertEqual(strays, [], "no staging .tmp may survive a rejected candidate")
+
+    def test_speed_config_post_get_parity_and_bak_lifecycle_over_http(self):
+        self.addCleanup(self.clear_speed_config, "cam1")
+        self.clear_speed_config("cam1")
+        primary, backup = self.speed_config_paths("cam1")
+        with self.client() as client:
+            # missing → storage defaults through the shared loader
+            default = client.get("/api/cam1/speed-config")
+            self.assertEqual(default.status_code, 200)
+            self.assertEqual(
+                default.json(),
+                {"ok": True, "camera_id": "cam1", "enabled": False, "kmh_per_px_s": 0.0, "updated_at": None},
+            )
+            # first POST → primary, no predecessor → no .bak (AC-004/Scenario 5)
+            posted = client.post(
+                "/api/analytics/cam1/speed-config",
+                json={"enabled": True, "kmh_per_px_s": 1.5},
+                headers=ADMIN_HEADERS,
+            )
+            self.assertEqual(posted.status_code, 200)
+            self.assertTrue(primary.is_file())
+            self.assertFalse(backup.exists(), "first write has no predecessor")
+            first_bytes = primary.read_bytes()
+            # POST→GET parity: the operator reads back exactly what was written
+            fetched = client.get("/api/analytics/cam1/speed-config")
+            self.assertEqual(fetched.status_code, 200)
+            self.assertEqual(fetched.json(), posted.json())
+            # second POST → .bak byte-equal to the first document (Scenario 4)
+            second = client.post(
+                "/api/analytics/cam1/speed-config",
+                json={"enabled": True, "kmh_per_px_s": 2.5},
+                headers=ADMIN_HEADERS,
+            )
+            self.assertEqual(second.status_code, 200)
+            self.assertEqual(backup.read_bytes(), first_bytes)
+            self.assertEqual(client.get("/api/analytics/cam1/speed-config").json(), second.json())
+            # malformed disk → 500, never a .bak document served as live calibration
+            primary.write_text("{not json", encoding="utf-8")
+            corrupt = client.get("/api/analytics/cam1/speed-config")
+            self.assertEqual(corrupt.status_code, 500)
+            self.assertEqual(corrupt.json(), {"detail": "speed-config storage is corrupted"})
+            # invalid stored factor → the same 500 through the shared loader
+            primary.write_text(
+                json.dumps({"enabled": True, "kmh_per_px_s": "abc"}), encoding="utf-8"
+            )
+            invalid_stored = client.get("/api/analytics/cam1/speed-config")
+            self.assertEqual(invalid_stored.status_code, 500)
+            self.assertEqual(invalid_stored.json(), {"detail": "speed-config storage is corrupted"})
+            # restore a valid document through the cam1 alias
+            restored = client.post(
+                "/api/cam1/speed-config",
+                json={"enabled": True, "kmh_per_px_s": 3.5},
+                headers=ADMIN_HEADERS,
+            )
+            self.assertEqual(restored.status_code, 200)
+            self.assertEqual(client.get("/api/cam1/speed-config").json(), restored.json())
+
+    def test_speed_config_cam1_alias_and_camera_isolation(self):
+        self.addCleanup(self.clear_speed_config, "cam1")
+        self.addCleanup(self.clear_speed_config, "road1")
+        self.clear_speed_config("cam1")
+        self.clear_speed_config("road1")
+        cam1_primary, cam1_backup = self.speed_config_paths("cam1")
+        road1_primary, road1_backup = self.speed_config_paths("road1")
+        with self.client() as client:
+            # write through the cam1 alias, read through the analytics route
+            via_alias = client.post(
+                "/api/cam1/speed-config",
+                json={"enabled": True, "kmh_per_px_s": 1.5},
+                headers=ADMIN_HEADERS,
+            )
+            self.assertEqual(via_alias.status_code, 200)
+            via_analytics = client.get("/api/analytics/cam1/speed-config")
+            self.assertEqual(via_analytics.status_code, 200)
+            self.assertEqual(via_analytics.json(), via_alias.json())
+            cam1_bytes = cam1_primary.read_bytes()
+            # road1 keeps its own file: write road1 twice, cam1 stays byte-identical
+            road_first = client.post(
+                "/api/analytics/road1/speed-config",
+                json={"enabled": True, "kmh_per_px_s": 9.0},
+                headers=ADMIN_HEADERS,
+            )
+            self.assertEqual(road_first.status_code, 200)
+            self.assertTrue(road1_primary.is_file())
+            self.assertFalse(road1_backup.exists(), "road1 first write has no predecessor either")
+            road1_first_bytes = road1_primary.read_bytes()
+            road_second = client.post(
+                "/api/analytics/road1/speed-config",
+                json={"enabled": True, "kmh_per_px_s": 8.0},
+                headers=ADMIN_HEADERS,
+            )
+            self.assertEqual(road_second.status_code, 200)
+            self.assertEqual(
+                road1_backup.read_bytes(),
+                road1_first_bytes,
+                "road1 .bak holds road1's own first document",
+            )
+            self.assertEqual(cam1_primary.read_bytes(), cam1_bytes, "road1 writes must not touch cam1")
+            self.assertFalse(cam1_backup.exists())
+            # isolation in both read directions
+            self.assertEqual(client.get("/api/analytics/road1/speed-config").json()["kmh_per_px_s"], 8.0)
+            self.assertEqual(client.get("/api/analytics/cam1/speed-config").json()["kmh_per_px_s"], 1.5)
+            # a rejected road1 candidate leaves road1 untouched too
+            rejected = self.post_json(
+                client,
+                "/api/analytics/road1/speed-config",
+                {"enabled": True, "kmh_per_px_s": float("nan")},
+                ADMIN_HEADERS,
+            )
+            self.assertEqual(rejected.status_code, 400)
+            self.assertEqual(rejected.json(), {"detail": "kmh_per_px_s must be a finite number"})
+            self.assertEqual(cam1_primary.read_bytes(), cam1_bytes)
+            self.assertEqual(client.get("/api/analytics/cam1/speed-config").json()["kmh_per_px_s"], 1.5)
+            # missing → default on both cameras once the files are gone
+            cam1_primary.unlink()
+            cam1_backup.unlink(missing_ok=True)
+            default = client.get("/api/cam1/speed-config")
+            self.assertEqual(default.status_code, 200)
+            self.assertEqual(
+                default.json(),
+                {"ok": True, "camera_id": "cam1", "enabled": False, "kmh_per_px_s": 0.0, "updated_at": None},
+            )
+
     def test_speed_lines_finite_gate_and_persistence(self):
         lines = {
             "enabled": True,

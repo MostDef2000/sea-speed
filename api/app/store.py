@@ -132,12 +132,22 @@ def read_json_file(path: Path, default: Any) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def write_json_file(path: Path, data: Any) -> None:
+def write_json_file(path: Path, data: Any, *, backup: bool = False) -> None:
     """Atomically write ``data`` as JSON under a per-file advisory lock.
 
     The temporary file name carries a uuid so concurrent writers (or a
     deploy-side migration process) can never share the fixed ``.tmp``
     sibling that the previous implementation used.
+
+    ``backup=True`` (keyword-only, default off; issue #706) publishes the
+    predecessor's exact bytes to ``<filename>.bak`` under the same lock and
+    before the primary is replaced. Only a genuinely absent predecessor is
+    ignored; any other backup error aborts publication and leaves the
+    primary untouched. The first write therefore creates no backup, and
+    each later successful write replaces the single ``.bak`` slot. Primary
+    and backup are two files, not one atomic transaction: if the final
+    primary replace fails, the primary keeps its old content and ``.bak``
+    may already equal that same content.
     """
     path = Path(path)
     lock_path = path.with_name(f"{path.name}.lock")
@@ -146,6 +156,13 @@ def write_json_file(path: Path, data: Any) -> None:
         with open(lock_path, "a+", encoding="utf-8") as lock_handle:
             fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
             tmp_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+            if backup:
+                try:
+                    previous = path.read_bytes()
+                except FileNotFoundError:
+                    previous = None
+                if previous is not None:
+                    atomic_write_bytes(path.with_name(f"{path.name}.bak"), previous)
             os.replace(tmp_path, path)
     finally:
         try:

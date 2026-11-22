@@ -267,7 +267,7 @@ class ApiHarness(unittest.TestCase):
         def analytics_data_file(camera_id, kind):
             return Path(f"/sea-speed-test-data/{camera_id}_{kind}.json")
 
-        def write_json_file(path, data):
+        def write_json_file(path, data, backup=False):  # issue #706: keyword-only backup on speed-config
             effects["writes"].append((path, data))
 
         def read_json_file(path, default):
@@ -308,7 +308,9 @@ class ApiHarness(unittest.TestCase):
         for name in ("require_operator_identity", "resolve_role", "require_role"):
             api_namespace[name] = policy_ns[name]
 
-        main_body = _select(_parse(MAIN_SOURCE), set(MUTATION_MATRIX), set(), required=False)
+        # issue #706: post_analytics_speed_config now calls the shared
+        # _load_speed_config loader, so the exec namespace must carry it.
+        main_body = _select(_parse(MAIN_SOURCE), set(MUTATION_MATRIX) | {"_load_speed_config"}, set(), required=False)
         missing = set(MUTATION_MATRIX) - {node.name for node in main_body}
         if missing:
             raise AssertionError(f"missing mutation handlers in main.py: {sorted(missing)}")

@@ -880,20 +880,48 @@ def post_analytics_roi(
     return roi
 
 
+def _load_speed_config(camera_id: str, record: Dict[str, Any]) -> Dict[str, Any]:
+    """Project a stored or candidate speed-config record into response shape.
+
+    Issue #706: the GET loader and the POST write path share this one
+    side-effect-free function, so a record read from disk is validated by
+    exactly the same rules as a fresh calibration request. Callers supply the
+    record with their own defaults (storage: ``enabled=False`` / null
+    timestamp; POST: ``enabled=True`` candidate plus ``updated_at``), then
+    persist or return the result unchanged.
+
+    Invalid values raise ``ValueError`` carrying the pre-existing 400 detail
+    strings; each caller maps that to its own contract (request -> 400,
+    storage -> 500). No filesystem access happens here.
+    """
+    if not isinstance(record, dict):
+        raise ValueError("speed-config record must be an object")
+    try:
+        kmh_per_px_s = float(record.get("kmh_per_px_s", 0.0))
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("kmh_per_px_s must be a number") from exc
+    if not (float("-inf") < kmh_per_px_s < float("inf")):  # == math.isfinite (issue #577)
+        raise ValueError("kmh_per_px_s must be a finite number")
+    if kmh_per_px_s < 0:
+        raise ValueError("kmh_per_px_s must be >= 0")
+    config = dict(record)
+    config["ok"] = True
+    config["camera_id"] = camera_id
+    config["enabled"] = bool(record.get("enabled", False)) and kmh_per_px_s > 0
+    config["kmh_per_px_s"] = kmh_per_px_s
+    config.setdefault("updated_at", None)
+    return config
+
+
 @app.get("/api/analytics/{camera_id}/speed-config")
 def get_analytics_speed_config(camera_id: str) -> Dict[str, Any]:
     analytics_identity(camera_id)
     default_config = {"ok": True, "camera_id": camera_id, "enabled": False, "kmh_per_px_s": 0.0, "updated_at": None}
     try:
-        config = read_json_file(analytics_data_file(camera_id, "speed_config"), default_config)
+        record = read_json_file(analytics_data_file(camera_id, "speed_config"), default_config)
+        return _load_speed_config(camera_id, record)
     except store.JSON_READ_ERRORS as exc:
         raise HTTPException(status_code=500, detail="speed-config storage is corrupted") from exc
-    config["ok"] = True
-    config["camera_id"] = camera_id
-    config.setdefault("enabled", False)
-    config.setdefault("kmh_per_px_s", 0.0)
-    config.setdefault("updated_at", None)
-    return config
 
 
 @app.post("/api/analytics/{camera_id}/speed-config")
@@ -912,18 +940,16 @@ def post_analytics_speed_config(
         action="post_analytics_speed_config",
     )
     analytics_identity(camera_id)
-    enabled = bool(payload.get("enabled", True))
+    candidate = {
+        "enabled": bool(payload.get("enabled", True)),
+        "kmh_per_px_s": payload.get("kmh_per_px_s", 0.0),
+        "updated_at": now_iso(),
+    }
     try:
-        kmh_per_px_s = float(payload.get("kmh_per_px_s", 0.0))
-    except Exception:
-        raise HTTPException(status_code=400, detail="kmh_per_px_s must be a number")
-    if not (float("-inf") < kmh_per_px_s < float("inf")):  # == math.isfinite (issue #577)
-        raise HTTPException(status_code=400, detail="kmh_per_px_s must be a finite number")
-    if kmh_per_px_s < 0:
-        raise HTTPException(status_code=400, detail="kmh_per_px_s must be >= 0")
-    config = {"ok": True, "camera_id": camera_id, "enabled": enabled and kmh_per_px_s > 0,
-              "kmh_per_px_s": kmh_per_px_s, "updated_at": now_iso()}
-    write_json_file(analytics_data_file(camera_id, "speed_config"), config)
+        config = _load_speed_config(camera_id, candidate)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    write_json_file(analytics_data_file(camera_id, "speed_config"), config, backup=True)
     return config
 
 
