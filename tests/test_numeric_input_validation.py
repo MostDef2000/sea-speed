@@ -142,10 +142,16 @@ class SpeedConfigEndpointFiniteTests(unittest.TestCase):
             "require_role": lambda *args, **kwargs: None,
             "analytics_identity": lambda camera_id: None,
             "analytics_data_file": lambda camera_id, kind: Path(f"/sea-speed-test-data/{camera_id}_{kind}.json"),
-            "write_json_file": lambda path, data: self.writes.append((path, data)),
+            # issue #706: the POST handler now calls write_json_file(..., backup=True)
+            "write_json_file": lambda path, data, backup=False: self.writes.append((path, data)),
             "now_iso": lambda: "2026-11-01T00:00:00+00:00",
         }
-        load_api_functions([API_SOURCE], {"post_analytics_speed_config"}, self.ns)
+        # issue #706 (spec note "Regressions/learning"): the POST handler
+        # validates through _load_speed_config, so the exec namespace must
+        # carry the loader or every call dies with NameError.
+        load_api_functions(
+            [API_SOURCE], {"post_analytics_speed_config", "_load_speed_config"}, self.ns
+        )
         self.handler = self.ns["post_analytics_speed_config"]
 
     def test_non_finite_kmh_per_px_s_rejected_400(self) -> None:
