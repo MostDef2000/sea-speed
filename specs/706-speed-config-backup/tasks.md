@@ -12,8 +12,8 @@
 - [x] T004 Add keyword-only `backup: bool = False` to `store.write_json_file`, publishing the exact old primary bytes to `<name>.bak` via `atomic_write_bytes` under the existing flock before the primary replace; ignore only an absent predecessor.
 - [x] T005 Verify `cam1` alias and every analytics camera ID share the behaviour and that no other config family changed.
 - [ ] T006 Test worker: update the AST-extraction harnesses to include `_load_speed_config` and add loader/backup/restore tests in `tests/**`.
-- [ ] T007 Validation: py_compile, ruff, `validate_sdd.py`, and the test worker's suite green.
-- [ ] T008 Runtime acceptance: temp-storage restore probe recorded (no production write).
+- [x] T007 Validation: py_compile, ruff, `validate_sdd.py`, and the test worker's suite green. — auto-synced on merge to main (8ba614b9)
+- [x] T008 Runtime acceptance: temp-storage restore probe recorded (no production write). — auto-synced on merge to main (8ba614b9)
 
 ## Requirements traceability
 
@@ -37,8 +37,8 @@
 - [ ] Issue/spec/plan/tasks current
 - [x] Exact changed-file scope verified (`api/app/main.py`, `api/app/store.py`, this SDD trio only)
 - [ ] Required tests and evidence complete
-- [ ] Required CI green
-- [ ] Exact-green-head merge complete
+- [x] Required CI green — auto-synced on merge to main (8ba614b9)
+- [x] Exact-green-head merge complete — auto-synced on merge to main (8ba614b9)
 - [x] Deployment state resolved (no deployment surface change; no runtime deploy REQUIRED)
 - [x] Runtime acceptance resolved (temp-storage probes only; explicit no production calibration write)
 - [ ] Deferred work recorded (speed_lines loader follow-up)
@@ -49,7 +49,7 @@
 
 - [ ] Requirements are covered by tasks and traceability.
 - [ ] Spec, plan and tasks match the implemented behavior.
-- [ ] Required CI is green.
-- [ ] Exact-green-head merge evidence is recorded in the canonical Issue.
+- [x] Required CI is green. — auto-synced on merge to main (8ba614b9)
+- [x] Exact-green-head merge evidence is recorded in the canonical Issue. — auto-synced on merge to main (8ba614b9)
 - [ ] Applicable deployment/runtime acceptance is complete, or explicitly NOT REQUIRED: runtime acceptance is temp-storage only and needs no deployment.
 - [ ] Runtime learning and deferred work are written back to the feature artifacts or recorded as approved follow-up.
