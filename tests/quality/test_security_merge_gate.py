@@ -20,6 +20,19 @@ production workflow edits.  The pin/protection and mutation-sensitivity
 cases pass on the base and must keep passing.  Shell cases execute the
 ACTUAL run blocks through bash with env built from the ACTUAL parsed
 bindings; the merge decision is never re-implemented in Python.
+
+Issue #686 (base 18ba837) adds the full hash-locked dependency-graph
+contract for the ``dependency-audit`` job: pip-audit installed at an
+EXACT pinned version, verbatim ``--disable-pip`` audit commands for BOTH
+contours' ``*.lock.txt`` files (in addition to, never replacing, the two
+direct-manifest audits), a SHA-pinned artifact upload carrying both JSON
+reports, and a negative self-test that feeds a known-vulnerable
+transitive pin through the same audit command and must exit non-zero
+when the audit unexpectedly reports clean.  A premise case proves each
+lock carries a substantial transitive-only pin set (so the new audits
+add coverage instead of duplicating the direct ones).  The four
+workflow cases are RED on the base; the premise case and all pre-#686
+assertions must keep passing.
 """
 
 from __future__ import annotations
@@ -62,6 +75,35 @@ SETUP_PYTHON_PIN = "actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d8706
 GITLEAKS_DETECT_LINE = "./gitleaks detect --source . --report-format sarif --report-path gitleaks-report.sarif --redact -v"
 AUDIT_WORKER_LINE = "pip-audit -r deploy/worker/ubuntu/requirements-runtime.txt"
 AUDIT_API_LINE = "pip-audit -r api/requirements-api.txt"
+# Issue #686: the dependency-audit job must audit the FULL hash-locked
+# dependency graphs of BOTH contours, not only the direct manifests, with
+# pip-audit pinned to an exact version and proven JSON reports uploaded.
+PIP_AUDIT_PIN_RE = re.compile(r"pip-audit==\d+\.\d+\.\d+")
+BARE_PIP_AUDIT_INSTALL_RE = re.compile(r"pip\s+install\s+pip-audit")
+AUDIT_API_LOCK_LINE = "pip-audit --disable-pip -r api/requirements-api.lock.txt --format json --output pip-audit-api-lock.json"
+AUDIT_WORKER_LOCK_LINE = "pip-audit --disable-pip -r deploy/worker/ubuntu/requirements-runtime.lock.txt --format json --output pip-audit-worker-lock.json"
+PIP_AUDIT_API_REPORT = "pip-audit-api-lock.json"
+PIP_AUDIT_WORKER_REPORT = "pip-audit-worker-lock.json"
+# Known-vulnerable transitive pin for the negative self-test: requests
+# 2.20.0 carries published CVEs (e.g. CVE-2023-32681), so a working gate
+# must exit non-zero on it; a clean exit proves the gate is a no-op.
+VULNERABLE_SELF_TEST_PIN = "requests==2.20.0"
+# The self-test must branch on the pip-audit result itself (an `if` over
+# the audit command or an rc=$? capture) ...
+SELF_TEST_GUARD_RE = re.compile(r"if\s+pip-audit|if[^\n;]*pip-audit[^\n;]*;\s*then|\$\?")
+# ... and carry an explicit non-zero exit path for an unexpectedly clean audit.
+NONZERO_EXIT_RE = re.compile(r"\bexit\s+-?[1-9][0-9]*\b")
+PIN_LINE_RE = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)==([^\s;#\\]+)")
+API_LOCKFILE = ROOT / "api/requirements-api.lock.txt"
+API_MANIFEST = ROOT / "api/requirements-api.txt"
+WORKER_LOCKFILE = ROOT / "deploy/worker/ubuntu/requirements-runtime.lock.txt"
+WORKER_MANIFEST = ROOT / "deploy/worker/ubuntu/requirements-runtime.txt"
+# Observed at base 18ba837: API lock 23 pins vs 7 direct (16
+# transitive-only), worker lock 57 pins vs 7 direct (50 transitive-only).
+# Thresholds leave lock-regeneration headroom while still proving the new
+# audits cover a substantial graph the direct audits never see.
+MIN_API_TRANSITIVE_PINS = 10
+MIN_WORKER_TRANSITIVE_PINS = 40
 # Only a DIRECT `needs.<id>.result` expression counts as a binding: a masked
 # expression such as `needs.x.result == 'success' && 'success' || 'success'`
 # would always evaluate to success on GitHub, so it must fail the probes
@@ -140,6 +182,25 @@ def _run_shell(job: dict, results: dict) -> subprocess.CompletedProcess:
         text=True,
         timeout=60,
     )
+
+
+def _run_lines(job: dict) -> list:
+    """Every line of every run step of a job (same split as _assert_scanner_pins)."""
+    lines = []
+    for step in job.get("steps") or []:
+        if isinstance(step, dict) and step.get("run"):
+            lines.extend(str(step["run"]).splitlines())
+    return lines
+
+
+def _pins(text: str) -> set:
+    """Exact ``name==version`` pins declared at line level of a requirements file."""
+    pins = set()
+    for line in text.splitlines():
+        match = PIN_LINE_RE.match(line)
+        if match:
+            pins.add(f"{match.group(1)}=={match.group(2)}")
+    return pins
 
 
 @unittest.skipUnless(HAS_YAML, "PyYAML not installed; this module requires the test-only parser")
@@ -421,3 +482,137 @@ class SecurityMergeGateTests(unittest.TestCase):
         mut["jobs"][AGGREGATE_JOB]["steps"][0]["continue-on-error"] = True
         with self.subTest(mutant="outer-run-step-continue-on-error"), self.assertRaises(AssertionError):
             self._assert_gate_steps_clean(mut["jobs"][AGGREGATE_JOB])
+
+    # -- 7. issue #686: full hash-locked dependency-graph audit (RED) ------
+    # The pre-#686 direct-manifest assertions (AUDIT_WORKER_LINE /
+    # AUDIT_API_LINE inside _assert_scanner_pins, exercised by
+    # test_baseline_protections and test_mutations_detected) stay exactly as
+    # they are; everything below is additive and must not weaken them.
+
+    def test_pip_audit_install_is_pinned(self) -> None:
+        # RED on base: the install step is the bare `pip install pip-audit`.
+        job = _job(_yaml_load(SECURITY_YML), "dependency-audit")
+        install_lines = [ln for ln in _run_lines(job) if "pip install pip-audit" in ln]
+        self.assertTrue(install_lines, "dependency-audit no longer installs pip-audit at all")
+        for ln in install_lines:
+            with self.subTest(install=ln):
+                self.assertIsNotNone(
+                    PIP_AUDIT_PIN_RE.search(ln),
+                    f"pip-audit install is not pinned to an exact pip-audit==X.Y.Z version: {ln!r}",
+                )
+                self.assertIsNone(
+                    BARE_PIP_AUDIT_INSTALL_RE.fullmatch(ln.strip()),
+                    f"bare unpinned 'pip install pip-audit' remains: {ln!r}",
+                )
+
+    def test_dependency_audit_lockfile_commands(self) -> None:
+        # RED on base: neither hash-locked graph audit command exists; the
+        # verbatim constants embed --disable-pip, --format json and --output.
+        job = _job(_yaml_load(SECURITY_YML), "dependency-audit")
+        lines = _run_lines(job)
+        for expected in (AUDIT_API_LOCK_LINE, AUDIT_WORKER_LOCK_LINE):
+            with self.subTest(command=expected):
+                self.assertIn(
+                    expected,
+                    lines,
+                    "hash-locked dependency-graph audit command missing from "
+                    "dependency-audit (must be verbatim, with --disable-pip, "
+                    "--format json and --output)",
+                )
+
+    def test_lockfile_audit_reports_uploaded(self) -> None:
+        # RED on base: dependency-audit has no artifact-upload step at all.
+        job = _job(_yaml_load(SECURITY_YML), "dependency-audit")
+        uploads = [
+            step
+            for step in job.get("steps") or []
+            if isinstance(step, dict) and str(step.get("uses") or "").startswith("actions/upload-artifact@")
+        ]
+        self.assertTrue(uploads, "dependency-audit must upload the pip-audit JSON reports as an artifact")
+        pinned = [
+            step
+            for step in uploads
+            if re.fullmatch(r"actions/upload-artifact@[0-9a-f]{40}", str(step.get("uses") or ""))
+        ]
+        self.assertTrue(pinned, "the pip-audit report artifact must be uploaded by a SHA-pinned action")
+        paths = []
+        for step in pinned:
+            path = (step.get("with") or {}).get("path")
+            if isinstance(path, list):
+                paths.extend(str(item) for item in path)
+            elif path is not None:
+                paths.append(str(path))
+        blob = "\n".join(paths)
+        for report in (PIP_AUDIT_API_REPORT, PIP_AUDIT_WORKER_REPORT):
+            with self.subTest(report=report):
+                self.assertIn(
+                    report,
+                    blob,
+                    "lockfile audit JSON report is not part of the uploaded artifact",
+                )
+
+    def test_negative_vulnerable_pin_self_test(self) -> None:
+        # RED on base: no step feeds the known-vulnerable transitive pin to
+        # the audit.  A passing implementation runs pip-audit --disable-pip
+        # on requests==2.20.0 inside a guard (if ... pip-audit ...; then
+        # ... exit 1; fi, or an rc=$? capture) so the step exits non-zero
+        # exactly when the audit unexpectedly reports the pin clean, with no
+        # continue-on-error and no step-level `if` to swallow that failure.
+        job = _job(_yaml_load(SECURITY_YML), "dependency-audit")
+        step = next(
+            (
+                s
+                for s in job.get("steps") or []
+                if isinstance(s, dict) and s.get("run") and VULNERABLE_SELF_TEST_PIN in str(s["run"])
+            ),
+            None,
+        )
+        self.assertIsNotNone(
+            step,
+            f"no negative self-test step feeds the known-vulnerable pin {VULNERABLE_SELF_TEST_PIN} "
+            "to the audit gate",
+        )
+        body = str(step["run"])
+        self.assertIn("pip-audit", body, "self-test must exercise the pip-audit command itself")
+        self.assertIn("--disable-pip", body, "self-test must use the same --disable-pip audit mode")
+        self.assertNotIn(
+            "continue-on-error",
+            step,
+            "the negative self-test must not be silently treated as success",
+        )
+        self.assertNotIn("if", step, "the negative self-test run step must be unconditional")
+        self.assertRegex(
+            body,
+            SELF_TEST_GUARD_RE,
+            "self-test does not branch on the pip-audit result (no guard for an unexpectedly clean audit)",
+        )
+        self.assertRegex(
+            body,
+            NONZERO_EXIT_RE,
+            "self-test lacks a non-zero exit path when the vulnerable pin audits clean",
+        )
+
+    def test_lockfiles_cover_transitive_only_pins(self) -> None:
+        # Premise (GREEN on base by design): each lock declares a substantial
+        # pin set absent from its direct manifest, so auditing the locks adds
+        # real coverage instead of duplicating the direct-manifest audits.
+        api_transitive = _pins(API_LOCKFILE.read_text(encoding="utf-8")) - _pins(
+            API_MANIFEST.read_text(encoding="utf-8")
+        )
+        worker_transitive = _pins(WORKER_LOCKFILE.read_text(encoding="utf-8")) - _pins(
+            WORKER_MANIFEST.read_text(encoding="utf-8")
+        )
+        with self.subTest(contour="api"):
+            self.assertTrue(api_transitive, "api lock has no transitive-only pins to audit")
+            self.assertGreaterEqual(
+                len(api_transitive),
+                MIN_API_TRANSITIVE_PINS,
+                f"api transitive-only coverage too small: {sorted(api_transitive)}",
+            )
+        with self.subTest(contour="worker"):
+            self.assertTrue(worker_transitive, "worker lock has no transitive-only pins to audit")
+            self.assertGreaterEqual(
+                len(worker_transitive),
+                MIN_WORKER_TRANSITIVE_PINS,
+                f"worker transitive-only coverage too small: {sorted(worker_transitive)}",
+            )
