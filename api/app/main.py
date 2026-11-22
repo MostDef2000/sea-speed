@@ -55,6 +55,7 @@ try:  # package context (api.app.main) and direct-file load both supported
         SHA_RE,
         WORKER_CONTROL_TIMEOUT_SEC,
     )
+    from .log_redaction import install_api_redaction, redact_log_text
     from . import identity  # noqa: F401  # explicit re-export seam (issue #396 wave 1)
     from .identity import (  # noqa: F401  # explicit re-export seam (issue #396 wave 1)
         now_iso,
@@ -102,6 +103,7 @@ except ImportError:  # direct uvicorn app-dir / spec_from_file_location executio
         SHA_RE,
         WORKER_CONTROL_TIMEOUT_SEC,
     )
+    from log_redaction import install_api_redaction, redact_log_text
     import identity  # noqa: F401  # explicit re-export seam (issue #396 wave 1)
     from identity import (  # noqa: F401  # explicit re-export seam (issue #396 wave 1)
         now_iso,
@@ -298,6 +300,11 @@ except ImportError:  # direct uvicorn app-dir / spec_from_file_location executio
 
 _LOGGER = logging.getLogger(__name__)
 
+# Issue #698: wire API-side log redaction at app import. Idempotent across
+# package/app-dir imports and importlib.reload (marked filter + formatter);
+# covers the identity audit logger and uvicorn.access/uvicorn.error handlers.
+install_api_redaction()
+
 
 app = FastAPI(title="Sea Speed API")
 
@@ -403,7 +410,7 @@ async def post_cam1_passage(
     try:
         persist_passage_object(passage)
     except Exception as error:
-        print(f"passage registry mirror failed for {passage.get('passage_id')}: {error}", file=sys.stderr)
+        print(redact_log_text(f"passage registry mirror failed for {passage.get('passage_id')}: {error}"), file=sys.stderr)
     sweep_events_media()
     return {"ok": True, "passage": passage}
 

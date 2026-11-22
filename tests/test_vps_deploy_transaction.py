@@ -82,6 +82,9 @@ class VpsDeployTransactionTests(unittest.TestCase):
             # Issue #396 wave 6: release_complete requires the live-feeds
             # module as well, so synthetic releases carry it too.
             "api/app/live_feeds.py": f"# live feeds fixture {sha}\n",
+            # Issue #698: release_complete/download_release now require the
+            # log-redaction module too, so synthetic releases carry it.
+            "api/app/log_redaction.py": f"# log redaction fixture {sha}\n",
             "frontend/sea-speed/index.html": f"operator {sha}\n",
             "frontend/sea-speed/objects/index.html": f"objects {sha}\n",
             "frontend/sea-speed/cameras/index.html": f"cameras {sha}\n",

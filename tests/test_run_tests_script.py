@@ -249,6 +249,11 @@ class ImportHygieneScanTests(unittest.TestCase):
                 ("test_689_metadata_json_type.py", 108, "fastapi"),
                 ("test_689_metadata_json_type.py", 109, "fastapi"),
                 ("test_689_metadata_json_type.py", 111, "httpx"),
+                # Issue #698: uvicorn is an api-lock pin, not a battery
+                # dependency — the AccessFormatter probe uses the same
+                # guarded-optional idiom (extending the pin is the documented
+                # registration procedure, tests/test_616:43-45).
+                ("test_698_log_redaction.py", 117, "uvicorn"),
                 ("test_api_http_integration.py", 83, "fastapi"),
                 ("test_api_http_integration.py", 84, "fastapi"),
                 ("test_api_http_integration.py", 86, "httpx"),

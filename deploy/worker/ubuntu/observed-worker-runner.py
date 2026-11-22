@@ -15,6 +15,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import IO, Any
 
+# Issue #698: resolve the release-relative api/app directory from THIS file
+# (independent of cwd) and load the stdlib-only redaction helper so worker
+# stdout/stderr lines are sanitized at the single forward() boundary.
+_API_APP_DIR = Path(__file__).resolve().parents[3] / "api" / "app"
+if str(_API_APP_DIR) not in sys.path:
+    sys.path.insert(0, str(_API_APP_DIR))
+from log_redaction import redact_log_text  # noqa: E402
+
 SHA40_RE = re.compile(r"^[0-9a-f]{40}$")
 
 
@@ -186,7 +194,10 @@ def main() -> int:
         if pipe is None:
             return
         for line in iter(pipe.readline, ""):
-            target.write(line)
+            # Sanitize only what reaches the stream; the ORIGINAL line feeds
+            # record_line so numeric/prefix telemetry parsing is unchanged.
+            # Newline, stream, flush and ordering are preserved as-is.
+            target.write(redact_log_text(line))
             target.flush()
             record_line(line.rstrip("\n"))
         pipe.close()

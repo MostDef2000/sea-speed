@@ -43,6 +43,7 @@ try:  # package context (api.app.identity) and direct-file load both supported
         WORKER_CONTROL_TOKEN,
         WORKER_CONTROL_URL,
     )
+    from .log_redaction import RedactingFilter
 except ImportError:  # direct uvicorn app-dir / spec_from_file_location execution
     if str(Path(__file__).resolve().parent) not in sys.path:
         sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -60,6 +61,7 @@ except ImportError:  # direct uvicorn app-dir / spec_from_file_location executio
         WORKER_CONTROL_TOKEN,
         WORKER_CONTROL_URL,
     )
+    from log_redaction import RedactingFilter
 
 __all__ = [
     "now_iso",
@@ -99,6 +101,17 @@ def require_auth(authorization: Optional[str]) -> None:
 
 # Issue #520: module logger. Private: never part of __all__.
 _LOGGER = logging.getLogger(__name__)
+
+# Issue #698: mask credential values in the audit record before it reaches
+# stderr/journald. The filter renders + sanitizes the message in place, so
+# caplog/assertLogs captures see the same masked text. Marked on the filter
+# instance (the Logger singleton survives importlib.reload) so repeated module
+# init never attaches a second filter.
+if not any(
+    getattr(existing, "_sea_speed_698_redacting_filter", False)
+    for existing in _LOGGER.filters
+):
+    _LOGGER.addFilter(RedactingFilter())
 
 # Issue #591: under default startup (uvicorn 0.54.0 app-dir mode) nothing
 # configures logging, so this logger's effective level is WARNING and the

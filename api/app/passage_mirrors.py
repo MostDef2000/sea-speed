@@ -30,6 +30,7 @@ try:  # package context (api.app.passage_mirrors) and direct-file load both supp
         optional_int,
         prune_objects_registry,
     )
+    from .log_redaction import redact_log_text
 except ImportError:  # direct uvicorn app-dir / spec_from_file_location execution
     if str(Path(__file__).resolve().parent) not in sys.path:
         sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -42,6 +43,7 @@ except ImportError:  # direct uvicorn app-dir / spec_from_file_location executio
         optional_int,
         prune_objects_registry,
     )
+    from log_redaction import redact_log_text
 
 __all__ = [
     "persist_passage_object",
@@ -130,7 +132,7 @@ def import_existing_passages() -> int:
             if persist_passage_object(dict(row)):
                 mirrored += 1
         except Exception as error:
-            print(f"passage registry mirror failed for {row['passage_id']}: {error}", file=sys.stderr)
+            print(redact_log_text(f"passage registry mirror failed for {row['passage_id']}: {error}"), file=sys.stderr)
     return mirrored
 
 
@@ -147,7 +149,7 @@ def _delete_passage_mirrors(passage_ids: List[str]) -> int:
             )
             return max(0, cursor.rowcount)
     except Exception as error:
-        print(f"passage mirror sync failed: {error}", file=sys.stderr)
+        print(redact_log_text(f"passage mirror sync failed: {error}"), file=sys.stderr)
         return 0
 
 
