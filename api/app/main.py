@@ -643,9 +643,21 @@ async def post_analytics_state(
         old_state = store.read_camera_state(STATE_DB_FILE, camera_id)
         if old_state is None:
             old_state = analytics_default_state(camera_id)
+        # Issue #700: a metadata-only heartbeat carries no analytics fields,
+        # while upsert_camera_state REPLACES the whole payload_json row. Merge
+        # the incoming payload into the prior state (new values win) so prior
+        # analytics fields survive alongside the new conformance fields.
+        data = {**old_state, **data}
         data["last_overlay_url"] = old_state.get("last_overlay_url")
         if data.get("overlay_rev") is None:
             data["overlay_rev"] = old_state.get("overlay_rev", old_state.get("frame_no", 0))
+        # Issue #700 recovery: a conforming frame carries no reason, but the
+        # merge above is sticky (old keys survive when the new payload omits
+        # them). Clear the transient rejection keys explicitly so a conforming
+        # state never reads a stale unknown_reason/frame_conformance_detail.
+        if data.get("frame_conforming") is True:
+            data.pop("unknown_reason", None)
+            data.pop("frame_conformance_detail", None)
     # Final scan before the verbatim persist: the no-overlay branch merges
     # overlay_rev from old_state, which can carry NaN from pre-fix rows.
     nonfinite_path = store.find_nonfinite_json_value(data)
