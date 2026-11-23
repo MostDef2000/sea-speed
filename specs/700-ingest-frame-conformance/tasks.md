@@ -13,8 +13,9 @@
 - [x] T003 Add metadata-only `post_state(metadata, None)` support to `worker/worker_transport.py`.
 - [x] T004 Document the opt-in, bounded thresholds in `deploy/worker/ubuntu/worker.env.example` and `road-worker.env.example`.
 - [x] T005 Author the SDD trio under `specs/700-ingest-frame-conformance/`.
-- [ ] T006 Record required CI and exact-green-head merge evidence after the bounded PR is opened by the orchestrator.
-- [ ] T007 Record test-worker unit/integration evidence under `tests/**` (separate worker owns tests; PENDING here).
+- [x] T006 Add the API no-overlay merge and the conforming-recovery transient-key clearing in `api/app/main.py`.
+- [ ] T007 Record required CI and exact-green-head merge evidence after the bounded PR is opened by the orchestrator.
+- [x] T008 Record test-worker unit/integration evidence under `tests/**` (recovery clear test included).
 
 ## Requirements traceability
 
@@ -22,10 +23,10 @@
 - AC-002 | Task: T001 | Evidence: per-cell pixel luma std/max black rule; scratch smoke true black -> black_frame and dark noise -> None | Coverage: COVERED
 - AC-003 | Task: T001 | Evidence: `_slate_detail` uniform-column/transition/saturation rules and black-first ordering; scratch smoke bars -> slate_frame | Coverage: COVERED
 - AC-004 | Task: T001 | Evidence: `_update_freeze` elapsed + min-frames + low-signal exclusion; scratch smoke frozen at 10 s/11 frames | Coverage: COVERED
-- AC-005 | Task: T002 | Evidence: main-loop metadata-only state + `continue` before ROI/analytics/publications; queued state untouched | Coverage: COVERED
-- AC-006 | Task: T003 | Evidence: `post_state(metadata, None)` branch posts without opening a file; rejected metadata omits overlay_rev; scratch `requests.post` stub observed no `files` field | Coverage: COVERED
+- AC-005 | Task: T002, T006 | Evidence: main-loop metadata-only state + `continue` before ROI/analytics/publications; queued state untouched; `test_recovery_state_carries_no_stale_unknown_reason` covers recovery clearing | Coverage: COVERED
+- AC-006 | Task: T003, T006 | Evidence: `post_state(metadata, None)` posts without opening a file; rejected metadata omits overlay_rev; state merge preserves prior analytics; `test_metadata_only_state_post_preserves_prior_analytics_fields` passing | Coverage: COVERED
 - AC-007 | Task: T004 | Evidence: both env examples carry the same `FRAME_CONFORMANCE_*` opt-in block | Coverage: COVERED
-- AC-008 | Task: T005, T006 | Evidence: observed py_compile, ruff, validate_sdd and git scope outputs in the Evidence section; CI/merge PENDING | Coverage: COVERED
+- AC-008 | Task: T005, T008 | Evidence: observed targeted API suite 20 passed/9 subtests, clean-tree full suite 1725 passed/2 skipped/939 subtests/0 failed, py_compile, ruff and validate_sdd; CI/merge PENDING | Coverage: COVERED
 
 ## Completion gate
 
@@ -34,18 +35,18 @@
 - [x] Local static verification observed (py_compile, ruff, validate_sdd)
 - [ ] Required CI green on exact head
 - [ ] Exact-green-head merge complete
-- [ ] Test-worker tests/** evidence recorded
+- [x] Test-worker tests/** evidence recorded (targeted 20 passed/9 subtests; clean-tree full suite 1725 passed/2 skipped/939 subtests/0 failed)
 
 ## Definition of Done
 
 - [x] Issue/spec/plan/tasks current
 - [x] Exact changed-file scope verified
-- [ ] Required tests and evidence complete (test-worker tests/** PENDING)
+- [x] Required tests and evidence complete (targeted 20 passed/9 subtests; clean-tree full suite 1725 passed/2 skipped/939 subtests/0 failed)
 - [ ] Required CI green
 - [ ] Exact-green-head merge complete
-- [x] Deployment state resolved (Ubuntu worker release path unchanged; feature default OFF)
+- [x] Deployment state resolved (MIXED: VPS API state merge + Ubuntu worker release path; feature default OFF)
 - [x] Runtime acceptance resolved (PENDING by design — no production enablement in this scope)
-- [x] Deferred work recorded (test-worker coverage and field night observation)
+- [x] Deferred work recorded (field night observation; required CI and merge evidence)
 - [x] Risks resolved or explicitly accepted (NFR-006 / RISK-001..004)
 - [x] Waivers resolved or current (none required)
 
@@ -53,11 +54,18 @@
 
 Observed on this working tree (2026-11-23), no fabricated results:
 
-- `python3 -m py_compile worker/hls_motion_yolo_worker_events.py worker/worker_transport.py`
-  → `PYCOMPILE_OK`.
-- `ruff check --config scripts/quality/ruff.toml worker/hls_motion_yolo_worker_events.py worker/worker_transport.py`
+- `python3 -m py_compile api/app/main.py` → `PYCOMPILE_OK`.
+- `python3 -m ruff check --config scripts/quality/ruff.toml api/app/main.py`
   → `All checks passed!`.
-- Scratch smoke `/tmp/opencode/700-frame-conformance/smoke.py` (real numpy, stubbed cv2/ultralytics because the local env lacks them):
+- `python3 -m pytest tests/test_api_http_integration.py -q` →
+  `20 passed, 1 warning, 9 subtests passed`, including
+  `test_metadata_only_state_post_preserves_prior_analytics_fields` and
+  `test_recovery_state_carries_no_stale_unknown_reason`.
+- Post-commit clean-tree `python3 -m pytest tests/ -q` (delivery-orchestrator
+  observed) → `1725 passed, 2 skipped, 939 subtests, 0 failed` (the earlier
+  1724-passed clean-tree baseline plus the new recovery test).
+- Scratch smoke `/tmp/opencode/700-frame-conformance/smoke.py` (real numpy,
+  stubbed cv2/ultralytics because the local env lacks them):
   - true black → `black_frame`;
   - dark random-noise night control → `None`;
   - saturated vertical bars → `slate_frame`;
@@ -68,14 +76,8 @@ Observed on this working tree (2026-11-23), no fabricated results:
   no file open).
 - `python3 scripts/ci/validate_sdd.py` → `Sea Speed SDD validation passed` (exit 0).
 - Feature quality-format harness (local, `validate_feature_quality` with a
-  `- Risk profile: REQUIRED` PR body and the changed worker/deploy files) →
+  `- Risk profile: REQUIRED` PR body and the changed API/worker/deploy files) →
   `QUALITY_VALIDATION_PASSED`.
-- `git status --short` → modified `deploy/worker/ubuntu/road-worker.env.example`,
-  `deploy/worker/ubuntu/worker.env.example`,
-  `worker/hls_motion_yolo_worker_events.py`,
-  `worker/worker_transport.py`; untracked `specs/700-ingest-frame-conformance/`.
-- `git diff --stat` → 4 files changed, 379 insertions(+), 6 deletions(-):
-  `road-worker.env.example` +18/−0, `worker.env.example` +19/−1,
-  `hls_motion_yolo_worker_events.py` +331/−0, `worker_transport.py` +11/−5;
-  the SDD directory is new and therefore untracked in this stat.
-- Test-worker unit/integration evidence under `tests/**`: PENDING — owned by a separate worker; this task did not edit tests.
+- This worker changed only `api/app/main.py` and
+  `specs/700-ingest-frame-conformance/{spec,plan,tasks}.md`; the RED test in
+  `tests/test_api_http_integration.py` was pre-existing and was not edited here.

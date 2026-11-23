@@ -651,6 +651,13 @@ async def post_analytics_state(
         data["last_overlay_url"] = old_state.get("last_overlay_url")
         if data.get("overlay_rev") is None:
             data["overlay_rev"] = old_state.get("overlay_rev", old_state.get("frame_no", 0))
+        # Issue #700 recovery: a conforming frame carries no reason, but the
+        # merge above is sticky (old keys survive when the new payload omits
+        # them). Clear the transient rejection keys explicitly so a conforming
+        # state never reads a stale unknown_reason/frame_conformance_detail.
+        if data.get("frame_conforming") is True:
+            data.pop("unknown_reason", None)
+            data.pop("frame_conformance_detail", None)
     # Final scan before the verbatim persist: the no-overlay branch merges
     # overlay_rev from old_state, which can carry NaN from pre-fix rows.
     nonfinite_path = store.find_nonfinite_json_value(data)

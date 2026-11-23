@@ -108,7 +108,10 @@ The detector keeps one active reason. Any frame that no longer matches the
 active rule (changed sample for freeze, non-black/non-slate content) clears the
 reason; the worker logs the recovery and posts `frame_conforming=true`. The
 normal heartbeat then carries `frame_conforming=true` with no stale
-`unknown_reason`.
+`unknown_reason`. The API state merge is sticky on write — a key present in the
+prior row survives when the new payload omits it — so the no-overlay branch
+explicitly drops `unknown_reason` and `frame_conformance_detail` whenever
+`frame_conforming` is true.
 
 ## Diagnostic sink
 
@@ -207,14 +210,15 @@ Scenario: recovery clears the old reason
 
 - NFR-001 | Area: OPERABILITY | Target: opt-in detector disabled by default with bounded, finite thresholds read once | Validation: code inspection of FrameConformanceDetector plus startup log | Evidence: scratch smoke startup line lists clamped black/slate/freeze thresholds | Status: PASS
 - NFR-002 | Area: RELIABILITY | Target: no detector crash on the synthetic family and no runtime NameError | Validation: py_compile and scratch smoke execution | Evidence: observed py_compile OK and smoke outputs for black/night/slate/freeze/recovery | Status: PASS
-- NFR-003 | Area: DATA | Target: rejected frames create no new analytics, live, event, passage or snapshot publication and no fresh overlay revision | Validation: main-loop guard inspection and metadata builder inspection | Evidence: guard `continue` before ROI processing; `build_frame_conformance_state` omits `overlay_rev`; `post_state(None)` branch | Status: PASS
+- NFR-003 | Area: DATA | Target: rejected frames create no new analytics, live, event, passage or snapshot publication and no fresh overlay revision | Validation: main-loop guard inspection, metadata builder inspection and API state-merge integration tests | Evidence: guard `continue` before ROI processing; `build_frame_conformance_state` omits `overlay_rev`; `post_state(None)`; targeted API suite 20 passed / 9 subtests; post-commit clean-tree full suite 1725 passed / 2 skipped / 939 subtests / 0 failed | Status: PASS
 - NFR-004 | Area: SECURITY | Target: no new credentials, public exposure, authority or dependency | Validation: diff inspection | Evidence: only stdlib imports, cv2 already present, shared vocabulary loaded by path | Status: PASS
 - NFR-005 | Area: OBSERVABILITY | Target: typed diagnostic per transition and state reason visible to the operator | Validation: scratch smoke transition logs | Evidence: observed lines `Frame conformance: ... reason=black_frame/slate_frame/frozen_frame` and recovery | Status: PASS
+- NFR-007 | Area: DATA | Target: a metadata-only heartbeat preserves prior analytics fields and a conforming recovery carries no stale rejection reason | Validation: API integration tests for merge preservation and recovery clearing | Evidence: `test_metadata_only_state_post_preserves_prior_analytics_fields` and `test_recovery_state_carries_no_stale_unknown_reason`; 20 passed / 9 subtests targeted; clean-tree full suite 1725 passed / 2 skipped / 939 subtests / 0 failed | Status: PASS
 - NFR-006 | Area: RELIABILITY | Target: document residual night-time false-positive risk; a textured low-light control is rejected by the veto | Validation: scratch smoke with dark random-noise frame; documented limitation | Evidence: observed `night(scene) -> None`; spec states pixel-only detection cannot guarantee zero night false positives | Status: CONCERNS
 
 ## Runtime feedback
 
 - Runtime acceptance: PENDING — opt-in default OFF; no production enablement is part of this change.
 - Accepted production behavior: unchanged while disabled; when enabled, rejected frames produce state-only diagnostics and skip new publications.
-- Regressions/learning: the first implementation used cell means only and misclassified a noisy dark scene as black; the repaired detector uses per-cell pixel luma std/max so the control is not black.
-- Follow-up work: test-worker coverage under `tests/**` is PENDING; night-time false-positive rate must be observed in the field before enabling remotely.
+- Regressions/learning: the first implementation used cell means only and misclassified a noisy dark scene as black; the repaired detector uses per-cell pixel luma std/max so the control is not black. A second defect was the sticky state merge inheriting `unknown_reason` on recovery; the API now clears transient rejection keys when `frame_conforming` is true.
+- Follow-up work: automated coverage now exists in `tests/test_700_ingest_frame_conformance.py` and `tests/test_api_http_integration.py`; the night-time false-positive rate must still be observed in the field before enabling remotely.

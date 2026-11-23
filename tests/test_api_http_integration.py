@@ -420,6 +420,60 @@ class SeaSpeedApiHttpIntegrationTests(unittest.TestCase):
         self.assertEqual(state["last_overlay_url"], overlay_url)
         self.assertEqual(state["overlay_rev"], 100)
 
+    def test_recovery_state_carries_no_stale_unknown_reason(self):
+        """Issue #700: a conformance RECOVERY post has frame_conforming:true
+        and deliberately carries NO unknown_reason key. The no-overlay merge
+        ({**old_state, **data}) must not carry the rejection's stale reason
+        forward: a state that claims conformance while reading
+        unknown_reason:"black_frame" is a contradiction the operator sees.
+        The merge itself must stay intact — analytics fields posted with the
+        rejected state survive the recovery post. Self-contained seed (the
+        rejected post carries the analytics fields) so the assertions hold
+        regardless of test order.
+        """
+        with self.client() as client:
+            rejected = {
+                "frame_no": 101,
+                "frame_conforming": False,
+                "unknown_reason": "black_frame",
+                "worker_online": True,
+                "detections": 7,
+                "tracks": 5,
+                "crossings": {"left_to_right": 3, "right_to_left": 2},
+                "model_name": "yolo11s.pt",
+            }
+            first = client.post(
+                "/api/analytics/cam1/state",
+                data={"metadata": json.dumps(rejected)},
+                headers=AUTH_HEADERS,
+            )
+            self.assertEqual(first.status_code, 200, first.text)
+
+            # Recovery: conforming again, NO unknown_reason key at all.
+            recovery = {
+                "frame_no": 102,
+                "frame_conforming": True,
+                "worker_online": True,
+            }
+            second = client.post(
+                "/api/analytics/cam1/state",
+                data={"metadata": json.dumps(recovery)},
+                headers=AUTH_HEADERS,
+            )
+            self.assertEqual(second.status_code, 200, second.text)
+
+            state = client.get("/api/analytics/cam1/state").json()
+
+        # No stale rejection reason on a conforming state.
+        self.assertTrue(state["frame_conforming"])
+        self.assertIsNone(state.get("unknown_reason"))
+        self.assertEqual(state["frame_no"], 102)
+        # The merge behavior itself stays intact across the transition.
+        self.assertEqual(state["detections"], 7)
+        self.assertEqual(state["tracks"], 5)
+        self.assertEqual(state["crossings"], {"left_to_right": 3, "right_to_left": 2})
+        self.assertEqual(state["model_name"], "yolo11s.pt")
+
     # -- c. ROI ------------------------------------------------------------
 
     def test_roi_get_defaults_then_admin_save_round_trip(self):

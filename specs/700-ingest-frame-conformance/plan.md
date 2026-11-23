@@ -31,7 +31,9 @@ per reader beside `MotionDetector`:
    supports the metadata-only POST. `api/app/main.py` no-overlay state branch
    now merges the incoming payload into the stored row (`data = {**old_state, **data}`),
    so prior analytics fields survive while new conformance fields win; overlay
-   bookkeeping and the non-finite scan are preserved.
+   bookkeeping and the non-finite scan are preserved. Because that merge is
+   sticky, a conforming post explicitly clears `unknown_reason` and
+   `frame_conformance_detail`.
 4. `deploy/worker/ubuntu/worker.env.example` and `road-worker.env.example` —
    identical opt-in semantics and bounded thresholds.
 
@@ -49,6 +51,10 @@ per reader beside `MotionDetector`:
 - Merge, not replace, in the API no-overlay branch: `upsert_camera_state`
   replaces the whole JSON row, so preserving only overlay bookkeeping erased
   detections/tracks/crossings/model_name on every #700 heartbeat.
+- Merge-on-write is sticky: a key present in the prior row survives when the
+  incoming payload omits it. Transient rejection keys must therefore be cleared
+  explicitly; when `frame_conforming is True` the API drops `unknown_reason` and
+  `frame_conformance_detail` before the non-finite scan and verbatim persist.
 - Omit `overlay_rev` from rejected-frame metadata: the API then keeps the last
   accepted overlay revision instead of binding the last good image to a rejected
   frame number.
@@ -85,27 +91,17 @@ Observed locally on this working tree (2026-11-23):
 - `python3 scripts/ci/validate_sdd.py` → recorded in tasks.md evidence.
 - `git status --short` / `git diff --stat` → recorded in tasks.md evidence.
 - `python3 -m pytest tests/test_api_http_integration.py -q` →
-  `19 passed, 1 warning, 9 subtests passed`.
-- `python3 -m pytest tests/test_700_ingest_frame_conformance.py -q` →
-  `2 failed, 18 passed, 1 subtests passed`: both failures are the pre-existing
-  working-tree scope guards (`test_working_tree_touches_only_the_700_surface_and_tests`
-  and the `api/app/main.py` subfail of `test_no_workflow_lockfile_or_api_change`),
-  which still forbid any `api/**` change. All #700 behaviour tests pass.
-- `python3 -m pytest tests/ -q` →
-  `5 failed, 1720 passed, 2 skipped, 1 warning, 942 subtests passed in 161.36s`.
-  The five failures are stale cross-issue working-tree scope guards
-  (`test_685_shared_operator_css`, `test_687_single_opencv_wheel`,
-  `test_697_typed_unknown_reason`, and the two #700 guards) rejecting the
-  required `api/app/main.py` modification. Tests were not edited per the work
-  order; the guard update is owned by the test worker/orchestrator.
+  `20 passed, 1 warning, 9 subtests passed`, including
+  `test_metadata_only_state_post_preserves_prior_analytics_fields` and the new
+  recovery test `test_recovery_state_carries_no_stale_unknown_reason`.
+- Post-commit clean-tree `python3 -m pytest tests/ -q` (delivery-orchestrator
+  observed) → `1725 passed, 2 skipped, 939 subtests, 0 failed` (the earlier
+  1724-passed clean-tree baseline plus the new recovery test).
 
 Automated coverage now exists: `tests/test_700_ingest_frame_conformance.py`
-(behaviour tests) and the new
-`test_metadata_only_state_post_preserves_prior_analytics_fields` in
-`tests/test_api_http_integration.py`. Observed results are recorded in the
-Validation section; the full-suite scope-guard conflict caused by the required
-`api/app/main.py` working-tree change is reported there and was not "fixed" by
-editing tests.
+(behaviour tests) and the two state-merge tests in
+`tests/test_api_http_integration.py` (analytics-field preservation and recovery
+reason clearing).
 
 ## Risk profile
 
@@ -124,7 +120,7 @@ editing tests.
 - TEST-700-005 | Covers: AC-005 | Level: integration | Priority: P0 | Evidence: `test_rejected_state_is_metadata_only_with_typed_reason`, `test_recovery_state_has_no_reason_and_no_overlay_rev`, `test_road_rejects_black_frames_publications_and_resumes` — passing
 - TEST-700-006 | Covers: AC-006 | Level: unit | Priority: P0 | Evidence: `test_metadata_only_post_never_opens_a_path_and_sends_no_file_part`, `test_overlay_post_keeps_the_file_part_behaviour` — passing
 - TEST-700-007 | Covers: AC-007 | Level: unit | Priority: P1 | Evidence: no dedicated env-content test exists; both `deploy/worker/ubuntu/*.env.example` files were inspected with the identical opt-in block, and `test_working_tree_touches_only_the_700_surface_and_tests` only scopes them as allowed paths
-- TEST-700-008 | Covers: AC-008 | Level: integration | Priority: P0 | Evidence: `tests/test_api_http_integration.py::test_metadata_only_state_post_preserves_prior_analytics_fields` — 19 passed / 9 subtests in the targeted run; observed py_compile, ruff, validate_sdd and git scope; full-suite stale guard conflict reported in Validation
+- TEST-700-008 | Covers: AC-008 | Level: integration | Priority: P0 | Evidence: `tests/test_api_http_integration.py::test_metadata_only_state_post_preserves_prior_analytics_fields` and `::test_recovery_state_carries_no_stale_unknown_reason` — 20 passed / 9 subtests targeted; post-commit clean-tree full suite 1725 passed / 2 skipped / 939 subtests / 0 failed; py_compile, ruff, validate_sdd observed
 
 ## Correct-course check
 
@@ -149,7 +145,7 @@ editing tests.
 - TX-002 | Stage: PRE-MUTATION | Mutation: NO | Failure disposition: FATAL | State after failure: repository still on the previous worker release | Retry: NO | Rollback: NONE | Evidence: py_compile + ruff on both changed .py files; detector enabled flag defaults to 0 so the existing worker behavior is unchanged at startup; no secrets, credentials or public exposure added
 - TX-003 | Stage: MUTATION | Mutation: POSSIBLE | Failure disposition: FATAL | State after failure: staged release discarded; running worker services unchanged | Retry: NO | Rollback: routine Ubuntu worker release rollback to the previous complete release via rollback-exact.sh | Evidence: worker source and env examples are installed by the existing Ubuntu worker release path; the change is code-only with no installer or systemd unit change
 - TX-004 | Stage: VERIFICATION | Mutation: NO | Failure disposition: FATAL | State after failure: previous release remains active | Retry: NO | Rollback: NONE | Evidence: existing post-deploy worker health gate (verify-runtime-progression.py / check-worker-health.py) applies unchanged; local verification observed py_compile OK, ruff passed, validate_sdd result recorded in tasks.md
-- TX-005 | Stage: STATE-COMMIT | Mutation: NO | Failure disposition: FATAL | State after failure: unchanged worker state store | Retry: NO | Rollback: NONE | Evidence: rejected-frame state POST is additive metadata; API merges previous overlay_rev/last_overlay_url when overlay is None; no schema or database change
+- TX-005 | Stage: STATE-COMMIT | Mutation: NO | Failure disposition: FATAL | State after failure: unchanged worker state store | Retry: NO | Rollback: NONE | Evidence: rejected-frame state POST is additive metadata; API merges previous overlay_rev/last_overlay_url when overlay is None and clears transient reason keys on a conforming post; no schema or database change
 - TX-006 | Stage: HOUSEKEEPING | Mutation: NO | Failure disposition: BEST-EFFORT | State after failure: temporary scratch only in /tmp/opencode, no repository residue | Retry: NO | Rollback: NONE | Evidence: all scratch artifacts live under /tmp/opencode/700-frame-conformance; no progress or cache file added to the repository
-- TX-007 | Stage: EVIDENCE | Mutation: NO | Failure disposition: BEST-EFFORT | State after failure: evidence partial but no runtime effect | Retry: NO | Rollback: NONE | Evidence: observed API test run 19 passed/9 subtests; #700 behaviour tests 18 passed; full-suite stale scope-guard conflict recorded in Validation and not represented as green
+- TX-007 | Stage: EVIDENCE | Mutation: NO | Failure disposition: BEST-EFFORT | State after failure: evidence partial but no runtime effect | Retry: NO | Rollback: NONE | Evidence: targeted API suite 20 passed/9 subtests including the recovery clearing test; post-commit clean-tree full suite 1725 passed/2 skipped/939 subtests/0 failed
 - TX-008 | Stage: ROLLBACK | Mutation: NO | Failure disposition: FATAL | State after failure: NONE | Retry: NO | Rollback: revert the bounded PR or roll the Ubuntu worker back to the previous complete release; because the feature is default OFF, runtime impact while disabled is none | Evidence: diff limited to allowed paths; detector disable path is a pass-through with no frame_conforming claim
