@@ -358,6 +358,68 @@ class SeaSpeedApiHttpIntegrationTests(unittest.TestCase):
         self.assertEqual(response.status_code, 422)
         self.assertEqual(response.json(), {"detail": "snapshot is required"})
 
+    # -- b2. camera state: #700 metadata-only heartbeat ---------------------
+
+    def test_metadata_only_state_post_preserves_prior_analytics_fields(self):
+        """Issue #700: the non-conforming heartbeat POSTs state WITHOUT an
+        overlay. The no-overlay branch must MERGE into the stored state:
+        replacing the payload_json row outright (store.upsert_camera_state)
+        while preserving only last_overlay_url/overlay_rev wipes every prior
+        analytics field (detections/tracks/crossings/model_name) from the
+        camera state on every rejected frame. The stored state after the
+        metadata-only post must keep the prior analytics fields, carry the
+        new conformance fields, and preserve the overlay bookkeeping.
+        """
+        with self.client() as client:
+            full_state = {
+                "frame_no": 100,
+                "overlay_rev": 100,
+                "detections": 7,
+                "tracks": 5,
+                "crossings": {"left_to_right": 3, "right_to_left": 2},
+                "model_name": "yolo11s.pt",
+                "frame_conforming": True,
+            }
+            first = client.post(
+                "/api/analytics/cam1/state",
+                data={"metadata": json.dumps(full_state)},
+                files={"overlay": ("overlay.jpg", b"\xff\xd8fixture-overlay", "image/jpeg")},
+                headers=AUTH_HEADERS,
+            )
+            self.assertEqual(first.status_code, 200, first.text)
+            overlay_url = first.json()["state"]["last_overlay_url"]
+            self.assertIsNotNone(overlay_url)
+
+            # The #700 non-conforming heartbeat: typed reason, no overlay,
+            # no analytics fields of its own.
+            heartbeat = {
+                "frame_no": 101,
+                "frame_conforming": False,
+                "unknown_reason": "black_frame",
+                "worker_online": True,
+            }
+            second = client.post(
+                "/api/analytics/cam1/state",
+                data={"metadata": json.dumps(heartbeat)},
+                headers=AUTH_HEADERS,
+            )
+            self.assertEqual(second.status_code, 200, second.text)
+
+            state = client.get("/api/analytics/cam1/state").json()
+
+        # Prior analytics fields survive the metadata-only post.
+        self.assertEqual(state["detections"], 7)
+        self.assertEqual(state["tracks"], 5)
+        self.assertEqual(state["crossings"], {"left_to_right": 3, "right_to_left": 2})
+        self.assertEqual(state["model_name"], "yolo11s.pt")
+        # New conformance fields are present and the new frame_no wins.
+        self.assertFalse(state["frame_conforming"])
+        self.assertEqual(state["unknown_reason"], "black_frame")
+        self.assertEqual(state["frame_no"], 101)
+        # Overlay bookkeeping from the full post is preserved verbatim.
+        self.assertEqual(state["last_overlay_url"], overlay_url)
+        self.assertEqual(state["overlay_rev"], 100)
+
     # -- c. ROI ------------------------------------------------------------
 
     def test_roi_get_defaults_then_admin_save_round_trip(self):

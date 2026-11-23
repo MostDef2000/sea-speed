@@ -28,8 +28,10 @@ per reader beside `MotionDetector`:
    old reason, and the ordinary heartbeat also carries `frame_conforming=true`
    while the detector is enabled.
 3. `worker/worker_transport.py` — `post_state(metadata, overlay_path=None)`
-   supports the metadata-only POST; no overlay branch merges the previous
-   revision server-side.
+   supports the metadata-only POST. `api/app/main.py` no-overlay state branch
+   now merges the incoming payload into the stored row (`data = {**old_state, **data}`),
+   so prior analytics fields survive while new conformance fields win; overlay
+   bookkeeping and the non-finite scan are preserved.
 4. `deploy/worker/ubuntu/worker.env.example` and `road-worker.env.example` —
    identical opt-in semantics and bounded thresholds.
 
@@ -44,6 +46,9 @@ per reader beside `MotionDetector`:
 - Metadata-only state on the existing heartbeat rather than a bare `continue`:
   a bare continue skips the only ordinary heartbeat and would make the worker
   look offline while rejected frames stream.
+- Merge, not replace, in the API no-overlay branch: `upsert_camera_state`
+  replaces the whole JSON row, so preserving only overlay bookkeeping erased
+  detections/tracks/crossings/model_name on every #700 heartbeat.
 - Omit `overlay_rev` from rejected-frame metadata: the API then keeps the last
   accepted overlay revision instead of binding the last good image to a rejected
   frame number.
@@ -52,7 +57,10 @@ per reader beside `MotionDetector`:
 
 ## Affected contours
 
-- VPS deployment: NOT REQUIRED — no `api/**`, VPS script or schema change.
+- Contour: MIXED — VPS API + Ubuntu Worker/relay.
+- VPS deployment: REQUIRED — `api/app/main.py` now merges a metadata-only state
+  heartbeat into the prior camera-state row so #700 heartbeats do not wipe
+  analytics fields; no route, schema or overlay-present behavior change.
 - Ubuntu worker/relay update: REQUIRED — `worker/**` and the two Ubuntu env
   examples ship with the routine Ubuntu worker release; detector default OFF.
 - Windows worker update: NOT APPLICABLE — retired from production.
@@ -76,9 +84,28 @@ Observed locally on this working tree (2026-11-23):
   - moving frame → `None` with `recovered=True`.
 - `python3 scripts/ci/validate_sdd.py` → recorded in tasks.md evidence.
 - `git status --short` / `git diff --stat` → recorded in tasks.md evidence.
+- `python3 -m pytest tests/test_api_http_integration.py -q` →
+  `19 passed, 1 warning, 9 subtests passed`.
+- `python3 -m pytest tests/test_700_ingest_frame_conformance.py -q` →
+  `2 failed, 18 passed, 1 subtests passed`: both failures are the pre-existing
+  working-tree scope guards (`test_working_tree_touches_only_the_700_surface_and_tests`
+  and the `api/app/main.py` subfail of `test_no_workflow_lockfile_or_api_change`),
+  which still forbid any `api/**` change. All #700 behaviour tests pass.
+- `python3 -m pytest tests/ -q` →
+  `5 failed, 1720 passed, 2 skipped, 1 warning, 942 subtests passed in 161.36s`.
+  The five failures are stale cross-issue working-tree scope guards
+  (`test_685_shared_operator_css`, `test_687_single_opencv_wheel`,
+  `test_697_typed_unknown_reason`, and the two #700 guards) rejecting the
+  required `api/app/main.py` modification. Tests were not edited per the work
+  order; the guard update is owned by the test worker/orchestrator.
 
-Test-worker unit/integration coverage under `tests/**` is PENDING and owned by a
-separate worker; this plan does not claim it.
+Automated coverage now exists: `tests/test_700_ingest_frame_conformance.py`
+(behaviour tests) and the new
+`test_metadata_only_state_post_preserves_prior_analytics_fields` in
+`tests/test_api_http_integration.py`. Observed results are recorded in the
+Validation section; the full-suite scope-guard conflict caused by the required
+`api/app/main.py` working-tree change is reported there and was not "fixed" by
+editing tests.
 
 ## Risk profile
 
@@ -90,14 +117,14 @@ separate worker; this plan does not claim it.
 
 ## Test design
 
-- TEST-700-001 | Covers: AC-001 | Level: unit | Priority: P0 | Evidence: PENDING test-worker coverage: disabled detector pass-through and startup log
-- TEST-700-002 | Covers: AC-002 | Level: unit | Priority: P0 | Evidence: PENDING test-worker coverage: black frame vs textured low-light control; scratch smoke already observed both outcomes
-- TEST-700-003 | Covers: AC-003 | Level: unit | Priority: P0 | Evidence: PENDING test-worker coverage: synthetic bars, precedence and repeated-slate stability; scratch smoke observed slate_frame
-- TEST-700-004 | Covers: AC-004 | Level: unit | Priority: P0 | Evidence: PENDING test-worker coverage: elapsed+frame-count freeze, long-gap negative, low-signal exclusion; scratch smoke observed frozen at 10 s/11 frames
-- TEST-700-005 | Covers: AC-005 | Level: integration | Priority: P0 | Evidence: PENDING test-worker coverage: main-loop rejected-frame state-only path and queued-event retention; code inspection recorded in NFR-003
-- TEST-700-006 | Covers: AC-006 | Level: unit | Priority: P0 | Evidence: PENDING test-worker coverage: `post_state(metadata, None)` performs no file open and no revision stamping
-- TEST-700-007 | Covers: AC-007 | Level: unit | Priority: P1 | Evidence: PENDING test-worker coverage: both env examples carry the same opt-in block
-- TEST-700-008 | Covers: AC-008 | Level: integration | Priority: P0 | Evidence: observed py_compile, ruff, validate_sdd and git scope outputs recorded in tasks.md
+- TEST-700-001 | Covers: AC-001 | Level: unit | Priority: P0 | Evidence: `tests/test_700_ingest_frame_conformance.py::test_flag_off_keeps_the_detector_inactive` — passing in the observed 18-passed behaviour set
+- TEST-700-002 | Covers: AC-002 | Level: unit | Priority: P0 | Evidence: `test_zero_frame_is_black` and `test_dark_noisy_night_frame_is_conforming` — passing; the night control is not black
+- TEST-700-003 | Covers: AC-003 | Level: unit | Priority: P0 | Evidence: `test_saturated_bars_frame_is_slate`, `test_diagnostic_on_entry_and_reason_change_only_and_recovery`, `test_water_rejects_slate_frame_publications_and_resumes` — passing
+- TEST-700-004 | Covers: AC-004 | Level: unit | Priority: P0 | Evidence: `test_repeated_texture_freezes_exactly_at_the_confirm_window`, `test_changing_texture_is_not_frozen`, `test_long_gap_between_different_frames_is_not_frozen` — passing
+- TEST-700-005 | Covers: AC-005 | Level: integration | Priority: P0 | Evidence: `test_rejected_state_is_metadata_only_with_typed_reason`, `test_recovery_state_has_no_reason_and_no_overlay_rev`, `test_road_rejects_black_frames_publications_and_resumes` — passing
+- TEST-700-006 | Covers: AC-006 | Level: unit | Priority: P0 | Evidence: `test_metadata_only_post_never_opens_a_path_and_sends_no_file_part`, `test_overlay_post_keeps_the_file_part_behaviour` — passing
+- TEST-700-007 | Covers: AC-007 | Level: unit | Priority: P1 | Evidence: no dedicated env-content test exists; both `deploy/worker/ubuntu/*.env.example` files were inspected with the identical opt-in block, and `test_working_tree_touches_only_the_700_surface_and_tests` only scopes them as allowed paths
+- TEST-700-008 | Covers: AC-008 | Level: integration | Priority: P0 | Evidence: `tests/test_api_http_integration.py::test_metadata_only_state_post_preserves_prior_analytics_fields` — 19 passed / 9 subtests in the targeted run; observed py_compile, ruff, validate_sdd and git scope; full-suite stale guard conflict reported in Validation
 
 ## Correct-course check
 
@@ -107,14 +134,14 @@ separate worker; this plan does not claim it.
 - Plan impact: This plan; no scope change after admission.
 - Tasks impact: Tasks T001-T006 cover code, transport, env examples, SDD and verification.
 - Authorization impact: Bounded worker/SDD scope only; no new protected or production authority.
-- Follow-up: Test-worker coverage under tests/** and field observation before enabling remain follow-up, not scope changes.
+- Follow-up: Stale cross-issue working-tree scope guards must be updated by the test worker to allow the authorized `api/app/main.py` fix; field observation before enabling remains follow-up, not a scope change.
 
 ## Runtime feedback
 
 - Runtime acceptance: PENDING — feature ships disabled by default; no production enablement.
 - Accepted production behavior: unchanged while disabled; when enabled, rejected frames yield state-only diagnostics.
 - Regressions/learning: cell-mean-only black detection was rejected after the smoke night control; the repaired per-cell statistic is the accepted design.
-- Follow-up work: test-worker evidence under tests/** is PENDING; night-time false-positive rate to be observed before remote enablement.
+- Follow-up work: stale scope-guard refresh in tests (not edited here); night-time false-positive rate to be observed before remote enablement.
 
 ## Deployment transaction audit
 
@@ -124,5 +151,5 @@ separate worker; this plan does not claim it.
 - TX-004 | Stage: VERIFICATION | Mutation: NO | Failure disposition: FATAL | State after failure: previous release remains active | Retry: NO | Rollback: NONE | Evidence: existing post-deploy worker health gate (verify-runtime-progression.py / check-worker-health.py) applies unchanged; local verification observed py_compile OK, ruff passed, validate_sdd result recorded in tasks.md
 - TX-005 | Stage: STATE-COMMIT | Mutation: NO | Failure disposition: FATAL | State after failure: unchanged worker state store | Retry: NO | Rollback: NONE | Evidence: rejected-frame state POST is additive metadata; API merges previous overlay_rev/last_overlay_url when overlay is None; no schema or database change
 - TX-006 | Stage: HOUSEKEEPING | Mutation: NO | Failure disposition: BEST-EFFORT | State after failure: temporary scratch only in /tmp/opencode, no repository residue | Retry: NO | Rollback: NONE | Evidence: all scratch artifacts live under /tmp/opencode/700-frame-conformance; no progress or cache file added to the repository
-- TX-007 | Stage: EVIDENCE | Mutation: NO | Failure disposition: BEST-EFFORT | State after failure: evidence partial but no runtime effect | Retry: NO | Rollback: NONE | Evidence: observed command outputs recorded in tasks.md evidence section; test-worker tests/** evidence remains PENDING and is not represented as passed
+- TX-007 | Stage: EVIDENCE | Mutation: NO | Failure disposition: BEST-EFFORT | State after failure: evidence partial but no runtime effect | Retry: NO | Rollback: NONE | Evidence: observed API test run 19 passed/9 subtests; #700 behaviour tests 18 passed; full-suite stale scope-guard conflict recorded in Validation and not represented as green
 - TX-008 | Stage: ROLLBACK | Mutation: NO | Failure disposition: FATAL | State after failure: NONE | Retry: NO | Rollback: revert the bounded PR or roll the Ubuntu worker back to the previous complete release; because the feature is default OFF, runtime impact while disabled is none | Evidence: diff limited to allowed paths; detector disable path is a pass-through with no frame_conforming claim
