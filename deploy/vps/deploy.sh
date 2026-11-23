@@ -19,6 +19,7 @@ WATER_PASSAGES_TARGET="$(dirname "$API_TARGET")/water_passages.py"
 ANALYTICS_TARGET="$(dirname "$API_TARGET")/analytics.py"
 LIVE_FEEDS_TARGET="$(dirname "$API_TARGET")/live_feeds.py"
 LOG_REDACTION_TARGET="$(dirname "$API_TARGET")/log_redaction.py"
+UNKNOWN_REASON_TARGET="$(dirname "$API_TARGET")/unknown_reason.py"
 FRONTEND_TARGET="${SEA_SPEED_FRONTEND_TARGET:-/var/www/mostdef.ru/sea-speed/index.html}"
 OBJECTS_FRONTEND_TARGET="${SEA_SPEED_OBJECTS_FRONTEND_TARGET:-/var/www/mostdef.ru/sea-speed/objects/index.html}"
 CAMERAS_FRONTEND_TARGET="${SEA_SPEED_CAMERAS_FRONTEND_TARGET:-/var/www/mostdef.ru/sea-speed/cameras/index.html}"
@@ -246,6 +247,7 @@ release_complete() {
      -f "$root/api/app/analytics.py" && \
      -f "$root/api/app/live_feeds.py" && \
      -f "$root/api/app/log_redaction.py" && \
+     -f "$root/api/app/unknown_reason.py" && \
      -f "$root/frontend/sea-speed/index.html" && \
      -f "$root/frontend/sea-speed/objects/index.html" && \
      -f "$root/frontend/sea-speed/objects/crossings.js" && \
@@ -307,6 +309,7 @@ download_release() {
     api/app/analytics.py \
     api/app/live_feeds.py \
     api/app/log_redaction.py \
+    api/app/unknown_reason.py \
     frontend/sea-speed/index.html \
     frontend/sea-speed/objects/index.html \
     frontend/sea-speed/objects/crossings.js \
@@ -352,6 +355,7 @@ download_release() {
   install -m 0644 "$extracted/api/app/analytics.py" "$TARGET_RELEASE/api/app/analytics.py"
   install -m 0644 "$extracted/api/app/live_feeds.py" "$TARGET_RELEASE/api/app/live_feeds.py"
   install -m 0644 "$extracted/api/app/log_redaction.py" "$TARGET_RELEASE/api/app/log_redaction.py"
+  install -m 0644 "$extracted/api/app/unknown_reason.py" "$TARGET_RELEASE/api/app/unknown_reason.py"
   install -m 0644 "$extracted/frontend/sea-speed/index.html" "$TARGET_RELEASE/frontend/sea-speed/index.html"
   install -m 0644 "$extracted/frontend/sea-speed/objects/index.html" "$TARGET_RELEASE/frontend/sea-speed/objects/index.html"
   install -m 0644 "$extracted/frontend/sea-speed/objects/crossings.js" "$TARGET_RELEASE/frontend/sea-speed/objects/crossings.js"
@@ -537,6 +541,11 @@ bootstrap_current_release() {
     # Same for log_redaction.py (issue #698): the captured main.py imports it
     # at boot, so the bootstrap baseline must stay bootable.
     install -m 0644 "$LOG_REDACTION_TARGET" "$bootstrap_release/api/app/log_redaction.py"
+  fi
+  if [[ -f "$UNKNOWN_REASON_TARGET" ]]; then
+    # Same for unknown_reason.py (issue #697): main.py imports it at boot
+    # through water_passages.py, so the bootstrap baseline must stay bootable.
+    install -m 0644 "$UNKNOWN_REASON_TARGET" "$bootstrap_release/api/app/unknown_reason.py"
   fi
   install -m 0644 "$FRONTEND_TARGET" "$bootstrap_release/frontend/sea-speed/index.html"
   if [[ -f "$OBJECTS_FRONTEND_TARGET" ]]; then
@@ -800,6 +809,9 @@ install_release() {
   if [[ -f "$release_dir/api/app/log_redaction.py" ]]; then
     install -m 0644 "$release_dir/api/app/log_redaction.py" "${LOG_REDACTION_TARGET}.next"
   fi
+  if [[ -f "$release_dir/api/app/unknown_reason.py" ]]; then
+    install -m 0644 "$release_dir/api/app/unknown_reason.py" "${UNKNOWN_REASON_TARGET}.next"
+  fi
   install -m 0644 "$release_dir/frontend/sea-speed/index.html" "${FRONTEND_TARGET}.next"
   install -m 0644 "$release_dir/frontend/root/index.html" "${ROOT_FRONTEND_TARGET}.next"
   if [[ -f "$release_dir/frontend/sea-speed/objects/index.html" ]]; then
@@ -925,6 +937,13 @@ install_release() {
     mv -f "${LOG_REDACTION_TARGET}.next" "$LOG_REDACTION_TARGET"
   else
     rm -f "$LOG_REDACTION_TARGET" "${LOG_REDACTION_TARGET}.next"
+  fi
+  if [[ -f "$release_dir/api/app/unknown_reason.py" ]]; then
+    # unknown_reason.py must also land before main.py: water_passages.py
+    # imports it at boot (issue #697).
+    mv -f "${UNKNOWN_REASON_TARGET}.next" "$UNKNOWN_REASON_TARGET"
+  else
+    rm -f "$UNKNOWN_REASON_TARGET" "${UNKNOWN_REASON_TARGET}.next"
   fi
   mv -f "${API_TARGET}.next" "$API_TARGET"
   if [[ "$css_state" == "present" ]]; then

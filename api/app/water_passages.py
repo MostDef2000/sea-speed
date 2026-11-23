@@ -43,6 +43,8 @@ try:  # package context (api.app.water_passages) and direct-file load both suppo
     from .identity import now_iso
     from . import objects_registry  # noqa: F401  # explicit re-export seam (issue #396 wave 3)
     from .objects_registry import optional_float, optional_int
+    from . import unknown_reason  # noqa: F401  # explicit re-export seam (issue #697)
+    from .unknown_reason import LEGACY_UNSPECIFIED, is_unknown_reason
     from . import passage_mirrors  # noqa: F401  # explicit re-export seam (issue #396 wave 3)
     from .passage_mirrors import _delete_passage_mirrors
 except ImportError:  # direct uvicorn app-dir / spec_from_file_location execution
@@ -61,6 +63,8 @@ except ImportError:  # direct uvicorn app-dir / spec_from_file_location executio
     from identity import now_iso
     import objects_registry  # noqa: F401  # explicit re-export seam (issue #396 wave 3)
     from objects_registry import optional_float, optional_int
+    import unknown_reason  # noqa: F401  # explicit re-export seam (issue #697)
+    from unknown_reason import LEGACY_UNSPECIFIED, is_unknown_reason
     import passage_mirrors  # noqa: F401  # explicit re-export seam (issue #396 wave 3)
     from passage_mirrors import _delete_passage_mirrors
 
@@ -206,6 +210,10 @@ def _validate_passage_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     measurement_meta = payload.get("measurement_meta") or {}
     if not isinstance(measurement_meta, dict):
         raise HTTPException(status_code=400, detail="measurement_meta must be an object")
+    if "unknown_reason" in measurement_meta and not is_unknown_reason(measurement_meta.get("unknown_reason")):
+        # Issue #697: the vocabulary is closed. Absent is fine (legacy/old
+        # writers); a newly supplied reason must be a member of the set.
+        raise HTTPException(status_code=400, detail="measurement_meta unknown_reason is invalid")
     measurement_meta_json = json.dumps(measurement_meta, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     if len(measurement_meta_json.encode("utf-8")) > 8192:
         raise HTTPException(status_code=400, detail="measurement_meta is too large")
@@ -257,6 +265,23 @@ def _validate_passage_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
         "worker_source_commit": worker_source_commit,
     }
 
+def _normalize_unknown_reason(measurement_meta: Any, speed_status: Any) -> Dict[str, Any]:
+    """Return read-path measurement_meta honoring the #697 reason contract.
+
+    Never mutates stored history: this operates on a fresh copy produced by
+    ``passage_row_to_dict``. An ``unknown`` row with no recorded (or invalid)
+    reason is presented as ``legacy_unspecified``; a known-status row never
+    exposes a reason, so a value cannot survive promotion to ``measured``.
+    """
+    meta: Dict[str, Any] = dict(measurement_meta) if isinstance(measurement_meta, dict) else {}
+    if str(speed_status or "unknown") == "unknown":
+        if not is_unknown_reason(meta.get("unknown_reason")):
+            meta["unknown_reason"] = LEGACY_UNSPECIFIED
+    else:
+        meta.pop("unknown_reason", None)
+    return meta
+
+
 def passage_row_to_dict(row: sqlite3.Row) -> Dict[str, Any]:
     data = dict(row)
     try:
@@ -267,6 +292,9 @@ def passage_row_to_dict(row: sqlite3.Row) -> Dict[str, Any]:
         data["measurement_meta"] = json.loads(data.pop("measurement_meta_json", "{}"))
     except Exception:
         data["measurement_meta"] = {}
+    data["measurement_meta"] = _normalize_unknown_reason(
+        data["measurement_meta"], data.get("speed_status")
+    )
     return data
 
 def upsert_water_passage(payload: Dict[str, Any], snapshot_bytes: Optional[bytes] = None) -> Dict[str, Any]:

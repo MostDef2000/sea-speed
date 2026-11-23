@@ -249,6 +249,13 @@ class ImportHygieneScanTests(unittest.TestCase):
                 ("test_689_metadata_json_type.py", 108, "fastapi"),
                 ("test_689_metadata_json_type.py", 109, "fastapi"),
                 ("test_689_metadata_json_type.py", 111, "httpx"),
+                # Issue #697: the typed-unknown-reason log-line test imports
+                # worker_transport, which pulls worker_media -> numpy and
+                # requests transitively — same guarded-optional idiom, and
+                # registering a new guarded-optional file means extending
+                # this pinned list (tests/test_616:43-45).
+                ("test_697_typed_unknown_reason.py", 78, "numpy"),
+                ("test_697_typed_unknown_reason.py", 82, "requests"),
                 # Issue #698: uvicorn is an api-lock pin, not a battery
                 # dependency — the AccessFormatter probe uses the same
                 # guarded-optional idiom (extending the pin is the documented
