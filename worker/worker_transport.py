@@ -114,7 +114,7 @@ def fetch_remote_roi():
         return _roi_cache["enabled"], _roi_cache["points"]
 
 
-def post_state(metadata, overlay_path):
+def post_state(metadata, overlay_path=None):
     state_url = env_str("SEA_SPEED_API_URL")
     token = env_str("SEA_SPEED_API_TOKEN")
     if not state_url or not token:
@@ -122,10 +122,16 @@ def post_state(metadata, overlay_path):
         return False
     headers = {"Authorization": f"Bearer {token}"}
     try:
-        with open(overlay_path, "rb") as f:
-            files = {"overlay": ("overlay.jpg", f, "image/jpeg")}
-            data = {"metadata": json.dumps(metadata, ensure_ascii=False)}
-            r = requests.post(state_url, headers=headers, data=data, files=files, timeout=10)
+        data = {"metadata": json.dumps(metadata, ensure_ascii=False)}
+        if overlay_path is None:
+            # Issue #700 metadata-only camera state: the rejected frame must
+            # not publish an overlay (nor a fresh overlay_rev), while the
+            # API keeps the last accepted overlay and worker_online.
+            r = requests.post(state_url, headers=headers, data=data, timeout=10)
+        else:
+            with open(overlay_path, "rb") as f:
+                files = {"overlay": ("overlay.jpg", f, "image/jpeg")}
+                r = requests.post(state_url, headers=headers, data=data, files=files, timeout=10)
         if r.status_code >= 300:
             print(f"POST state failed: HTTP {r.status_code} {r.text[:300]}")
             return False

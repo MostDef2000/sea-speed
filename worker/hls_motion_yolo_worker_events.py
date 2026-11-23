@@ -1,4 +1,7 @@
+import importlib.util
+import math
 import os
+import sys
 import time
 import uuid
 from pathlib import Path
@@ -182,6 +185,27 @@ from worker_roi import (  # noqa: F401
     roi_processing_signature,
 )
 
+# Issue #700: frame-conformance diagnostics reuse the shared closed
+# unknown-reason vocabulary. Resolve the release-relative api/app directory
+# from THIS file and load that ONE module by path (same no-sys.path contract
+# as worker/water_passage.py). water_passage normally registered the module
+# already; reuse it so both layers share ONE vocabulary object.
+_API_APP_DIR = Path(__file__).resolve().parents[1] / "api" / "app"
+if "unknown_reason" in sys.modules:
+    _unknown_reason = sys.modules["unknown_reason"]
+else:
+    _UNKNOWN_REASON_SPEC = importlib.util.spec_from_file_location(
+        "unknown_reason", _API_APP_DIR / "unknown_reason.py"
+    )
+    if _UNKNOWN_REASON_SPEC is None or _UNKNOWN_REASON_SPEC.loader is None:
+        raise ImportError(f"cannot load the shared unknown_reason module from {_API_APP_DIR}")
+    _unknown_reason = importlib.util.module_from_spec(_UNKNOWN_REASON_SPEC)
+    sys.modules["unknown_reason"] = _unknown_reason
+    _UNKNOWN_REASON_SPEC.loader.exec_module(_unknown_reason)
+BLACK_FRAME = _unknown_reason.BLACK_FRAME
+SLATE_FRAME = _unknown_reason.SLATE_FRAME
+FROZEN_FRAME = _unknown_reason.FROZEN_FRAME
+
 ROAD_LIVE_SCHEMA = "sea_speed_road_live_v2"
 ROAD_LIVE_GENERATION = int(time.time() * 1000)
 WATER_LIVE_SCHEMA = "sea_speed_water_live_v2"
@@ -294,6 +318,281 @@ class MotionDetector:
 
     def is_ai_active(self):
         return time.time() <= self.active_until
+
+
+def _bounded_env_float(name, default, minimum, maximum):
+    value = env_float(name, default)
+    if not math.isfinite(value):
+        value = default
+    return max(minimum, min(maximum, value))
+
+
+def _bounded_env_int(name, default, minimum, maximum):
+    value = env_int(name, default)
+    return max(minimum, min(maximum, value))
+
+
+def _bgr_distance(a, b):
+    return math.sqrt(sum((float(x) - float(y)) ** 2 for x, y in zip(a, b)))
+
+
+class FrameConformanceResult:
+    __slots__ = ("conforming", "reason", "detail", "enabled", "transition", "recovered")
+
+    def __init__(self, conforming, reason, detail, enabled, transition, recovered):
+        self.conforming = conforming
+        self.reason = reason
+        self.detail = detail
+        self.enabled = enabled
+        self.transition = transition
+        self.recovered = recovered
+
+
+class FrameConformanceDetector:
+    """Pixel-only black/slate/freeze classification for ingested frames.
+
+    One instance per reader, evaluated on the ORIGINAL BGR frame before ROI
+    masking and inference. No model and no reference image are used: a fixed
+    BGR sample grid, one predecessor sample and monotonic receive timing are
+    the whole state. Thresholds are environment-configurable, read ONCE at
+    construction and clamped to finite bounds.
+
+    Disabled by default (FRAME_CONFORMANCE_ENABLED=0): evaluate() is a cheap
+    pass-through and the worker makes no frame-conformance claim. When enabled,
+    classification is deliberately conservative. Pixel-only detection cannot
+    guarantee zero night-time false positives; see
+    specs/700-ingest-frame-conformance/spec.md.
+    """
+
+    SAMPLE_ROWS = 8
+    SAMPLE_COLS = 12
+
+    def __init__(self):
+        self.enabled = env_int("FRAME_CONFORMANCE_ENABLED", 0) != 0
+        self.black_luma_max = _bounded_env_float("FRAME_CONFORMANCE_BLACK_LUMA_MAX", 16.0, 0.0, 64.0)
+        self.black_std_max = _bounded_env_float("FRAME_CONFORMANCE_BLACK_STD_MAX", 4.0, 0.0, 32.0)
+        self.black_bright_max = _bounded_env_float("FRAME_CONFORMANCE_BLACK_BRIGHT_MAX", 28.0, 0.0, 128.0)
+        if self.black_bright_max < self.black_luma_max:
+            self.black_bright_max = self.black_luma_max
+        self.slate_bar_std_max = _bounded_env_float("FRAME_CONFORMANCE_SLATE_BAR_STD_MAX", 10.0, 0.0, 64.0)
+        self.slate_transition_min = _bounded_env_float("FRAME_CONFORMANCE_SLATE_TRANSITION_MIN", 24.0, 1.0, 255.0)
+        self.slate_transitions_min = _bounded_env_int("FRAME_CONFORMANCE_SLATE_TRANSITIONS_MIN", 2, 1, 11)
+        self.slate_sat_min = _bounded_env_float("FRAME_CONFORMANCE_SLATE_SAT_MIN", 120.0, 0.0, 255.0)
+        self.freeze_confirm_sec = _bounded_env_float("FRAME_CONFORMANCE_FREEZE_SEC", 10.0, 1.0, 600.0)
+        self.freeze_min_frames = _bounded_env_int("FRAME_CONFORMANCE_FREEZE_MIN_FRAMES", 8, 2, 100000)
+        self.freeze_diff_max = _bounded_env_float("FRAME_CONFORMANCE_FREEZE_DIFF_MAX", 2.0, 0.0, 64.0)
+        self.freeze_min_luma = _bounded_env_float("FRAME_CONFORMANCE_FREEZE_MIN_LUMA", 24.0, 0.0, 255.0)
+        self.reason = None
+        self._freeze_ref = None
+        self._freeze_start = None
+        self._freeze_frames = 0
+
+    def log_startup(self):
+        if not self.enabled:
+            print("Frame conformance: available but not enabled (FRAME_CONFORMANCE_ENABLED=0)")
+            return
+        print(
+            "Frame conformance: enabled "
+            f"black(luma<={self.black_luma_max},std<={self.black_std_max},bright<={self.black_bright_max}) "
+            f"slate(bar_std<={self.slate_bar_std_max},transition>={self.slate_transition_min},"
+            f"transitions>={self.slate_transitions_min},sat>={self.slate_sat_min}) "
+            f"freeze(sec>={self.freeze_confirm_sec},frames>={self.freeze_min_frames},"
+            f"diff<={self.freeze_diff_max},min_luma>={self.freeze_min_luma})"
+        )
+
+    def evaluate(self, frame, frame_no, received_mono):
+        if not self.enabled:
+            return FrameConformanceResult(True, None, {}, False, False, False)
+        if frame is None or getattr(frame, "shape", None) is None:
+            return FrameConformanceResult(True, None, {"skipped": "no_frame"}, True, False, False)
+        cells = self._sample_grid(frame)
+        if cells is None:
+            return FrameConformanceResult(True, None, {"skipped": "unsupported_frame"}, True, False, False)
+        mean_luma, luma_std, max_luma = self._luma_stats(cells)
+        reason, detail = self._classify(cells, mean_luma, luma_std, max_luma, received_mono)
+        previous = self.reason
+        transition = reason != previous
+        recovered = transition and reason is None and previous is not None
+        self.reason = reason
+        if transition:
+            print(
+                f"Frame conformance: frame_no={frame_no} "
+                f"conforming={'true' if reason is None else 'false'} "
+                f"reason={reason or 'none'} detail={detail}"
+            )
+        return FrameConformanceResult(reason is None, reason, detail, True, transition, recovered)
+
+    def _sample_grid(self, frame):
+        height, width = frame.shape[:2]
+        if getattr(frame, "ndim", 2) != 3 or frame.shape[2] < 3:
+            return None
+        if height < self.SAMPLE_ROWS or width < self.SAMPLE_COLS:
+            return None
+        cells = []
+        for row in range(self.SAMPLE_ROWS):
+            y0 = int(row * height / self.SAMPLE_ROWS)
+            y1 = int((row + 1) * height / self.SAMPLE_ROWS)
+            row_cells = []
+            for col in range(self.SAMPLE_COLS):
+                x0 = int(col * width / self.SAMPLE_COLS)
+                x1 = int((col + 1) * width / self.SAMPLE_COLS)
+                block = frame[y0:y1, x0:x1]
+                if block.size == 0:
+                    row_cells.append(((0.0, 0.0, 0.0), 0.0, 0.0, 0.0))
+                    continue
+                mean = block.reshape(-1, frame.shape[2]).mean(axis=0)
+                luma_plane = (
+                    0.114 * block[:, :, 0].astype("float32")
+                    + 0.587 * block[:, :, 1].astype("float32")
+                    + 0.299 * block[:, :, 2].astype("float32")
+                )
+                row_cells.append(
+                    (
+                        (float(mean[0]), float(mean[1]), float(mean[2])),
+                        float(luma_plane.mean()),
+                        float(luma_plane.std()),
+                        float(luma_plane.max()),
+                    )
+                )
+            cells.append(row_cells)
+        return cells
+
+    def _luma_stats(self, cells):
+        # Per-cell pixel statistics survive the grid reduction: a dark noisy
+        # night scene has LOW cell means but HIGH within-cell contrast, and its
+        # bright pixels veto a black classification. Cell means alone would
+        # wrongly collapse sensor noise into "uniform black".
+        means = [cell[1] for row in cells for cell in row]
+        stds = [cell[2] for row in cells for cell in row]
+        maxes = [cell[3] for row in cells for cell in row]
+        return sum(means) / len(means), max(stds), max(maxes)
+
+    def _classify(self, cells, mean_luma, luma_std, max_luma, received_mono):
+        if (
+            mean_luma <= self.black_luma_max
+            and max_luma <= self.black_bright_max
+            and luma_std <= self.black_std_max
+        ):
+            self._reset_freeze()
+            return BLACK_FRAME, {
+                "mean_luma": round(mean_luma, 2),
+                "luma_std": round(luma_std, 2),
+                "max_luma": round(max_luma, 2),
+            }
+        slate_detail = self._slate_detail(cells)
+        if slate_detail is not None:
+            self._reset_freeze()
+            return SLATE_FRAME, slate_detail
+        frozen, freeze_detail = self._update_freeze(cells, mean_luma, received_mono)
+        if frozen:
+            return FROZEN_FRAME, freeze_detail
+        detail = {"mean_luma": round(mean_luma, 2)}
+        if freeze_detail:
+            detail.update(freeze_detail)
+        return None, detail
+
+    def _slate_detail(self, cells):
+        row_count = len(cells)
+        column_count = len(cells[0])
+        if column_count < 4:
+            return None
+        column_means = []
+        max_column_std = 0.0
+        for col in range(column_count):
+            values = [cells[row][col][0] for row in range(row_count)]
+            means = [sum(value[channel] for value in values) / row_count for channel in range(3)]
+            column_means.append(tuple(means))
+            for channel in range(3):
+                mean = means[channel]
+                variance = sum((value[channel] - mean) ** 2 for value in values) / row_count
+                max_column_std = max(max_column_std, math.sqrt(variance))
+        transitions = 0
+        for col in range(1, column_count):
+            if _bgr_distance(column_means[col], column_means[col - 1]) >= self.slate_transition_min:
+                transitions += 1
+        saturated = sum(
+            1 for mean in column_means if max(mean) - min(mean) >= self.slate_sat_min
+        )
+        saturated_fraction = saturated / column_count
+        if max_column_std > self.slate_bar_std_max:
+            return None
+        if transitions < self.slate_transitions_min:
+            return None
+        if saturated_fraction < 0.75:
+            return None
+        return {
+            "columns": column_count,
+            "transitions": transitions,
+            "max_column_std": round(max_column_std, 2),
+            "saturated_fraction": round(saturated_fraction, 2),
+        }
+
+    def _update_freeze(self, cells, mean_luma, received_mono):
+        if mean_luma < self.freeze_min_luma:
+            self._reset_freeze()
+            return False, None
+        if self._freeze_ref is None:
+            self._freeze_ref = cells
+            self._freeze_start = received_mono
+            self._freeze_frames = 1
+            return False, {"identical_frames": 1}
+        max_diff, mean_diff = self._grid_diff(cells, self._freeze_ref)
+        if max_diff <= self.freeze_diff_max:
+            self._freeze_frames += 1
+            elapsed = received_mono - self._freeze_start
+            detail = {
+                "elapsed_sec": round(elapsed, 2),
+                "identical_frames": self._freeze_frames,
+                "max_diff": round(max_diff, 2),
+                "mean_diff": round(mean_diff, 3),
+            }
+            if elapsed >= self.freeze_confirm_sec and self._freeze_frames >= self.freeze_min_frames:
+                return True, detail
+            return False, detail
+        self._freeze_ref = cells
+        self._freeze_start = received_mono
+        self._freeze_frames = 1
+        return False, {"identical_frames": 1}
+
+    def _grid_diff(self, cells, reference):
+        max_diff = 0.0
+        total = 0.0
+        count = 0
+        for row in range(len(cells)):
+            for col in range(len(cells[row])):
+                for channel in range(3):
+                    diff = abs(
+                        cells[row][col][0][channel] - reference[row][col][0][channel]
+                    )
+                    max_diff = max(max_diff, diff)
+                    total += diff
+                    count += 1
+        return max_diff, (total / count) if count else 0.0
+
+    def _reset_freeze(self):
+        self._freeze_ref = None
+        self._freeze_start = None
+        self._freeze_frames = 0
+
+
+def build_frame_conformance_state(frame_no, profile, reason, detail, frame=None):
+    state = {
+        "camera_id": env_str("CAMERA_ID", profile.default_camera_id if profile else "cam1_road_test"),
+        "analytics_profile": profile.name if profile else None,
+        "domain": profile.domain if profile else None,
+        "frame_no": int(frame_no),
+        "frame_conforming": reason is None,
+        "worker_online": True,
+        "message": "frame conformance: recovered" if reason is None else f"frame conformance: {reason}",
+    }
+    if reason is not None:
+        state["unknown_reason"] = reason
+        if detail:
+            state["frame_conformance_detail"] = detail
+    if frame is not None and getattr(frame, "shape", None) is not None:
+        state["frame_width"] = int(frame.shape[1])
+        state["frame_height"] = int(frame.shape[0])
+    return state
 
 
 def detect_vehicles(model, frame, diagnostics=None):
@@ -467,6 +766,8 @@ def main():
     state_interval = env_float("STATE_POST_INTERVAL_SEC", 1.0)
     event_cooldown = env_float("EVENT_COOLDOWN_SEC", 12.0)
     motion_detector = MotionDetector()
+    frame_conformance = FrameConformanceDetector()
+    frame_conformance.log_startup()
     reader = start_media_reader()
     last_state_post = 0.0
     last_event_post = 0.0
@@ -510,6 +811,33 @@ def main():
                 globals()["_LAST_FRAME_CAPTURE_MS"] = _LAST_FRAME_CAPTURE_MS
             except Exception:
                 pass
+            # Issue #700: classify the ORIGINAL BGR frame before ROI masking,
+            # motion gating and inference. A non-conforming frame skips normal
+            # analytics and ALL new publications, but still posts a
+            # metadata-only camera state on the normal heartbeat cadence so the
+            # worker stays online and the operator sees the typed reason.
+            conformance = frame_conformance.evaluate(frame, frame_no, time.monotonic())
+            if conformance.enabled:
+                if not conformance.conforming:
+                    now = time.time()
+                    if conformance.transition or now - last_state_post >= state_interval:
+                        conformance_metadata = build_frame_conformance_state(
+                            frame_no, profile, conformance.reason, conformance.detail, frame
+                        )
+                        ok = post_state(conformance_metadata, None)
+                        last_state_post = now
+                        if ok:
+                            print(
+                                f"POST state ok frame_conforming=false "
+                                f"reason={conformance.reason} frame_no={frame_no}"
+                            )
+                    continue
+                if conformance.recovered:
+                    recovered_metadata = build_frame_conformance_state(
+                        frame_no, profile, None, conformance.detail, frame
+                    )
+                    if post_state(recovered_metadata, None):
+                        print(f"POST state ok frame_conforming=true frame_no={frame_no}")
             processing_frame, roi_points = prepare_roi_processing_frame(frame, motion_detector)
             motion_now, motion_area, motion_boxes = motion_detector.process(processing_frame)
             _always_on = is_motion_gate_always_on()
@@ -766,6 +1094,9 @@ def main():
                     "model_name": model_name,
                     "message": "event-worker running with persistent tracking",
                 }
+                if frame_conformance.enabled:
+                    # Recovery/normal path: no stale unknown_reason is carried.
+                    metadata["frame_conforming"] = True
                 ok = post_state(metadata, latest_overlay_path)
                 last_state_post = now
                 if ok:

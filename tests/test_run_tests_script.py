@@ -261,6 +261,12 @@ class ImportHygieneScanTests(unittest.TestCase):
                 # guarded-optional idiom (extending the pin is the documented
                 # registration procedure, tests/test_616:43-45).
                 ("test_698_log_redaction.py", 117, "uvicorn"),
+                # Issue #700: the frame-conformance oracle imports numpy under
+                # a ModuleNotFoundError guard (CI has no numpy; a MagicMock
+                # numpy does not satisfy the real-array probe) — same
+                # guarded-optional idiom, extending the pin is the documented
+                # registration procedure (tests/test_616:43-45).
+                ("test_700_ingest_frame_conformance.py", 86, "numpy"),
                 ("test_api_http_integration.py", 83, "fastapi"),
                 ("test_api_http_integration.py", 84, "fastapi"),
                 ("test_api_http_integration.py", 86, "httpx"),
