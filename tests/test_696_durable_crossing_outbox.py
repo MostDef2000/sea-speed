@@ -101,6 +101,9 @@ from urllib.parse import parse_qs, urlencode, urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKER_DIR = ROOT / "worker"
+# Issue #696 admission base: the scope guard diffs COMMITTED changes against
+# this exact commit, so a clean working tree can never make it vacuous.
+BASE_SHA = "172e938b43ad791bcc968e1ea9795e10c98be9ab"
 for _root in (str(ROOT), str(WORKER_DIR)):
     if _root not in sys.path:
         sys.path.insert(0, _root)
@@ -1364,7 +1367,16 @@ class CrossingRollbackIsolationTests(_OutboxTestBase):
 
 
 class CrossingScopeGuardTests(unittest.TestCase):
-    """No API/deploy/workflow/lockfile change; only the admitted paths."""
+    """No API/deploy/workflow/lockfile change; only the admitted paths.
+
+    The guard covers COMMITTED changes (diff against ``BASE_SHA``) AND
+    uncommitted/untracked working-tree changes: after the #696 commit the
+    working tree is clean, so a status-only guard would pass vacuously even
+    if ``api/``, ``deploy/``, ``.github/`` or a lockfile had been committed.
+    The committed side fails closed — if that ``git diff`` cannot run
+    (missing base object, shallow clone, bad repo) the test errors instead of
+    silently falling back to ``git status`` alone.
+    """
 
     ALLOWED_CHANGE_PREFIXES = (
         "tests/",
@@ -1385,21 +1397,48 @@ class CrossingScopeGuardTests(unittest.TestCase):
 
     @staticmethod
     def _changed_paths() -> list[str]:
-        result = subprocess.run(
+        """Sorted union of COMMITTED (vs ``BASE_SHA``) and uncommitted paths.
+
+        The committed side is mandatory: a clean working tree must not make
+        the guard vacuous after the #696 commit. It fails CLOSED — a failing
+        ``git diff`` raises with diagnostics and is never replaced by the
+        status-only view (a guard that cannot see committed changes must not
+        pass).
+        """
+        try:
+            committed = subprocess.run(
+                ["git", "-C", str(ROOT), "diff", "--name-only", BASE_SHA, "HEAD"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+        except subprocess.CalledProcessError as exc:
+            detail = (exc.stderr or exc.stdout or "").strip()
+            raise AssertionError(
+                "scope guard cannot see COMMITTED changes: "
+                f"`git diff --name-only {BASE_SHA} HEAD` failed with rc="
+                f"{exc.returncode} ({detail or 'no output'}) — shallow clone or "
+                "missing base object? Failing closed: falling back to "
+                "`git status` alone would let committed out-of-scope paths pass."
+            ) from exc
+        status = subprocess.run(
             ["git", "-C", str(ROOT), "status", "--porcelain", "--untracked-files=all"],
             capture_output=True,
             text=True,
             check=True,
         )
-        paths: list[str] = []
-        for line in result.stdout.splitlines():
+        paths: set[str] = set()
+        for line in committed.stdout.splitlines():
+            if line.strip():
+                paths.add(line.strip().strip('"'))
+        for line in status.stdout.splitlines():
             if not line.strip():
                 continue
             path = line[3:]
             if " -> " in path:
                 path = path.split(" -> ")[-1]
-            paths.append(path.strip().strip('"'))
-        return paths
+            paths.add(path.strip().strip('"'))
+        return sorted(paths)
 
     def test_working_tree_touches_only_the_696_surface_and_tests(self) -> None:
         changed = self._changed_paths()
@@ -1407,7 +1446,7 @@ class CrossingScopeGuardTests(unittest.TestCase):
         self.assertEqual(
             offenders,
             [],
-            f"out-of-scope working-tree changes (issue #696 surface only): {offenders}",
+            f"out-of-scope changes (issue #696 surface only — committed or uncommitted): {offenders}",
         )
 
     def test_no_api_deploy_workflow_or_lockfile_change(self) -> None:

@@ -6,8 +6,10 @@
   `agent/wave9-696-durable-crossing-outbox`, base
   `172e938b43ad791bcc968e1ea9795e10c98be9ab`.
 - Related: #537 wave 2 (worker durable outbox), #397 wave 6 (crossing module).
-  A separate test worker owns `tests/**`; production code and this SDD trio are
-  the only artifacts of this change.
+- Admitted surface: production code `worker/worker_outbox.py`,
+  `worker/worker_crossings.py`, `worker/ubuntu_worker_entrypoint.py`; the
+  dedicated oracle `tests/test_696_durable_crossing_outbox.py` (10 tests /
+  15 subtests); this SDD trio.
 
 ## Product outcome
 
@@ -142,6 +144,11 @@ Feature: durable crossing delivery through the existing outbox
 - **Duplicate window.** Between "API inserted the crossing" and "worker deleted
   the local row". Any failure inside that window replays the crossing exactly
   once more per restart cycle.
+- **Terminal crossing recovery (operator path).** A crossing row parked as
+  `terminal_error` (permanent 4xx) is never retried automatically. After fixing
+  the credentials/config, an operator may clear the retained row through the
+  documented `SEA_SPEED_OUTBOX_DB` SQLite path; the crossing must then be
+  re-detected — there is no automatic re-drive and this change adds no tooling.
 - **Shared FIFO consequence.** Road events and crossings share one publisher
   thread and one `ORDER BY id` selection. While the head row waits out its
   bounded backoff (base 1s, x2, cap 60s), later rows of either kind wait too.
@@ -187,8 +194,9 @@ Feature: durable crossing delivery through the existing outbox
 - Constraint discovered: `tests/test_ubuntu_worker_runtime_provenance.py` and
   `tests/test_worker_outbox_module.py` load the entrypoint with a mocked worker
   module, so the crossing module import is function-local and only an
-  `ImportError` is tolerated; the shipped Ubuntu artifact set always contains
-  `worker_crossings.py`.
+  `ImportError` is tolerated; that path now prints a loud
+  `crossing durable seam NOT bound: worker_crossings unavailable` diagnostic,
+  and the shipped Ubuntu artifact set always contains `worker_crossings.py`.
 - Constraint discovered: `tests/test_worker_crossings_module.py` pins the exact
   worker re-export list (six crossing defs) and the crossings import allowlist;
   the new setter stays in `worker_crossings.py` and the entrypoint imports it
@@ -198,7 +206,7 @@ Feature: durable crossing delivery through the existing outbox
 
 ## NFR assessment
 
-- NFR-001 | Area: Reliability | Target: an accepted Ubuntu crossing is durably committed before it is counted, and a persistence failure never counts, advances or silently posts a crossing | Validation: `worker_crossings.py:170-187` acceptance-before-commit block + scratch oracle (failed callback left `left_to_right` at 0 and the RAM list empty; the next frame retried and counted once) + entrypoint binding at `ubuntu_worker_entrypoint.py:843`; dedicated test-worker oracle PENDING (`tests/**` owned by the test worker) | Evidence: `python3 /tmp/opencode/696-smoke.py` → `CROSSING SEAM OK` / `OUTBOX CROSSING OK`; py_compile and ruff green | Status: CONCERNS
+- NFR-001 | Area: Reliability | Target: an accepted Ubuntu crossing is durably committed before it is counted, and a persistence failure never counts, advances or silently posts a crossing | Validation: `worker_crossings.py:170-187` acceptance-before-commit block + entrypoint binding at `ubuntu_worker_entrypoint.py:843`; `tests/test_696_durable_crossing_outbox.py` (focused `pytest tests/test_696_durable_crossing_outbox.py -q` → 10 passed; subtests 15 on the peer-review 7-path tree and 12 on the clean tree (the scope-guard subtest iterates `git status`); RED on the base archive `172e938b` → 8 failed / 2 passed) covers the seam including the kill-before-send crash replay | Evidence: focused pytest 10 passed; subtests 15 on the peer-review 7-path tree and 12 on the clean tree (the scope-guard subtest iterates `git status`); clean-tree `pytest tests/ -q` → 1735 passed / 2 skipped / 947 subtests / 0 failed; py_compile and ruff green | Status: PASS
 - NFR-002 | Area: Compatibility | Target: rollback isolation — the previous binary selects only `status='pending'`, crossing rows stay untouched, no crossing is posted to `/events`, and the road `_post`/`enqueue` contract is byte-identical | Validation: `_head_row` selects `IN ('pending','crossing_pending')` (worker_outbox.py:421-430), road `enqueue` delegates to the shared INSERT with `_ROAD_PENDING` (worker_outbox.py:255-272); existing suites `tests.test_worker_outbox_module` + `tests.test_worker_outbox_delivery` (33 tests) and `tests.test_line_crossing` + `tests.test_worker_crossings_module` (64 tests together with provenance) green | Evidence: observed unittest runs below; no road assertion changed | Status: PASS
 - NFR-003 | Area: Operability | Target: both pending kinds appear in `pending_count()`/`snapshot()`, crossing confirmations/terminal/send errors have distinct log lines, and no new environment variable or feature flag is introduced | Validation: parameterized `WHERE status IN (?, ?, ?)` in pending metrics (worker_outbox.py:308-330); distinct `POST crossing ok` / `outbox crossing accept_error` / `outbox crossing send error` lines (worker_outbox.py:493-535); no new env reads beyond the existing `SEA_SPEED_*`/`CAMERA_ID`/`ANALYTICS_PROFILE` derivation mirrored from `worker_transport.post_crossing` | Evidence: scratch oracle observed all three crossing log lines and both-status metrics; py_compile/ruff green | Status: PASS
 - NFR-004 | Area: Performance | Target: one publisher thread, one database and the existing bounded backoff (base 1s, x2, cap 60s) serve both row kinds; shared-FIFO head-of-line delay is bounded by the current backoff interval and visible in heartbeat metrics | Validation: single `_publish_loop`/`_head_row` selection over both statuses; no second thread/DB introduced (worker_outbox.py:380-420, 421-430); `pending`/`oldest_unconfirmed_sec` include crossing rows | Evidence: design reviewed against the existing outbox internals; existing outbox suite (backoff/retry/metrics) stays green | Status: PASS

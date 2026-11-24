@@ -251,12 +251,17 @@ def _bind_crossing_acceptance() -> None:
 
     worker_crossings is imported function-locally: provenance tests load this
     module with a mocked worker and no worker dir on sys.path, so a missing
-    sibling module must not break the entrypoint import. When the module is
-    present (the shipped Ubuntu artifacts), the callback is bound once.
+    sibling module must not break the entrypoint import. In the shipped Ubuntu
+    artifacts the module is always present; if it is missing there, the seam
+    must not degrade silently into the legacy in-memory list path.
     """
     try:
         import worker_crossings
     except ImportError:
+        print(
+            "crossing durable seam NOT bound: worker_crossings unavailable",
+            flush=True,
+        )
         return
     worker_crossings.set_crossing_accept(accept_crossing)
 
