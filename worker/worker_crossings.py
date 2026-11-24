@@ -26,6 +26,17 @@ worker_kernel (env_float, side_of_line, sign_with_deadzone) and
 worker_transport (the two shared crossing objects + fetch_crossing_line_config).
 NO cv2/numpy/ultralytics/av, NO subprocess/socket, NO requests/json - the
 crossing layer is offline except through the transport fetcher.
+
+Issue #696 durable acceptance seam: update_crossing_counts takes an OPTIONAL
+synchronous acceptance callback (explicit ``accept=`` argument, or the module
+hook bound once by the Ubuntu entrypoint via set_crossing_accept). When a
+callback is bound, a detected crossing is accepted durably BEFORE this module
+commits anything: the track-side transition, last_cross, the counters, the
+returned event and the in-memory post list are all untouched unless the
+callback returns True. A falsy return or an exception is surfaced on stdout
+and the crossing is dropped uncounted (the track keeps its previous side, so
+the next frame can retry). The list path stays for non-Ubuntu callers only
+and is never used as an Ubuntu fallback.
 """
 
 import time
@@ -40,6 +51,24 @@ _crossing_counts = {"left_to_right": 0, "right_to_left": 0}
 _crossings_by_class = {}
 VLZ_TIMEZONE = timezone(timedelta(hours=10))
 _crossing_vlz_date = None
+# Issue #696: the Ubuntu entrypoint binds ONE optional synchronous acceptance
+# callback here (set_crossing_accept) at wiring time; every other caller leaves
+# it None and keeps the in-memory list path.
+_crossing_accept = None
+
+
+def set_crossing_accept(callback):
+    """Bind (or clear, with None) the Ubuntu durable-acceptance callback.
+
+    ``callback`` receives the finished crossing dict once and must return True
+    only after the crossing was durably accepted. A falsy return or a raised
+    exception means the crossing was NOT accepted: update_crossing_counts then
+    leaves the track side, last_cross, counters, returned event and the RAM
+    list untouched (and prints the failure), so nothing is reported accepted
+    that was not persisted.
+    """
+    global _crossing_accept
+    _crossing_accept = callback
 
 
 def vlz_date(now=None):
@@ -77,12 +106,21 @@ def prune_crossing_tracks(now=None):
             _crossing_track_sides.pop(track_id, None)
 
 
-def update_crossing_counts(detections, now=None):
+def update_crossing_counts(detections, now=None, accept=None):
     """Detect line crossings from tracked centroids.
 
     Direction is derived from horizontal displacement across the line so that
     left_to_right always means the object moved rightward in frame coordinates.
     A per-track cooldown prevents double counting on centroid wobble.
+
+    ``accept`` (issue #696) is the OPTIONAL synchronous acceptance callback: it
+    receives the finished crossing dict once and must return True only after
+    durable acceptance. When omitted, the callback bound once through
+    set_crossing_accept is used (the Ubuntu contour); when neither exists the
+    legacy in-memory list path runs. On a falsy return or a raised exception
+    the crossing is NOT committed: the track side, last_cross, counters, the
+    returned event and the RAM list stay untouched, so nothing is counted that
+    was not durably accepted and the next frame can retry.
     """
     if now is None:
         now = time.time()
@@ -93,6 +131,7 @@ def update_crossing_counts(detections, now=None):
         return []
     line = cfg["line"]
     cooldown_sec = env_float("CROSSING_MIN_INTERVAL_SEC", 2.0)
+    accept_crossing = accept if accept is not None else globals().get("_crossing_accept")
     crossings = []
     for det in detections:
         track_id = det.get("track_id")
@@ -119,12 +158,6 @@ def update_crossing_counts(detections, now=None):
             state["cx"] = cx
             continue
         direction = "left_to_right" if cx > prev_cx else "right_to_left"
-        state["side"] = side
-        state["cx"] = cx
-        state["last_cross"] = now
-        _crossing_counts[direction] = _crossing_counts.get(direction, 0) + 1
-        class_counts = _crossings_by_class.setdefault(object_type, {"left_to_right": 0, "right_to_left": 0})
-        class_counts[direction] = class_counts.get(direction, 0) + 1
         crossing = {
             "track_id": int(track_id),
             "object_type": object_type,
@@ -134,7 +167,32 @@ def update_crossing_counts(detections, now=None):
             "speed_kmh": det.get("speed_kmh"),
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
-        _crossing_pending_posts.append(crossing)
+        if accept_crossing is not None:
+            # Ubuntu durable seam: accept BEFORE committing the crossing-side
+            # transition, last_cross, the counters or the returned event.
+            try:
+                accepted = bool(accept_crossing(crossing))
+                reason = ""
+            except Exception as exc:
+                accepted = False
+                reason = type(exc).__name__
+            if not accepted:
+                print(
+                    f"crossing accept failed track_id={crossing['track_id']}"
+                    f" direction={direction} reason={reason or 'rejected'}",
+                    flush=True,
+                )
+                continue
+        state["side"] = side
+        state["cx"] = cx
+        state["last_cross"] = now
+        _crossing_counts[direction] = _crossing_counts.get(direction, 0) + 1
+        class_counts = _crossings_by_class.setdefault(object_type, {"left_to_right": 0, "right_to_left": 0})
+        class_counts[direction] = class_counts.get(direction, 0) + 1
+        if accept_crossing is None:
+            # Non-Ubuntu caller only: the transport-owned list path. It is NOT
+            # an Ubuntu fallback - a bound callback never leaves rows there.
+            _crossing_pending_posts.append(crossing)
         crossings.append(crossing)
     prune_crossing_tracks(now)
     return crossings
