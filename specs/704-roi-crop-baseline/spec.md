@@ -6,9 +6,12 @@
   `agent/wave9-704-roi-crop-baseline`, base
   `36f28bec2c434dd60e682c5741159ae6c13b7df4`.
 - Related: #703 (decoder CPU baseline) is the harness/SDD precedent and its
-  recorded outcome was `NO ADOPTION` for lack of admissible evidence. This
-  feature owns the offline ROI-crop harness and its SDD only. A separate test
-  worker owns `tests/**`.
+  recorded outcome was `NO ADOPTION` for lack of admissible evidence. The
+  admitted #704 surface is the offline ROI-crop harness, this SDD trio,
+  `tests/test_roi_crop_baseline.py` (new) and
+  `tests/test_701_crossing_votes.py` (guard re-pin only). The code worker owns
+  the harness and SDD; the separate test worker owns both test files and this
+  delivery does not edit them.
 
 ## Product outcome
 
@@ -25,9 +28,11 @@ synthetic frames, polygons and settings:
 
 1. **Baseline** — the existing polygon-mask-at-full-frame shape: the inference
    input stays full frame.
-2. **Candidate** — crop the masked frame to the clipped polygon bounds for
-   inference, then shift **both** accepted and diagnostic boxes back into
-   full-frame coordinates before any motion/ROI check.
+2. **Candidate** — crop the region of the synthetic buffer to the clipped
+   polygon bounds for inference, then shift **both** accepted and diagnostic
+   boxes back into full-frame coordinates before any motion/ROI check. The
+   harness never rasterizes the production mask, so mask pixel cost is
+   `UNMEASURED`.
 
 The harness measures what it can honestly measure offline: crop bounds,
 exact reverse coordinate shifts, crop-copy cost and model-free preprocessing
@@ -57,6 +62,7 @@ produces an investigation run, not frozen evidence.
 | Frame | synthetic zero-filled `1920 × 1080 × 3` (`bytearray`, 6 220 800 bytes) |
 | Scenario count | 6, declared as frozen input identities in `SCENARIOS` |
 | Frames per scenario per arm | 32 (default; 192 processed frames per arm) |
+| Frame-count override | any non-default `--frames-per-scenario` sets `frozen.investigation_only=true` and is an investigation run, never frozen evidence |
 | `nonzero_offset` polygon | `((320,180),(1280,240),(1200,860),(360,900))` |
 | `nonrectangular` polygon | `((200,150),(900,120),(1500,480),(1100,950),(300,900))` |
 | `edge_clipped` polygon | `((-120,140),(1000,100),(1900,980),(400,1120))` |
@@ -89,8 +95,13 @@ relaxed after seeing data.
 | GEOMETRY | accepted and diagnostic boxes survive crop → reverse shift exactly | — | exact for every scenario |
 
 `decision.adoption` is `true` only if every UNMEASURED cell is replaced by
-admissible evidence *and* all thresholds pass. While inference CPU, quality or
-workload identity is `UNMEASURED`, the decision is literally
+admissible evidence *and* all thresholds pass. `build_decision` compares every
+measured ratio against its frozen maximum, honors the `quality_parity_required`,
+`require_inference_cpu_measured`, `require_quality_measured`,
+`require_workload_identity_measured` and `require_tested_sha` flags, and marks a
+non-default frame-count run as investigation-only. A breach or missing required
+cell is an explicit refusal reason. While inference CPU, quality or workload
+identity is `UNMEASURED`, the decision is literally
 `NO ADOPTION / insufficient evidence`.
 
 ## Metric definitions
@@ -98,7 +109,10 @@ workload identity is `UNMEASURED`, the decision is literally
 - **Crop bounds**: min/max of the polygon clipped to `[0,width]×[0,height]`;
   `no_roi` (fewer than three points), zero-area polygons and polygons whose
   clipped bounds are empty fall back to the full-frame identity path instead of
-  producing a zero-sized input.
+  producing a zero-sized input. `floor(min)` / `ceil(max)` makes the end
+  exclusive, while `cv2.fillPoly` includes boundary pixels; the harness never
+  rasterizes, so this pixel-edge convention is a recorded residual risk rather
+  than a tested equivalence.
 - **Forward shift**: subtract `(x0, y0)` from each `bbox_xyxy` so boxes are in
   crop coordinates.
 - **Reverse shift**: add `(x0, y0)` back. Integer arithmetic makes the
@@ -127,6 +141,10 @@ workload identity is `UNMEASURED`, the decision is literally
   compared. "Crop lost detections" is not claimed; it is unmeasured.
 - A preprocessing ratio (candidate copy vs full-frame hand-off) is a real
   model-free number but cannot justify adoption.
+- **Pixel-edge convention — residual risk.** Crop bounds use `ceil(max)` as an
+  exclusive end while `cv2.fillPoly` includes boundary pixels. The harness
+  never rasterizes the mask, so no pixel-level test covers this convention;
+  production parity would need a masked-frame test with OpenCV.
 - One run on one host is a bounded observation, not a capacity guarantee.
 
 ## User scenarios
@@ -204,8 +222,9 @@ Feature: Offline ROI-crop inference baseline
 - R-1: the harness is `scripts/worker/roi_crop_baseline.py`, an on-demand,
   stdlib-only CLI; it imports no third-party package and adds no dependency.
 - R-2: both arms run on the same frozen synthetic frames, polygons and
-  settings; the baseline is the masked full-frame shape and the candidate
-  crops the masked frame to the clipped polygon bounds.
+  settings; the baseline keeps the full-frame inference input and the candidate
+  crops the synthetic buffer to the clipped polygon bounds. Neither arm
+  rasterizes the production mask; mask pixel cost is `UNMEASURED`.
 - R-3: the candidate shifts **both** accepted and diagnostic `bbox_xyxy` values
   back into full-frame coordinates before any motion/ROI check; the reverse
   shift is exact.
@@ -221,22 +240,28 @@ Feature: Offline ROI-crop inference baseline
   refuses adoption when quality, inference timing or workload identity is
   missing: `NO ADOPTION / insufficient evidence`.
 - R-8: adoption thresholds are declared as constants at the top of the script
-  before any measurement and echoed into the report.
+  before any measurement and echoed into the report; a measured ratio above its
+  frozen maximum is an explicit refusal reason, and a non-default
+  `--frames-per-scenario` is flagged `investigation_only` and cannot be adoption
+  evidence.
 - R-9: the report binds to a full 40-hex `--tested-sha`; anything else is
   `UNBOUND` and cannot be adoption-eligible.
 - R-10: the harness is offline: it opens no socket, reads no camera, no relay
   and no production service, and uses no private media or secret.
 - R-11: no production worker file, env flag, API, event coordinate, deploy file
-  or workflow changes in this PR; the change is the harness plus this SDD trio.
-- R-12: the separate test worker owns `tests/**`; this delivery writes no test
-  and records the test design and observed evidence only.
+  or workflow changes in this PR; the code change is the harness plus this SDD
+  trio.
+- R-12: the admitted delivery also includes `tests/test_roi_crop_baseline.py`
+  (new) and `tests/test_701_crossing_votes.py` (guard re-pin only), both owned
+  by the separate test worker. This code worker does not edit `tests/**` and
+  records the test design plus the observed test evidence only.
 
 ## Acceptance criteria
 
 - AC-001: paired arms on the same frozen frames, polygons and settings: the
-  baseline keeps the full-frame inference input; the candidate crops the masked
-  frame to the clipped polygon bounds and shifts accepted and diagnostic boxes
-  back exactly.
+  baseline keeps the full-frame inference input; the candidate crops the
+  synthetic buffer to the clipped polygon bounds and shifts accepted and
+  diagnostic boxes back exactly. Mask pixel cost is `UNMEASURED`.
 - AC-002: geometry coverage — nonzero offsets, nonrectangular masks, edge
   clipping, no ROI and empty/degenerate bounds — with exact reverse shifts for
   both box sets.
@@ -245,24 +270,27 @@ Feature: Offline ROI-crop inference baseline
   identities; inference CPU and quality are `UNMEASURED` with reasons when no
   model or weights exist.
 - AC-004: a machine-readable JSON report carries a decision that refuses
-  adoption when quality, timing or workload identity is missing
-  (`NO ADOPTION / insufficient evidence`); thresholds are constants declared
-  before measurement.
+  adoption when quality, timing or workload identity is missing, or when any
+  measured ratio exceeds its frozen threshold, or when a required flag/measurement
+  is absent (`NO ADOPTION / insufficient evidence`); thresholds are constants
+  declared before measurement.
 - AC-005: stdlib-only where practical, no new dependency, no private media, no
   secrets; offline only; no production file, env flag, API or workflow change.
 - AC-006: static quality — `py_compile`, `ruff check --config
   scripts/quality/ruff.toml`, `validate_sdd.py` and a scope-limited
-  `git status --short` pass, and the changed paths are exactly the harness plus
-  the three SDD files.
+  `git status --short` pass, and the admitted change set is exactly the
+  harness, the three SDD files, `tests/test_roi_crop_baseline.py` (new) and the
+  `tests/test_701_crossing_votes.py` guard re-pin; this code worker edits only
+  the harness and SDD.
 
 ## NFR assessment
 
 - NFR-001 | Area: Isolation | Target: the harness is offline, opens no socket, reads no camera/relay/service, and imports no third-party package | Validation: source inspection plus a full run with no network/credential input | Evidence: the script imports stdlib modules only; the run completed from synthetic buffers and wrote a local JSON report | Status: PASS
 - NFR-002 | Area: Geometry correctness | Target: crop bounds cover the visible polygon and accepted plus diagnostic boxes survive crop → reverse shift exactly for every frozen scenario | Validation: run the harness and inspect `geometry.all_roundtrip_exact` and each scenario row | Evidence: the observed run reported `geometry.all_roundtrip_exact: true` across 6 scenarios (7 accepted and 7 diagnostic boxes each), including edge-clipped, zero-area and outside-frame cases | Status: PASS
-- NFR-003 | Area: Evidence honesty | Target: inference CPU, inference latency, quality and workload identity are UNMEASURED with explicit reasons; decision is `NO ADOPTION / insufficient evidence`; model-free timings are never labelled inference | Validation: inspect the report's `decision`, `unmeasured` and arm notes | Evidence: the observed run reported the refusal decision, 10 UNMEASURED cells with reasons, and model-free-only preprocessing timings | Status: PASS
+- NFR-003 | Area: Evidence honesty | Target: inference CPU, inference latency, quality and workload identity are UNMEASURED with explicit reasons; any measured ratio above its frozen maximum is an explicit refusal reason; decision is `NO ADOPTION / insufficient evidence`; model-free timings are never labelled inference | Validation: inspect the report's `decision`, `unmeasured` and arm notes, and a report with an over-threshold ratio | Evidence: the observed run reported the refusal decision, 10 UNMEASURED cells with reasons, model-free-only preprocessing timings and an explicit preprocess-ratio threshold-breach reason | Status: PASS
 - NFR-004 | Area: Boundedness | Target: fixed scenario count, finite per-scenario frame loop, no external wait or subprocess | Validation: source inspection of loops and the observed run duration | Evidence: six frozen scenarios, 32 frames each per arm, one short local run; no blocking call or child process | Status: PASS
-- NFR-005 | Area: Static quality | Target: the new script and SDD pass the repository static gates and touch only the allowed paths | Validation: `python3 -m py_compile`, `ruff check --config scripts/quality/ruff.toml`, `python3 scripts/ci/validate_sdd.py`, `git status --short` | Evidence: `py_compile` and ruff passed; the SDD validator and final scope check are recorded in `tasks.md` | Status: PASS
-- NFR-006 | Area: Test coverage | Target: the test worker's `tests/**` cases pin the geometry helpers and the refusal rule | Validation: test-worker delivered test run | Evidence: the test file and its results are owned by the separate test worker and remain PENDING in this delivery; no test is written or modified here | Status: CONCERNS
+- NFR-005 | Area: Static quality | Target: the harness and SDD pass the repository static gates; the code worker edits only those paths and the admitted test files are owned by the test worker | Validation: `python3 -m py_compile`, `ruff check --config scripts/quality/ruff.toml`, `python3 scripts/ci/validate_sdd.py`, `git status --short` | Evidence: `py_compile`, ruff and `Sea Speed SDD validation passed` were observed; the focused #704 tests also pass | Status: PASS
+- NFR-006 | Area: Test coverage | Target: the test worker's `tests/test_roi_crop_baseline.py` pins the geometry helpers and refusal rule, and the `tests/test_701_crossing_votes.py` guard re-pin stays green | Validation: focused and clean-tree test runs plus a RED run on the base archive | Evidence: focused run 8 passed / 44 subtests; clean-tree battery 1760 passed / 2 skipped / 1029 subtests / 0 failed; RED on base `36f28b` 7 failed / 1 passed | Status: PASS
 
 ## Runtime feedback
 

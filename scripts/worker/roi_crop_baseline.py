@@ -216,9 +216,16 @@ def shift_records(records, dx: int, dy: int) -> list[dict]:
     shifted = []
     for record in records:
         clone = dict(record)
-        box = clone.get("bbox_xyxy")
-        if box is not None and len(box) == 4:
-            clone["bbox_xyxy"] = [box[0] + dx, box[1] + dy, box[2] + dx, box[3] + dy]
+        if "bbox_xyxy" not in clone:
+            shifted.append(clone)
+            continue
+        box = clone["bbox_xyxy"]
+        if not isinstance(box, (list, tuple)) or len(box) != 4:
+            raise ValueError(
+                "malformed bbox_xyxy (expected a 4-element list): "
+                f"track_id={clone.get('track_id')!r} value={box!r}"
+            )
+        clone["bbox_xyxy"] = [box[0] + dx, box[1] + dy, box[2] + dx, box[3] + dy]
         shifted.append(clone)
     return shifted
 
@@ -434,11 +441,29 @@ def build_unmeasured_cells() -> list[dict]:
     ]
 
 
+def _is_ratio(value) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
 def build_decision(report: dict) -> dict:
-    """Refuse adoption whenever quality, inference timing or workload identity is missing."""
+    """Refuse adoption whenever quality, timing, identity or a ratio threshold fails."""
+    thresholds = ADOPTION_THRESHOLDS
+    comparison = report["comparison"]
+    quality_status = report["quality"]["status"]
+    workload_identity = report["input"]["workload_identity"]
+    inference_ratio = comparison.get("inference_cpu_ratio")
+    end_to_end_ratio = comparison.get("end_to_end_p95_ratio")
+    preprocess_ratio = comparison.get("preprocess_only_parent_cpu_ratio")
+    quality_parity = comparison.get("quality_parity")
     reasons = []
-    if report["binding"] != "BOUND":
+
+    if thresholds["require_tested_sha"] and report["binding"] != "BOUND":
         reasons.append("report is UNBOUND: --tested-sha is missing or not a full 40-hex commit")
+    if report["frozen"].get("investigation_only"):
+        reasons.append(
+            "--frames-per-scenario differs from the frozen default: this is an "
+            "investigation run, not frozen evidence"
+        )
     if not report["model"]["inference_executed"]:
         reasons.append("inference was not executed: no model runtime or weights in the harness")
     for arm in ("baseline", "candidate"):
@@ -449,29 +474,70 @@ def build_decision(report: dict) -> dict:
         if report["arms"][arm]["end_to_end_latency_ms"] == "UNMEASURED":
             reasons.append(f"{arm} end-to-end latency is UNMEASURED")
         samples = report["arms"][arm]["processed_frames"]
-        if samples < ADOPTION_THRESHOLDS["min_samples_per_arm"]:
+        if samples < thresholds["min_samples_per_arm"]:
             reasons.append(
                 f"{arm} arm has {samples} samples, below the frozen floor "
-                f"{ADOPTION_THRESHOLDS['min_samples_per_arm']}"
+                f"{thresholds['min_samples_per_arm']}"
             )
-    if report["quality"]["status"] == "UNMEASURED":
-        reasons.append("quality is UNMEASURED: no labeled replay or fixtures")
-    if report["input"]["workload_identity"] == "UNMEASURED":
-        reasons.append("workload identity is UNMEASURED: synthetic frames only")
-    if report["comparison"]["inference_cpu_ratio"] == "UNMEASURED":
+
+    if thresholds["require_quality_measured"] and quality_status != "MEASURED":
+        if quality_status == "UNMEASURED":
+            reasons.append("quality is UNMEASURED: no labeled replay or fixtures")
+        else:
+            reasons.append(f"quality is {quality_status}, not MEASURED")
+    if thresholds["quality_parity_required"] and quality_parity != "MEASURED":
+        reasons.append(f"quality parity is {quality_parity}, not MEASURED")
+    if thresholds["require_workload_identity_measured"] and workload_identity != "MEASURED":
+        if workload_identity == "UNMEASURED":
+            reasons.append("workload identity is UNMEASURED: synthetic frames only")
+        else:
+            reasons.append(f"workload identity is {workload_identity}, not MEASURED")
+
+    if thresholds["require_inference_cpu_measured"] and not _is_ratio(inference_ratio):
         reasons.append("candidate inference CPU ratio is UNMEASURED")
+    elif _is_ratio(inference_ratio) and inference_ratio > thresholds["candidate_inference_cpu_ratio_max"]:
+        reasons.append(
+            f"candidate inference CPU ratio {inference_ratio} exceeds the frozen maximum "
+            f"{thresholds['candidate_inference_cpu_ratio_max']}"
+        )
+    if _is_ratio(end_to_end_ratio) and end_to_end_ratio > thresholds["candidate_end_to_end_p95_ratio_max"]:
+        reasons.append(
+            f"candidate end-to-end p95 ratio {end_to_end_ratio} exceeds the frozen maximum "
+            f"{thresholds['candidate_end_to_end_p95_ratio_max']}"
+        )
+    if _is_ratio(preprocess_ratio) and preprocess_ratio > thresholds["candidate_preprocess_parent_cpu_ratio_max"]:
+        reasons.append(
+            f"candidate preprocess CPU ratio {preprocess_ratio} exceeds the frozen maximum "
+            f"{thresholds['candidate_preprocess_parent_cpu_ratio_max']}"
+        )
 
     adoption = False
     value = "NO ADOPTION / insufficient evidence"
-    # An adoption-eligible decision requires every measured cell above. While
-    # inference, quality or workload identity is UNMEASURED this branch cannot
-    # be reached; it exists so the rule is explicit, not to claim a result.
+    # An adoption-eligible decision requires every measured cell above plus a
+    # measured win under every declared ratio threshold. While inference,
+    # quality or workload identity is UNMEASURED this branch cannot be reached;
+    # it exists so the rule is explicit, not to claim a result.
+    ratios_ok = (
+        _is_ratio(inference_ratio)
+        and inference_ratio <= thresholds["candidate_inference_cpu_ratio_max"]
+        and _is_ratio(end_to_end_ratio)
+        and end_to_end_ratio <= thresholds["candidate_end_to_end_p95_ratio_max"]
+        and _is_ratio(preprocess_ratio)
+        and preprocess_ratio <= thresholds["candidate_preprocess_parent_cpu_ratio_max"]
+    )
+    quality_ok = (
+        not thresholds["require_quality_measured"] or quality_status == "MEASURED"
+    ) and (not thresholds["quality_parity_required"] or quality_parity == "MEASURED")
+    identity_ok = (
+        not thresholds["require_workload_identity_measured"] or workload_identity == "MEASURED"
+    )
     if (
         not reasons
-        and report["comparison"]["adoption_evaluable"]
-        and report["comparison"]["inference_cpu_ratio"] != "UNMEASURED"
-        and report["comparison"]["quality_parity"] == "MEASURED"
-        and report["input"]["workload_identity"] == "MEASURED"
+        and comparison.get("adoption_evaluable")
+        and report["model"]["inference_executed"]
+        and ratios_ok
+        and quality_ok
+        and identity_ok
     ):
         adoption = True
         value = "ADOPTION_ELIGIBLE"
@@ -479,7 +545,7 @@ def build_decision(report: dict) -> dict:
     return {
         "value": value,
         "adoption": adoption,
-        "thresholds": dict(ADOPTION_THRESHOLDS),
+        "thresholds": dict(thresholds),
         "reasons": reasons,
     }
 
@@ -563,8 +629,14 @@ def main(argv=None) -> int:
         "frozen": {
             "scenarios": [scenario["name"] for scenario in SCENARIOS],
             "frames_per_scenario": args.frames_per_scenario,
+            "frames_per_scenario_default": DEFAULT_FRAMES_PER_SCENARIO,
+            "investigation_only": args.frames_per_scenario != DEFAULT_FRAMES_PER_SCENARIO,
             "adoption_thresholds": dict(ADOPTION_THRESHOLDS),
-            "note": "Thresholds are declared before measurement and never relaxed after seeing data.",
+            "note": (
+                "Thresholds are declared before measurement and never relaxed after seeing data."
+                if args.frames_per_scenario == DEFAULT_FRAMES_PER_SCENARIO
+                else "Non-default --frames-per-scenario is an investigation run, not frozen evidence."
+            ),
         },
         "runtime": runtime_identity(),
         "model": dict(MODEL_IDENTITY),

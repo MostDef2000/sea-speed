@@ -15,7 +15,9 @@ Sections (one class each):
   coordinates, with the literal clipped crop bounds asserted per scenario
   (nonzero offsets, nonrectangular masks, edge clipping, the two full-frame
   fallbacks and the outside-frame fallback all handled). The harness's own
-  ``verify_scenario`` oracle must agree.
+  ``verify_scenario`` oracle must agree, out-of-crop boxes are pinned as
+  translated-verbatim (the harness has no containment logic), and a
+  present-but-malformed ``bbox_xyxy`` must raise ``ValueError``.
 * ``RoiCropReportRefusalTests`` — a real report run refuses adoption: the
   decision is exactly ``NO ADOPTION / insufficient evidence`` with
   ``adoption is False``, all ten required cells are present with reasons, every
@@ -23,12 +25,16 @@ Sections (one class each):
   number, and the measured cells are model-free preprocessing only.
 * ``RoiCropThresholdTests`` — ``ADOPTION_THRESHOLDS`` is a module-level
   constant declared before any measurement, is echoed verbatim into the report
-  (``frozen`` and ``decision``), and editing ONLY the measurement section can
-  never produce adoption while quality / workload identity stay unmeasured.
-* ``RoiCropScopeGuardTests`` — the pinned change set touches only
-  ``tests/``, the harness script and ``specs/704-roi-crop-baseline/``;
-  ``worker/``, ``api/``, ``deploy/``, ``.github/`` and lockfiles are
-  forbidden, with the pinned-range + fail-closed pattern used by #696/#701.
+  (``frozen`` and ``decision``), editing ONLY the measurement section can
+  never produce adoption while quality / workload identity stay unmeasured,
+  and every declared ratio threshold is enforced with a named refusal reason
+  (breached → refusal, within the maximum → honestly eligible).
+* ``RoiCropScopeGuardTests`` — the change set touches only ``tests/``, the
+  harness script and ``specs/704-roi-crop-baseline/``; ``worker/``, ``api/``,
+  ``deploy/``, ``.github/`` and lockfiles are forbidden. The change set is the
+  pinned range UNION the working tree, both halves on every call and
+  fail-closed, so an uncommitted out-of-scope file cannot pass unseen after
+  the first #704 commit.
 
 Environment: the battery is stdlib-only (``scripts/run_tests.py``), and so is
 the harness — no third-party import is needed to run any test here.
@@ -189,6 +195,44 @@ DIAGNOSTIC_RECORDS = [
 ]
 
 
+def _green_report(inference_cpu_ratio=0.70) -> dict:
+    """A fabricated report where EVERY gate ``build_decision`` checks is green.
+
+    Only ``comparison.inference_cpu_ratio`` varies between calls, so any
+    refusal can only come from the ratio threshold under test — and the
+    complementary case (a ratio within the frozen maximum) must therefore not
+    be a blanket refusal.
+    """
+    return {
+        "binding": "BOUND",
+        "frozen": {"investigation_only": False},
+        "model": {"inference_executed": True},
+        "quality": {"status": "MEASURED"},
+        "input": {"workload_identity": "MEASURED"},
+        "arms": {
+            "baseline": {
+                "inference_cpu_seconds_per_frame": 0.050,
+                "inference_latency_ms": {"median": 40.0, "p95": 55.0},
+                "end_to_end_latency_ms": {"median": 60.0, "p95": 80.0},
+                "processed_frames": 192,
+            },
+            "candidate": {
+                "inference_cpu_seconds_per_frame": 0.035,
+                "inference_latency_ms": {"median": 28.0, "p95": 39.0},
+                "end_to_end_latency_ms": {"median": 45.0, "p95": 58.0},
+                "processed_frames": 192,
+            },
+        },
+        "comparison": {
+            "inference_cpu_ratio": inference_cpu_ratio,
+            "end_to_end_p95_ratio": 0.80,
+            "preprocess_only_parent_cpu_ratio": 0.95,
+            "quality_parity": "MEASURED",
+            "adoption_evaluable": True,
+        },
+    }
+
+
 # ---------------------------------------------------------------------------
 # 1. geometry round-trip: crop -> "infer" -> reverse shift is exact
 # ---------------------------------------------------------------------------
@@ -202,6 +246,18 @@ class RoiCropGeometryRoundTripTests(unittest.TestCase):
         ``(-x0, -y0)`` and back by ``(+x0, +y0)`` with exact integer
         arithmetic, so the reverse shift returns the original full-frame
         coordinates for both record kinds in all six geometry cases.
+
+        Oracle strength (review finding 5): that reverse-shift equality is
+        ALGEBRAICALLY the identity ``(x - dx) + dx`` over integers, so by
+        itself it can only ever prove exact add/subtract — not geometry. The
+        geometric content lives in the two literal assertions around it: the
+        clipped crop bounds per scenario (polygon bounding box ∩ frame with
+        floor/ceil, plus the three full-frame fallbacks) and the forward-shift
+        assertion tying each box to the actual crop rectangle as
+        ``box - (x0, y0)``. The harness has NO containment logic: a box whose
+        crop-space coordinates fall outside the crop rectangle is translated
+        verbatim — never clipped, clamped or flagged — which the corner-box
+        assertions below pin as the harness's actual behaviour.
         """
         harness = load_harness()
 
@@ -254,6 +310,20 @@ class RoiCropGeometryRoundTripTests(unittest.TestCase):
                         [100 - crop.x0, 120 - crop.y0, 260 - crop.x0, 300 - crop.y0],
                         "crop-space coordinates are the full-frame box minus the offset",
                     )
+                    # Containment: the corner box [5, 5, 55, 55] starts
+                    # outside the ROI, so in crop space it sticks out of the
+                    # crop rectangle — and the harness leaves it there: pure
+                    # translation, no clipping, clamping or flagging.
+                    corner = accepted_crop[2]["bbox_xyxy"]
+                    self.assertTrue(
+                        any(value < 0 for value in corner),
+                        f"{scenario['name']}: the corner box must fall outside the crop",
+                    )
+                    self.assertEqual(
+                        corner,
+                        [5 - crop.x0, 5 - crop.y0, 55 - crop.x0, 55 - crop.y0],
+                        "outside-crop boxes are translated verbatim, never clamped",
+                    )
                     self.assertEqual(
                         diagnostic_crop[2]["bbox_xyxy"],
                         [5 - crop.x0, 5 - crop.y0, 55 - crop.x0, 55 - crop.y0],
@@ -275,6 +345,48 @@ class RoiCropGeometryRoundTripTests(unittest.TestCase):
                 self.assertTrue(row["diagnostic_roundtrip_exact"], row)
                 self.assertEqual(row["accepted_boxes"], row["diagnostic_boxes"], row)
                 self.assertGreater(row["accepted_boxes"], 0)
+
+    def test_shift_records_rejects_present_but_malformed_boxes(self) -> None:
+        """A present ``bbox_xyxy`` must be a 4-element list (ValueError
+        otherwise); a record without the key is still skipped untouched.
+
+        Review finding 4: the malformed arm is new behaviour of the landed
+        fix — a silent shift of a wrong-shaped box would corrupt coordinates
+        instead of failing loudly.
+        """
+        harness = load_harness()
+        malformed_values = (
+            [1, 2, 3],          # too short
+            [1, 2, 3, 4, 5],    # too long
+            "not-a-box",        # not a sequence of numbers
+            None,               # present but null
+            {"x0": 1},          # mapping, not a box
+        )
+        for value in malformed_values:
+            with self.subTest(bbox_xyxy=value):
+                with self.assertRaises(ValueError) as caught:
+                    harness.shift_records(
+                        [{"track_id": 1, "class_name": "car", "bbox_xyxy": value}],
+                        -10,
+                        -20,
+                    )
+                self.assertIn("malformed bbox_xyxy", str(caught.exception))
+                self.assertIn("track_id=1", str(caught.exception))
+
+        # An absent key is skipped entirely: nothing to validate, nothing to
+        # shift, and no exception.
+        without_box = [{"track_id": 1, "class_name": "car"}]
+        self.assertEqual(
+            harness.shift_records(without_box, 10, 20),
+            [{"track_id": 1, "class_name": "car"}],
+            "a record with no bbox_xyxy passes through unchanged",
+        )
+        # Sanity: a well-formed box still shifts (the guard above is not a
+        # blanket refusal): [x0, y0, x1, y1] + (dx=1, dy=2) elementwise.
+        self.assertEqual(
+            harness.shift_records([{"track_id": 2, "bbox_xyxy": [1, 2, 3, 4]}], 1, 2),
+            [{"track_id": 2, "bbox_xyxy": [2, 4, 4, 6]}],
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -446,6 +558,60 @@ class RoiCropThresholdTests(unittest.TestCase):
         self.assertIn("quality is UNMEASURED", reasons)
         self.assertIn("workload identity is UNMEASURED", reasons)
 
+    def test_breached_inference_ratio_refuses_with_a_named_reason(self) -> None:
+        """MEDIUM gap: ratio 0.99 > the frozen 0.80 maximum refuses even with
+        every OTHER gate green, and the reason names the breached threshold."""
+        harness = load_harness()
+        decision = harness.build_decision(_green_report(inference_cpu_ratio=0.99))
+
+        self.assertEqual(
+            decision["value"],
+            "NO ADOPTION / insufficient evidence",
+            "a threshold breach is a refusal, never an eligibility claim",
+        )
+        self.assertIs(decision["adoption"], False)
+        self.assertEqual(
+            decision["reasons"],
+            ["candidate inference CPU ratio 0.99 exceeds the frozen maximum 0.8"],
+            "exactly the breached threshold — every other gate is green",
+        )
+        self.assertEqual(decision["thresholds"], harness.ADOPTION_THRESHOLDS)
+
+    def test_ratio_within_the_threshold_is_not_a_blanket_refusal(self) -> None:
+        """The complementary case: the identical green report with 0.70 ≤ 0.80
+        must be honestly ADOPTION_ELIGIBLE — the threshold discriminates."""
+        harness = load_harness()
+        decision = harness.build_decision(_green_report(inference_cpu_ratio=0.70))
+
+        self.assertEqual(decision["reasons"], [], "no gate is breached")
+        self.assertEqual(decision["value"], "ADOPTION_ELIGIBLE")
+        self.assertIs(decision["adoption"], True)
+
+    def test_the_other_declared_ratio_thresholds_are_enforced_too(self) -> None:
+        """end-to-end p95 ≤ 0.90 and preprocess CPU ≤ 1.00 refuse the same
+        way: one breached ratio → one named reason, adoption False."""
+        harness = load_harness()
+        cases = (
+            (
+                {"end_to_end_p95_ratio": 0.95},
+                "candidate end-to-end p95 ratio 0.95 exceeds the frozen maximum 0.9",
+            ),
+            (
+                {"preprocess_only_parent_cpu_ratio": 1.20},
+                "candidate preprocess CPU ratio 1.2 exceeds the frozen maximum 1.0",
+            ),
+        )
+        for override, expected_reason in cases:
+            with self.subTest(**override):
+                report = _green_report()
+                report["comparison"].update(override)
+                decision = harness.build_decision(report)
+                self.assertEqual(
+                    decision["value"], "NO ADOPTION / insufficient evidence"
+                )
+                self.assertIs(decision["adoption"], False)
+                self.assertEqual(decision["reasons"], [expected_reason])
+
 
 # ---------------------------------------------------------------------------
 # 4. scope guard — only the admitted #704 surface
@@ -453,13 +619,15 @@ class RoiCropThresholdTests(unittest.TestCase):
 
 
 class RoiCropScopeGuardTests(unittest.TestCase):
-    """The pinned #704 change set (BASE_SHA..HEAD_SHA), fail-closed.
+    """The #704 change set = pinned range UNION working tree, fail-closed.
 
-    The pinned range is the #696/#701 pattern: while #704 is uncommitted
-    HEAD == BASE_SHA and the range is empty, so the working-tree view is
-    consulted instead (the change set exists only there); from the first
-    #704 commit the range carries it and the status half never runs again.
-    A failing ``git diff`` raises instead of checking something weaker.
+    Review finding 3: the earlier guard consulted ``git status`` only while
+    the committed range was empty, so after the first #704 commit an
+    UNCOMMITTED out-of-scope file passed unseen. ``_changed_paths()`` now
+    returns the sorted, deduplicated UNION of ``git diff --name-only
+    BASE_SHA HEAD_SHA`` and ``git status --porcelain --untracked-files=all``
+    on EVERY call, and either git call failing fails the guard closed with
+    diagnostics instead of checking something weaker.
     """
 
     ALLOWED_CHANGE_PREFIXES = (
@@ -479,45 +647,47 @@ class RoiCropScopeGuardTests(unittest.TestCase):
 
     @staticmethod
     def _changed_paths() -> list[str]:
-        """The pinned #704 change set (fail-closed on a failing ``git diff``)."""
-        try:
-            result = subprocess.run(
-                ["git", "-C", str(ROOT), "diff", "--name-only", BASE_SHA, HEAD_SHA],
-                capture_output=True,
-                text=True,
-                check=True,
-            )
-        except OSError as exc:
-            raise AssertionError(
-                "scope guard cannot run git to read the pinned #704 change set "
-                f"({type(exc).__name__}: {exc}) — failing closed"
-            ) from exc
-        except subprocess.CalledProcessError as exc:
-            detail = (exc.stderr or exc.stdout or "").strip()
-            raise AssertionError(
-                "scope guard cannot read the pinned #704 change set: "
-                f"`git diff --name-only {BASE_SHA} {HEAD_SHA}` failed with rc="
-                f"{exc.returncode} ({detail or 'no output'}) — shallow clone or "
-                "missing object? Failing closed: a guard that cannot read its "
-                "pinned range must not pass."
-            ) from exc
-        paths: set[str] = {
-            line.strip().strip('"')
-            for line in result.stdout.splitlines()
-            if line.strip()
-        }
-        if paths:
-            return sorted(paths)
-        # Pre-commit window only: this branch has no commits yet (HEAD ==
-        # BASE_SHA), so the working tree is the only place the #704 change
-        # set exists. Never reached again once #704 is committed.
-        status = subprocess.run(
+        """The #704 change set: pinned range UNION working tree, always.
+
+        Review finding 3: the status half used to run only while the pinned
+        range was empty, which let uncommitted out-of-scope files pass unseen
+        after the first #704 commit. Both halves now run on every call and a
+        failing git call in EITHER half fails the guard closed.
+        """
+
+        def _run(command: list[str], label: str) -> str:
+            try:
+                result = subprocess.run(
+                    command, capture_output=True, text=True, check=True
+                )
+            except OSError as exc:
+                raise AssertionError(
+                    f"scope guard cannot run git ({label}): "
+                    f"{type(exc).__name__}: {exc} — failing closed"
+                ) from exc
+            except subprocess.CalledProcessError as exc:
+                detail = (exc.stderr or exc.stdout or "").strip()
+                raise AssertionError(
+                    f"scope guard cannot read the {label}: "
+                    f"`{' '.join(command)}` failed with rc={exc.returncode} "
+                    f"({detail or 'no output'}) — failing closed: a guard that "
+                    "cannot read its change set must not pass."
+                ) from exc
+            return result.stdout
+
+        paths: set[str] = set()
+        # Half 1: the pinned committed range (BASE_SHA..HEAD_SHA).
+        for line in _run(
+            ["git", "-C", str(ROOT), "diff", "--name-only", BASE_SHA, HEAD_SHA],
+            "pinned #704 change set",
+        ).splitlines():
+            if line.strip():
+                paths.add(line.strip().strip('"'))
+        # Half 2: the working tree (modified + untracked), ALWAYS.
+        for line in _run(
             ["git", "-C", str(ROOT), "status", "--porcelain", "--untracked-files=all"],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        for line in status.stdout.splitlines():
+            "working tree",
+        ).splitlines():
             if not line.strip():
                 continue
             path = line[3:]
@@ -525,6 +695,36 @@ class RoiCropScopeGuardTests(unittest.TestCase):
                 path = path.split(" -> ")[-1]
             paths.add(path.strip().strip('"'))
         return sorted(paths)
+
+    def test_change_set_is_the_union_and_is_non_empty_on_this_branch(self) -> None:
+        """Review finding 3: BOTH halves are consulted, on every call.
+
+        Changes are expected on this branch — the harness fix is uncommitted
+        and the #704 commit sits in the pinned range — so the union must be
+        non-empty and must name the harness. The untracked probe below proves
+        the working-tree half runs even while the pinned range is non-empty
+        (the exact gap the review found).
+        """
+        changed = self._changed_paths()
+        self.assertTrue(
+            changed,
+            "changes are expected on this branch: the union of the pinned "
+            "range and the working tree must be non-empty",
+        )
+        self.assertIn("scripts/worker/roi_crop_baseline.py", changed)
+
+        probe = ROOT / "tests" / ".roi_crop_liveness_probe_704.txt"
+        probe.write_text("scope-guard liveness probe (review finding 3)\n", encoding="utf-8")
+        self.addCleanup(probe.unlink, missing_ok=True)
+        with_probe = self._changed_paths()
+        self.assertIn(
+            "tests/.roi_crop_liveness_probe_704.txt",
+            with_probe,
+            "an uncommitted untracked file must be visible while the pinned "
+            "range is non-empty — otherwise uncommitted out-of-scope files "
+            "pass unseen after the first #704 commit",
+        )
+        self.assertTrue(set(changed) <= set(with_probe), "the union only grows")
 
     def test_change_set_touches_only_the_704_surface(self) -> None:
         changed = self._changed_paths()
