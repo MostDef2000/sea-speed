@@ -239,6 +239,21 @@ def parse_playlist(text: str) -> tuple[str | None, list[str], int, bool]:
     return init_uri, segments, media_sequence, has_media_sequence
 
 
+def _pending_segment_count(
+    segments: list[str],
+    media_sequence: int,
+    has_media_sequence: bool,
+    next_sequence: int | None,
+) -> int:
+    if not has_media_sequence or next_sequence is None:
+        return len(segments)
+    return sum(
+        1
+        for index in range(len(segments))
+        if media_sequence + index >= next_sequence
+    )
+
+
 def fetch_playlist(
     opener: urllib.request.OpenerDirector,
     url: str,
@@ -273,11 +288,25 @@ def download_object(
             declared = response.headers.get("Content-Length", "")
             if declared.isdigit() and int(declared) > max_bytes:
                 raise RecorderError("object exceeds the bounded object size")
+            # A per-recv socket timeout alone lets a slow-drip server keep the
+            # object open indefinitely. Before every read, clamp the socket
+            # timeout to the TOTAL budget that remains and use read1 when
+            # available so one loop iteration performs at most one recv.
+            read_once = getattr(response, "read1", None) or response.read
+            socket_obj = _response_socket(response)
             with part.open("wb") as handle:
                 while True:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise TimeoutError("object download deadline exceeded")
+                    if socket_obj is not None:
+                        try:
+                            socket_obj.settimeout(min(remaining, timeout_sec))
+                        except OSError:
+                            pass
+                    chunk = read_once(_CHUNK_BYTES)
                     if time.monotonic() > deadline:
                         raise TimeoutError("object download deadline exceeded")
-                    chunk = response.read(_CHUNK_BYTES)
                     if not chunk:
                         break
                     total += len(chunk)
@@ -292,6 +321,14 @@ def download_object(
         except OSError:
             pass
         raise
+
+
+def _response_socket(response: object):
+    """Best-effort access to the HTTP response socket for deadline clamping."""
+    try:
+        return response.fp.raw._sock  # type: ignore[attr-defined]
+    except AttributeError:
+        return None
 
 
 def rsync_object(
@@ -352,7 +389,8 @@ class HlsRecorder:
         self.auth = media_basic_auth_for_input(config.hls_url)
         self.opener = build_opener()
         self.recent = _RecentKeys()
-        self.init_seen: set[str] = set()
+        self.init_seen = _RecentKeys()
+        self._space_low_skip_cursor: int | None = None
         self.captured_count = 0
         self.gap_count = 0
 
@@ -473,7 +511,15 @@ class HlsRecorder:
                 if has_media_sequence:
                     if next_sequence is None:
                         next_sequence = media_sequence
-                    elif media_sequence + len(segments) <= next_sequence:
+                    elif media_sequence + len(segments) > next_sequence:
+                        self._space_low_skip_cursor = None
+                    elif self._space_low_skip_cursor == next_sequence:
+                        # The whole window was already counted as lost while
+                        # the spool floor was active; do not recount it.
+                        failures += 1
+                        time.sleep(_next_poll(config.poll_sec, failures))
+                        continue
+                    else:
                         print(
                             f"recorder playlist cursor reset "
                             f"previous={next_sequence} media_sequence={media_sequence}",
@@ -481,44 +527,87 @@ class HlsRecorder:
                         )
                         next_sequence = media_sequence
 
+                space_low: SpoolSpaceLow | None = None
                 if init_uri:
                     absolute = urllib.parse.urljoin(final_url, init_uri)
                     if absolute not in self.init_seen:
-                        ok = self.capture(absolute, self.init_name(absolute))
+                        try:
+                            ok = self.capture(absolute, self.init_name(absolute))
+                        except SpoolSpaceLow as exc:
+                            space_low = exc
+                            skipped = 1 + _pending_segment_count(
+                                segments,
+                                media_sequence,
+                                has_media_sequence,
+                                next_sequence,
+                            )
+                            self.gap_count += skipped
+                            if has_media_sequence:
+                                next_sequence = media_sequence + len(segments)
+                                self._space_low_skip_cursor = next_sequence
+                            print(
+                                f"recorder spool space low reason={exc} "
+                                f"skipped={skipped}",
+                                flush=True,
+                            )
+                        else:
+                            if ok:
+                                self.init_seen.add(absolute)
+                                self.captured_count += 1
+                            else:
+                                self.gap_count += 1
+
+                if space_low is None:
+                    for index, uri in enumerate(segments):
+                        absolute = urllib.parse.urljoin(final_url, uri)
+                        sequence = media_sequence + index if has_media_sequence else None
+                        if sequence is not None:
+                            if sequence < next_sequence:
+                                continue
+                            if sequence > next_sequence:
+                                missed = sequence - next_sequence
+                                self.gap_count += missed
+                                print(
+                                    f"recorder gap missed={missed} "
+                                    f"next_sequence={next_sequence} media_sequence={sequence}",
+                                    flush=True,
+                                )
+                                next_sequence = sequence
+                        key = ("segment", sequence if sequence is not None else absolute)
+                        if key in self.recent:
+                            if sequence is not None:
+                                next_sequence = sequence + 1
+                            continue
+                        if sequence is not None:
+                            next_sequence = sequence + 1
+                        self.recent.add(key)
+                        try:
+                            ok = self.capture(
+                                absolute,
+                                self.segment_name(sequence, index, absolute),
+                            )
+                        except SpoolSpaceLow as exc:
+                            skipped = len(segments) - index
+                            self.gap_count += skipped
+                            if has_media_sequence:
+                                next_sequence = media_sequence + len(segments)
+                                self._space_low_skip_cursor = next_sequence
+                            print(
+                                f"recorder spool space low reason={exc} "
+                                f"skipped={skipped}",
+                                flush=True,
+                            )
+                            space_low = exc
+                            break
                         if ok:
-                            self.init_seen.add(absolute)
                             self.captured_count += 1
                         else:
                             self.gap_count += 1
 
-                for index, uri in enumerate(segments):
-                    absolute = urllib.parse.urljoin(final_url, uri)
-                    sequence = media_sequence + index if has_media_sequence else None
-                    if sequence is not None:
-                        if sequence < next_sequence:
-                            continue
-                        if sequence > next_sequence:
-                            missed = sequence - next_sequence
-                            self.gap_count += missed
-                            print(
-                                f"recorder gap missed={missed} "
-                                f"next_sequence={next_sequence} media_sequence={sequence}",
-                                flush=True,
-                            )
-                            next_sequence = sequence
-                    key = ("segment", sequence if sequence is not None else absolute)
-                    if key in self.recent:
-                        if sequence is not None:
-                            next_sequence = sequence + 1
-                        continue
-                    if sequence is not None:
-                        next_sequence = sequence + 1
-                    self.recent.add(key)
-                    if self.capture(absolute, self.segment_name(sequence, index, absolute)):
-                        self.captured_count += 1
-                    else:
-                        self.gap_count += 1
-                failures = 0
+                if space_low is None:
+                    failures = 0
+                else:
+                    failures += 1
             except SpoolSpaceLow as exc:
                 failures += 1
                 print(f"recorder spool space low reason={exc}", flush=True)

@@ -253,8 +253,11 @@ def _stop_recorder() -> None:
     if process is None:
         return
     try:
-        if process.poll() is None:
-            os.killpg(process.pid, signal.SIGTERM)
+        # Signal the whole group even when the leader already exited: an rsync
+        # descendant can still be alive in that group.
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
     except Exception:
         pass
     try:

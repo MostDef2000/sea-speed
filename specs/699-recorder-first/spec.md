@@ -157,7 +157,7 @@ Scenario: cross-origin redirect
 - AC-005: A hung receiver causes only bounded retries/backoff, one discarded object and a counted gap; later capture resumes and ingest is not backpressured.
 - AC-006: The entrypoint spawns one recorder child per enabled camera without waiting, a spawn failure disables recording only, stop terminates the child and its rsync descendant, and the key is read only from the LoadCredential surface.
 - AC-007: `worker/recorder.py` appears in the ubuntu-worker exact-artifact build and validation inventories only, and both Ubuntu env examples carry the identical opt-in block while both service templates keep `LoadCredential`.
-- AC-008: Static verification is observed (py_compile, ruff, validate_sdd, inventory check, exact-artifact build + validation); dedicated `tests/**` coverage is owned by the test worker and remains PENDING in this worker's evidence.
+- AC-008: Static verification is observed and dedicated regression coverage exists in `tests/test_699_recorder.py` and `tests/test_699_recorder_lifecycle.py`; the observed targeted run is 49 passed / 55 subtests.
 
 ## Out of scope (explicit)
 
@@ -175,16 +175,20 @@ Scenario: cross-origin redirect
 - Accepted production behavior while disabled: unchanged.
 - Accepted behavior when enabled: raw HLS objects recorded; recording failures
   produce bounded gaps and never affect analytics ingest.
-- Deferred work: dedicated `tests/**` coverage by the test worker; field
-  enablement and dacha quota/pruner observation after a lane-A Ubuntu deploy.
+- Regression coverage: `tests/test_699_recorder.py` (byte identity, disabled
+  zero-I/O, source rejection, bounds, credentials) and
+  `tests/test_699_recorder_lifecycle.py` (entrypoint lifecycle, packaging,
+  scope guard); the targeted run observed 49 passed / 55 subtests.
+- Deferred work: field enablement and dacha quota/pruner observation after a
+  lane-A Ubuntu deploy.
 
 ## NFR assessment
 
 - NFR-001 | Area: OPERABILITY | Target: opt-in default OFF; `SEA_SPEED_RECORDER_ENABLED` accepts only 0/1; every threshold bounded and read once | Validation: code inspection of RecorderConfig and entrypoint `_recorder_enabled` | Evidence: `worker/recorder.py` config clamps; entrypoint spawns only on literal `1`; both env examples default to 0 | Status: PASS
-- NFR-002 | Area: DATA | Target: delivered objects are byte-identical to source segment/init objects | Validation: scratch smoke download/delivery digest comparison | Evidence: `/tmp/opencode/699-recorder-first/smoke.py` asserted `SEG0`/`SEG1`/`INIT` bytes and fake-rsync delivery; dedicated tests PENDING | Status: CONCERNS
-- NFR-003 | Area: RELIABILITY | Target: recorder failure never blocks or crashes ingest; spawn failure disables recording only | Validation: entrypoint lifecycle scratch run plus code inspection | Evidence: scratch observed spawn, rc 143 termination and spawn-failure-without-raise; no recorder pipe to `worker.main()` | Status: PASS
-- NFR-004 | Area: SEC | Target: key only from `$CREDENTIALS_DIRECTORY`/`/run/credentials`; no credential logging, embedding or `/home` read; cross-origin redirect refused | Validation: code inspection and scratch redirect/auth check | Evidence: `_credential_path` candidates; cross-origin smoke refused; no key value printed | Status: PASS
-- NFR-005 | Area: PERF | Target: bounded 64 MiB per object and 12 GiB free-space floor; one object at a time; spool deleted after each upload | Validation: code inspection and scratch spool cleanup | Evidence: `download_object` chunk loop and cap; `capture` deletes the spool file in `finally` | Status: PASS
-- NFR-006 | Area: OBSERVABILITY | Target: start, object success, gap, discard, spool-low and cycle-error lines are emitted with bounded detail | Validation: code inspection and scratch recorder output | Evidence: observed `recorder start`, `recorder object ok`, `recorder cycle error` lines in scratch | Status: PASS
-- NFR-007 | Area: OPS | Target: receiver-side 500 GiB / 15-day quota and pruner documented; worker does not claim or implement receiver retention | Validation: spec/plan inspection and env example destination documentation | Evidence: this specification plus both env examples document the dacha destination; receiver pruner is outside the worker | Status: CONCERNS
-- NFR-008 | Area: BUS | Target: Ubuntu-only packaging and deployment; vps/edge inventories unchanged | Validation: inventory assertion and exact-artifact build/validate | Evidence: `INVENTORY_OK` observed; exact-artifact build and validation PASS | Status: PASS
+- NFR-002 | Area: DATA | Target: delivered objects are byte-identical to source segment/init objects | Validation: `tests/test_699_recorder.py::RecorderByteIdentityOracleTests` byte-identity oracle plus scratch smoke | Evidence: observed targeted run 49 passed / 55 subtests; byte-identity oracle compares SHA-256 and length of delivered init + segments; scratch smoke also matched `SEG0`/`SEG1`/`INIT` | Status: PASS
+- NFR-003 | Area: RELIABILITY | Target: recorder failure never blocks or crashes ingest; spawn failure disables recording only | Validation: `tests/test_699_recorder_lifecycle.py::RecorderEntrypointLifecycleTests` plus code inspection | Evidence: observed targeted run 49 passed / 55 subtests covers spawn, rc 143 stop, spawn-failure isolation and process-group termination; disabled/malformed paths in `RecorderDisabledZeroIoTests` | Status: PASS
+- NFR-004 | Area: SEC | Target: key only from `$CREDENTIALS_DIRECTORY`/`/run/credentials`; no credential logging, embedding or `/home` read; cross-origin redirect refused | Validation: `RecorderCredentialTests`, `RecorderSourceRejectionTests` and scratch redirect/auth check | Evidence: observed targeted run 49 passed / 55 subtests; credential tests pin the two allowed paths and the no-`/home` source scan; cross-origin redirect test asserts origin B receives zero requests | Status: PASS
+- NFR-005 | Area: PERF | Target: bounded 64 MiB per object and 12 GiB free-space floor; one object at a time; spool deleted after each upload | Validation: `RecorderBoundsTests` plus code inspection | Evidence: observed targeted run 49 passed / 55 subtests covers pinned bounds, content-length and streamed caps, chunked reads, stalled-body deadline, free-space floor, retry budget and spool cleanup | Status: PASS
+- NFR-006 | Area: OBSERVABILITY | Target: start, object success, gap, discard, spool-low and cycle-error lines are emitted with bounded detail | Validation: code inspection, scratch recorder output and lifecycle/recorder test output | Evidence: observed `recorder start`, `recorder object ok`, `recorder cycle error`, `recorder gap` and `reason=upload_failed` lines in the targeted run; spool-low log path added for the peer-review fix | Status: PASS
+- NFR-007 | Area: OPS | Target: receiver-side 500 GiB / 15-day quota and pruner documented; worker does not claim or implement receiver retention | Validation: spec/plan inspection and env example destination documentation | Evidence: this specification plus both env examples document the dacha destination; receiver pruner is outside the worker and not covered by worker tests | Status: CONCERNS
+- NFR-008 | Area: BUS | Target: Ubuntu-only packaging and deployment; vps/edge inventories unchanged | Validation: `RecorderPackagingTests` and the exact-artifact build/validate | Evidence: observed targeted run 49 passed / 55 subtests covers inventory and env/template assertions; exact-artifact build and validation PASS | Status: PASS

@@ -13,9 +13,9 @@
 - [x] T003 Add the identical opt-in block to `deploy/worker/ubuntu/worker.env.example` and `road-worker.env.example`; keep the existing `LoadCredential` line in both service templates.
 - [x] T004 Add `worker/recorder.py` to the ubuntu-worker required inventory in `scripts/quality/build_exact_artifacts.py` and `scripts/quality/validate_exact_artifacts.py`; leave vps/edge unchanged.
 - [x] T005 Author the SDD trio under `specs/699-recorder-first/`.
-- [x] T006 Record observed static/lifecycle/artifact evidence below; dedicated `tests/**` evidence remains with the test worker.
+- [x] T006 Record observed static/lifecycle/artifact evidence below.
 - [ ] T007 Record required CI and exact-green-head merge evidence after the bounded PR is opened by the orchestrator (PENDING).
-- [ ] T008 Record dedicated test-worker `tests/**` unit/integration evidence (PENDING — test worker owns tests/**).
+- [x] T008 Record dedicated test-worker evidence: `tests/test_699_recorder.py` and `tests/test_699_recorder_lifecycle.py` → 49 passed / 55 subtests observed on this working tree (peer-review clean-tree run 1814 passed / 2 skipped / 1093 subtests / 0 failed; base RED 56 failed / 9 passed).
 
 ## Completion gate
 
@@ -24,29 +24,30 @@
 - [x] Local static and scratch verification observed (py_compile, ruff, smoke, inventory, exact-artifact build/validate, validate_sdd)
 - [ ] Required CI evidence recorded after PR opening (PENDING)
 - [ ] Exact-green-head merge complete (PENDING)
-- [ ] Dedicated test-worker `tests/**` evidence recorded (PENDING)
+- [x] Dedicated test-worker evidence recorded (`tests/test_699_recorder.py` + `tests/test_699_recorder_lifecycle.py` → 49 passed / 55 subtests observed)
+- [ ] Required CI evidence and exact-green-head merge remain PENDING until the bounded PR run
 
 ## Requirements traceability
 
-- AC-001 | Task: T001, T002 | Evidence: `RecorderConfig.from_env` rejects flags other than 0/1; entrypoint `_recorder_enabled`/`_start_recorder` returns before `Popen` when the flag is not the literal `1`; env examples default to 0; dedicated test PENDING | Coverage: COVERED
-- AC-002 | Task: T001 | Evidence: `download_object` streams original bytes to a `.part` file and atomically renames; `HlsRecorder.capture` rsyncs the completed object; scratch smoke observed byte-identical segment and init payloads and fake-rsync delivery; dedicated test PENDING | Coverage: COVERED
-- AC-003 | Task: T001 | Evidence: `parse_playlist` handles `#EXT-X-MEDIA-SEQUENCE`/`#EXT-X-MAP`; `urljoin(final_url, uri)` resolves relative URIs; `_SameOriginRedirect` refuses cross-origin targets; `_origin` rejects non-HTTP(S) sources; scratch smoke observed same-origin redirect success, cross-origin refusal and RTSP rejection; dedicated test PENDING | Coverage: COVERED
-- AC-004 | Task: T001 | Evidence: `download_object` reads `_CHUNK_BYTES` chunks under a monotonic deadline, enforces `object_max_bytes`, and `capture` raises `SpoolSpaceLow` below `min_free_bytes`; dedicated test PENDING | Coverage: COVERED
-- AC-005 | Task: T001, T002 | Evidence: `HlsRecorder.upload` bounds attempts and exponential backoff, `capture` deletes the object and the loop increments `gap_count`; the recorder is a separate process with no pipe to `worker.main()`; dedicated test PENDING | Coverage: COVERED
-- AC-006 | Task: T002 | Evidence: entrypoint `_start_recorder` uses `start_new_session=True` with `stdin=DEVNULL` and logs a spawn failure without raising; `_stop_recorder` `killpg`s SIGTERM then SIGKILL and reaps; `_credential_path` reads `$CREDENTIALS_DIRECTORY`/`/run/credentials` only; scratch lifecycle observed spawn, rc 143 stop and spawn-failure isolation; dedicated test PENDING | Coverage: COVERED
-- AC-007 | Task: T003, T004 | Evidence: `INVENTORY_OK` observed (ubuntu-worker build/validate contain `worker/recorder.py`; vps/edge do not); both env examples inspected with the identical opt-in block; both templates retain `LoadCredential=recorder_ed25519:/etc/sea-speed/recorder_ed25519`; dedicated test PENDING | Coverage: COVERED
-- AC-008 | Task: T005, T006 | Evidence: observed py_compile `PYCOMPILE_OK`, ruff `All checks passed!`, exact-artifact build exit 0 plus validation PASS; `validate_sdd.py` and git scope outputs recorded below; dedicated tests PENDING | Coverage: COVERED
+- AC-001 | Task: T001, T002 | Evidence: `RecorderConfig.from_env` rejects flags other than 0/1; entrypoint `_recorder_enabled`/`_start_recorder` returns before `Popen` when the flag is not the literal `1`; env examples default to 0; `RecorderDisabledZeroIoTests` passing in the observed 49-passed targeted run | Coverage: COVERED
+- AC-002 | Task: T001 | Evidence: `download_object` streams original bytes to a `.part` file and atomically renames; `HlsRecorder.capture` rsyncs the completed object; `RecorderByteIdentityOracleTests` compares SHA-256/length and passes in the observed targeted run | Coverage: COVERED
+- AC-003 | Task: T001 | Evidence: `parse_playlist` handles `#EXT-X-MEDIA-SEQUENCE`/`#EXT-X-MAP`; `urljoin(final_url, uri)` resolves relative URIs; `_SameOriginRedirect` refuses cross-origin targets; `_origin` rejects non-HTTP(S) sources; `RecorderSourceRejectionTests` passing in the observed targeted run | Coverage: COVERED
+- AC-004 | Task: T001 | Evidence: `download_object` reads `_CHUNK_BYTES` chunks with the socket timeout clamped to the remaining TOTAL deadline before each read, enforces `object_max_bytes`, and `capture` raises `SpoolSpaceLow` below `min_free_bytes`; `RecorderBoundsTests` (chunked reads, cap, stalled body, floor) passing in the observed targeted run | Coverage: COVERED
+- AC-005 | Task: T001, T002 | Evidence: `HlsRecorder.upload` bounds attempts and exponential backoff, `capture` deletes the object, `run()` counts skipped objects on `SpoolSpaceLow` and gap advances; the recorder is a separate process with no pipe to `worker.main()`; `RecorderBoundsTests` retry/discard/resume/gap tests passing in the observed targeted run | Coverage: COVERED
+- AC-006 | Task: T002 | Evidence: entrypoint `_start_recorder` uses `start_new_session=True` with `stdin=DEVNULL` and logs a spawn failure without raising; `_stop_recorder` `killpg`s SIGTERM unconditionally then SIGKILL and reaps; `_credential_path` reads `$CREDENTIALS_DIRECTORY`/`/run/credentials` only; `RecorderEntrypointLifecycleTests` passing in the observed targeted run | Coverage: COVERED
+- AC-007 | Task: T003, T004 | Evidence: `INVENTORY_OK` observed; both env examples carry the identical opt-in block; both templates retain `LoadCredential=recorder_ed25519:/etc/sea-speed/recorder_ed25519`; `RecorderPackagingTests` passing in the observed targeted run | Coverage: COVERED
+- AC-008 | Task: T005, T006 | Evidence: observed py_compile `PYCOMPILE_OK`, ruff `All checks passed!`, exact-artifact build exit 0 plus validation PASS, `validate_sdd.py` PASS, and targeted `tests/test_699_recorder.py` + `tests/test_699_recorder_lifecycle.py` → 49 passed / 55 subtests | Coverage: COVERED
 
 ## Definition of Done
 
 - [x] Issue/spec/plan/tasks current
 - [x] Exact changed-file scope verified
-- [ ] Required tests and evidence complete (dedicated `tests/**` evidence PENDING — test worker owns tests/**)
+- [x] Required tests and evidence complete (targeted `tests/test_699_recorder.py` + `tests/test_699_recorder_lifecycle.py` → 49 passed / 55 subtests observed)
 - [ ] Required CI green — PENDING the bounded PR's exact-head run
 - [ ] Exact-green-head merge complete — PENDING the bounded PR
 - [x] Deployment state resolved (Ubuntu Worker/relay REQUIRED — new recorder module, entrypoint, env examples and service templates; feature default OFF)
 - [ ] Runtime acceptance resolved (PENDING by design — no production enablement in this scope)
-- [x] Deferred work recorded (dedicated tests, CI/merge evidence, field enablement and dacha retention observation)
+- [x] Deferred work recorded (CI/merge evidence, field enablement and dacha retention observation)
 - [x] Risks resolved or explicitly accepted (RISK-001..RISK-006)
 - [x] Waivers resolved or current (none required)
 
@@ -83,9 +84,14 @@ Observed on this working tree (2026-11-25); no fabricated results:
   /tmp/opencode/699-recorder-first/dist/exact-artifacts.json` →
   `Exact artifacts valid: VPS/edge quality evidence plus Ubuntu Worker release
   inventory, digests, extraction and syntax`.
-- `python3 scripts/ci/validate_sdd.py` → recorded by the final verification run
-  during this task.
+- `python3 -m pytest tests/test_699_recorder.py tests/test_699_recorder_lifecycle.py -q`
+  → `49 passed, 55 subtests passed` observed on this working tree (peer-review
+  recorded `49 passed / 54 subtests`; the subtest count varies with the
+  working-tree scope-guard test).
+- Peer-review regression baseline (recorded by the test worker): clean-tree
+  full suite `1814 passed / 2 skipped / 1093 subtests / 0 failed`; base
+  `a66b5a8` RED `56 failed / 9 passed`.
+- `python3 scripts/ci/validate_sdd.py` → `Sea Speed SDD validation passed`
+  observed by the final verification run during this task.
 - `git status --short` / `git diff --stat` → recorded by the final verification
   run during this task; no commit, push or PR was made by this worker.
-- Dedicated `tests/**` behaviour coverage is PENDING (test worker owns tests/**);
-  no test result is claimed here.

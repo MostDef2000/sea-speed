@@ -1126,6 +1126,98 @@ class RecorderBoundsTests(RecorderTestBase):
         self.assertFalse(destination.exists())
         self.assertEqual(list(self.tmp.glob("*.part")), [])
 
+    def test_slow_drip_respects_total_deadline_and_leaves_no_partial(
+        self,
+    ) -> None:
+        """Regression: a drip feed inside the socket timeout still hits the
+        TOTAL budget.
+
+        Each byte arrives every 0.3 s — well within the 1.0 s per-recv
+        socket timeout, so a per-recv timeout alone can never abort this
+        download (the pre-fix behaviour hung here indefinitely: the total
+        deadline was only checked before the read). Literal expectations:
+        ``TimeoutError`` raised, wall-clock < 5 s (and >= 0.8 s — the 1 s
+        budget must actually elapse, no instant/vacuous failure), and no
+        ``.part`` file left behind.
+        """
+        rec = load_recorder()
+        drip_interval = 0.3  # seconds between bytes
+        configured_timeout = 1.0  # total deadline AND socket timeout —
+        # larger than drip_interval, so the per-recv timeout never fires
+        content_length = 100000  # never satisfied inside the test window
+
+        class SlowDrip(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *args: object) -> None:
+                pass
+
+            def do_GET(self) -> None:
+                self.send_response(200)
+                self.send_header("Content-Length", str(content_length))
+                self.end_headers()
+                try:
+                    for _ in range(200):  # ~60 s cap; client aborts far earlier
+                        self.wfile.write(b"x")
+                        self.wfile.flush()
+                        time.sleep(drip_interval)
+                except OSError:
+                    return  # client aborted — the expected outcome
+
+        httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), SlowDrip)
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        self.addCleanup(httpd.server_close)
+        self.addCleanup(httpd.shutdown)
+        url = f"http://127.0.0.1:{httpd.server_address[1]}/drip.ts"
+
+        destination = self.tmp / "drip.ts"
+        outcome: dict = {}
+        started = time.monotonic()
+
+        def _download() -> None:
+            try:
+                outcome["result"] = rec.download_object(
+                    rec.build_opener(),
+                    url,
+                    {},
+                    destination,
+                    DEFAULT_OBJECT_MAX_BYTES,
+                    configured_timeout,
+                )
+            except BaseException as exc:  # noqa: BLE001 - the type IS the oracle
+                outcome["error"] = exc
+
+        # Daemon thread bounds the PRE-FIX hang: if download_object never
+        # returns, the join expires and the liveness assertion fails instead
+        # of wedging the suite.
+        worker = threading.Thread(target=_download, daemon=True)
+        worker.start()
+        worker.join(5.0)
+        elapsed = time.monotonic() - started
+
+        self.assertFalse(
+            worker.is_alive(),
+            "download_object must abort the slow-drip download within the "
+            f"bounded window; still running after {elapsed:.1f}s",
+        )
+        self.assertIsInstance(
+            outcome.get("error"),
+            TimeoutError,
+            f"expected TimeoutError from the total budget, got {outcome!r}",
+        )
+        self.assertLess(
+            elapsed, 5.0, "the total budget must abort well before 5 s"
+        )
+        self.assertGreaterEqual(
+            elapsed,
+            0.8,
+            "the 1 s deadline must actually elapse before TimeoutError",
+        )
+        self.assertEqual(
+            list(self.tmp.glob("*.part")),
+            [],
+            "no .part file may remain after the aborted download",
+        )
+        self.assertFalse(destination.exists(), "no destination written")
+
     def test_free_space_floor_stops_before_any_http_request(self) -> None:
         rec = load_recorder()
         self.spool_dir.mkdir()
