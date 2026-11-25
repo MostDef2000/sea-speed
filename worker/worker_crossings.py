@@ -22,7 +22,7 @@ tests/test_worker_crossings_module.py.
 
 Import policy (guarded by tests/test_worker_crossings_module.py): top-level
 imports are limited to time, datetime and the repo-pure siblings
-worker_kernel (env_float, side_of_line, sign_with_deadzone) and
+worker_kernel (env_float, env_str, side_of_line, sign_with_deadzone) and
 worker_transport (the two shared crossing objects + fetch_crossing_line_config).
 NO cv2/numpy/ultralytics/av, NO subprocess/socket, NO requests/json - the
 crossing layer is offline except through the transport fetcher.
@@ -37,12 +37,26 @@ callback returns True. A falsy return or an exception is surfaced on stdout
 and the crossing is dropped uncounted (the track keeps its previous side, so
 the next frame can retry). The list path stays for non-Ubuntu callers only
 and is never used as an Ubuntu fallback.
+
+Issue #701 opt-in N-of-M voting + transit drift filter: the per-track state
+can additionally carry the committed side, a source-side centroid anchor and
+a bounded last-M side history (``votes``/``anchor_x``/``anchor_y``/
+``vote_line``). A side transition is confirmed only after N observations on
+the destination side within the last M observations (1 <= N <= M); zero
+(deadzone) observations consume a window slot without voting, the Nth vote
+confirms immediately, and direction is computed against the source-side
+anchor. ``CROSSING_DRIFT_PX`` sets the minimum NET DISPLACEMENT PERPENDICULAR
+TO THE CONFIGURED LINE, in full-frame pixels, between the last trusted
+source-side centroid and the confirmation centroid. N=M=1 with drift disabled
+is the OFF state: the legacy single-frame decision runs unchanged and no vote
+history is allocated. Vote state is dropped with the track entry (expiry,
+daily reset, reused track ID after a gap) and on line-geometry changes.
 """
 
 import time
 from datetime import datetime, timedelta, timezone
 
-from worker_kernel import env_float, side_of_line, sign_with_deadzone
+from worker_kernel import env_float, env_str, side_of_line, sign_with_deadzone
 from worker_transport import _crossing_line_cache, _crossing_pending_posts, fetch_crossing_line_config
 
 
@@ -113,6 +127,13 @@ def update_crossing_counts(detections, now=None, accept=None):
     left_to_right always means the object moved rightward in frame coordinates.
     A per-track cooldown prevents double counting on centroid wobble.
 
+    Issue #701 adds opt-in N-of-M voting and a perpendicular transit drift
+    filter (``CROSSING_VOTE_N``/``CROSSING_VOTE_M``/``CROSSING_DRIFT_PX``).
+    With the default 1/1 and drift 0 the legacy decision below is executed
+    unchanged; otherwise the per-track vote window/anchor decides the
+    transition and the shared construction/acceptance block below still
+    builds and persists the single crossing event.
+
     ``accept`` (issue #696) is the OPTIONAL synchronous acceptance callback: it
     receives the finished crossing dict once and must return True only after
     durable acceptance. When omitted, the callback bound once through
@@ -131,6 +152,58 @@ def update_crossing_counts(detections, now=None, accept=None):
         return []
     line = cfg["line"]
     cooldown_sec = env_float("CROSSING_MIN_INTERVAL_SEC", 2.0)
+    # Issue #701 opt-in N-of-M voting + transit drift filter. N=M=1 with drift
+    # disabled is the OFF state, so the legacy single-frame decision below runs
+    # unchanged and no vote history is allocated.
+    #
+    # Config parsing is all-or-nothing: env_str distinguishes an unset variable
+    # (documented default) from a set-but-unparsable one, because env_float
+    # returns its default on any parse failure and would silently turn
+    # CROSSING_VOTE_N=abc into 1 while a valid M/drift keeps voting on. ONE
+    # invalid flag covers a parse exception, a non-finite value, a non-integral
+    # N/M, N < 1, M < 1, N > M, negative drift and drift >= 1e12; any of them
+    # switches ALL THREE values to OFF. env_str comes from the already-allowed
+    # worker_kernel module, so the crossing import allowlist is unchanged.
+    unset = object()
+
+    def _config_float(name, default):
+        raw = env_str(name, unset)
+        if raw is unset:
+            return default
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            return None
+
+    max_gap_sec = env_float("DETECTION_TRACK_MAX_GAP_SEC", 2.0)
+    raw_n = _config_float("CROSSING_VOTE_N", 1)
+    raw_m = _config_float("CROSSING_VOTE_M", 1)
+    raw_drift = _config_float("CROSSING_DRIFT_PX", 0.0)
+    invalid = False
+    for raw in (raw_n, raw_m, raw_drift):
+        if raw is None or raw != raw or not (-1e12 < raw < 1e12):
+            invalid = True
+    if invalid:
+        vote_n, vote_m = 1, 1
+        drift_min_px = 0.0
+    else:
+        vote_n = int(raw_n)
+        vote_m = int(raw_m)
+        drift_min_px = raw_drift
+        if vote_n != raw_n or vote_m != raw_m:
+            invalid = True
+        if vote_n < 1 or vote_m < 1 or vote_n > vote_m or drift_min_px < 0.0:
+            invalid = True
+        if invalid:
+            vote_n, vote_m = 1, 1
+            drift_min_px = 0.0
+    votes_enabled = vote_n != 1 or vote_m != 1 or drift_min_px > 0.0
+    line_sig = (line[0][0], line[0][1], line[1][0], line[1][1])
+    line_dx = float(line[1][0]) - float(line[0][0])
+    line_dy = float(line[1][1]) - float(line[0][1])
+    # |side_of_line| is a cross product: it scales with line length, so drift
+    # (full-frame pixels perpendicular to the line) needs this divisor.
+    line_len = (line_dx * line_dx + line_dy * line_dy) ** 0.5
     accept_crossing = accept if accept is not None else globals().get("_crossing_accept")
     crossings = []
     for det in detections:
@@ -144,20 +217,121 @@ def update_crossing_counts(detections, now=None, accept=None):
         side = sign_with_deadzone(side_of_line((cx, cy), line))
         state = _crossing_track_sides.get(int(track_id))
         if state is None:
-            _crossing_track_sides[int(track_id)] = {"side": side, "cx": cx, "last_seen": now, "last_cross": 0.0}
+            state = {"side": side, "cx": cx, "last_seen": now, "last_cross": 0.0}
+            if votes_enabled:
+                state["vote_line"] = line_sig
+                state["votes"] = []
+                state["anchor_x"] = cx if side != 0 else None
+                state["anchor_y"] = cy if side != 0 else None
+            _crossing_track_sides[int(track_id)] = state
+            continue
+        if votes_enabled and now - float(state.get("last_seen", 0.0)) > max_gap_sec:
+            # Reused track ID after a gap: never inherit stale sides, anchors or
+            # vote history from the previous occupant of this ID.
+            state = {
+                "side": side,
+                "cx": cx,
+                "last_seen": now,
+                "last_cross": 0.0,
+                "vote_line": line_sig,
+                "votes": [],
+                "anchor_x": cx if side != 0 else None,
+                "anchor_y": cy if side != 0 else None,
+            }
+            _crossing_track_sides[int(track_id)] = state
             continue
         prev_side = int(state.get("side") or 0)
         prev_cx = float(state.get("cx") or cx)
         state["last_seen"] = now
-        if side == 0 or prev_side == 0 or side == prev_side:
-            state["side"] = side if side != 0 else prev_side
-            state["cx"] = cx
-            continue
-        if now - float(state.get("last_cross", 0.0)) < cooldown_sec:
-            state["side"] = side
-            state["cx"] = cx
-            continue
-        direction = "left_to_right" if cx > prev_cx else "right_to_left"
+        if not votes_enabled:
+            # OFF path: the pre-#701 single-frame decision, unchanged.
+            if side == 0 or prev_side == 0 or side == prev_side:
+                state["side"] = side if side != 0 else prev_side
+                state["cx"] = cx
+                continue
+            if now - float(state.get("last_cross", 0.0)) < cooldown_sec:
+                state["side"] = side
+                state["cx"] = cx
+                continue
+            direction = "left_to_right" if cx > prev_cx else "right_to_left"
+        else:
+            # ON path: commit on N destination-side observations inside the last
+            # M observations; zero (deadzone) consumes a slot without voting.
+            committed = prev_side
+            if state.get("vote_line") != line_sig:
+                # Line geometry changed: previous votes and the old-geometry
+                # anchor are meaningless for the new line.
+                state["vote_line"] = line_sig
+                state["votes"] = []
+                if side == committed and committed != 0:
+                    state["anchor_x"] = cx
+                    state["anchor_y"] = cy
+                else:
+                    state["anchor_x"] = None
+                    state["anchor_y"] = None
+            votes = state.get("votes")
+            if votes is None:
+                votes = state["votes"] = []
+            if committed == 0:
+                # No source side yet: the first decisive observation re-arms it.
+                if side != 0:
+                    state["side"] = side
+                    state["votes"] = []
+                    state["anchor_x"] = cx
+                    state["anchor_y"] = cy
+                state["cx"] = cx
+                continue
+            if side == 0:
+                votes.append(0)
+                if len(votes) > vote_m:
+                    del votes[: len(votes) - vote_m]
+                state["cx"] = cx
+                continue
+            if side == committed:
+                # Trusted source-side observation: move the anchor, drop votes.
+                state["anchor_x"] = cx
+                state["anchor_y"] = cy
+                state["votes"] = []
+                state["cx"] = cx
+                continue
+            votes.append(side)
+            if len(votes) > vote_m:
+                del votes[: len(votes) - vote_m]
+            if votes.count(side) < vote_n:
+                state["cx"] = cx
+                continue
+            anchor_x = state.get("anchor_x")
+            anchor_y = state.get("anchor_y")
+            if anchor_x is None or anchor_y is None:
+                # No trusted source-side centroid on this geometry yet: a
+                # direction/drift cannot be derived, so do not confirm.
+                state["cx"] = cx
+                continue
+            reached = True
+            if drift_min_px > 0.0 and line_len > 0.0:
+                anchor_side = side_of_line((anchor_x, anchor_y), line)
+                confirm_side = side_of_line((cx, cy), line)
+                if anchor_side is None or confirm_side is None:
+                    reached = False
+                else:
+                    drift_px = abs(float(confirm_side) - float(anchor_side)) / line_len
+                    reached = drift_px >= drift_min_px
+            if not reached:
+                # Motion mostly along the line: keep votes so a continuing
+                # transit confirms as soon as the drift threshold is met.
+                state["cx"] = cx
+                continue
+            if now - float(state.get("last_cross", 0.0)) < cooldown_sec:
+                # A stable transition inside the cooldown window is absorbed
+                # silently (as before) and re-armed, so its votes can never
+                # fire later as a stale crossing once the cooldown expires.
+                state["side"] = side
+                state["cx"] = cx
+                state["anchor_x"] = cx
+                state["anchor_y"] = cy
+                state["votes"] = []
+                continue
+            direction = "left_to_right" if cx > float(anchor_x) else "right_to_left"
         crossing = {
             "track_id": int(track_id),
             "object_type": object_type,
@@ -186,6 +360,12 @@ def update_crossing_counts(detections, now=None, accept=None):
         state["side"] = side
         state["cx"] = cx
         state["last_cross"] = now
+        if votes_enabled:
+            # Confirmed transition: the destination centroid becomes the new
+            # source-side anchor and the consumed votes are cleared.
+            state["anchor_x"] = cx
+            state["anchor_y"] = cy
+            state["votes"] = []
         _crossing_counts[direction] = _crossing_counts.get(direction, 0) + 1
         class_counts = _crossings_by_class.setdefault(object_type, {"left_to_right": 0, "right_to_left": 0})
         class_counts[direction] = class_counts.get(direction, 0) + 1
