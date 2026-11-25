@@ -69,12 +69,12 @@ HARNESS_PATH = ROOT / "scripts" / "worker" / "roi_crop_baseline.py"
 COMMIT40 = "0123456789abcdef0123456789abcdef01234567"
 
 # Issue #704 scope-guard pins: the #701 merge commit (this branch's point)
-# and this branch's tip. HEAD_SHA stays the literal "HEAD" only until #704
-# merges — then it MUST be re-pinned to the #704 merge commit, the same
-# merge-time duty as #696/#701, so a later issue's branch never diffs against
-# a moving HEAD and false-positives against #704's allowlist.
+# and the #704 merge commit on main. The guard now verifies the pinned #704
+# change set (BASE_SHA..HEAD_SHA), the same merge-time pinning duty as
+# #696/#701, so a later issue's branch (e.g. #699) never diffs against a
+# moving HEAD and false-positives against #704's allowlist.
 BASE_SHA = "36f28bec2c434dd60e682c5741159ae6c13b7df4"
-HEAD_SHA = "HEAD"
+HEAD_SHA = "a66b5a8039cdba585f8b549e1091989586b0d72a"
 
 
 def load_harness():

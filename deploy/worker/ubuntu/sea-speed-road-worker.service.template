@@ -12,6 +12,9 @@ User=__SERVICE_USER__
 Group=__SERVICE_USER__
 WorkingDirectory=__INSTALL_ROOT__/shared/road-runtime
 EnvironmentFile=__INSTALL_ROOT__/shared/config/road-worker.env
+# Issue #699: the recorder key is root-owned outside /home; LoadCredential
+# mounts it under /run/credentials so ProtectHome=true stays intact.
+LoadCredential=recorder_ed25519:/etc/sea-speed/recorder_ed25519
 Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=YOLO_AUTOINSTALL=false
