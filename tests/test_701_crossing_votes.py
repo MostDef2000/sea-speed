@@ -276,14 +276,14 @@ _LEGACY_HELPER_NAMES = {
 }
 _LEGACY_HELPER_NODES = None  # lazily extracted (parses the worker sources once)
 
-# Issue #701 scope-guard pins: main at the branch point (BASE_SHA) and this
-# branch's tip. HEAD_SHA MUST be re-pinned from the literal "HEAD" to the #701
-# MERGE COMMIT at merge time — the same duty as #696's BASE_SHA/HEAD_SHA —
-# otherwise every later issue's branch diffs against a moving HEAD, inherits
-# its own commits and false-positives against #701's allowlist (the #696
-# defect). Guard logic is unchanged; only the pin moves.
+# Issue #701 scope-guard pins: BASE_SHA is main just before the #701 merge
+# and HEAD_SHA is the #701 MERGE COMMIT itself, so the guard verifies the
+# fixed, non-empty #701 change set (BASE_SHA..HEAD_SHA) and nothing else —
+# never the current branch's later work. This is the documented merge-time
+# re-pin: with both ends pinned, a later issue's files can no longer be
+# judged against #701's allowlist (the #696 defect). Guard logic unchanged.
 BASE_SHA = "c14a98a3c3932b9d18099c6029d5b7cf75fb0102"
-HEAD_SHA = "HEAD"
+HEAD_SHA = "36f28bec2c434dd60e682c5741159ae6c13b7df4"
 
 
 # ---------------------------------------------------------------------------
