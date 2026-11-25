@@ -101,9 +101,12 @@ from urllib.parse import parse_qs, urlencode, urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKER_DIR = ROOT / "worker"
-# Issue #696 admission base: the scope guard diffs COMMITTED changes against
-# this exact commit, so a clean working tree can never make it vacuous.
-BASE_SHA = "172e938b43ad791bcc968e1ea9795e10c98be9ab"
+# Issue #696 scope-guard base: the guard diffs COMMITTED changes against the
+# PR base SHA, so a clean working tree can never make it vacuous. This MUST
+# track the current PR base — main advanced past the branch point with the
+# auto-sync commit 4e2f9e8 (specs/700-ingest-frame-conformance/tasks.md), and
+# a stale base makes that already-merged file look like an out-of-scope change.
+BASE_SHA = "4e2f9e823a4b4669789a2355c141267ff11056b2"
 for _root in (str(ROOT), str(WORKER_DIR)):
     if _root not in sys.path:
         sys.path.insert(0, _root)
