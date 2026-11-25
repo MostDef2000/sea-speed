@@ -6,6 +6,7 @@ import json
 import os
 import re
 import select
+import signal
 import struct
 import subprocess
 import sys
@@ -32,6 +33,7 @@ _perf_tracker = PerformanceTracker() if PerformanceTracker else None
 _publish_queue: queue.Queue = queue.Queue(maxsize=32)
 _publish_thread: threading.Thread | None = None
 _outbox = None  # lazy WorkerOutbox instance; import stays out of module top level
+_recorder_process: subprocess.Popen | None = None  # issue #699, separate child only
 _LIVE_GENERATION = str(int(time.monotonic() * 1000))  # restart-safe generation
 
 # Ubuntu main is the water contour unless protected runtime config overrides it.
@@ -203,6 +205,79 @@ def _close_outbox() -> None:
         instance.close()
     except Exception:
         pass
+
+
+def _recorder_enabled() -> bool:
+    """Issue #699: opt-in recorder flag; only the literal 1 enables it."""
+    return os.environ.get("SEA_SPEED_RECORDER_ENABLED", "0").strip() == "1"
+
+
+def _start_recorder() -> None:
+    """Spawn the optional recorder child without waiting for readiness.
+
+    Recording is a strictly separate process: stdin is closed, no media pipe is
+    shared, and any spawn failure disables recording while the analytics worker
+    continues. The child reads its own config (and the LoadCredential key) from
+    the service environment.
+    """
+    global _recorder_process
+    if not _recorder_enabled():
+        print("recorder disabled", flush=True)
+        return
+    script = Path(__file__).with_name("recorder.py")
+    if not script.is_file():
+        print(f"recorder disabled spawn failure reason=missing_script path={script}", flush=True)
+        return
+    try:
+        _recorder_process = subprocess.Popen(
+            [sys.executable, str(script)],
+            stdin=subprocess.DEVNULL,
+            close_fds=True,
+            start_new_session=True,
+        )
+    except Exception as exc:
+        _recorder_process = None
+        print(
+            f"recorder disabled spawn failure reason={type(exc).__name__}",
+            flush=True,
+        )
+        return
+    print(f"recorder started pid={_recorder_process.pid}", flush=True)
+
+
+def _stop_recorder() -> None:
+    """Terminate the recorder child AND its rsync descendant (own process group)."""
+    global _recorder_process
+    process = _recorder_process
+    _recorder_process = None
+    if process is None:
+        return
+    try:
+        if process.poll() is None:
+            os.killpg(process.pid, signal.SIGTERM)
+    except Exception:
+        pass
+    try:
+        process.wait(timeout=10.0)
+    except Exception:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except Exception:
+            pass
+        try:
+            process.wait(timeout=5.0)
+        except Exception:
+            pass
+
+
+def _install_stop_signals() -> None:
+    """Convert SIGTERM/SIGINT into SystemExit so the recorder is stopped."""
+
+    def _stop(signum: int, _frame: object) -> None:
+        raise SystemExit(128 + signum)
+
+    signal.signal(signal.SIGTERM, _stop)
+    signal.signal(signal.SIGINT, _stop)
 
 
 def _crossing_payload(crossing: dict) -> dict:
@@ -850,6 +925,7 @@ _bind_crossing_acceptance()
 
 if __name__ == "__main__":
     try:
+        _install_stop_signals()
         runtime_source_commit()
         try:
             # Eager outbox open + publisher start: pending rows from a previous
@@ -859,8 +935,10 @@ if __name__ == "__main__":
             print(f"outbox unavailable reason={type(exc).__name__}", flush=True)
         _supervisor = BoundedYoloSupervisor()
         _supervisor.startup_self_test()
+        _start_recorder()
         worker.main()
     finally:
+        _stop_recorder()
         if _supervisor is not None:
             _supervisor.close()
         _close_outbox()
