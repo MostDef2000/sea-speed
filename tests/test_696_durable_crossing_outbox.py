@@ -101,12 +101,12 @@ from urllib.parse import parse_qs, urlencode, urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKER_DIR = ROOT / "worker"
-# Issue #696 scope-guard base: the guard diffs COMMITTED changes against the
-# PR base SHA, so a clean working tree can never make it vacuous. This MUST
-# track the current PR base — main advanced past the branch point with the
-# auto-sync commit 4e2f9e8 (specs/700-ingest-frame-conformance/tasks.md), and
-# a stale base makes that already-merged file look like an out-of-scope change.
+# Issue #696 scope-guard pins: BASE_SHA is main just before the #696 merge
+# and HEAD_SHA is the #696 merge commit itself, so the guarded change set is a
+# FIXED historical range (the 7 #696 files) — never the current branch, whose
+# later issues (#701 …) must not be judged against #696's allowlist.
 BASE_SHA = "4e2f9e823a4b4669789a2355c141267ff11056b2"
+HEAD_SHA = "c14a98a3c3932b9d18099c6029d5b7cf75fb0102"
 for _root in (str(ROOT), str(WORKER_DIR)):
     if _root not in sys.path:
         sys.path.insert(0, _root)
@@ -1370,15 +1370,18 @@ class CrossingRollbackIsolationTests(_OutboxTestBase):
 
 
 class CrossingScopeGuardTests(unittest.TestCase):
-    """No API/deploy/workflow/lockfile change; only the admitted paths.
+    """The pinned #696 change set, and only that change set.
 
-    The guard covers COMMITTED changes (diff against ``BASE_SHA``) AND
-    uncommitted/untracked working-tree changes: after the #696 commit the
-    working tree is clean, so a status-only guard would pass vacuously even
-    if ``api/``, ``deploy/``, ``.github/`` or a lockfile had been committed.
-    The committed side fails closed — if that ``git diff`` cannot run
-    (missing base object, shallow clone, bad repo) the test errors instead of
-    silently falling back to ``git status`` alone.
+    ``_changed_paths()`` is the FIXED range ``BASE_SHA..HEAD_SHA`` (main just
+    before the #696 merge → the #696 merge commit): exactly the seven #696
+    files. Nothing from the current branch's working tree or later commits is
+    ever consulted, so this guard cannot flag a later issue's legitimate files
+    (observed on the #701 branch: ``deploy/worker/ubuntu/*.env.example`` and
+    ``specs/701-*``) and a clean tree cannot make it vacuous — the range stays
+    non-empty for as long as the repository history exists.
+    The range fails CLOSED: if that ``git diff`` cannot run (missing SHA,
+    shallow clone, bad repo) the test errors instead of silently checking
+    something weaker.
     """
 
     ALLOWED_CHANGE_PREFIXES = (
@@ -1400,17 +1403,18 @@ class CrossingScopeGuardTests(unittest.TestCase):
 
     @staticmethod
     def _changed_paths() -> list[str]:
-        """Sorted union of COMMITTED (vs ``BASE_SHA``) and uncommitted paths.
+        """The pinned ``BASE_SHA..HEAD_SHA`` change set, sorted and deduplicated.
 
-        The committed side is mandatory: a clean working tree must not make
-        the guard vacuous after the #696 commit. It fails CLOSED — a failing
-        ``git diff`` raises with diagnostics and is never replaced by the
-        status-only view (a guard that cannot see committed changes must not
-        pass).
+        ONLY ``git diff --name-only <BASE_SHA> <HEAD_SHA>`` — a fixed
+        historical range. The ``git status`` union is deliberately gone: the
+        current working tree and later commits belong to later issues and must
+        never be judged against #696's allowlist. Fails CLOSED — a failing
+        ``git diff`` (missing SHA, shallow clone, bad repo) raises with
+        diagnostics rather than checking a narrower, silently weaker set.
         """
         try:
-            committed = subprocess.run(
-                ["git", "-C", str(ROOT), "diff", "--name-only", BASE_SHA, "HEAD"],
+            result = subprocess.run(
+                ["git", "-C", str(ROOT), "diff", "--name-only", BASE_SHA, HEAD_SHA],
                 capture_output=True,
                 text=True,
                 check=True,
@@ -1418,30 +1422,19 @@ class CrossingScopeGuardTests(unittest.TestCase):
         except subprocess.CalledProcessError as exc:
             detail = (exc.stderr or exc.stdout or "").strip()
             raise AssertionError(
-                "scope guard cannot see COMMITTED changes: "
-                f"`git diff --name-only {BASE_SHA} HEAD` failed with rc="
+                "scope guard cannot read the pinned #696 change set: "
+                f"`git diff --name-only {BASE_SHA} {HEAD_SHA}` failed with rc="
                 f"{exc.returncode} ({detail or 'no output'}) — shallow clone or "
-                "missing base object? Failing closed: falling back to "
-                "`git status` alone would let committed out-of-scope paths pass."
+                "missing object? Failing closed: a guard that cannot read its "
+                "pinned range must not pass."
             ) from exc
-        status = subprocess.run(
-            ["git", "-C", str(ROOT), "status", "--porcelain", "--untracked-files=all"],
-            capture_output=True,
-            text=True,
-            check=True,
+        return sorted(
+            {
+                line.strip().strip('"')
+                for line in result.stdout.splitlines()
+                if line.strip()
+            }
         )
-        paths: set[str] = set()
-        for line in committed.stdout.splitlines():
-            if line.strip():
-                paths.add(line.strip().strip('"'))
-        for line in status.stdout.splitlines():
-            if not line.strip():
-                continue
-            path = line[3:]
-            if " -> " in path:
-                path = path.split(" -> ")[-1]
-            paths.add(path.strip().strip('"'))
-        return sorted(paths)
 
     def test_working_tree_touches_only_the_696_surface_and_tests(self) -> None:
         changed = self._changed_paths()
@@ -1449,7 +1442,7 @@ class CrossingScopeGuardTests(unittest.TestCase):
         self.assertEqual(
             offenders,
             [],
-            f"out-of-scope changes (issue #696 surface only — committed or uncommitted): {offenders}",
+            f"out-of-scope paths in the pinned #696 change set (BASE_SHA..HEAD_SHA): {offenders}",
         )
 
     def test_no_api_deploy_workflow_or_lockfile_change(self) -> None:
@@ -1458,11 +1451,11 @@ class CrossingScopeGuardTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertFalse(
                     any(path.startswith(prefix) for prefix in self.FORBIDDEN_PREFIXES),
-                    f"forbidden path changed: {path}",
+                    f"forbidden path in the pinned #696 change set: {path}",
                 )
                 self.assertFalse(
                     path.endswith(".lock") or path.endswith(".lock.txt"),
-                    f"lockfile changed: {path}",
+                    f"lockfile in the pinned #696 change set: {path}",
                 )
                 self.assertNotIn("package-lock.json", path)
                 self.assertNotIn("runtime-lock.json", path)
