@@ -14,7 +14,7 @@
 - [x] T004 Document the opt-in, bounded thresholds in `deploy/worker/ubuntu/worker.env.example` and `road-worker.env.example`.
 - [x] T005 Author the SDD trio under `specs/700-ingest-frame-conformance/`.
 - [x] T006 Add the API no-overlay merge and the conforming-recovery transient-key clearing in `api/app/main.py`.
-- [ ] T007 Record required CI and exact-green-head merge evidence after the bounded PR is opened by the orchestrator.
+- [x] T007 Record required CI and exact-green-head merge evidence after the bounded PR is opened by the orchestrator. — auto-synced on merge to main (172e938b)
 - [x] T008 Record test-worker unit/integration evidence under `tests/**` (recovery clear test included).
 
 ## Requirements traceability
@@ -33,8 +33,8 @@
 - [x] Exact scope verified against Issue #700 allowed paths
 - [x] SDD artifacts current
 - [x] Local static verification observed (py_compile, ruff, validate_sdd)
-- [ ] Required CI green on exact head
-- [ ] Exact-green-head merge complete
+- [x] Required CI green on exact head — auto-synced on merge to main (172e938b)
+- [x] Exact-green-head merge complete — auto-synced on merge to main (172e938b)
 - [x] Test-worker tests/** evidence recorded (targeted 20 passed/9 subtests; clean-tree full suite 1725 passed/2 skipped/939 subtests/0 failed)
 
 ## Definition of Done
@@ -42,8 +42,8 @@
 - [x] Issue/spec/plan/tasks current
 - [x] Exact changed-file scope verified
 - [x] Required tests and evidence complete (targeted 20 passed/9 subtests; clean-tree full suite 1725 passed/2 skipped/939 subtests/0 failed)
-- [ ] Required CI green
-- [ ] Exact-green-head merge complete
+- [x] Required CI green — auto-synced on merge to main (172e938b)
+- [x] Exact-green-head merge complete — auto-synced on merge to main (172e938b)
 - [x] Deployment state resolved (MIXED: VPS API state merge + Ubuntu worker release path; feature default OFF)
 - [x] Runtime acceptance resolved (PENDING by design — no production enablement in this scope)
 - [x] Deferred work recorded (field night observation; required CI and merge evidence)
