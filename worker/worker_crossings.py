@@ -22,7 +22,7 @@ tests/test_worker_crossings_module.py.
 
 Import policy (guarded by tests/test_worker_crossings_module.py): top-level
 imports are limited to time, datetime and the repo-pure siblings
-worker_kernel (env_float, side_of_line, sign_with_deadzone) and
+worker_kernel (env_float, env_str, side_of_line, sign_with_deadzone) and
 worker_transport (the two shared crossing objects + fetch_crossing_line_config).
 NO cv2/numpy/ultralytics/av, NO subprocess/socket, NO requests/json - the
 crossing layer is offline except through the transport fetcher.
@@ -56,7 +56,7 @@ daily reset, reused track ID after a gap) and on line-geometry changes.
 import time
 from datetime import datetime, timedelta, timezone
 
-from worker_kernel import env_float, side_of_line, sign_with_deadzone
+from worker_kernel import env_float, env_str, side_of_line, sign_with_deadzone
 from worker_transport import _crossing_line_cache, _crossing_pending_posts, fetch_crossing_line_config
 
 
@@ -154,32 +154,49 @@ def update_crossing_counts(detections, now=None, accept=None):
     cooldown_sec = env_float("CROSSING_MIN_INTERVAL_SEC", 2.0)
     # Issue #701 opt-in N-of-M voting + transit drift filter. N=M=1 with drift
     # disabled is the OFF state, so the legacy single-frame decision below runs
-    # unchanged and no vote history is allocated. Invalid config (non-numeric or
-    # non-integral values, N < 1, M < 1, N > M, negative or non-finite drift)
-    # falls back to that same OFF state. env_float is used deliberately: the
-    # crossing layer's import allowlist stays {time, datetime, worker_kernel,
-    # worker_transport}.
+    # unchanged and no vote history is allocated.
+    #
+    # Config parsing is all-or-nothing: env_str distinguishes an unset variable
+    # (documented default) from a set-but-unparsable one, because env_float
+    # returns its default on any parse failure and would silently turn
+    # CROSSING_VOTE_N=abc into 1 while a valid M/drift keeps voting on. ONE
+    # invalid flag covers a parse exception, a non-finite value, a non-integral
+    # N/M, N < 1, M < 1, N > M, negative drift and drift >= 1e12; any of them
+    # switches ALL THREE values to OFF. env_str comes from the already-allowed
+    # worker_kernel module, so the crossing import allowlist is unchanged.
+    unset = object()
+
+    def _config_float(name, default):
+        raw = env_str(name, unset)
+        if raw is unset:
+            return default
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            return None
+
     max_gap_sec = env_float("DETECTION_TRACK_MAX_GAP_SEC", 2.0)
-    raw_n = env_float("CROSSING_VOTE_N", 1)
-    raw_m = env_float("CROSSING_VOTE_M", 1)
-    raw_drift = env_float("CROSSING_DRIFT_PX", 0.0)
-    pair_valid = (
-        raw_n == raw_n
-        and raw_m == raw_m
-        and -1e12 < raw_n < 1e12
-        and -1e12 < raw_m < 1e12
-    )
-    vote_n = int(raw_n) if pair_valid else 1
-    vote_m = int(raw_m) if pair_valid else 1
-    if not pair_valid or vote_n != raw_n or vote_m != raw_m:
+    raw_n = _config_float("CROSSING_VOTE_N", 1)
+    raw_m = _config_float("CROSSING_VOTE_M", 1)
+    raw_drift = _config_float("CROSSING_DRIFT_PX", 0.0)
+    invalid = False
+    for raw in (raw_n, raw_m, raw_drift):
+        if raw is None or raw != raw or not (-1e12 < raw < 1e12):
+            invalid = True
+    if invalid:
         vote_n, vote_m = 1, 1
-    if raw_drift != raw_drift or not (-1e12 < raw_drift < 1e12) or raw_drift < 0.0:
         drift_min_px = 0.0
     else:
+        vote_n = int(raw_n)
+        vote_m = int(raw_m)
         drift_min_px = raw_drift
-    if vote_n < 1 or vote_m < 1 or vote_n > vote_m:
-        vote_n, vote_m = 1, 1
-        drift_min_px = 0.0
+        if vote_n != raw_n or vote_m != raw_m:
+            invalid = True
+        if vote_n < 1 or vote_m < 1 or vote_n > vote_m or drift_min_px < 0.0:
+            invalid = True
+        if invalid:
+            vote_n, vote_m = 1, 1
+            drift_min_px = 0.0
     votes_enabled = vote_n != 1 or vote_m != 1 or drift_min_px > 0.0
     line_sig = (line[0][0], line[0][1], line[1][0], line[1][1])
     line_dx = float(line[1][0]) - float(line[0][0])

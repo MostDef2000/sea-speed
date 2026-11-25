@@ -8,8 +8,14 @@
 - Related: #397 wave 6 (crossing module), #696 (durable crossing acceptance).
 - Admitted surface: production code `worker/worker_crossings.py`; config docs
   `deploy/worker/ubuntu/worker.env.example` and
-  `deploy/worker/ubuntu/road-worker.env.example`; this SDD trio. Tests/** are
-  owned by a separate test worker and are not part of this change.
+  `deploy/worker/ubuntu/road-worker.env.example`; the new oracle
+  `tests/test_701_crossing_votes.py`; the necessary cross-issue guard repair in
+  `tests/test_696_durable_crossing_outbox.py`; this SDD trio.
+- Test admission: `tests/test_696_durable_crossing_outbox.py` is admitted for
+  exactly one repair — its scope guard compared the working tree against an
+  unpinned base and so false-positived on every later issue; the guard is now
+  pinned to its own committed change range. No #696 production behaviour
+  changed.
 
 ## Product outcome
 
@@ -110,8 +116,10 @@ Feature: opt-in N-of-M crossing votes with a transit drift filter
         | 3 | 2 | 0    |
         | 0 | 0 | 0    |
         | 2.5 | 5 | 0  |
+        | 1 | 5 | abc  |
         | 2 | 5 | -10  |
         | 2 | 5 | inf  |
+        | 2 | 5 | 1e12 |
 
   Rule: vote state never outlives its track or line geometry
 
@@ -177,13 +185,16 @@ Feature: opt-in N-of-M crossing votes with a transit drift filter
    documenting the three variables, the `1 <= N <= M` integer bounds, the
    pixels meaning of drift, the OFF default, and the invalid-value fallback.
 9. Invalid configuration (non-numeric or non-integral values, N < 1, M < 1,
-   N > M, negative or non-finite drift) falls back to the legacy OFF state
-   (N=M=1, drift 0); the worker keeps processing crossings with the old
-   decision code.
-10. No new top-level import enters the crossing module (the import allowlist
-    stays `time`, `datetime`, `worker_kernel`, `worker_transport`); config is
-    read through the already-imported `env_float`. No API, outbox, transport,
-    entrypoint or schema change.
+   N > M, negative or non-finite drift, or a finite drift >= 1e12) is applied
+   as ONE unit: ALL THREE values switch to the legacy OFF state (N=M=1,
+   drift 0) and the worker keeps processing crossings with the old decision
+   code. An unset variable keeps its documented default; only a set-but-invalid
+   value invalidates the whole configuration.
+10. No new top-level import MODULE enters the crossing module (the import
+    allowlist stays `time`, `datetime`, `worker_kernel`, `worker_transport`);
+    config is read through `env_str` (unset sentinel) and `float`, both from the
+    already-allowed surface. No API, outbox, transport, entrypoint or schema
+    change.
 
 ## Acceptance criteria
 
@@ -208,7 +219,8 @@ Feature: opt-in N-of-M crossing votes with a transit drift filter
 - AC-006: Vote history is cleared on track expiry, the daily reset, a reused
   track ID after a gap, and a line-geometry change; a cooldown-suppressed
   stable transition is absorbed and re-armed so it cannot fire as a stale
-  crossing; invalid configuration falls back to the legacy OFF state; both env
+  crossing; any invalid configuration (including a finite drift `>= 1e12`)
+  switches all three values to the legacy OFF state as one unit; both env
   examples document the identical block.
 
 ## Runtime feedback
@@ -217,12 +229,20 @@ Feature: opt-in N-of-M crossing votes with a transit drift filter
   direction came from the immediately preceding centroid, so jitter and
   mostly-parallel motion could produce false or duplicated counts.
 - Constraint discovered: `tests/test_line_crossing.py` execs AST-extracted
-  crossing functions into a stub namespace that has no `env_int` and no new
-  module globals, so the new config is read with `env_float` and all vote state
-  lives inside the existing per-track entry (no new module-level object).
+  crossing functions into a stub namespace that supplies `env_str`/`env_float`
+  but no new module globals, so config is read through those helpers and all
+  vote state lives inside the existing per-track entry (no new module-level
+  object).
 - Constraint discovered: `tests/test_worker_crossings_module.py` pins the
-  crossing import allowlist and the worker's exact six-name re-export set; the
-  change adds no import and no exported definition.
+  crossing top-level import MODULES (`worker_kernel`/`worker_transport`) and
+  the worker's exact six-name re-export set; the config reader adds the
+  `env_str` alias from the already-allowed `worker_kernel` module and no
+  exported definition.
+- Peer-review finding fixed: `env_float` returns its default on a parse
+  failure, which silently turned `CROSSING_VOTE_N=abc` into 1 while a valid M
+  or drift kept voting on, and an invalid value reset only part of the tuple.
+  The reader now distinguishes unset (an `env_str` sentinel) from unparsable
+  and applies ONE `invalid` flag to all three values.
 - Constraint discovered: `side_of_line` returns a cross product that scales
   with line length, so drift is `|side(B) - side(A)| / |line|`, not a raw side
   difference.
@@ -231,7 +251,7 @@ Feature: opt-in N-of-M crossing votes with a transit drift filter
 
 ## NFR assessment
 
-- NFR-001 | Area: Functional correctness | Target: N-of-M voting confirms on the Nth destination vote inside M observations, zero consumes a slot without voting, and a jittering transit emits exactly one event | Validation: scratch behavioural oracle `/tmp/opencode/701-oracle.py` against the AST-extracted functions; committed binary oracle `tests/test_701_*.py` owned by the test worker | Evidence: scratch oracle PASS (N-of-M confirm on Nth vote; zero consumes a slot; jitter → zero false events while a later honest transit confirms once); committed pytest evidence PENDING (test worker owns tests/**) | Status: CONCERNS
-- NFR-002 | Area: Compatibility | Target: the default 1/1/drift-0 configuration is behaviourally byte-identical to the pre-change worker and allocates no vote history | Validation: scratch parity oracle `/tmp/opencode/701-parity.py` compares 300 randomized frame sequences (40 frames each) between the base `c14a98a3` file and the new file, and asserts no `votes` key on OFF tracks | Evidence: `OFF-PARITY PASS scenarios=300 snapped_events_equal`; OFF tracks have no vote keys | Status: PASS
-- NFR-003 | Area: Operability | Target: both Ubuntu env examples document the same block with integer bounds `1 <= N <= M`, perpendicular-pixel drift semantics, the OFF default and the invalid-value fallback; no new import or module global | Validation: byte-identical documentation block in both files; crossing import allowlist and six-name worker re-export unchanged; `ruff`/`py_compile` green | Evidence: both files carry the identical #701 block; `py_compile` exit 0; `ruff check` `All checks passed!` | Status: PASS
+- NFR-001 | Area: Functional correctness | Target: N-of-M voting confirms on the Nth destination vote inside M observations, zero consumes a slot without voting, a jittering transit emits exactly one event, and every invalid config tuple falls back to OFF as one unit | Validation: `tests/test_701_crossing_votes.py` (committed new oracle) plus the scratch `/tmp/opencode/701-oracle.py`; focused `pytest tests/test_701_crossing_votes.py -q` | Evidence: focused pytest → 13 passed / 26 subtests; shared 701+#696+line-crossing+module run → 82 passed / 41 subtests; clean-tree battery → 1748 passed / 2 skipped / 980 subtests / 0 failed; RED on the base archive `c14a98a3` → 10 failed / 3 passed; scratch oracle `ALL-701-ORACLE-PASS` | Status: PASS
+- NFR-002 | Area: Compatibility | Target: the default 1/1/drift-0 configuration is behaviourally byte-identical to the pre-change worker and allocates no vote history | Validation: `tests/test_701_crossing_votes.py` embeds the pre-#701 body (hash-pinned to base `c14a98a3`) and runs 300 deterministic scenarios against the shipped OFF path, plus the scratch parity oracle | Evidence: parity 300 scenarios / 2054 events / `byte_identical=True`; OFF tracks have no vote keys; scratch `OFF-PARITY PASS scenarios=300 snapped_events_equal` | Status: PASS
+- NFR-003 | Area: Operability | Target: both Ubuntu env examples document the same block with integer bounds `1 <= N <= M`, perpendicular-pixel drift semantics, the OFF default, the all-or-nothing invalid fallback and the finite drift `>= 1e12` upper bound; no new top-level import module or module global | Validation: byte-identical documentation block in both files; crossing import allowlist (same modules) and six-name worker re-export unchanged; `ruff`/`py_compile`/`validate_sdd` green | Evidence: both files carry the identical #701 block; `py_compile` exit 0; `ruff check` `All checks passed!`; `python3 scripts/ci/validate_sdd.py` → `Sea Speed SDD validation passed` | Status: PASS
 - NFR-004 | Area: Performance | Target: the ON path keeps only a bounded last-M list per active track and a constant-time count; the OFF path allocates nothing extra | Validation: `votes` is capped with a single slice delete at M; OFF tracks carry only the four legacy keys; per-frame work stays O(M) with M operator-bounded | Evidence: parity oracle shows identical OFF state dictionaries; ON state inspection in the scratch oracle shows the bounded `votes` list and the anchor/geometry keys | Status: PASS

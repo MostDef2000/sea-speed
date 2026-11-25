@@ -64,6 +64,17 @@ before the production change; measured by running this file against a
   The scope guard's two change-set tests cannot even run against a
   ``git archive`` extract (no ``.git`` → the fail-closed ``git diff`` raises),
   which is an artifact of the RED harness, not of the base code.
+
+Peer-review coverage (the all-or-nothing config fix): the five combined-knob
+invalid-config rows (``{N:abc,M:5,D:45}``, ``{N:3,M:5,D:nan}``,
+``{N:2.5,M:5,D:45}``, ``{N:2,M:5,D:-10}``, ``{N:2,M:5,D:1e12}``) were measured
+RED against the pre-fix commit ``4f278e7`` — the old PARTIAL fallback kept two
+knobs voting — where all five subtests failed while the eight earlier rows
+still passed; on the fixed tree all thirteen produce the OFF snapshot. The
+diagonal-line drift oracles and the accept-callback-on-vote-path test cover
+behaviour the fix did not change (GREEN on the pre-fix commit as well), and
+the base-blob reference test is fail-closed by construction, so it also raises
+on a ``git archive`` extract (no ``.git``) — a RED-harness artifact.
 """
 
 from __future__ import annotations
@@ -265,15 +276,12 @@ _LEGACY_HELPER_NAMES = {
 }
 _LEGACY_HELPER_NODES = None  # lazily extracted (parses the worker sources once)
 
-# Issue #701 scope-guard pins: the branch point (main at c14a98a3) and this
-# branch's tip. HEAD_SHA is the literal "HEAD" only while #701 is UNCOMMITTED:
-# this branch has no commits yet, so the pinned range is empty and the
-# working-tree view carries the change set (consulted ONLY while the range is
-# empty). From the first #701 commit the range is non-empty forever and the
-# status half never runs again; pin HEAD_SHA to the #701 merge commit at merge
-# time — the same re-anchor duty as #696's BASE_SHA — and the range becomes
-# immutable, so a later issue's files can never be judged against #701's
-# allowlist (the #696 defect).
+# Issue #701 scope-guard pins: main at the branch point (BASE_SHA) and this
+# branch's tip. HEAD_SHA MUST be re-pinned from the literal "HEAD" to the #701
+# MERGE COMMIT at merge time — the same duty as #696's BASE_SHA/HEAD_SHA —
+# otherwise every later issue's branch diffs against a moving HEAD, inherits
+# its own commits and false-positives against #701's allowlist (the #696
+# defect). Guard logic is unchanged; only the pin moves.
 BASE_SHA = "c14a98a3c3932b9d18099c6029d5b7cf75fb0102"
 HEAD_SHA = "HEAD"
 
@@ -646,6 +654,66 @@ class CrossingDriftFilterTests(_CrossingVoteTestBase):
             "no counter may move for a mostly-parallel transit",
         )
 
+    # Diagonal oracle — every drift test above is axis-aligned, where a wrong
+    # |Δx|-based drift is indistinguishable from the real perpendicular one.
+    # Line (0,0)-(100,100): side_of_line = 100*(y - x), line_len = 141.42, so
+    # the true drift is |Δ(y-x)| * 100 / 141.42 ≈ 0.707 * |Δ(y-x)| (pixels
+    # perpendicular to the line) while |Δx| ignores y entirely. Both tests
+    # below are built so the two formulas DISAGREE:
+    #   * mostly-parallel: Δx from the anchor reaches 90 px (≥ the 45 px
+    #     threshold) while the true drift stays 1100/141.42 ≈ 7.8 px → a
+    #     |Δx| implementation would wrongly confirm;
+    #   * perpendicular: Δx from the anchor is only 7 px (< threshold) while
+    #     the true drift is 10300/141.42 ≈ 72.8 px → a |Δx| implementation
+    #     would wrongly reject.
+    DIAGONAL_LINE = [(0, 0), (100, 100)]
+
+    def test_diagonal_line_rejects_mostly_parallel_motion(self) -> None:
+        """Crossing a diagonal mostly ALONG it: enough votes, tiny drift."""
+        frames = [
+            (1.0, [_det(7, 40, 30)]),    # above the line (y < x): side -1, anchor (40,30)
+            (2.0, [_det(7, 40, 30)]),    # source-side: anchor stays (40,30)
+            (3.0, [_det(7, 95, 96)]),    # crossed (y > x): destination vote 1
+            (4.0, [_det(7, 100, 101)]),  # vote 2
+            (5.0, [_det(7, 110, 111)]),  # vote 3 → drift ≈7.8 px < 45 → suppressed
+            (6.0, [_det(7, 120, 121)]),  # vote 4
+            (7.0, [_det(7, 130, 131)]),  # vote 5: Δx = 90 px, drift still ≈7.8 px
+        ]
+        events = self.run_frames(frames, line=self.DIAGONAL_LINE, env=DRIFT_ENV)
+        self.assertEqual(
+            events,
+            [],
+            "motion mostly along the diagonal must not confirm: the true "
+            "perpendicular drift stays below the threshold even though the "
+            "travel along the line (and any |Δx| reading of it) exceeds it",
+        )
+        summary = self.mod.crossing_overlay_summary()
+        self.assertEqual((summary["left_to_right"], summary["right_to_left"]), (0, 0))
+
+    def test_diagonal_line_confirms_a_perpendicular_transit(self) -> None:
+        """A transit across the diagonal: small Δx, large perpendicular drift."""
+        frames = [
+            (1.0, [_det(7, 40, 30)]),    # source side (y < x), anchor (40,30)
+            (2.0, [_det(7, 40, 30)]),
+            (3.0, [_det(7, 45, 120)]),   # destination vote 1: Δx = 5, drift ≈60 px
+            (4.0, [_det(7, 46, 130)]),   # vote 2
+            (5.0, [_det(7, 47, 140)]),   # vote 3 → drift ≈72.8 px ≥ 45 → confirm
+        ]
+        events = self.run_frames(frames, line=self.DIAGONAL_LINE, env=DRIFT_ENV)
+        self.assertEqual(
+            len(events),
+            1,
+            "a genuinely perpendicular transit across the diagonal must "
+            "confirm even though its Δx (7 px) is far below the threshold",
+        )
+        self.assertEqual(
+            events[0]["direction"],
+            "left_to_right",
+            "direction comes from the source-side anchor: cx 47 > anchor_x 40",
+        )
+        summary = self.mod.crossing_overlay_summary()
+        self.assertEqual((summary["left_to_right"], summary["right_to_left"]), (1, 0))
+
 
 # ---------------------------------------------------------------------------
 # 3. reverse direction, deadzone slot, expiry/reused ID, line change
@@ -791,6 +859,68 @@ class CrossingVoteEdgeCaseTests(_CrossingVoteTestBase):
         self.assertEqual(len(events), 1, "one crossing on the new geometry")
         self.assertEqual(events[0]["direction"], "left_to_right")
 
+    def test_accept_callback_rejects_the_nth_vote_then_accepts_the_next(self) -> None:
+        """The #696 acceptance seam also runs on the ON/vote path.
+
+        The bound callback returns False on the Nth destination vote (the
+        frame that would confirm) and True on the next destination frame. A
+        rejected acceptance commits NOTHING — source side, ``last_cross`` and
+        the vote window stay put so the very next frame retries it — and the
+        accepted crossing yields exactly ONE event, with the callback's
+        accepted list populated once and no later duplicate. The
+        transport-owned RAM list stays EMPTY: a bound callback is never an
+        Ubuntu fallback (#696 contract), so the accepted list lives in the
+        callback itself.
+        """
+        calls: list = []
+        accepted: list = []
+
+        def accept(crossing):
+            calls.append(crossing)
+            if len(calls) == 1:
+                return False  # the Nth-vote confirmation is rejected
+            accepted.append(crossing)
+            return True
+
+        self.mod.set_crossing_accept(accept)
+        frames = [
+            (1.0, [_det(7, 50)]),   # established source side
+            (2.0, [_det(7, 50)]),   # anchor
+            (3.0, [_det(7, 150)]),  # destination vote 1
+            (4.0, [_det(7, 150)]),  # vote 2
+            (5.0, [_det(7, 150)]),  # vote 3 → Nth → callback says False
+            (6.0, [_det(7, 150)]),  # vote 4 → callback says True → ONE event
+            (7.0, [_det(7, 160)]),  # same side after the transit: no duplicate
+        ]
+        events = self.run_frames(frames[:5], env=VOTE_ENV)
+        self.assertEqual(events, [], "a rejected acceptance commits nothing")
+        state = self.mod._crossing_track_sides[7]
+        self.assertEqual(state["side"], 1, "the source side is kept for the retry")
+        self.assertEqual(state["last_cross"], 0.0, "no confirmation was recorded")
+        self.assertEqual(
+            len(state["votes"]), 3, "the vote window survives the rejection"
+        )
+
+        events += self.run_frames(frames[5:], env=VOTE_ENV)
+        self.assertEqual(len(events), 1, "exactly one event for one accepted transit")
+        self.assertEqual(events[0]["direction"], "left_to_right")
+        self.assertEqual(
+            len(calls), 2, "the rejected Nth-vote frame and the accepted next frame"
+        )
+        self.assertEqual(len(accepted), 1, "the accepted list is populated once")
+        self.assertEqual(accepted[0], events[0], "the accepted crossing IS the event")
+        self.assertEqual(
+            self.mod._crossing_pending_posts,
+            [],
+            "a bound callback never fills the transport-owned RAM list (#696)",
+        )
+        summary = self.mod.crossing_overlay_summary()
+        self.assertEqual(
+            (summary["left_to_right"], summary["right_to_left"]),
+            (1, 0),
+            "one counted crossing, no duplicate",
+        )
+
 
 # ---------------------------------------------------------------------------
 # 4. OFF parity: the shipped OFF path is byte-identical to the legacy path
@@ -877,6 +1007,64 @@ class CrossingOffParityTests(unittest.TestCase):
         self.assertNotIn("CROSSING_DRIFT_PX", _LEGACY_UPDATE_SRC)
         self.assertNotIn("votes_enabled", _LEGACY_UPDATE_SRC)
 
+    def test_parity_reference_matches_the_base_blob_via_git(self) -> None:
+        """The 300-scenario parity reference is checked against the REAL blob.
+
+        Reads ``worker/worker_crossings.py`` at the base commit through
+        ``git show``, extracts the ``update_crossing_counts`` body with the
+        AST and compares it byte for byte with the embedded legacy source the
+        parity runs use. Fails CLOSED: a missing git binary, a missing object
+        or a shallow clone raises with diagnostics instead of silently
+        trusting the embedded copy (a reference nobody verified is a
+        reference nobody can trust).
+        """
+        try:
+            blob = subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(ROOT),
+                    "show",
+                    f"{BASE_SHA}:worker/worker_crossings.py",
+                ],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+        except OSError as exc:
+            raise AssertionError(
+                "cannot run git to read the parity reference blob "
+                f"({type(exc).__name__}: {exc}) — failing closed"
+            ) from exc
+        except subprocess.CalledProcessError as exc:
+            detail = (exc.stderr or exc.stdout or "").strip()
+            raise AssertionError(
+                "cannot read the parity reference blob with "
+                f"`git show {BASE_SHA}:worker/worker_crossings.py` rc="
+                f"{exc.returncode} ({detail or 'no output'}) — shallow clone or "
+                "missing object? Failing closed: the embedded legacy body must "
+                "be verified against the real base blob, never assumed."
+            ) from exc
+        tree = ast.parse(blob.stdout, filename="worker_crossings.py@c14a98a3")
+        bodies = [
+            node
+            for node in tree.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "update_crossing_counts"
+        ]
+        self.assertEqual(
+            len(bodies),
+            1,
+            "the base blob must define update_crossing_counts exactly once",
+        )
+        blob_source = ast.get_source_segment(blob.stdout, bodies[0])
+        self.assertEqual(
+            blob_source,
+            _LEGACY_UPDATE_SRC,
+            "the embedded parity reference differs from the base blob — the "
+            "300-scenario comparison would be measuring the wrong baseline",
+        )
+
 
 # ---------------------------------------------------------------------------
 # 5. invalid config → OFF, no crash
@@ -893,6 +1081,32 @@ class CrossingInvalidConfigTests(_CrossingVoteTestBase):
         ("non-numeric N", {"CROSSING_VOTE_N": "not-a-number"}),
         ("negative drift", {"CROSSING_DRIFT_PX": "-5"}),
         ("non-finite drift", {"CROSSING_DRIFT_PX": "nan"}),
+        # Peer-review HIGH gap: rows where ONE bad knob sits beside two valid
+        # ones — the exact shape of the old PARTIAL fallback (a parse failure
+        # silently fell back to the default N while M/drift kept voting, and a
+        # bad drift left N/M enabled). All-or-nothing means every row below
+        # resets ALL THREE to OFF: one legacy event, no vote keys, and a byte
+        # snapshot identical to the legacy path.
+        (
+            "unparsable N with valid M and drift",
+            {"CROSSING_VOTE_N": "abc", "CROSSING_VOTE_M": "5", "CROSSING_DRIFT_PX": "45"},
+        ),
+        (
+            "non-finite drift with valid N and M",
+            {"CROSSING_VOTE_N": "3", "CROSSING_VOTE_M": "5", "CROSSING_DRIFT_PX": "nan"},
+        ),
+        (
+            "non-integral N with valid M and drift",
+            {"CROSSING_VOTE_N": "2.5", "CROSSING_VOTE_M": "5", "CROSSING_DRIFT_PX": "45"},
+        ),
+        (
+            "negative drift with valid N and M",
+            {"CROSSING_VOTE_N": "2", "CROSSING_VOTE_M": "5", "CROSSING_DRIFT_PX": "-10"},
+        ),
+        (
+            "drift at the 1e12 bound with valid N and M",
+            {"CROSSING_VOTE_N": "2", "CROSSING_VOTE_M": "5", "CROSSING_DRIFT_PX": "1e12"},
+        ),
     )
     # Three frames: establish on the source side, then one opposite-side
     # observation 3 s later (beyond the 2 s cooldown).
