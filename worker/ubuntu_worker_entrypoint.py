@@ -155,8 +155,10 @@ def _ensure_outbox():
     module with mocked dependencies, and environments without requests must
     still import the entrypoint. The default database is the road runtime
     cwd file road-worker-outbox.sqlite3 (systemd WorkingDirectory), with
-    SEA_SPEED_OUTBOX_DB overriding it. Open/init failures propagate so the
-    event seam can fail closed to the wave-1 poster (D-103).
+    SEA_SPEED_OUTBOX_DB overriding it. The SAME instance also carries durable
+    crossing rows (issue #696): one database, one table, one publisher thread.
+    Open/init failures propagate so the event seam can fail closed to the
+    wave-1 poster (D-103).
     """
     global _outbox
     if _outbox is not None:
@@ -201,6 +203,67 @@ def _close_outbox() -> None:
         instance.close()
     except Exception:
         pass
+
+
+def _crossing_payload(crossing: dict) -> dict:
+    """Freeze one crossing's outbox payload once, before the enqueue (#696).
+
+    The stable namespaced event id and the identity fields (camera_id,
+    analytics_profile, domain) are fixed here so a redelivery always carries
+    the exact same metadata. The defaults mirror worker_transport.post_crossing
+    without importing that protected module.
+    """
+    payload = dict(crossing)
+    camera_id = os.environ.get("CAMERA_ID", "cam1").strip() or "cam1"
+    payload.setdefault("camera_id", camera_id)
+    payload.setdefault(
+        "analytics_profile",
+        os.environ.get(
+            "ANALYTICS_PROFILE",
+            "water-v1" if camera_id == "cam1" else "road-v1",
+        ),
+    )
+    payload.setdefault("domain", "water" if camera_id == "cam1" else "road")
+    payload.setdefault(
+        "event_id",
+        f"crossing:{camera_id}:{payload.get('created_at')}:"
+        f"{payload.get('track_id')}:{payload.get('direction')}",
+    )
+    return payload
+
+
+def accept_crossing(crossing: dict) -> bool:
+    """Durably accept one crossing through the SAME outbox as road events.
+
+    Returns True only after the row is committed; any failure raises, so
+    update_crossing_counts does not count, advance or re-queue the crossing
+    and never falls back to a silent in-memory post on Ubuntu.
+    """
+    payload = _crossing_payload(crossing)
+    _ensure_outbox().enqueue_crossing(
+        payload["event_id"], json.dumps(payload, ensure_ascii=False)
+    )
+    return True
+
+
+def _bind_crossing_acceptance() -> None:
+    """Bind the durable crossing seam in the Ubuntu crossing contour.
+
+    worker_crossings is imported function-locally: provenance tests load this
+    module with a mocked worker and no worker dir on sys.path, so a missing
+    sibling module must not break the entrypoint import. In the shipped Ubuntu
+    artifacts the module is always present; if it is missing there, the seam
+    must not degrade silently into the legacy in-memory list path.
+    """
+    try:
+        import worker_crossings
+    except ImportError:
+        print(
+            "crossing durable seam NOT bound: worker_crossings unavailable",
+            flush=True,
+        )
+        return
+    worker_crossings.set_crossing_accept(accept_crossing)
 
 
 def latest_frame_bounded_enabled() -> bool:
@@ -781,6 +844,8 @@ worker.post_state = post_state
 worker.post_event = post_event
 worker.YOLO = _ModelSentinel
 worker.detect_vehicles = supervised_detect_vehicles
+# Issue #696: bind the durable crossing acceptance seam to the shared outbox.
+_bind_crossing_acceptance()
 
 
 if __name__ == "__main__":

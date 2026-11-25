@@ -18,6 +18,23 @@ is deleted and no retry is posted. NO attempt-based discard: a row is only
 ever removed by a confirmed delivery (or operator intervention via
 SEA_SPEED_OUTBOX_DB).
 
+Issue #696 (durable crossing delivery): the SAME outbox instance, database
+and publisher thread also carry accepted crossing rows. `enqueue_crossing`
+writes the same common INSERT with ``status='crossing_pending'`` and an empty
+snapshot BLOB; the publisher selects BOTH pending statuses ordered by the
+existing ``id`` (one FIFO) and routes each row to the endpoint named by its
+stored status alone. Crossing rows post the crossing API (same URL derivation
+as worker_transport.post_crossing: SEA_SPEED_API_URL with the last path
+segment replaced by ``crossings``, Bearer token, ``metadata`` only, NO file)
+and are confirmed only by ``{"ok": true, "event_id": <same event id>}``;
+permanent 4xx (except 408/429) are terminal (``terminal_error``), while 5xx,
+408/429, transport errors and malformed acknowledgements retry. Crossing rows
+never reach the road /events endpoint and the road ``_post`` handling is
+unchanged. An older binary selects only ``status='pending'``, so after a
+rollback crossing rows stay untouched for forward recovery instead of being
+posted as road events. An old status value needs no schema migration (the
+column is TEXT).
+
 Import allowlist (guarded-import convention, D-102): stdlib json, time,
 pathlib, hashlib, sqlite3, threading, os, random + requests only. requests is
 imported guarded: the persistence layer (schema init, enqueue, snapshot)
@@ -72,6 +89,9 @@ status semantics (FR-007/D-104): 'pending' rows are re-picked FIFO by the
 publisher; 'terminal_error' rows (HTTP 409 accept-errors) are never
 re-picked but stay in the table and count as unconfirmed, so the
 oldest-unconfirmed age keeps reflecting undelivered rows (AC-007).
+Issue #696 adds 'crossing_pending' rows (crossings, no snapshot): the
+publisher re-picks them FIFO together with 'pending' rows and dispatches by
+the stored status; terminal rejections reuse 'terminal_error'.
 
 Counter semantics: ``attempts`` counts delivery attempts per row;
 ``send_errors`` counts failed send attempts per row (exceptions, non-200,
@@ -135,6 +155,12 @@ _SCHEMA_VERSION = 1
 _BACKOFF_BASE_SEC = 1.0
 _BACKOFF_FACTOR = 2.0
 _BACKOFF_CAP_SEC = 60.0
+# Row kinds (stored in the existing TEXT status column; the road kind keeps
+# the original 'pending' literal so the pre-#696 binary keeps selecting it).
+_ROAD_PENDING = "pending"
+_CROSSING_PENDING = "crossing_pending"
+_PENDING_STATUSES = (_ROAD_PENDING, _CROSSING_PENDING)
+_TERMINAL_STATUS = "terminal_error"
 # Exponent clamp applied BEFORE the power (see _backoff_delay): 2**6 = 64
 # already exceeds the 60s cap, and an unclamped 2.0**1024 raises OverflowError -
 # the publisher retries indefinitely, so attempt counts are unbounded. Keeps
@@ -238,11 +264,26 @@ class WorkerOutbox:
         that to False so nothing is reported accepted that was not durably
         persisted (fail-closed, FR-003).
         """
+        snapshot_bytes = Path(snapshot_path).read_bytes()
+        return self._insert_row(event_id, metadata_json, snapshot_bytes, _ROAD_PENDING)
+
+    def enqueue_crossing(self, event_id, metadata_json) -> bool:
+        """Persist one accepted crossing durably; return True (issue #696).
+
+        Crossings carry no JPEG snapshot: the row stores an empty BLOB and the
+        dedicated ``crossing_pending`` status, so the publisher routes it to
+        the crossing API instead of the road /events endpoint. Same single
+        transaction, lock and fail-closed contract as the road enqueue - any
+        failure raises before the crossing-side transition is committed.
+        """
+        return self._insert_row(event_id, metadata_json, b"", _CROSSING_PENDING)
+
+    def _insert_row(self, event_id, metadata_json, snapshot_bytes, status) -> bool:
+        """Common durable INSERT for both row kinds (the only INSERT here)."""
         if not isinstance(event_id, str) or not event_id.strip():
             raise ValueError("outbox enqueue requires a non-empty event_id string")
         if not isinstance(metadata_json, str) or not metadata_json.strip():
             raise ValueError("outbox enqueue requires the metadata JSON string")
-        snapshot_bytes = Path(snapshot_path).read_bytes()
         now_mono = time.monotonic()
         created_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         with self._lock:
@@ -251,24 +292,26 @@ class WorkerOutbox:
                     "INSERT INTO outbox_events "
                     "(event_id, created_at, metadata, snapshot_bytes, pending_since,"
                     " attempts, send_errors, retries, accept_errors, status) "
-                    "VALUES (?, ?, ?, ?, ?, 0, 0, 0, 0, 'pending')",
+                    "VALUES (?, ?, ?, ?, ?, 0, 0, 0, 0, ?)",
                     (
                         event_id,
                         created_at,
                         metadata_json,
                         snapshot_bytes,
                         now_mono,
+                        status,
                     ),
                 )
         self._wake.set()
         return True
 
     def pending_count(self) -> int:
-        """Unconfirmed rows: pending plus retained 409 terminal rows."""
+        """Unconfirmed rows: both pending kinds plus retained terminal rows."""
         with self._lock:
             row = self._conn.execute(
                 "SELECT COUNT(*) FROM outbox_events"
-                " WHERE status IN ('pending', 'terminal_error')"
+                " WHERE status IN (?, ?, ?)",
+                (*_PENDING_STATUSES, _TERMINAL_STATUS),
             ).fetchone()
         return int(row[0]) if row else 0
 
@@ -277,7 +320,8 @@ class WorkerOutbox:
         with self._lock:
             count, oldest_pending_since = self._conn.execute(
                 "SELECT COUNT(*), MIN(pending_since) FROM outbox_events"
-                " WHERE status IN ('pending', 'terminal_error')"
+                " WHERE status IN (?, ?, ?)",
+                (*_PENDING_STATUSES, _TERMINAL_STATUS),
             ).fetchone()
             send_errors = self._meta_int("outbox_send_errors_total")
             retries = self._meta_int("outbox_retries_total")
@@ -343,14 +387,28 @@ class WorkerOutbox:
                     self._wake.wait(timeout=_METRIC_INTERVAL_SEC)
                     self._wake.clear()
                     continue
-                row_id, event_id, metadata_json, snapshot_bytes, attempts, retries = row
+                (
+                    row_id,
+                    event_id,
+                    metadata_json,
+                    snapshot_bytes,
+                    attempts,
+                    retries,
+                    status,
+                ) = row
                 due_at = self._next_attempt_mono.get(row_id)
                 now_mono = time.monotonic()
                 if due_at is not None and now_mono < due_at:
                     self._wait_until(due_at)
                     continue
                 self._deliver(
-                    row_id, event_id, metadata_json, snapshot_bytes, attempts, retries
+                    row_id,
+                    event_id,
+                    metadata_json,
+                    snapshot_bytes,
+                    attempts,
+                    retries,
+                    status,
                 )
             except Exception as exc:
                 # The publisher must never die: rows stay pending on disk.
@@ -363,16 +421,24 @@ class WorkerOutbox:
     def _head_row(self):
         with self._lock:
             row = self._conn.execute(
-                "SELECT id, event_id, metadata, snapshot_bytes, attempts, retries"
-                " FROM outbox_events WHERE status = 'pending' ORDER BY id LIMIT 1"
+                "SELECT id, event_id, metadata, snapshot_bytes, attempts, retries,"
+                " status FROM outbox_events WHERE status IN (?, ?)"
+                " ORDER BY id LIMIT 1",
+                _PENDING_STATUSES,
             ).fetchone()
         if row is None:
             return None
         return row
 
-    def _deliver(self, row_id, event_id, metadata_json, snapshot_bytes, attempts, retries):
+    def _deliver(
+        self, row_id, event_id, metadata_json, snapshot_bytes, attempts, retries, status
+    ):
         is_retry = attempts > 0
-        action, detail = self._post(metadata_json, snapshot_bytes)
+        is_crossing = status == _CROSSING_PENDING
+        if is_crossing:
+            action, detail = self._post_crossing(event_id, metadata_json)
+        else:
+            action, detail = self._post(metadata_json, snapshot_bytes)
         new_attempts = attempts + 1
         new_retries = retries + (1 if is_retry else 0)
         content_sha = hashlib.sha256(
@@ -413,26 +479,44 @@ class WorkerOutbox:
                         self._meta_increment("outbox_retries_total")
                 self._next_attempt_mono[row_id] = time.monotonic() + delay
         if action == "confirmed":
-            suffix = ""
-            if isinstance(detail, dict):
-                if detail.get("duplicate") is True:
-                    suffix = " duplicate=true"
-                elif detail.get("event", "missing") is None:
-                    suffix = " person_filtered=true"
-            print(f"POST event ok id={event_id} class={_meta_class(metadata_json)} conf={_meta_conf(metadata_json):.2f}{suffix}", flush=True)
+            if is_crossing:
+                # Crossing confirmations are NOT road events: never reuse the
+                # road success line.
+                print(f"POST crossing ok event_id={event_id}", flush=True)
+            else:
+                suffix = ""
+                if isinstance(detail, dict):
+                    if detail.get("duplicate") is True:
+                        suffix = " duplicate=true"
+                    elif detail.get("event", "missing") is None:
+                        suffix = " person_filtered=true"
+                print(f"POST event ok id={event_id} class={_meta_class(metadata_json)} conf={_meta_conf(metadata_json):.2f}{suffix}", flush=True)
         elif action == "terminal":
-            print(
-                f"outbox accept_error event_id={event_id} reason={detail}",
-                flush=True,
-            )
+            if is_crossing:
+                print(
+                    f"outbox crossing accept_error event_id={event_id} reason={detail}",
+                    flush=True,
+                )
+            else:
+                print(
+                    f"outbox accept_error event_id={event_id} reason={detail}",
+                    flush=True,
+                )
         else:
             next_delay = self._next_attempt_mono.get(row_id)
             delay_text = "0.0s" if next_delay is None else f"{max(0.0, next_delay - time.monotonic()):.1f}s"
-            print(
-                f"outbox send error event_id={event_id} attempt={new_attempts}"
-                f" content={content_sha} delay={delay_text} reason={detail}",
-                flush=True,
-            )
+            if is_crossing:
+                print(
+                    f"outbox crossing send error event_id={event_id}"
+                    f" attempt={new_attempts} delay={delay_text} reason={detail}",
+                    flush=True,
+                )
+            else:
+                print(
+                    f"outbox send error event_id={event_id} attempt={new_attempts}"
+                    f" content={content_sha} delay={delay_text} reason={detail}",
+                    flush=True,
+                )
 
     def _post(self, metadata_json, snapshot_bytes):
         """One HTTP delivery; returns (action, detail) per FR-007."""
@@ -465,6 +549,53 @@ class WorkerOutbox:
             return "retry", f"unexpected response body {str(body)[:200]}"
         # 200 + ok:true covers FR-007 confirm / duplicate receipt hit and the
         # D-110 person-filter terminal success {"ok": true, "event": null}.
+        return "confirmed", body
+
+    def _post_crossing(self, event_id, metadata_json):
+        """One crossing HTTP delivery; returns (action, detail) per #696.
+
+        Crossings have no snapshot: the API takes only the byte-verbatim
+        metadata string. Confirmation is the crossing API acknowledgement
+        ``{"ok": true, "event_id": <the row's event id>}`` - a mismatched id or
+        a malformed body is an unconfirmed (retryable) send. Permanent 4xx
+        rejections (except 408/429) are terminal; 5xx, 408/429 and transport
+        errors retry.
+        """
+        if requests is None:
+            return "retry", "requests module unavailable"
+        url = _crossings_url()
+        token = os.environ.get("SEA_SPEED_API_TOKEN", "").strip()
+        if not url or not token:
+            return "retry", "crossings URL or token is not set"
+        try:
+            response = requests.post(
+                url,
+                headers={"Authorization": f"Bearer {token}"},
+                data={"metadata": metadata_json},
+                timeout=10,
+            )
+        except Exception as exc:
+            return "retry", f"{type(exc).__name__}: {exc}"[:_ERROR_TEXT_LIMIT]
+        status_code = response.status_code
+        if status_code == 409:
+            return "terminal", f"HTTP 409 {response.text[:200]}"
+        if 400 <= status_code < 500 and status_code not in (408, 429):
+            # Permanent client rejection (bad direction/object_type, auth
+            # refusal, ...): retained as terminal_error, never retried.
+            return "terminal", f"HTTP {status_code} {response.text[:200]}"
+        if status_code != 200:
+            return "retry", f"HTTP {status_code} {response.text[:200]}"
+        try:
+            body = response.json()
+        except Exception:
+            return "retry", "response body is not JSON"
+        if not isinstance(body, dict) or body.get("ok") is not True:
+            return "retry", f"unexpected response body {str(body)[:200]}"
+        if body.get("event_id") != event_id:
+            return "retry", (
+                "crossing acknowledgement event_id mismatch "
+                f"{str(body.get('event_id'))[:80]}"
+            )
         return "confirmed", body
 
     def _backoff_delay(self, attempts: int) -> float:
@@ -553,6 +684,14 @@ def _event_url() -> str:
     if state_url:
         return state_url.rsplit("/", 1)[0] + "/events"
     return ""
+
+
+def _crossings_url() -> str:
+    """Mirror worker_transport.post_crossing URL derivation exactly (#696)."""
+    state_url = os.environ.get("SEA_SPEED_API_URL", "").strip()
+    if not state_url:
+        return ""
+    return state_url.rsplit("/", 1)[0] + "/crossings"
 
 
 def _meta_class(metadata_json: str) -> str:
