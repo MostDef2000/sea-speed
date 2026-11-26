@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import hashlib
 import http.client
+import json
 import math
 import os
 import re
@@ -34,6 +35,7 @@ import signal
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -56,6 +58,44 @@ _URI_RE = re.compile(r'URI="([^"]+)"')
 _SAFE_NAME_RE = re.compile(r"[^A-Za-z0-9._-]+")
 
 _ACTIVE_RSYNC: subprocess.Popen | None = None
+
+# Fixed REC evidence constant (not configurable): a witness older than this is
+# not fresh recording evidence. Shared contract with worker/worker_transport.py,
+# which reads the witness back at state-post time.
+RECORDING_WITNESS_FRESHNESS_SEC = 30.0
+
+
+def recording_witness_path(spool_dir: Path, camera_id: str) -> Path:
+    """Per-camera atomic REC witness location inside the recorder spool."""
+    camera = _SAFE_NAME_RE.sub("_", camera_id).strip("._") or "cam1"
+    return Path(spool_dir) / f"{camera}-recording-witness.json"
+
+
+def write_recording_witness(config: "RecorderConfig") -> None:
+    """Best-effort atomic witness of a successful completed-segment upload.
+
+    REC means "this camera uploaded a completed media segment within the last
+    30 seconds", so only the successful segment branches call this; init/EXT-X-
+    MAP objects and failed uploads do not. Any witness I/O failure is swallowed
+    on purpose: it must never turn a successful delivery into a retry.
+    """
+    try:
+        path = recording_witness_path(config.spool_dir, config.camera_id)
+        payload = {
+            "camera_id": config.camera_id,
+            "last_success_at": datetime.now(timezone.utc).isoformat(),
+        }
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+        with temporary.open("w", encoding="utf-8") as handle:
+            json.dump(payload, handle, sort_keys=True, separators=(",", ":"))
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(temporary, 0o644)
+        os.replace(temporary, path)
+    except Exception:
+        pass
 
 
 class RecorderError(RuntimeError):
@@ -475,7 +515,7 @@ class HlsRecorder:
     def upload(self, path: Path) -> tuple[bool, str]:
         return bounded_upload(self.config, path)
 
-    def capture(self, url: str, filename: str) -> bool:
+    def capture(self, url: str, filename: str, record_witness: bool = False) -> bool:
         free = shutil.disk_usage(self.config.spool_dir).free
         if free < self.config.min_free_bytes:
             raise SpoolSpaceLow(
@@ -514,6 +554,8 @@ class HlsRecorder:
             except OSError:
                 pass
         if ok:
+            if record_witness:
+                write_recording_witness(self.config)
             print(
                 f"recorder object ok name={filename} bytes={total}", flush=True
             )
@@ -627,6 +669,7 @@ class HlsRecorder:
                             ok = self.capture(
                                 absolute,
                                 self.segment_name(sequence, index, absolute),
+                                record_witness=True,
                             )
                         except SpoolSpaceLow as exc:
                             skipped = len(segments) - index

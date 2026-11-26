@@ -114,6 +114,76 @@ def fetch_remote_roi():
         return _roi_cache["enabled"], _roi_cache["points"]
 
 
+# Fixed REC evidence constant (not configurable), shared with
+# worker/recorder.py: a witness older than this is not fresh recording evidence.
+RECORDING_WITNESS_FRESHNESS_SEC = 30.0
+
+
+def _recording_witness_path(camera_id):
+    # Function-local import: the transport import allowlist is fixed (json/
+    # time/pathlib/requests + worker_kernel/worker_media at module level).
+    import re
+
+    spool_dir = Path(
+        env_str("SEA_SPEED_RECORDER_SPOOL_DIR", "recorder-spool").strip()
+        or "recorder-spool"
+    )
+    camera = re.sub(r"[^A-Za-z0-9._-]+", "_", camera_id).strip("._") or "cam1"
+    return spool_dir / f"{camera}-recording-witness.json"
+
+
+def recording_last_success_at():
+    """Fresh per-camera REC witness timestamp, or None.
+
+    REC means "this camera uploaded a completed media segment within the last
+    30 seconds". Only the recorder writes the witness, and only on a
+    successful completed-segment upload. Every non-witness case is None:
+    recording disabled, missing/unreadable/corrupt/wrong-camera witness, a
+    future timestamp, or an expired one (0 <= age < 30 s is the only fresh
+    window). Best-effort: a witness read failure must never suppress
+    analytics, so all errors are swallowed. No credential/URL recorder config
+    is loaded here - only the shared spool-dir/camera/enabled env values.
+    """
+    try:
+        if env_str("SEA_SPEED_RECORDER_ENABLED", "0").strip() != "1":
+            return None
+        camera_id = env_str("CAMERA_ID", "cam1").strip() or "cam1"
+        payload = json.loads(
+            _recording_witness_path(camera_id).read_text(encoding="utf-8")
+        )
+        if not isinstance(payload, dict):
+            return None
+        if payload.get("camera_id") != camera_id:
+            return None
+        raw = payload.get("last_success_at")
+        if not isinstance(raw, str):
+            return None
+        from datetime import datetime, timezone
+
+        success = datetime.fromisoformat(raw)
+        if success.tzinfo is None:
+            return None
+        age = (datetime.now(timezone.utc) - success).total_seconds()
+        if not (0 <= age < RECORDING_WITNESS_FRESHNESS_SEC):
+            return None
+        return raw
+    except Exception:
+        return None
+
+
+def _with_recording_state(metadata):
+    """Enrich a COPY of the state payload with the REC evidence field.
+
+    Always present (ISO timestamp or explicit null) so a metadata-only API
+    merge clears a prior witness instead of keeping a stale timestamp.
+    """
+    if not isinstance(metadata, dict):
+        return metadata
+    enriched = dict(metadata)
+    enriched["recording_last_success_at"] = recording_last_success_at()
+    return enriched
+
+
 def post_state(metadata, overlay_path=None):
     state_url = env_str("SEA_SPEED_API_URL")
     token = env_str("SEA_SPEED_API_TOKEN")
@@ -122,7 +192,7 @@ def post_state(metadata, overlay_path=None):
         return False
     headers = {"Authorization": f"Bearer {token}"}
     try:
-        data = {"metadata": json.dumps(metadata, ensure_ascii=False)}
+        data = {"metadata": json.dumps(_with_recording_state(metadata), ensure_ascii=False)}
         if overlay_path is None:
             # Issue #700 metadata-only camera state: the rejected frame must
             # not publish an overlay (nor a fresh overlay_rev), while the

@@ -44,9 +44,9 @@ Sections (one class each):
 * ``RecorderReconcileIdempotencyTests`` — AC-001 repeat runs: a second
   reconcile produces byte-identical protected env files (no drift).
 * ``ConfigPreserveScopeGuardTests`` — the admitted #739 change set over the
-  pinned range ``BASE_SHA..HEAD_SHA`` (base ``1465db6`` -> ``HEAD``) UNION
-  the working tree, fail-closed (a guard that cannot read its inputs must not
-  pass); allowed prefixes per the work order, forbidden ``api/``,
+  pinned range ``BASE_SHA..HEAD_SHA`` (base ``1465db6`` -> merge ``ff82e19``)
+  UNION the working tree, fail-closed (a guard that cannot read its inputs must
+  not pass); allowed prefixes per the work order, forbidden ``api/``,
   ``.github/``, ``scripts/ci/validate_sdd.py`` and lockfiles.
 
 Environment: stdlib-only top-level imports (battery import-hygiene scan);
@@ -179,10 +179,12 @@ INVALID_RECORDER = {
 }
 
 # Issue #739 scope-guard pins: BASE_SHA is main just before the #739 change
-# and HEAD_SHA is the branch tip; the guard verifies the pinned range UNION
-# the working tree, fail-closed (work order).
+# and HEAD_SHA is the #739 MERGE COMMIT — the guard verifies the fixed,
+# delivered #739 range UNION the working tree, fail-closed (work order), so
+# later issues are not judged against #739's allowlist (the #699 REC change
+# legitimately edits scripts/ci/validate_sdd.py, which stays forbidden here).
 BASE_SHA = "1465db62a4c66c637f1a9b3c6620fabb6291afce"
-HEAD_SHA = "HEAD"
+HEAD_SHA = "ff82e199fe3ab18d6d585a9ef2c60cd43613d606"
 
 ALLOWED_CHANGE_PREFIXES = (
     "tests/",

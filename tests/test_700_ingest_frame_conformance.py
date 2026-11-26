@@ -338,7 +338,13 @@ class TransportMetadataOnlyPostTests(unittest.TestCase):
     def _env(self):
         return mock.patch.dict(
             os.environ,
-            {"SEA_SPEED_API_URL": "http://api.test/state", "SEA_SPEED_API_TOKEN": "test-token"},
+            {
+                "SEA_SPEED_API_URL": "http://api.test/state",
+                "SEA_SPEED_API_TOKEN": "test-token",
+                # REC indicator (#699): recording off ⇒ the posted state
+                # carries an explicit null, and no witness file is opened.
+                "SEA_SPEED_RECORDER_ENABLED": "0",
+            },
         )
 
     def _response(self):
@@ -360,7 +366,12 @@ class TransportMetadataOnlyPostTests(unittest.TestCase):
             self.assertEqual(kwargs["timeout"], 10)
             self.assertEqual(kwargs["headers"], {"Authorization": "Bearer test-token"})
         metadata = json.loads(post.call_args_list[0].kwargs["data"]["metadata"])
-        self.assertEqual(metadata, {"frame_no": 5})
+        # Issue #699 REC indicator: every state POST carries the field, an
+        # explicit null while recording is off (exact-equality preserved).
+        self.assertEqual(
+            metadata,
+            {"frame_no": 5, "recording_last_success_at": None},
+        )
 
     def test_overlay_post_keeps_the_file_part_behaviour(self) -> None:
         with tempfile.TemporaryDirectory() as td:
