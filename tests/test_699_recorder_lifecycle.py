@@ -20,19 +20,29 @@ Sections (one class each):
   stop kills both the child and its grandchild (the rsync stand-in); and the
   ``__main__`` wiring is pinned (stop signals installed, recorder started
   before ``worker.main()``, ``_stop_recorder`` in the ``finally``).
-* ``RecorderPackagingTests`` — AC-007: ``worker/recorder.py`` in the
-  ubuntu-worker exact-artifact inventories ONLY (absent from vps/edge, in
-  BOTH the builder and the validator); the real build+validate subprocess
-  pair passes and the built ubuntu-worker artifact contains
-  ``worker/recorder.py`` while vps/edge do not; both env examples carry the
-  IDENTICAL opt-in block (default ``SEA_SPEED_RECORDER_ENABLED=0``) and both
-  service templates keep the literal ``LoadCredential=recorder_ed25519``
-  line.
+* ``RecorderPackagingTests`` — AC-007/AC-010: ``worker/recorder.py`` AND
+  ``worker/recorder_rtsp.py`` in the ubuntu-worker exact-artifact inventories
+  ONLY (absent from vps/edge, in BOTH the builder and the validator); the real
+  build+validate subprocess pair passes and the built ubuntu-worker artifact
+  contains both recorder modules while vps/edge do not; both env examples
+  carry the IDENTICAL opt-in block (default ``SEA_SPEED_RECORDER_ENABLED=0``,
+  selector ``SEA_SPEED_RECORDER_SOURCE_TYPE=hls`` present in both); the
+  selector source pin (``worker/recorder.py`` reads the selector and lazy-
+  imports ``recorder_rtsp``); both service templates keep the literal
+  ``LoadCredential=recorder_ed25519`` line.
 * ``RecorderScopeGuardTests`` — the admitted #699 change set over the
-  pinned ``BASE_SHA..HEAD_SHA`` range UNION the working-tree status
-  (fail-closed: a guard that cannot read its inputs must not pass),
-  allowed prefixes per the work order, forbidden ``api/``,
-  ``worker/worker_media.py``, ``.github/`` and lockfiles.
+  DELIVERED pinned range ``BASE_SHA..HEAD_SHA`` (base ``a66b5a8`` → merge
+  ``c689947``; fail-closed: a guard that cannot read its inputs must not
+  pass), allowed prefixes per the work order, forbidden ``api/``,
+  ``worker/worker_media.py``, ``.github/`` and lockfiles — restrictions
+  unchanged from the merge-time pin (the allowlist is NOT widened).
+* ``RtspScopeGuardTests`` — the #699b change set: the working tree (status)
+  UNION the ``c689947..HEAD`` range, fail-closed, allowed prefixes =
+  ``tests/``, ``worker/recorder.py``, ``worker/recorder_rtsp.py``,
+  ``deploy/worker/ubuntu/*.env.example``, the two exact-artifact scripts,
+  ``scripts/ci/validate_sdd.py`` and ``specs/699-rtsp-recorder/``;
+  forbidden = ``api/``, ``worker/worker_media.py``,
+  ``worker/ubuntu_worker_entrypoint.py``, ``.github/`` and lockfiles.
 
 Environment: stdlib-only top-level imports (battery import-hygiene scan).
 The entrypoint is loaded through the provenance pattern
@@ -60,6 +70,7 @@ from __future__ import annotations
 
 import ast
 import contextlib
+import fnmatch
 import importlib.util
 import io
 import json
@@ -97,10 +108,35 @@ for _root in (str(ROOT), str(WORKER_DIR)):
         sys.path.insert(0, _root)
 
 # Issue #699 scope-guard pins: BASE_SHA is main just before the #699 change
-# and HEAD is the branch tip until merge — the guarded change set is the
-# pinned range UNION the working tree, fail-closed (work order).
+# and HEAD_SHA is the #699 MERGE COMMIT — the guard verifies the fixed,
+# non-empty DELIVERED #699 change set (work order re-pin, 2026-11-26), with
+# the original restrictions intact (allowlist not widened, lockfile ban kept).
+# The working tree is guarded by the #699b guard below (RtspScopeGuardTests).
 BASE_SHA = "a66b5a8039cdba585f8b549e1091989586b0d72a"
-HEAD_SHA = "HEAD"
+HEAD_SHA = "c689947350f141aada84943a6e06a71e3cbb28b4"
+
+# Issue #699b scope-guard pins: the RTSP recorder change set is the working
+# tree UNION the range from the delivered #699 merge to the branch tip,
+# fail-closed (work order).
+RTSP_BASE_SHA = "c689947350f141aada84943a6e06a71e3cbb28b4"
+RTSP_HEAD_SHA = "HEAD"
+
+RTSP_ALLOWED_CHANGE_PREFIXES = (
+    "tests/",
+    "worker/recorder.py",
+    "worker/recorder_rtsp.py",
+    "deploy/worker/ubuntu/*.env.example",
+    "scripts/quality/build_exact_artifacts.py",
+    "scripts/quality/validate_exact_artifacts.py",
+    "scripts/ci/validate_sdd.py",
+    "specs/699-rtsp-recorder/",
+)
+RTSP_FORBIDDEN_CHANGE_PREFIXES = (
+    "api/",
+    "worker/worker_media.py",
+    "worker/ubuntu_worker_entrypoint.py",
+    ".github/",
+)
 
 ALLOWED_CHANGE_PREFIXES = (
     "tests/",
@@ -125,6 +161,7 @@ LOAD_CREDENTIAL_LINE = (
 )
 RECORDER_ENV_KEYS = (
     "SEA_SPEED_RECORDER_ENABLED=0",
+    "SEA_SPEED_RECORDER_SOURCE_TYPE=hls",
     "SEA_SPEED_RECORDER_HLS_URL=",
     "SEA_SPEED_RECORDER_SPOOL_DIR=recorder-spool",
     "SEA_SPEED_RECORDER_DESTINATION=root@10.123.239.127:/mnt/fleet-backup/sea-speed/",
@@ -502,6 +539,45 @@ class RecorderPackagingTests(unittest.TestCase):
             "the validator must require worker/recorder.py for ubuntu-worker",
         )
 
+    def test_recorder_rtsp_in_ubuntu_inventory_only_in_both_scripts(self) -> None:
+        for component in ("vps", "edge"):
+            with self.subTest(component=component, script="builder"):
+                self.assertNotIn(
+                    "worker/recorder_rtsp.py",
+                    self.builder_inventory[component]["required"],
+                )
+                self.assertNotIn(
+                    "worker/recorder_rtsp.py",
+                    self.builder_inventory[component].get("optional", []),
+                )
+            with self.subTest(component=component, script="validator"):
+                self.assertNotIn(
+                    "worker/recorder_rtsp.py", self.validator_inventory[component]
+                )
+        self.assertIn(
+            "worker/recorder_rtsp.py",
+            self.builder_inventory["ubuntu-worker"]["required"],
+            "worker/recorder_rtsp.py must ship in the ubuntu-worker artifact",
+        )
+        self.assertIn(
+            "worker/recorder_rtsp.py",
+            self.validator_inventory["ubuntu-worker"],
+            "the validator must require worker/recorder_rtsp.py for ubuntu-worker",
+        )
+
+    def test_recorder_selector_source_is_pinned(self) -> None:
+        source = RECORDER_SCRIPT.read_text(encoding="utf-8")
+        self.assertIn("SEA_SPEED_RECORDER_SOURCE_TYPE", source)
+        self.assertIn(
+            "SEA_SPEED_RECORDER_SOURCE_TYPE must be hls or rtsp", source
+        )
+        self.assertIn(
+            "HLS_URL is required when SEA_SPEED_RECORDER_SOURCE_TYPE=rtsp",
+            source,
+            "the rtsp arm must read the existing HLS_URL with no fallback",
+        )
+        self.assertIn("import recorder_rtsp", source, "the RTSP arm is lazy")
+
     def test_build_and_validate_pass_and_contain_recorder(self) -> None:
         with tempfile.TemporaryDirectory(prefix="test699artifacts-") as out:
             build = subprocess.run(
@@ -554,6 +630,11 @@ class RecorderPackagingTests(unittest.TestCase):
                 item["path"] for item in by_component["ubuntu-worker"]["files"]
             }
             self.assertIn("worker/recorder.py", ubuntu_paths)
+            self.assertIn(
+                "worker/recorder_rtsp.py",
+                ubuntu_paths,
+                "worker/recorder_rtsp.py must ship in the ubuntu-worker artifact",
+            )
             for component in ("vps", "edge"):
                 paths = {
                     item["path"] for item in by_component[component]["files"]
@@ -562,6 +643,11 @@ class RecorderPackagingTests(unittest.TestCase):
                     "worker/recorder.py",
                     paths,
                     f"recorder must not ship in the {component} artifact",
+                )
+                self.assertNotIn(
+                    "worker/recorder_rtsp.py",
+                    paths,
+                    f"recorder_rtsp must not ship in the {component} artifact",
                 )
 
     @staticmethod
@@ -615,7 +701,14 @@ class RecorderPackagingTests(unittest.TestCase):
 
 
 class RecorderScopeGuardTests(unittest.TestCase):
-    """Only the admitted #699 surface; fail-closed when inputs unreadable."""
+    """The delivered #699 range; fail-closed when inputs unreadable.
+
+    Re-pinned to the delivered range (base ``a66b5a8`` → merge ``c689947``)
+    with the original restrictions intact: same allowlist (not widened),
+    same forbidden prefixes, same lockfile ban, same fail-closed git reads.
+    The working tree is guarded by ``RtspScopeGuardTests`` below, so the
+    union of both guards still covers every uncommitted path.
+    """
 
     @staticmethod
     def _run_git(arguments: list) -> str:
@@ -638,22 +731,14 @@ class RecorderScopeGuardTests(unittest.TestCase):
 
     @classmethod
     def _changed_paths(cls) -> list:
-        # Half A: the pinned BASE_SHA..HEAD_SHA range.
+        # The delivered #699 change set: the pinned BASE_SHA..HEAD_SHA range
+        # (fail-closed on git errors — see _run_git).
         diff = cls._run_git(["diff", "--name-only", BASE_SHA, HEAD_SHA])
         paths = {
             line.strip().strip('"')
             for line in diff.splitlines()
             if line.strip()
         }
-        # Half B: the working-tree status (uncommitted production + tests).
-        status = cls._run_git(["status", "--porcelain", "--untracked-files=all"])
-        for line in status.splitlines():
-            if not line.strip():
-                continue
-            path = line[3:]
-            if " -> " in path:
-                path = path.split(" -> ")[-1]
-            paths.add(path.strip().strip('"'))
         return sorted(paths)
 
     @classmethod
@@ -753,6 +838,163 @@ class RecorderScopeGuardTests(unittest.TestCase):
                         for prefix in self.ALLOWED_CHANGE_PREFIXES
                     ),
                     f"admitted path wrongly rejected: {path}",
+                )
+
+
+class RtspScopeGuardTests(unittest.TestCase):
+    """The admitted #699b change set: working tree UNION pinned range.
+
+    Fail-closed: a guard that cannot read its inputs must not pass. The
+    allowed prefixes are exactly the work-order list (wildcards matched with
+    ``fnmatch``); the forbidden prefixes and the lockfile ban are checked
+    independently of the allowlist.
+    """
+
+    ALLOWED_CHANGE_PREFIXES = RTSP_ALLOWED_CHANGE_PREFIXES
+    FORBIDDEN_CHANGE_PREFIXES = RTSP_FORBIDDEN_CHANGE_PREFIXES
+
+    @staticmethod
+    def _run_git(arguments: list) -> str:
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(ROOT), *arguments],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+        except (subprocess.CalledProcessError, OSError) as exc:
+            detail = getattr(exc, "stderr", None) or str(exc)
+            raise AssertionError(
+                "scope guard cannot read the #699b change set: "
+                f"`git {' '.join(arguments)}` failed "
+                f"({detail.strip()}) — Failing closed: a guard that cannot "
+                "read its inputs must not pass."
+            ) from exc
+        return result.stdout
+
+    @classmethod
+    def _changed_paths(cls) -> list:
+        # Half A: the pinned range from the delivered #699 merge to the tip.
+        diff = cls._run_git(
+            ["diff", "--name-only", RTSP_BASE_SHA, RTSP_HEAD_SHA]
+        )
+        paths = {
+            line.strip().strip('"')
+            for line in diff.splitlines()
+            if line.strip()
+        }
+        # Half B: the working-tree status (uncommitted production + tests).
+        status = cls._run_git(["status", "--porcelain", "--untracked-files=all"])
+        for line in status.splitlines():
+            if not line.strip():
+                continue
+            path = line[3:]
+            if " -> " in path:
+                path = path.split(" -> ")[-1]
+            paths.add(path.strip().strip('"'))
+        return sorted(paths)
+
+    @classmethod
+    def _matches(cls, path: str, patterns: tuple) -> bool:
+        for pattern in patterns:
+            if "*" in pattern:
+                if fnmatch.fnmatch(path, pattern):
+                    return True
+            elif path.startswith(pattern):
+                return True
+        return False
+
+    @classmethod
+    def _offenders(cls, paths: list) -> list:
+        return [
+            path
+            for path in paths
+            if not cls._matches(path, cls.ALLOWED_CHANGE_PREFIXES)
+        ]
+
+    @staticmethod
+    def _is_lockfile(path: str) -> bool:
+        name = Path(path).name
+        return name in FORBIDDEN_LOCKFILE_NAMES or any(
+            name.endswith(suffix) for suffix in FORBIDDEN_LOCKFILE_SUFFIXES
+        )
+
+    def test_change_set_touches_only_the_699b_surface(self) -> None:
+        changed = self._changed_paths()
+        offenders = self._offenders(changed)
+        self.assertEqual(
+            offenders,
+            [],
+            f"out-of-scope paths in the #699b change set "
+            f"(pinned range UNION working tree): {offenders}",
+        )
+
+    def test_no_forbidden_api_media_entrypoint_workflow_or_lockfile_change(
+        self,
+    ) -> None:
+        changed = self._changed_paths()
+        for path in changed:
+            with self.subTest(path=path):
+                for prefix in self.FORBIDDEN_CHANGE_PREFIXES:
+                    self.assertFalse(
+                        path.startswith(prefix),
+                        f"forbidden path changed: {path}",
+                    )
+                self.assertFalse(
+                    self._is_lockfile(path), f"lockfile changed: {path}"
+                )
+
+    # -- synthetic predicate proofs (green on base and change alike) -------
+
+    def test_predicate_rejects_out_of_scope_paths(self) -> None:
+        rejected = [
+            "api/app/main.py",
+            "worker/worker_media.py",
+            "worker/ubuntu_worker_entrypoint.py",
+            ".github/workflows/quality-integration.yml",
+            "package-lock.json",
+            "deploy/worker/ubuntu/requirements-runtime.lock.txt",
+            "specs/698-something/spec.md",
+        ]
+        for path in rejected:
+            with self.subTest(path=path):
+                allowed = self._matches(path, self.ALLOWED_CHANGE_PREFIXES)
+                forbidden = any(
+                    path.startswith(prefix)
+                    for prefix in self.FORBIDDEN_CHANGE_PREFIXES
+                )
+                self.assertFalse(
+                    allowed and not forbidden and not self._is_lockfile(path),
+                    f"guard must reject {path}",
+                )
+
+    def test_predicate_accepts_admitted_paths(self) -> None:
+        admitted = [
+            "tests/test_699b_rtsp_recorder.py",
+            "tests/test_699_recorder_lifecycle.py",
+            "worker/recorder.py",
+            "worker/recorder_rtsp.py",
+            "deploy/worker/ubuntu/worker.env.example",
+            "deploy/worker/ubuntu/road-worker.env.example",
+            "scripts/quality/build_exact_artifacts.py",
+            "scripts/quality/validate_exact_artifacts.py",
+            "scripts/ci/validate_sdd.py",
+            "specs/699-rtsp-recorder/spec.md",
+            "specs/699-rtsp-recorder/plan.md",
+            "specs/699-rtsp-recorder/tasks.md",
+        ]
+        for path in admitted:
+            with self.subTest(path=path):
+                self.assertTrue(
+                    self._matches(path, self.ALLOWED_CHANGE_PREFIXES),
+                    f"admitted path wrongly rejected: {path}",
+                )
+                self.assertFalse(
+                    any(
+                        path.startswith(prefix)
+                        for prefix in self.FORBIDDEN_CHANGE_PREFIXES
+                    ),
+                    f"admitted path wrongly forbidden: {path}",
                 )
 
 
