@@ -116,10 +116,12 @@ BASE_SHA = "a66b5a8039cdba585f8b549e1091989586b0d72a"
 HEAD_SHA = "c689947350f141aada84943a6e06a71e3cbb28b4"
 
 # Issue #699b scope-guard pins: the RTSP recorder change set is the working
-# tree UNION the range from the delivered #699 merge to the branch tip,
-# fail-closed (work order).
+# tree UNION the pinned range from the delivered #699 merge to the #699b
+# MERGE COMMIT — the guard now verifies the fixed, non-empty DELIVERED #699b
+# change set (re-pin after #739 landed on the branch; a moving "HEAD" end
+# would pull later issues into this guard), fail-closed (work order).
 RTSP_BASE_SHA = "c689947350f141aada84943a6e06a71e3cbb28b4"
-RTSP_HEAD_SHA = "HEAD"
+RTSP_HEAD_SHA = "7c5ea3c02aad4e5d2b3415e5368b9a90a9b5cb33"
 
 RTSP_ALLOWED_CHANGE_PREFIXES = (
     "tests/",
