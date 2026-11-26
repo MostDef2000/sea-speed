@@ -136,6 +136,7 @@ RTSP_FORBIDDEN_CHANGE_PREFIXES = (
     "worker/worker_media.py",
     "worker/ubuntu_worker_entrypoint.py",
     ".github/",
+    ".gitlab",
 )
 
 ALLOWED_CHANGE_PREFIXES = (

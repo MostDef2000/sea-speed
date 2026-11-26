@@ -498,3 +498,12 @@ class RtspRecorder:
                 continue
             for part in session.glob("*/" + _SEGMENT_FILENAME):
                 self._unlink(part)
+        # A SIGKILL between mkstemp and the cleanup finally can leave a
+        # credential-bearing ffconcat in the private service tmp. Remove only
+        # files with the recorder's exact prefix and suffix, never arbitrary
+        # temp entries.
+        for stale in Path(tempfile.gettempdir()).glob(
+            "sea-speed-recorder-rtsp-*.ffconcat"
+        ):
+            if stale.is_file():
+                self._unlink(stale)

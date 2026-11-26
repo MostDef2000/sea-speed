@@ -97,6 +97,10 @@ There is no decode (`-map 0:v:0` video only, `-an -sn -dn`) and no re-encode
 - R-7 (fault containment): a monotonic 30-second no-completed-segment deadline
   terminates FFmpeg (bounded wait, then kill and reap), discards the tail,
   counts a gap and an outage interval, and reconnects with bounded backoff.
+  The deadline measures completed-segment progress only. A sparse-keyframe
+  source that never rolls over is bounded by the 128 MiB media cap and the
+  FFmpeg rc-nonzero discard path, not by the 30-second no-completed-segment
+  deadline, and never hangs unboundedly.
 - R-8 (bounds): `RLIMIT_FSIZE` equal to the per-object cap is applied to the
   FFmpeg child only. Defaults are 64 MiB per file, at most 128 MiB of media
   per camera (two admitted slots) and a 12 GiB free-space floor. Missing
@@ -175,6 +179,13 @@ Scenario: no keyframe at the 2 second target
   Then it does not cut mid-GOP
   And the resulting segment is longer than 2 seconds
   And the ordered coded picture data is preserved
+
+Scenario: sparse keyframe source stays bounded
+  Given the RTSP source never produces a second keyframe
+  When FFmpeg keeps writing the first segment
+  Then the recorder never hangs unboundedly
+  And the source is bounded by the 128 MiB media cap and the FFmpeg rc-nonzero discard path
+  And the 30-second no-completed-segment deadline is not the mechanism that resolves it
 ```
 
 ### Rule: slow receiver produces a bounded gap
@@ -218,7 +229,7 @@ Scenario: feature disabled or reverted
 - AC-004: The RTSP arm stream-copies ordered coded picture data into segmented Matroska with the pinned argv; there is no decode and no re-encode.
 - AC-005: A segment is treated as complete only on next-segment rollover or clean FFmpeg EOF; a sparse-keyframe source is never cut mid-GOP and segments may exceed 2 s.
 - AC-006: A completed object is atomically renamed to a unique `camera-session-sequence.mkv`, delivered through the shared bounded rsync operation and deleted; a failed upload discards it and counts a gap.
-- AC-007: A 30-second no-completed-segment deadline terminates and reaps FFmpeg, discards the tail and counts a gap plus an outage interval before a bounded reconnect.
+- AC-007: A 30-second no-completed-segment deadline terminates and reaps FFmpeg, discards the tail and counts a gap plus an outage interval before a bounded reconnect; a sparse-keyframe source that never rolls over is bounded by the 128 MiB media cap and the FFmpeg rc-nonzero discard path, not by that deadline, and never hangs unboundedly.
 - AC-008: The credential-free relay uses TCP argv transport; the credential-bearing direct Camera 1 URL is placed only in a fresh 0600 ffconcat in private temp with `CAMERA1_RTSP_TRANSPORT` semantics; no credential reaches argv, logs or the spool.
 - AC-009: `RLIMIT_FSIZE` bounds FFmpeg to the per-object cap only; defaults are 64 MiB per file, 128 MiB per camera and a 12 GiB free-space floor; missing parent directories are never auto-created.
 - AC-010: `worker/recorder_rtsp.py` is in both ubuntu-worker exact-artifact inventories only; both Ubuntu env examples carry the identical selector block; no lockfile or requirements file changes.

@@ -28,7 +28,7 @@ unchanged.
    resolves transport, builds the exact FFmpeg argv, spawns FFmpeg as a
    grandchild in the recorder process group, monitors numbered segment
    directories, and delivers completed objects through `bounded_upload`.
-   - Source: credential-free relay on argv with `-rtsp-transport tcp`; a
+   - Source: credential-free relay on argv with `-rtsp_transport tcp`; a
      credential-bearing direct Camera 1 URL is written to a fresh 0600
      ffconcat in the private service tmp with the `CAMERA1_RTSP_TRANSPORT`
      transport (`udp` default, never forced to TCP).
