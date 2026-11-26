@@ -36,6 +36,10 @@ QUALITY_TASK_MARKERS = ("## Requirements traceability", "## Definition of Done")
 
 GRANDFATHERED_PREFIX_COLLISIONS = {
     "002": {"002-camera-preview-gallery", "002-sdd-adoption"},
+    # Issue #699 ships as staged waves under one issue number: the HLS
+    # recorder (#699) and the RTSP stream-copy extension (#699b) share the
+    # 699 prefix by design (delivery-orchestrator decision, 2026-11-26).
+    "699": {"699-recorder-first", "699-rtsp-recorder"},
     # Issue #396 ships as staged waves under one issue number (waves 2-6
     # planned by the program contract); the wave set shares the 396 prefix
     # by design (delivery-orchestrator decision, 2026-10-12; wave 3 added

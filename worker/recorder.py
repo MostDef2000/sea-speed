@@ -1,12 +1,20 @@
 #!/usr/bin/env python3
-"""Opt-in recorder of ORIGINAL encoded HLS segments (issue #699).
+"""Opt-in recorder of ORIGINAL encoded media (issue #699, RTSP arm #699b).
 
-The recorder is a separate child process of the Ubuntu worker entrypoint. It
-fetches the playlist named by ``SEA_SPEED_RECORDER_HLS_URL``, downloads every
-playlist-referenced media segment (and the ``#EXT-X-MAP`` init object) as
-ORIGINAL BYTES, spools one object at a time and rsyncs it to the provisioned
-dacha destination through the restricted ``rrsync`` endpoint. There is no
-ffmpeg remux, no decoded frame and no RTSP packet capture.
+The recorder is a separate child process of the Ubuntu worker entrypoint and
+runs one of two independent source arms selected by
+``SEA_SPEED_RECORDER_SOURCE_TYPE``:
+
+* ``hls`` (default, #699): fetches the playlist named by
+  ``SEA_SPEED_RECORDER_HLS_URL`` and downloads every playlist-referenced media
+  segment (and the ``#EXT-X-MAP`` init object) as ORIGINAL BYTES.
+* ``rtsp`` (#699b): stream-copies the RTSP source named by the existing
+  ``HLS_URL`` into 2-second segmented Matroska objects with FFmpeg. There is no
+  decode and no re-encode; the ordered coded picture data is preserved. The
+  RTSP module is imported lazily and only when this arm is enabled.
+
+Both arms spool one object at a time and rsync it to the provisioned dacha
+destination through the restricted ``rrsync`` endpoint.
 
 Default OFF. Every failure is contained: a missing URL/key, a broken spool or
 a failed rsync only disables or gaps the recording; the main worker ingest is a
@@ -24,6 +32,7 @@ import shlex
 import shutil
 import signal
 import subprocess
+import sys
 import time
 import urllib.error
 import urllib.parse
@@ -57,7 +66,9 @@ class RecorderConfig:
 
     def __init__(self) -> None:
         self.enabled = False
+        self.source_type = "hls"
         self.hls_url = ""
+        self.rtsp_url = ""
         self.camera_id = "cam1"
         self.spool_dir = Path("recorder-spool")
         self.destination = DEFAULT_DESTINATION
@@ -80,11 +91,12 @@ class RecorderConfig:
         if not config.enabled:
             return config
 
-        hls_url = env_str("SEA_SPEED_RECORDER_HLS_URL", "").strip()
-        if not hls_url:
-            raise RecorderError("SEA_SPEED_RECORDER_HLS_URL is required when the recorder is enabled")
-        _origin(hls_url)  # raises RecorderError for RTSP/relative sources
-        config.hls_url = hls_url
+        source_type = (
+            env_str("SEA_SPEED_RECORDER_SOURCE_TYPE", "hls").strip().lower() or "hls"
+        )
+        if source_type not in {"hls", "rtsp"}:
+            raise RecorderError("SEA_SPEED_RECORDER_SOURCE_TYPE must be hls or rtsp")
+        config.source_type = source_type
         config.camera_id = env_str("CAMERA_ID", "cam1").strip() or "cam1"
         config.spool_dir = Path(
             env_str("SEA_SPEED_RECORDER_SPOOL_DIR", "recorder-spool").strip() or "recorder-spool"
@@ -100,9 +112,6 @@ class RecorderConfig:
         config.min_free_bytes = _bounded_int(
             "SEA_SPEED_RECORDER_MIN_FREE_BYTES", 12 * 1024 * 1024 * 1024, 0, 1024 * 1024 * 1024 * 1024
         )
-        config.http_timeout_sec = _bounded_float(
-            "SEA_SPEED_RECORDER_HTTP_TIMEOUT_SEC", 30.0, 1.0, 600.0
-        )
         config.rsync_timeout_sec = _bounded_float(
             "SEA_SPEED_RECORDER_RSYNC_TIMEOUT_SEC", 60.0, 1.0, 3600.0
         )
@@ -110,6 +119,25 @@ class RecorderConfig:
         config.rsync_backoff_sec = _bounded_float(
             "SEA_SPEED_RECORDER_RSYNC_BACKOFF_SEC", 5.0, 0.0, 300.0
         )
+
+        if source_type == "hls":
+            hls_url = env_str("SEA_SPEED_RECORDER_HLS_URL", "").strip()
+            if not hls_url:
+                raise RecorderError("SEA_SPEED_RECORDER_HLS_URL is required when the recorder is enabled")
+            _origin(hls_url)  # raises RecorderError for RTSP/relative sources
+            config.hls_url = hls_url
+            config.http_timeout_sec = _bounded_float(
+                "SEA_SPEED_RECORDER_HTTP_TIMEOUT_SEC", 30.0, 1.0, 600.0
+            )
+        else:
+            # The RTSP arm reuses the existing HLS_URL variable, which already
+            # carries the camera/relay RTSP URL in the protected service env.
+            # Scheme/host and quoting are validated when the lazy RTSP module
+            # is loaded; there is no fallback to another source variable.
+            rtsp_url = env_str("HLS_URL", "").strip()
+            if not rtsp_url:
+                raise RecorderError("HLS_URL is required when SEA_SPEED_RECORDER_SOURCE_TYPE=rtsp")
+            config.rtsp_url = rtsp_url
         return config
 
 
@@ -380,6 +408,29 @@ def rsync_object(
     return process.returncode == 0, detail
 
 
+def bounded_upload(config: "RecorderConfig", path: Path) -> tuple[bool, str]:
+    """Deliver one completed object with the shared bounded rsync policy.
+
+    Shared by the HLS and RTSP arms so both use the same bounded retry/backoff
+    and restricted rrsync transport.
+    """
+    detail = ""
+    for attempt in range(1, config.rsync_retries + 1):
+        ok, detail = rsync_object(
+            config.key_path,
+            path,
+            config.destination,
+            config.rsync_timeout_sec,
+        )
+        if ok:
+            return True, detail
+        if attempt < config.rsync_retries:
+            delay = min(300.0, config.rsync_backoff_sec * (2 ** (attempt - 1)))
+            if delay:
+                time.sleep(delay)
+    return False, detail
+
+
 class HlsRecorder:
     """One recorder for one camera/source URL."""
 
@@ -417,21 +468,7 @@ class HlsRecorder:
         return f"{self.config.camera_id}-init-{digest}-{basename}"
 
     def upload(self, path: Path) -> tuple[bool, str]:
-        detail = ""
-        for attempt in range(1, self.config.rsync_retries + 1):
-            ok, detail = rsync_object(
-                self.config.key_path,
-                path,
-                self.config.destination,
-                self.config.rsync_timeout_sec,
-            )
-            if ok:
-                return True, detail
-            if attempt < self.config.rsync_retries:
-                delay = min(300.0, self.config.rsync_backoff_sec * (2 ** (attempt - 1)))
-                if delay:
-                    time.sleep(delay)
-        return False, detail
+        return bounded_upload(self.config, path)
 
     def capture(self, url: str, filename: str) -> bool:
         free = shutil.disk_usage(self.config.spool_dir).free
@@ -655,6 +692,20 @@ def _install_stop_handler() -> None:
     signal.signal(signal.SIGINT, _stop)
 
 
+def _run_rtsp(config: RecorderConfig) -> None:
+    """Lazy-load the RTSP arm and run it (issue #699b).
+
+    When this file runs as the ``__main__`` script, register the running module
+    under its canonical name first so ``recorder_rtsp`` imports the SAME
+    classes (``RecorderError``/``SpoolSpaceLow``) instead of re-executing the
+    file as a second module instance.
+    """
+    sys.modules.setdefault("recorder", sys.modules[__name__])
+    import recorder_rtsp
+
+    recorder_rtsp.RtspRecorder(config).run()
+
+
 def main() -> int:
     try:
         config = RecorderConfig.from_env()
@@ -666,8 +717,11 @@ def main() -> int:
         return 0
     _install_stop_handler()
     try:
-        HlsRecorder(config).run()
-    except RecorderError as exc:
+        if config.source_type == "rtsp":
+            _run_rtsp(config)
+        else:
+            HlsRecorder(config).run()
+    except (RecorderError, ImportError) as exc:
         print(f"recorder disabled runtime_error={exc}", flush=True)
         return 2
     return 0
