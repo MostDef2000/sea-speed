@@ -146,7 +146,8 @@ if ! id "$service_user" >/dev/null 2>&1; then
   useradd --system --home-dir "$install_root" --shell /usr/sbin/nologin "$service_user"
 fi
 
-mkdir -p "$runtime_state_root" "$road_runtime_root" "$road_output_root"
+mkdir -p "$runtime_state_root" "$road_runtime_root" "$road_output_root" \
+  "$runtime_state_root/recorder-spool" "$road_runtime_root/recorder-spool"
 ln -sfn "$install_root/shared/models" "$runtime_state_root/models"
 ln -sfn "$install_root/shared/output" "$runtime_state_root/output"
 ln -sfn "$install_root/shared/datasets" "$runtime_state_root/datasets"
@@ -154,7 +155,7 @@ ln -sfn "$install_root/shared/models" "$road_runtime_root/models"
 ln -sfn "$road_output_root" "$road_runtime_root/output"
 ln -sfn "$install_root/shared/datasets" "$road_runtime_root/datasets"
 chown -R "$service_user:$service_user" "$install_root/shared"
-chmod 750 "$install_root/shared" "$install_root/shared/config" "$install_root/shared/models" "$install_root/shared/datasets" "$install_root/shared/output" "$runtime_state_root" "$road_runtime_root" "$road_output_root"
+chmod 750 "$install_root/shared" "$install_root/shared/config" "$install_root/shared/models" "$install_root/shared/datasets" "$install_root/shared/output" "$runtime_state_root" "$road_runtime_root" "$road_output_root" "$runtime_state_root/recorder-spool" "$road_runtime_root/recorder-spool"
 chmod 600 "$env_file"
 if [[ -f "$road_env_file" ]]; then
   [[ "$(stat -c '%a' "$road_env_file")" == "600" ]] || { echo "ERROR road-worker.env must be mode 600" >&2; exit 7; }

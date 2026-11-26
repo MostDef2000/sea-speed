@@ -424,6 +424,31 @@ protected_config_reconciled=true
 }
 echo "PROTECTED_CONFIG_RECONCILED=YES"
 
+# Issue #739: the recorder spool lives under each service WorkingDirectory and
+# is relative by default (recorder-spool). Provision it during the deploy so a
+# fresh install or a wiped config never needs a manual `install -d`; the
+# service user keeps ownership (750). An absent runtime root is skipped — the
+# updater/mkdir path creates it, and the recorder then creates its own spool.
+ensure_recorder_spool() {
+  local runtime_root
+  local spool_root
+  for runtime_root in "$install_root/shared/runtime" "$install_root/shared/road-runtime"; do
+    [[ -d "$runtime_root" ]] || continue
+    spool_root="$runtime_root/recorder-spool"
+    [[ ! -L "$spool_root" ]] || { echo "ERROR recorder spool path must not be a symlink: $spool_root" >&2; return 1; }
+    if [[ "$test_mode" == "1" ]]; then
+      install -d -m 0750 "$spool_root" || return 1
+    else
+      install -d -o "$service_user" -g "$service_user" -m 0750 "$spool_root" || return 1
+    fi
+  done
+  echo "RECORDER_SPOOL_READY=YES"
+}
+if ! ensure_recorder_spool; then
+  echo "ERROR recorder spool directory could not be provisioned" >&2
+  exit 15
+fi
+
 verify_active_target() {
   [[ "$(cat "$active_marker" 2>/dev/null || true)" == "$target" ]] || return 1
   target_runtime="$(cat "$install_root/releases/$target/runtime-id" 2>/dev/null || true)"
