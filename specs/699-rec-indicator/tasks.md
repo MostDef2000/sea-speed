@@ -14,7 +14,7 @@
 - [x] T004 Document the witness contract with identical text in `deploy/worker/ubuntu/worker.env.example` and `road-worker.env.example`, adding no new flag.
 - [x] T005 Author this SDD trio (`spec.md`, `plan.md`, `tasks.md`) under `specs/699-rec-indicator/`.
 - [ ] T006 Test worker: add HLS/RTSP witness-write, freshness/wrong-camera/corrupt matrix, disabled/init-only/incomplete/failed-upload, left-over-witness, copy-enrichment and import-allowlist tests in `tests/**`.
-- [ ] T007 Validation: py_compile, ruff and `validate_sdd.py` green locally, then required CI green on the exact head and exact-green-head merge evidence recorded in the canonical Issue.
+- [x] T007 Validation: py_compile, ruff and `validate_sdd.py` green locally, then required CI green on the exact head and exact-green-head merge evidence recorded in the canonical Issue. — auto-synced on merge to main (6e4ed479)
 
 ## Requirements traceability
 
@@ -40,8 +40,8 @@
 
 - [ ] Requirements are covered by tasks and traceability.
 - [ ] Spec, plan and tasks match the implemented behavior after the test worker's suite lands.
-- [ ] Required CI is green on the exact head.
-- [ ] Exact-green-head merge evidence is recorded in the canonical Issue.
+- [x] Required CI is green on the exact head. — auto-synced on merge to main (6e4ed479)
+- [x] Exact-green-head merge evidence is recorded in the canonical Issue. — auto-synced on merge to main (6e4ed479)
 - [ ] Deploy acceptance shows the REC indicator transitioning from `null` to a fresh timestamp while the recorder uploads completed segments and back to `null` when recording stops.
 - [ ] Runtime learning and deferred work are written back to the feature artifacts or recorded as approved follow-up.
 
@@ -50,8 +50,8 @@
 - [x] Issue/spec/plan/tasks current
 - [x] Exact changed-file scope verified (`worker/recorder.py`, `worker/recorder_rtsp.py`, `worker/worker_transport.py`, both Ubuntu env examples, this SDD trio only)
 - [ ] Required tests and evidence complete
-- [ ] Required CI green
-- [ ] Exact-green-head merge complete
+- [x] Required CI green — auto-synced on merge to main (6e4ed479)
+- [x] Exact-green-head merge complete — auto-synced on merge to main (6e4ed479)
 - [x] Deployment state resolved (Ubuntu worker/relay deploy REQUIRED; VPS consumer-only, no deploy mutation)
 - [ ] Runtime acceptance resolved
 - [x] Deferred work recorded (test-worker-owned `tests/**` updates and the no-gap/playable-archive non-goal)
