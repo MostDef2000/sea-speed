@@ -32,7 +32,13 @@ from pathlib import Path
 
 from worker_kernel import safe_media_input_label
 
-from recorder import RecorderConfig, RecorderError, SpoolSpaceLow, bounded_upload
+from recorder import (
+    RecorderConfig,
+    RecorderError,
+    SpoolSpaceLow,
+    bounded_upload,
+    write_recording_witness,
+)
 
 _SEGMENT_SECONDS = 2
 _SEGMENT_FILENAME = "clip.mkv.part"
@@ -455,6 +461,7 @@ class RtspRecorder:
         self._unlink(final)
         if ok:
             self.captured_count += 1
+            write_recording_witness(self.config)
             print(f"recorder rtsp segment ok name={name} bytes={size}", flush=True)
         else:
             self.gap_count += 1

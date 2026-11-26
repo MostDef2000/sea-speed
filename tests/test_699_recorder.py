@@ -13,7 +13,8 @@ Sections (one class each):
   on ``PATH`` that copies each completed object into a temp dir. Delivered
   init + segment bytes must be byte-identical (SHA-256 AND length) to the
   fixture objects, delivered in playlist order (init → seg0 → seg1 → seg2),
-  with no duplicate deliveries, no re-encode and an empty spool afterwards.
+  with no duplicate deliveries, no re-encode, the objects deleted from the
+  spool and exactly the issue #699 REC witness left behind afterwards.
 * ``RecorderDisabledZeroIoTests`` — AC-001: with
   ``SEA_SPEED_RECORDER_ENABLED=0`` the recorder child exits 0 without a
   single HTTP request, rsync call or spool file even when URL/key/destination
@@ -76,6 +77,7 @@ import hashlib
 import http.server
 import importlib.util
 import io
+import json
 import os
 import shutil
 import subprocess
@@ -85,6 +87,7 @@ import threading
 import time
 import types
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest import mock
 from urllib.error import HTTPError
@@ -454,6 +457,7 @@ class RecorderByteIdentityOracleTests(RecorderTestBase):
         env = self.child_env(
             SEA_SPEED_RECORDER_ENABLED="1",
             SEA_SPEED_RECORDER_HLS_URL=server.playlist_url,
+            CAMERA_ID="cam1",
         )
         proc = self.spawn_recorder(env)
         self.addCleanup(self.stop_recorder, proc)
@@ -530,7 +534,9 @@ class RecorderByteIdentityOracleTests(RecorderTestBase):
             "objects must be delivered in playlist order (init first)",
         )
 
-        # Original bytes logged with their exact sizes; spool cleaned after.
+        # Original bytes logged with their exact sizes; objects deleted, and
+        # the successful completed-segment uploads leave exactly the issue
+        # #699 REC witness behind (spec R-1/R-2).
         self.assertEqual(out.count("recorder object ok"), 4)
         self.assertIn(f"bytes={len(INIT_BYTES)}", out)
         self.assertIn(f"bytes={len(SEG0_BYTES)}", out)
@@ -538,9 +544,25 @@ class RecorderByteIdentityOracleTests(RecorderTestBase):
         self.assertIn(f"bytes={len(SEG2_BYTES)}", out)
         self.assertTrue(self.spool_dir.exists())
         self.assertEqual(
-            list(self.spool_dir.iterdir()),
-            [],
-            "spool must be empty after upload attempts (objects deleted)",
+            sorted(path.name for path in self.spool_dir.iterdir()),
+            ["cam1-recording-witness.json"],
+            "spool must hold exactly the REC witness after successful "
+            "delivery (objects deleted)",
+        )
+        witness = json.loads(
+            (self.spool_dir / "cam1-recording-witness.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(witness["camera_id"], "cam1")
+        success = datetime.fromisoformat(witness["last_success_at"])
+        self.assertIsNotNone(
+            success.tzinfo, "the witness timestamp must be a UTC ISO value"
+        )
+        self.assertLess(
+            (datetime.now(timezone.utc) - success).total_seconds(),
+            30.0,
+            "the witness must be fresh right after the delivery",
         )
         self.assertNotIn("Traceback", out)
 
