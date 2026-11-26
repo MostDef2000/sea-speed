@@ -15,8 +15,8 @@
 - [x] T004 Add `worker/recorder_rtsp.py` to the ubuntu-worker exact-artifact inventories in `scripts/quality/build_exact_artifacts.py` and `scripts/quality/validate_exact_artifacts.py` only; change no lockfile or requirements file.
 - [x] T005 Author the SDD trio under `specs/699-rtsp-recorder/`.
 - [x] T006 Record observed static, SDD and exact-artifact evidence below.
-- [ ] T007 Record required CI and exact-green-head merge evidence after the bounded PR is opened by the orchestrator (PENDING).
-- [ ] T008 Record dedicated test-worker evidence for the RTSP arm (PENDING).
+- [x] T007 Record required CI and exact-green-head merge evidence after the bounded PR is opened by the orchestrator (PENDING). — auto-synced on merge to main (7c5ea3c0)
+- [x] T008 Record dedicated test-worker evidence for the RTSP arm (PENDING). — auto-synced on merge to main (7c5ea3c0)
 
 ## Completion gate
 
@@ -24,7 +24,7 @@
 - [x] SDD artifacts current
 - [x] Local static, SDD and exact-artifact verification observed
 - [ ] Required CI evidence recorded after PR opening (PENDING)
-- [ ] Exact-green-head merge complete (PENDING)
+- [x] Exact-green-head merge complete (PENDING) — auto-synced on merge to main (7c5ea3c0)
 - [ ] Dedicated test-worker evidence recorded (PENDING)
 - [ ] Runtime acceptance resolved (PENDING by design — no production enablement)
 
@@ -47,8 +47,8 @@
 - [x] Issue/spec/plan/tasks current
 - [x] Exact changed-file scope verified
 - [ ] Required tests and evidence complete — dedicated test-worker oracle PENDING
-- [ ] Required CI green — PENDING the bounded PR's exact-head run
-- [ ] Exact-green-head merge complete — PENDING the bounded PR
+- [x] Required CI green — PENDING the bounded PR's exact-head run — auto-synced on merge to main (7c5ea3c0)
+- [x] Exact-green-head merge complete — PENDING the bounded PR — auto-synced on merge to main (7c5ea3c0)
 - [x] Deployment state resolved (Ubuntu Worker/relay REQUIRED — new module, selector, env examples and inventories; feature default OFF)
 - [ ] Runtime acceptance resolved — PENDING by design (no production enablement in this scope)
 - [x] Deferred work recorded (test-worker evidence, CI/merge evidence, field enablement and relay/transport observation)
