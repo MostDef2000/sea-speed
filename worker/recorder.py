@@ -42,7 +42,12 @@ from pathlib import Path
 
 from worker_kernel import env_float, env_int, env_str, media_basic_auth_for_input, safe_media_input_label
 
-DEFAULT_DESTINATION = "root@10.123.239.127:/mnt/fleet-backup/sea-speed/"
+# Issue #739: the destination is RELATIVE. The dacha endpoint runs the
+# restricted ``rrsync -wo /mnt/fleet-backup/sea-speed``, which already pins the
+# writable root; an absolute path is appended to that root and doubled by
+# rrsync (``mkdir "/mnt/fleet-backup/sea-speed/mnt/..."`` fails). The relative
+# default keeps a wiped or absent config failing safe.
+DEFAULT_DESTINATION = "root@10.123.239.127:./"
 DEFAULT_CREDENTIAL_PATH = Path("/run/credentials/recorder_ed25519")
 _USER_AGENT = "sea-speed-recorder/1 (issue #699)"
 _CHUNK_BYTES = 1024 * 1024

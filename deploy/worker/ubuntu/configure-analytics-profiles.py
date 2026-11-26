@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import ipaddress
+import math
 import os
 import re
 import sys
@@ -36,6 +37,41 @@ PRIVATE_NETWORKS = tuple(
     for value in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
 )
 
+# Issue #739: SEA_SPEED_RECORDER_* settings are operator-owned protected
+# configuration. The deploy rewrites the protected env files wholesale, so it
+# must carry the recorder block across instead of dropping every key the
+# analytics whitelist does not name. Defaults and bounds mirror
+# worker/recorder.py (_bounded_int/_bounded_float) so a preserved value is
+# always one the recorder accepts unchanged; an invalid preserved value falls
+# back to the safe default instead of failing the deploy.
+RECORDER_PREFIX = "SEA_SPEED_RECORDER_"
+RECORDER_DEFAULT_DESTINATION = "root@10.123.239.127:./"
+RECORDER_DEFAULTS = {
+    f"{RECORDER_PREFIX}ENABLED": "0",
+    f"{RECORDER_PREFIX}SOURCE_TYPE": "hls",
+    f"{RECORDER_PREFIX}HLS_URL": "",
+    f"{RECORDER_PREFIX}SPOOL_DIR": "recorder-spool",
+    f"{RECORDER_PREFIX}DESTINATION": RECORDER_DEFAULT_DESTINATION,
+    f"{RECORDER_PREFIX}POLL_SEC": "2",
+    f"{RECORDER_PREFIX}OBJECT_MAX_BYTES": "67108864",
+    f"{RECORDER_PREFIX}MIN_FREE_BYTES": "12884901888",
+    f"{RECORDER_PREFIX}HTTP_TIMEOUT_SEC": "30",
+    f"{RECORDER_PREFIX}RSYNC_TIMEOUT_SEC": "60",
+    f"{RECORDER_PREFIX}RSYNC_RETRIES": "3",
+    f"{RECORDER_PREFIX}RSYNC_BACKOFF_SEC": "5",
+}
+RECORDER_BOUNDS = {
+    f"{RECORDER_PREFIX}POLL_SEC": (0.5, 30.0, float),
+    f"{RECORDER_PREFIX}OBJECT_MAX_BYTES": (1024 * 1024, 512 * 1024 * 1024, int),
+    f"{RECORDER_PREFIX}MIN_FREE_BYTES": (0, 1024 * 1024 * 1024 * 1024, int),
+    f"{RECORDER_PREFIX}HTTP_TIMEOUT_SEC": (1.0, 600.0, float),
+    f"{RECORDER_PREFIX}RSYNC_TIMEOUT_SEC": (1.0, 3600.0, float),
+    f"{RECORDER_PREFIX}RSYNC_RETRIES": (1, 20, int),
+    f"{RECORDER_PREFIX}RSYNC_BACKOFF_SEC": (0.0, 300.0, float),
+}
+_RECORDER_HOST_RE = re.compile(r"(?:[A-Za-z0-9._-]+@)?[A-Za-z0-9.-]+")
+_RECORDER_SPOOL_RE = re.compile(r"[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*")
+
 
 def read_env(path: Path) -> dict[str, str]:
     values: dict[str, str] = {}
@@ -56,6 +92,108 @@ def write_env(path: Path, values: dict[str, str]) -> None:
     temp.write_text("".join(f"{key}={value}\n" for key, value in sorted(values.items())), encoding="utf-8")
     os.chmod(temp, 0o600)
     os.replace(temp, path)
+
+
+def _recorder_number(key: str, raw: str) -> str:
+    """Return a preserved numeric recorder value that is inside its bounds."""
+    default = RECORDER_DEFAULTS[key]
+    low, high, kind = RECORDER_BOUNDS[key]
+    try:
+        value = kind(raw.strip())
+    except (TypeError, ValueError):
+        return default
+    if kind is float and not math.isfinite(value):
+        return default
+    if not low <= value <= high:
+        return default
+    return raw.strip()
+
+
+def _recorder_choice(raw: str, allowed: set[str], default: str) -> str:
+    value = raw.strip().lower()
+    return value if value in allowed else default
+
+
+def _recorder_hls_url(raw: str) -> str:
+    """Preserve only an explicit HTTP(S) playlist URL; never echo it."""
+    value = raw.strip()
+    if not value or any(character.isspace() for character in value):
+        return RECORDER_DEFAULTS[f"{RECORDER_PREFIX}HLS_URL"]
+    parsed = urlsplit(value)
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
+        return RECORDER_DEFAULTS[f"{RECORDER_PREFIX}HLS_URL"]
+    return value
+
+
+def _recorder_spool_dir(raw: str) -> str:
+    """Preserve only a relative spool path under the service WorkingDirectory."""
+    default = RECORDER_DEFAULTS[f"{RECORDER_PREFIX}SPOOL_DIR"]
+    value = raw.strip()
+    if not _RECORDER_SPOOL_RE.fullmatch(value):
+        return default
+    if any(part in {".", ".."} for part in value.split("/")):
+        return default
+    return value
+
+
+def _recorder_destination(raw: str) -> str:
+    """Preserve only a RELATIVE rsync target.
+
+    The dacha endpoint runs the restricted ``rrsync -wo
+    /mnt/fleet-backup/sea-speed``, which already pins the writable root. An
+    absolute destination is appended to that root and doubled by rrsync, so
+    only a relative path is accepted; anything else falls back to the safe
+    relative default.
+    """
+    value = raw.strip()
+    host, separator, path = value.partition(":")
+    if (
+        not separator
+        or not _RECORDER_HOST_RE.fullmatch(host)
+        or not path
+        or path.startswith("/")
+        or ":" in path
+        or any(character.isspace() for character in path)
+        or any(part == ".." for part in path.split("/"))
+    ):
+        return RECORDER_DEFAULT_DESTINATION
+    return value
+
+
+def preserved_recorder_env(source: dict[str, str]) -> dict[str, str]:
+    """Carry the validated recorder block of one protected env file forward.
+
+    Known keys are always present (preserved-or-safe-default), unknown
+    ``SEA_SPEED_RECORDER_*`` extras are preserved verbatim, and no value is
+    ever printed. A malformed preserved value never aborts the deploy.
+    """
+    preserved = {
+        key: value
+        for key, value in source.items()
+        if key.startswith(RECORDER_PREFIX) and key not in RECORDER_DEFAULTS
+    }
+    preserved[f"{RECORDER_PREFIX}ENABLED"] = _recorder_choice(
+        source.get(f"{RECORDER_PREFIX}ENABLED", ""),
+        {"0", "1"},
+        RECORDER_DEFAULTS[f"{RECORDER_PREFIX}ENABLED"],
+    )
+    preserved[f"{RECORDER_PREFIX}SOURCE_TYPE"] = _recorder_choice(
+        source.get(f"{RECORDER_PREFIX}SOURCE_TYPE", ""),
+        {"hls", "rtsp"},
+        RECORDER_DEFAULTS[f"{RECORDER_PREFIX}SOURCE_TYPE"],
+    )
+    preserved[f"{RECORDER_PREFIX}HLS_URL"] = _recorder_hls_url(
+        source.get(f"{RECORDER_PREFIX}HLS_URL", "")
+    )
+    preserved[f"{RECORDER_PREFIX}SPOOL_DIR"] = _recorder_spool_dir(
+        source.get(f"{RECORDER_PREFIX}SPOOL_DIR", "")
+    )
+    preserved[f"{RECORDER_PREFIX}DESTINATION"] = _recorder_destination(
+        source.get(f"{RECORDER_PREFIX}DESTINATION", "")
+    )
+    for key in RECORDER_BOUNDS:
+        preserved[key] = _recorder_number(key, source.get(key, ""))
+    return preserved
 
 
 def road_relay_source(road_relay_url: str) -> str:
@@ -181,6 +319,8 @@ def main() -> int:
     water.update(
         {
             **water_defaults,
+            # Issue #739: protected recorder settings survive the rewrite.
+            **preserved_recorder_env(water),
             "SAMPLE_FPS": _preserve_float("SAMPLE_FPS", water_defaults["SAMPLE_FPS"]),
             "FRAME_WIDTH": water_frame_w,
             "FRAME_HEIGHT": water_frame_h,
@@ -214,6 +354,9 @@ def main() -> int:
     road_defaults = derived_profile_defaults()["road-v1"]
     road = {
         **road_defaults,
+        # Issue #739: the Road worker keeps its own recorder block; a missing
+        # key falls back to the same safe default as the Water worker.
+        **preserved_recorder_env(existing_road),
         "HLS_URL": road_source,
         "SEA_SPEED_API_URL": road_state_url,
         "SEA_SPEED_EVENT_API_URL": road_event_url,
@@ -232,6 +375,7 @@ def main() -> int:
     print("WATER_PROFILE=water-v1 CAMERA_ID=cam1")
     print("ROAD_PROFILE=road-v1 CAMERA_ID=road1 SOURCE=permanent_relay_road1")
     print("ROAD_API=protected_private_worker_ingress")
+    print("RECORDER_CONFIG_PRESERVED=YES")
     print("SECRETS_DISPLAYED=NO")
     return 0
 
