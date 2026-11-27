@@ -196,6 +196,15 @@ DISABLED_OUTPUT = "recorder disabled (SEA_SPEED_RECORDER_ENABLED=0)"
 
 WAIT_OBJECTS_SEC = 20.0
 
+# Sleeps shorter than this are NOT recorder poll sleeps and must not end a
+# drive cycle: recorder poll sleeps are >= poll_sec (0.5 s in these drives),
+# while stdlib subprocess.Popen._wait's reap backoff sleeps <= 0.05 s.
+CYCLE_END_SLEEP_MIN_SEC = 0.1
+
+# The burn phase drives until its exact terminal state, bounded both ways.
+BURN_PHASE_MAX_CYCLES = 10
+BURN_PHASE_DEADLINE_SEC = 30.0
+
 
 def load_recorder():
     """Import ``worker/recorder.py`` by its runtime name (worker/ on path).
@@ -227,12 +236,25 @@ def drive_recorder_cycles(rec, cycles: int, between=None) -> str:
     ``between(completed)`` fires after each completed cycle except the last
     (used to mutate the fixture playlist mid-run — the media-sequence cursor
     lives inside one ``run()`` call).
+
+    The patch is process-wide, so stdlib code running inside the drive sees
+    it too: ``subprocess.Popen._wait(timeout)`` busy-loops on
+    ``time.sleep(delay)`` (<= 50 ms) while the fake-rsync child has closed
+    its stderr but is not yet reaped. On a loaded runner that backoff fired
+    mid-upload and ended the drive after 2 of 12 rsync calls (CI #741
+    attempt 1, ``AssertionError: 2 != 12``). Only sleeps at or above
+    ``CYCLE_END_SLEEP_MIN_SEC`` — the recorder's own poll sleeps — end a
+    cycle; shorter ones run for real and change no state.
     """
     remaining = {"n": cycles}
     out = io.StringIO()
     module = load_recorder()
+    real_sleep = module.time.sleep
 
-    def _sleep(_seconds: float) -> None:
+    def _sleep(seconds: float) -> None:
+        if seconds < CYCLE_END_SLEEP_MIN_SEC:
+            real_sleep(seconds)
+            return
         remaining["n"] -= 1
         if between is not None and remaining["n"] > 0:
             between(cycles - remaining["n"])
@@ -1320,9 +1342,30 @@ class RecorderBoundsTests(RecorderTestBase):
         config.rsync_retries = 3
         config.rsync_backoff_sec = 0.0
         config.rsync_timeout_sec = 5.0
-        instance = rec.HlsRecorder(config)
 
-        out = drive_recorder_cycles(instance, cycles=1)
+        # Drive until the burn phase reaches its exact terminal state, bounded
+        # by an attempt count AND a wall-clock deadline. Each attempt restarts
+        # the phase from a pristine recorder and a truncated rsync log: a cycle
+        # that ends early leaves partial dedup state (a failed init is retried
+        # while its segments are already deduplicated), so continuing that
+        # instance would overshoot the exact totals instead of reaching them.
+        deadline = time.monotonic() + BURN_PHASE_DEADLINE_SEC
+        out = ""
+        for _attempt in range(BURN_PHASE_MAX_CYCLES):
+            instance = rec.HlsRecorder(config)
+            if self.rsync_log.exists():
+                self.rsync_log.unlink()
+            out = drive_recorder_cycles(instance, cycles=1)
+            if (
+                len(self.rsync_calls()) == 4 * 3
+                and out.count("reason=upload_failed") == 4
+                and instance.gap_count == 4
+                and not list(self.spool_dir.iterdir())
+            ):
+                break
+            if time.monotonic() >= deadline:
+                break
+
         # init + 3 segments each burned exactly 3 attempts, all discarded.
         self.assertEqual(len(self.rsync_calls()), 4 * 3)
         self.assertEqual(out.count("reason=upload_failed"), 4)
